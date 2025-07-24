@@ -281,10 +281,38 @@ solana program deploy target/program.so
 4. `simple-entrypoint/` - 使用部分 SDK 功能
 5. `hello-world/` - 完整 SDK 集成
 
+## 当前编译问题（2025-07-24）
+
+### 遇到的问题
+使用 solana-zig-bootstrap 编译器时，遇到以下错误：
+1. **重定位错误**: `relocation R_SBF_64_64 cannot be used against symbol; recompile with -fPIC`
+2. **栈大小超限**: Zig 标准库许多函数超出 BPF 的 4KB 栈限制
+3. **编译器运行时**: 即使最简单的程序也会引入大量运行时代码
+
+### 尝试的解决方案
+1. ✅ 使用 `-fPIC` 标志 - 问题依然存在
+2. ✅ 添加 BPF 链接脚本 - 部分改善
+3. ✅ 禁用栈检查和保护 - 问题依然存在
+4. ✅ 最小化代码 - 即使空程序也有问题
+
+### 根本原因
+- Solana BPF 对重定位的严格限制
+- Zig 编译器生成的代码模式不完全兼容
+- 需要更深层次的编译器修改
+
+### 已验证的成功案例
+- 极简程序（仅返回 0）可以编译：
+  ```bash
+  zig build-lib minimal.zig -target sbf-solana -O ReleaseSmall -dynamic -fentry=entrypoint -fPIC -fno-stack-check --script bpf.ld -fstrip
+  ```
+- 生成的 `.so` 文件大小约 1.1KB
+
 ## 下一步行动
 
 1. ✅ 完成技术可行性验证
 2. ✅ 创建最小可行原型
-3. 优化 SDK 以更好支持 BPF 目标
-4. 与 Solana 社区交流反馈
-5. 继续实现第二阶段功能（序列化、CPI等）
+3. ✅ 安装 Solana 兼容编译器
+4. ⏳ 研究解决重定位问题的方法
+5. ⏳ 创建 BPF 友好的迷你标准库
+6. ⏳ 与 joncinque 项目深度集成
+7. 继续实现第二阶段功能（序列化、CPI等）

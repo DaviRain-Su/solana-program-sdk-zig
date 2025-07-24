@@ -15,24 +15,18 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
     
-    // Solana BPF 目标配置
-    pub const sbf_target = std.Target.Query{
-        .cpu_arch = .sbf,
-        .os_tag = .freestanding,
-        .abi = .none,
-        .cpu_features = .{
-            .sbf = .{ .static_syscalls = true },
-        },
-    };
+    // Solana BPF 目标配置（暂时注释，因为不在函数内部使用）
+    // const sbf_target = std.Target.Query{
+    //     .cpu_arch = .sbf,
+    //     .os_tag = .freestanding,
+    //     .abi = .none,
+    // };
     
-    pub const sbfv2_target = std.Target.Query{
-        .cpu_arch = .sbfv2,
-        .os_tag = .freestanding,
-        .abi = .none,
-        .cpu_features = .{
-            .sbfv2 = .{ .static_syscalls = true },
-        },
-    };
+    // const sbfv2_target = std.Target.Query{
+    //     .cpu_arch = .sbfv2,
+    //     .os_tag = .freestanding,
+    //     .abi = .none,
+    // };
 
     // This creates a "module", which represents a collection of source files alongside
     // some compilation options, such as optimization mode and linked system libraries.
@@ -76,6 +70,13 @@ pub fn build(b: *std.Build) void {
     // location when the user invokes the "install" step (the default step when
     // running `zig build`).
     b.installArtifact(lib);
+
+    // Export the module so it can be used as a dependency
+    _ = b.addModule("solana_program_sdk_zig_lib", .{
+        .root_source_file = b.path("src/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
 
     // This creates another `std.Build.Step.Compile`, but this one builds an executable
     // rather than a static library.
@@ -132,4 +133,66 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
+}
+
+// Helper function to build Solana programs with proper configuration
+pub fn buildProgram(b: *std.Build, program: *std.Build.Step.Compile, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *std.Build.Module {
+    const solana_dep = b.dependency("solana_program_sdk_zig", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const solana_mod = solana_dep.module("solana_program_sdk_zig_lib");
+    program.root_module.addImport("solana_program_sdk_zig_lib", solana_mod);
+    linkSolanaProgram(b, program);
+    return solana_mod;
+}
+
+// Solana BPF target configurations
+pub const sbf_target: std.Target.Query = .{
+    .cpu_arch = .sbf,
+    .os_tag = .solana,
+};
+
+pub const sbfv2_target: std.Target.Query = .{
+    .cpu_arch = .sbf,
+    .cpu_model = .{
+        .explicit = &std.Target.sbf.cpu.sbfv2,
+    },
+    .os_tag = .solana,
+    .cpu_features_add = std.Target.sbf.cpu.sbfv2.features,
+};
+
+// Link Solana program with proper script
+pub fn linkSolanaProgram(b: *std.Build, lib: *std.Build.Step.Compile) void {
+    const write_file_step = b.addWriteFiles();
+    const linker_script = write_file_step.add("bpf.ld",
+        \\PHDRS
+        \\{
+        \\text PT_LOAD  ;
+        \\rodata PT_LOAD ;
+        \\data PT_LOAD ;
+        \\dynamic PT_DYNAMIC ;
+        \\}
+        \\
+        \\SECTIONS
+        \\{
+        \\. = SIZEOF_HEADERS;
+        \\.text : { *(.text*) } :text
+        \\.rodata : { *(.rodata*) } :rodata
+        \\.data.rel.ro : { *(.data.rel.ro*) } :rodata
+        \\.dynamic : { *(.dynamic) } :dynamic
+        \\.dynsym : { *(.dynsym) } :data
+        \\.dynstr : { *(.dynstr) } :data
+        \\.rel.dyn : { *(.rel.dyn) } :data
+        \\/DISCARD/ : {
+        \\*(.eh_frame*)
+        \\*(.gnu.hash*)
+        \\*(.hash*)
+        \\}
+        \\}
+    );
+    lib.setLinkerScript(linker_script);
+    lib.linker_allow_shlib_undefined = true;
+    lib.entry = .{ .symbol_name = "entrypoint" };
+    lib.rdynamic = true;
 }

@@ -190,9 +190,9 @@ solana program deploy target/program.so
 3. Zig BPF 支持：https://github.com/ziglang/zig/issues/5878
 4. Rust SDK 源码：https://github.com/solana-labs/solana-program-library
 
-## 已完成的工作（2025-07-24）
+## 已完成的工作
 
-### 基础模块实现
+### 第一阶段：基础模块实现（2025-07-24）
 1. **Pubkey 类型** (`src/solana/pubkey.zig`)
    - 基本操作（创建、比较、转换）
    - PDA 创建和查找功能
@@ -230,14 +230,61 @@ solana program deploy target/program.so
    - 构建配置
    - 本地测试
 
+### 第二阶段：集成 sig 项目组件（2025-07-24）
+1. **Base58 编码/解码** (`src/solana/base58.zig`)
+   - 完整的 Base58 实现（Bitcoin 变体）
+   - 支持编码和解码
+   - 内存分配器支持
+
+2. **Bincode 序列化** (`src/solana/bincode.zig`)
+   - 支持基本类型和复杂类型
+   - 兼容 Rust bincode 格式
+   - 流式和切片接口
+
+3. **本地测试基础设施**
+   - BPF 编译脚本 (`scripts/build-bpf.sh`)
+   - 本地部署测试脚本 (`scripts/local-test.sh`)
+   - JavaScript 客户端示例
+   - 完整的测试流程自动化
+
 ### 技术要点
 - 支持 BPF 目标编译（bpfel-freestanding）
 - 兼容非 BPF 环境的测试
 - 模块化设计，易于扩展
+- 参考 Syndica/sig 项目实现
+- 完整的本地测试支持
+
+## BPF 编译解决方案（2025-07-24）
+
+### 问题和解决方案
+1. **问题**：标准 Zig 生成 eBPF，Solana 需要 sBPF
+2. **解决方案**：使用 Solana 兼容的 Zig 编译器
+   - 项目：[solana-zig-bootstrap](https://github.com/joncinque/solana-zig-bootstrap)
+   - 安装：`./scripts/install-solana-zig.sh`
+   - 使用：`./solana-zig/zig build`
+
+### Solana Zig 编译器特性
+1. **sBPF 目标支持**：`.sbf` 和 `.sbfv2` 架构
+2. **Solana LLVM**：基于 v1.41 分支
+3. **静态系统调用**：支持 Solana 特定的系统调用
+4. **正确的 ELF 格式**：生成 Solana 可接受的二进制格式
+
+### 编译注意事项
+1. **入口点要求**：必须导出 `export fn entrypoint(input: [*]u8) callconv(.C) u64`
+2. **目标配置**：使用 `sbf_target` 而不是 `bpfel`
+3. **优化建议**：使用 `.ReleaseFast` 或 `.ReleaseSmall`
+
+### 示例程序层次
+1. `minimal/` - 最小可部署程序
+2. `minimal-with-log/` - 添加日志功能
+3. `raw-entrypoint/` - 手动解析输入
+4. `simple-entrypoint/` - 使用部分 SDK 功能
+5. `hello-world/` - 完整 SDK 集成
 
 ## 下一步行动
 
 1. ✅ 完成技术可行性验证
 2. ✅ 创建最小可行原型
-3. 与 Solana 社区交流反馈
-4. 继续实现第二阶段功能（序列化、CPI等）
+3. 优化 SDK 以更好支持 BPF 目标
+4. 与 Solana 社区交流反馈
+5. 继续实现第二阶段功能（序列化、CPI等）

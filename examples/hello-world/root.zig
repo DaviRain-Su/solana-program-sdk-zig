@@ -2,20 +2,20 @@ const std = @import("std");
 const solana = @import("solana_program_sdk_zig_lib").solana;
 
 /// Hello World 程序的处理函数
-pub fn processInstruction(
+fn processInstruction(
     program_id: *const solana.Pubkey,
     accounts: []solana.AccountInfo,
     instruction_data: []const u8,
 ) solana.ProgramResult {
     // 记录程序被调用
     solana.log.log("Hello World from Zig!");
-
+    
     // 记录程序 ID
     solana.log.logPubkey("Program ID:", &program_id.bytes);
-
+    
     // 记录账户数量
     solana.log.logPrint("Number of accounts: {}", .{accounts.len});
-
+    
     // 记录指令数据
     solana.log.logPrint("Instruction data length: {}", .{instruction_data.len});
     if (instruction_data.len > 0) {
@@ -25,7 +25,7 @@ pub fn processInstruction(
             solana.log.logPrint("  [{d}]: {d} (0x{x:0>2})", .{ i, byte, byte });
         }
     }
-
+    
     // 遍历所有账户
     for (accounts, 0..) |*account, i| {
         solana.log.logPrint("Account {}:", .{i});
@@ -39,7 +39,7 @@ pub fn processInstruction(
         solana.log.logPrint("  Is signer: {}", .{account.is_signer});
         solana.log.logPrint("  Is writable: {}", .{account.is_writable});
     }
-
+    
     // 如果有指令数据，根据第一个字节执行不同操作
     if (instruction_data.len > 0) {
         const command = instruction_data[0];
@@ -62,7 +62,13 @@ pub fn processInstruction(
             },
         }
     }
-
+    
     solana.log.log("Hello World program completed successfully!");
     return;
+}
+
+// 使用 comptime 声明入口点
+comptime {
+    // 这会在编译时自动导出 entrypoint 函数
+    solana.declareEntrypoint(processInstruction);
 }

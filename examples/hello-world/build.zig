@@ -14,7 +14,7 @@ pub fn build(b: *std.Build) void {
     // 创建 BPF 程序
     const program = b.addSharedLibrary(.{
         .name = "hello_world",
-        .root_source_file = b.path("main.zig"),
+        .root_source_file = b.path("root.zig"),
         .target = target,
         .optimize = optimize,
     });

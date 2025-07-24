@@ -1,6 +1,7 @@
 const std = @import("std");
 const crypto = std.crypto;
 const mem = std.mem;
+const base58 = @import("base58.zig");
 
 /// 公钥的字节长度
 pub const PUBKEY_BYTES = 32;
@@ -27,8 +28,8 @@ pub const Pubkey = struct {
     /// 从 base58 字符串创建公钥
     pub fn fromString(str: []const u8) !Pubkey {
         var bytes: [PUBKEY_BYTES]u8 = undefined;
-        const decoded_len = try base58Decode(str, &bytes);
-        if (decoded_len != PUBKEY_BYTES) {
+        const decoded = try base58.decode(str, &bytes);
+        if (decoded.len != PUBKEY_BYTES) {
             return error.InvalidPubkeyString;
         }
         return Pubkey{ .bytes = bytes };
@@ -36,15 +37,12 @@ pub const Pubkey = struct {
 
     /// 转换为 base58 字符串
     pub fn toString(self: Pubkey, buffer: []u8) ![]const u8 {
-        return base58Encode(&self.bytes, buffer);
+        return base58.encode(&self.bytes, buffer);
     }
 
     /// 转换为字符串（使用分配器）
     pub fn toStringAlloc(self: Pubkey, allocator: mem.Allocator) ![]u8 {
-        const max_len = 44; // Base58 编码的最大长度
-        const buffer = try allocator.alloc(u8, max_len);
-        const result = try self.toString(buffer);
-        return buffer[0..result.len];
+        return base58.encodeAlloc(allocator, &self.bytes);
     }
 
     /// 比较两个公钥是否相等
@@ -133,31 +131,12 @@ pub const Pubkey = struct {
     ) !void {
         _ = fmt;
         _ = options;
-        var buffer: [44]u8 = undefined;
-        const str = try self.toString(&buffer);
+        var buffer: [64]u8 = undefined; // 增加缓冲区大小
+        const str = self.toString(&buffer) catch "InvalidPubkey";
         try writer.writeAll(str);
     }
 };
 
-// Base58 编码/解码（简化实现）
-const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-
-fn base58Encode(data: []const u8, out: []u8) ![]const u8 {
-    // TODO: 实现完整的 base58 编码
-    // 这里是一个占位实现
-    _ = data;
-    const placeholder = "11111111111111111111111111111111";
-    @memcpy(out[0..placeholder.len], placeholder);
-    return out[0..placeholder.len];
-}
-
-fn base58Decode(str: []const u8, out: []u8) !usize {
-    // TODO: 实现完整的 base58 解码
-    // 这里是一个占位实现
-    _ = str;
-    @memset(out, 0);
-    return PUBKEY_BYTES;
-}
 
 fn isOnCurve(point: []const u8) bool {
     // TODO: 实现真正的椭圆曲线检查

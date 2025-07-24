@@ -15,12 +15,24 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
     
-    // 为 BPF 目标添加特殊支持
-    // 注意：Zig 目前使用 bpfel 和 bpfeb 而不是 sbf
-    // const bpf_target = b.resolveTargetQuery(.{
-    //     .cpu_arch = .bpfel,  // 或 .bpfeb
-    //     .os_tag = .freestanding,
-    // });
+    // Solana BPF 目标配置
+    pub const sbf_target = std.Target.Query{
+        .cpu_arch = .sbf,
+        .os_tag = .freestanding,
+        .abi = .none,
+        .cpu_features = .{
+            .sbf = .{ .static_syscalls = true },
+        },
+    };
+    
+    pub const sbfv2_target = std.Target.Query{
+        .cpu_arch = .sbfv2,
+        .os_tag = .freestanding,
+        .abi = .none,
+        .cpu_features = .{
+            .sbfv2 = .{ .static_syscalls = true },
+        },
+    };
 
     // This creates a "module", which represents a collection of source files alongside
     // some compilation options, such as optimization mode and linked system libraries.

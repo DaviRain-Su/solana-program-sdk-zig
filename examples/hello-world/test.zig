@@ -2,7 +2,7 @@ const std = @import("std");
 const solana = @import("solana_program_sdk_zig_lib").solana;
 
 // 导入处理函数
-const processInstruction = @import("main.zig").processInstruction;
+const processInstruction = @import("root.zig").processInstruction;
 
 pub fn main() !void {
     std.debug.print("\n=== Testing Hello World Program ===\n", .{});

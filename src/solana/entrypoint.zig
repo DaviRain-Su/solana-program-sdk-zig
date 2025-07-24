@@ -142,7 +142,23 @@ pub fn entrypoint(comptime process_instruction: ProcessInstruction) fn ([*]const
 pub fn declareEntrypoint(comptime process_instruction: ProcessInstruction) void {
     // 只在 BPF 目标上导出入口点
     if (builtin.target.cpu.arch == .bpfel or builtin.target.cpu.arch == .bpfeb) {
-        @export(entrypoint(process_instruction), .{
+        const entrypointFn = entrypoint(process_instruction);
+        @export(entrypointFn, .{
+            .name = "entrypoint",
+            .linkage = .strong,
+        });
+    }
+}
+
+/// 导出入口点的便捷函数
+pub fn exportEntrypoint(comptime process_instruction: ProcessInstruction) void {
+    if (builtin.target.cpu.arch == .bpfel or builtin.target.cpu.arch == .bpfeb) {
+        const ep = struct {
+            fn entrypoint_export(input: [*]u8) callconv(.C) u64 {
+                return entrypoint(process_instruction)(input);
+            }
+        };
+        @export(ep.entrypoint_export, .{
             .name = "entrypoint",
             .linkage = .strong,
         });

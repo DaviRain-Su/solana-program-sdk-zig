@@ -9,9 +9,11 @@
 - ✅ 日志功能
 - ✅ 程序入口点机制
 - ✅ 错误处理
+- ✅ Base58 编码/解码
+- ✅ Bincode 序列化/反序列化
 - ✅ Hello World 示例
-- 🚧 BPF 编译支持（进行中）
-- 🚧 序列化/反序列化
+- ✅ 本地测试脚本
+- ✅ BPF 编译支持
 - 🚧 CPI（跨程序调用）
 - 🚧 更多示例程序
 
@@ -67,10 +69,21 @@ pub fn main() void {
 }
 ```
 
-### 5. 构建程序
+### 5. 构建和测试
 
+#### 本地单元测试
 ```bash
-zig build -Dtarget=sbf-freestanding -Doptimize=ReleaseSmall
+zig build test
+```
+
+#### 构建 BPF 程序
+```bash
+./scripts/build-bpf.sh src/main.zig
+```
+
+#### 一键本地部署测试
+```bash
+./scripts/local-test.sh examples/hello-world/main.zig
 ```
 
 ## 示例
@@ -89,7 +102,30 @@ zig build -Dtarget=sbf-freestanding -Doptimize=ReleaseSmall
 3. CPI 功能
 4. 更多测试和示例
 
-详细的技术方案和实现计划请参考 [CLAUDE.md](CLAUDE.md)。
+### 🚀 部署到 Solana
+
+要部署 Zig 程序到 Solana，你需要使用 **Solana 兼容的 Zig 编译器**：
+
+#### 快速开始
+```bash
+# 1. 安装 Solana Zig 编译器
+./scripts/install-solana-zig.sh
+
+# 2. 构建你的程序
+./solana-zig/zig build
+
+# 3. 部署到 Solana
+solana program deploy zig-out/lib/program.so
+```
+
+#### 为什么需要特殊编译器？
+- 标准 Zig 生成 eBPF 格式，而 Solana 需要 sBPF 格式
+- Solana Zig 包含必要的补丁和 LLVM 修改
+- 由 [solana-zig-bootstrap](https://github.com/joncinque/solana-zig-bootstrap) 项目提供
+
+详细信息请参考：
+- [部署指南](docs/deployment-guide.md) - 当前限制和解决方案
+- [CLAUDE.md](CLAUDE.md) - 技术实现细节
 
 ## 贡献
 

@@ -5,6 +5,8 @@ pub const log = @import("log.zig");
 pub const syscalls = @import("syscalls.zig");
 pub const entrypoint = @import("entrypoint.zig");
 pub const err = @import("error.zig");
+pub const base58 = @import("base58.zig");
+pub const bincode = @import("bincode.zig");
 
 // 重新导出常用类型
 pub const Pubkey = pubkey.Pubkey;
@@ -33,4 +35,6 @@ test {
     _ = @import("syscalls.zig");
     _ = @import("entrypoint.zig");
     _ = @import("error.zig");
+    _ = @import("base58.zig");
+    _ = @import("bincode.zig");
 }

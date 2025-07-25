@@ -283,36 +283,71 @@ solana program deploy target/program.so
 
 ## 当前编译问题（2025-07-24）
 
-### 遇到的问题
-使用 solana-zig-bootstrap 编译器时，遇到以下错误：
-1. **重定位错误**: `relocation R_SBF_64_64 cannot be used against symbol; recompile with -fPIC`
-2. **栈大小超限**: Zig 标准库许多函数超出 BPF 的 4KB 栈限制
-3. **编译器运行时**: 即使最简单的程序也会引入大量运行时代码
+### 主要发现
 
-### 尝试的解决方案
-1. ✅ 使用 `-fPIC` 标志 - 问题依然存在
-2. ✅ 添加 BPF 链接脚本 - 部分改善
-3. ✅ 禁用栈检查和保护 - 问题依然存在
-4. ✅ 最小化代码 - 即使空程序也有问题
+通过研究 joncinque 的项目，我们发现了关键配置差异：
 
-### 根本原因
-- Solana BPF 对重定位的严格限制
-- Zig 编译器生成的代码模式不完全兼容
-- 需要更深层次的编译器修改
+1. **编译标志**：
+   - `lib.stack_size = 4096` - 必须显式设置栈大小
+   - `lib.link_z_notext = true` - 允许代码段写入
+   - `lib.root_module.pic = true` - 位置无关代码
+   - `lib.root_module.strip = true` - 符号剥离
 
-### 已验证的成功案例
-- 极简程序（仅返回 0）可以编译：
-  ```bash
-  zig build-lib minimal.zig -target sbf-solana -O ReleaseSmall -dynamic -fentry=entrypoint -fPIC -fno-stack-check --script bpf.ld -fstrip
-  ```
-- 生成的 `.so` 文件大小约 1.1KB
+2. **目标配置**：
+   - joncinque 使用 `.bpfel` + `.freestanding`
+   - 我们尝试了 `.sbf` + `.solana/freestanding`
+
+3. **入口点模式**：
+   - 使用 `export fn entrypoint` 直接导出
+   - 使用 `Context.load()` 解析输入
+
+### 当前状态
+
+#### 已解决
+- ✅ 安装 Solana 兼容的 Zig 编译器
+- ✅ 更新构建配置以匹配 joncinque 的方法
+- ✅ 添加 Context.load 辅助函数
+- ✅ 修复模块导出结构
+
+#### 未解决问题
+1. **重定位错误**：即使使用 `-fPIC`，仍然出现 `relocation R_SBF_64_64 cannot be used`
+2. **标准库依赖**：Zig 标准库引入了不兼容的代码（Thread, Futex 等）
+3. **编译器运行时**：自动引入的运行时函数超出栈限制
+
+### 根本原因分析
+
+1. **Solana BPF 限制**：
+   - 不支持某些重定位类型
+   - 严格的栈大小限制（4KB）
+   - 特殊的内存模型
+
+2. **Zig 编译器问题**：
+   - 当前的 solana-zig-bootstrap 可能需要更新
+   - 标准库没有为 BPF 目标优化
+   - 编译器生成的某些模式不兼容
+
+### 已验证的部分成功
+- 极简程序（仅返回 0）可以编译
+- 但任何使用数据或函数调用的程序都会失败
 
 ## 下一步行动
 
 1. ✅ 完成技术可行性验证
 2. ✅ 创建最小可行原型
 3. ✅ 安装 Solana 兼容编译器
-4. ⏳ 研究解决重定位问题的方法
-5. ⏳ 创建 BPF 友好的迷你标准库
-6. ⏳ 与 joncinque 项目深度集成
-7. 继续实现第二阶段功能（序列化、CPI等）
+4. ✅ 研究 joncinque 项目的实现方式
+5. ⏳ 解决编译器兼容性问题：
+   - 研究 joncinque 如何避免重定位错误
+   - 创建不依赖标准库的最小实现
+   - 可能需要等待 solana-zig-bootstrap 更新
+6. ⏳ 创建 BPF 友好的迷你标准库
+7. ⏳ 考虑贡献到 solana-zig-bootstrap 项目
+8. 继续实现第二阶段功能（序列化、CPI等）
+
+## 建议
+
+基于当前的研究，建议：
+
+1. **短期**：专注于创建不使用标准库的最小化 SDK
+2. **中期**：与 joncinque 合作改进 solana-zig-bootstrap
+3. **长期**：为 Zig 标准库贡献 BPF 支持

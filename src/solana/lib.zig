@@ -7,6 +7,7 @@ pub const entrypoint = @import("entrypoint.zig");
 pub const err = @import("error.zig");
 pub const base58 = @import("base58.zig");
 pub const bincode = @import("bincode.zig");
+pub const context = @import("context.zig");
 
 // 重新导出常用类型
 pub const Pubkey = pubkey.Pubkey;
@@ -16,6 +17,7 @@ pub const AccountInfoIter = account.AccountInfoIter;
 pub const ProgramError = err.ProgramError;
 pub const ProgramResult = entrypoint.ProgramResult;
 pub const ProcessInstruction = entrypoint.ProcessInstruction;
+pub const Context = context.Context;
 
 // 重新导出常用函数
 pub const declareEntrypoint = entrypoint.declareEntrypoint;

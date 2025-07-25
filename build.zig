@@ -148,6 +148,12 @@ pub fn buildProgram(b: *std.Build, program: *std.Build.Step.Compile, target: std
 }
 
 // Solana BPF target configurations
+pub const bpf_target: std.Target.Query = .{
+    .cpu_arch = .bpfel,
+    .os_tag = .freestanding,
+    .cpu_features_add = std.Target.bpf.featureSet(&.{.solana}),
+};
+
 pub const sbf_target: std.Target.Query = .{
     .cpu_arch = .sbf,
     .os_tag = .solana,
@@ -192,6 +198,14 @@ pub fn linkSolanaProgram(b: *std.Build, lib: *std.Build.Step.Compile) void {
         \\}
     );
     lib.setLinkerScript(linker_script);
+    
+    // Critical flags from joncinque's implementation
+    lib.stack_size = 4096;  // Set stack size to BPF limit
+    lib.link_z_notext = true;  // Allow code segment writes
+    lib.root_module.pic = true;  // Position independent code
+    lib.root_module.strip = true;  // Strip symbols
+    
+    // Original flags
     lib.linker_allow_shlib_undefined = true;
     lib.entry = .{ .symbol_name = "entrypoint" };
     lib.rdynamic = true;

@@ -5,8 +5,27 @@
 //! This module provides the ProgramError enum which defines all standard
 //! error codes that Solana programs can return. Custom errors use the lower
 //! 32 bits, while builtin errors use the upper 32 bits.
+//!
+//! ## Usage
+//! ```zig
+//! const error_mod = @import("error.zig");
+//! const ProgramError = error_mod.ProgramError;
+//! const ProgramResult = error_mod.ProgramResult;
+//!
+//! fn process(data: []const u8) ProgramResult {
+//!     if (data.len == 0) return ProgramError.InvalidInstructionData;
+//!     return null; // Success
+//! }
+//! ```
 
 const std = @import("std");
+
+/// Result type for Solana program instructions.
+///
+/// Returns null on success, or a ProgramError on failure.
+///
+/// Rust equivalent: `ProgramResult = Result<(), ProgramError>`
+pub const ProgramResult = ?ProgramError;
 
 /// Builtin return values occupy the upper 32 bits
 ///

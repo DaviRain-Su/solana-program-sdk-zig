@@ -13,26 +13,45 @@ This roadmap outlines the complete implementation of the [Solana SDK](https://gi
 | `signature` | ✅ | Digital signatures | pubkey, hash |
 | `keypair` | ✅ | Key pair generation and management | pubkey, signature |
 
-### Phase 2: Serialization (High Priority) 🔄
+### Phase 2: Serialization (High Priority) ✅
 
 | Module | Status | Description | Dependencies |
 |--------|--------|-------------|--------------|
-| `borsh` | ⏳ | Borsh serialization format | None |
-| `bincode` | ⏳ | Bincode serialization format | None |
-| `serialize_utils` | ⏳ | Serialization utilities | borsh, bincode |
-| `short_vec` | ⏳ | Short vector encoding | None |
+| `short_vec` | ✅ | Short vector encoding | None |
+| `borsh` | ✅ | Borsh serialization format | None |
+| `bincode` | ✅ | Bincode serialization format | None |
 
-### Phase 3: Program Foundation (High Priority) ⏳
+### Phase 3: Program Foundation (High Priority) ✅
 
 | Module | Status | Description | Dependencies |
 |--------|--------|-------------|--------------|
-| `program_error` | ⏳ | Program error types | None |
-| `instruction` | ⏳ | Program instructions | pubkey |
-| `account` | ⏳ | Account types and utilities | pubkey |
-| `program_memory` | ⏳ | Program memory management | None |
-| `program_pack` | ⏳ | Program packing utilities | serialize_utils |
+| `error` | ✅ | Program error types | None |
+| `instruction` | ✅ | Program instructions | pubkey |
+| `account` | ✅ | Account types and utilities | pubkey |
+| `context` | ✅ | Program context loading | account |
+| `entrypoint` | ✅ | Program entrypoint utilities | error, account |
+| `log` | ✅ | Program logging | syscalls |
+| `syscalls` | ✅ | Solana syscall definitions | None |
+| `bpf` | ✅ | BPF/SBF utilities | None |
+| `allocator` | ✅ | BPF memory allocator | None |
 
-### Phase 4: Transaction System (Medium Priority) ⏳
+### Phase 4: System Variables (High Priority) ✅
+
+| Module | Status | Description | Dependencies |
+|--------|--------|-------------|--------------|
+| `clock` | ✅ | Clock sysvar | syscalls |
+| `rent` | ✅ | Rent sysvar | syscalls |
+| `slot_hashes` | ✅ | Slot hashes sysvar | hash |
+
+### Phase 5: Hash Functions (Medium Priority) 🔄
+
+| Module | Status | Description | Dependencies |
+|--------|--------|-------------|--------------|
+| `blake3` | ✅ | Blake3 hash via syscall | syscalls |
+| `sha256_hasher` | ⏳ | SHA-256 hash wrapper | hash |
+| `keccak_hasher` | ⏳ | Keccak hash wrapper | syscalls |
+
+### Phase 6: Transaction System (Medium Priority) ⏳
 
 | Module | Status | Description | Dependencies |
 |--------|--------|-------------|--------------|
@@ -41,69 +60,49 @@ This roadmap outlines the complete implementation of the [Solana SDK](https://gi
 | `signer` | ⏳ | Signing interfaces | keypair |
 | `signers` | ⏳ | Multiple signer utilities | signer |
 
-### Phase 5: System Variables (Medium Priority) ⏳
+### Phase 7: Extended Sysvars (Medium Priority) ⏳
 
 | Module | Status | Description | Dependencies |
 |--------|--------|-------------|--------------|
-| `clock` | ⏳ | Clock sysvar | None |
-| `rent` | ⏳ | Rent sysvar | None |
 | `epoch_info` | ⏳ | Epoch information | None |
 | `epoch_schedule` | ⏳ | Epoch schedule | None |
-| `slot_hashes` | ⏳ | Slot hashes sysvar | hash |
 | `slot_history` | ⏳ | Slot history sysvar | None |
+| `stake_history` | ⏳ | Stake history sysvar | None |
 
-### Phase 6: Hash Functions (Medium Priority) ⏳
-
-| Module | Status | Description | Dependencies |
-|--------|--------|-------------|--------------|
-| `blake3_hasher` | ⏳ | Blake3 hash implementation | None |
-| `sha256_hasher` | ⏳ | SHA-256 hash implementation | None |
-| `keccak_hasher` | ⏳ | Keccak hash implementation | None |
-
-### Phase 7: Program Interfaces (Medium Priority) ⏳
+### Phase 8: Native Programs (Low Priority) ⏳
 
 | Module | Status | Description | Dependencies |
 |--------|--------|-------------|--------------|
-| `program_entrypoint` | ⏳ | Program entrypoint utilities | program_error |
-| `cpi` | ⏳ | Cross-program invocation | instruction |
-| `native_token` | ⏳ | Native token utilities | None |
-| `fee_calculator` | ⏳ | Fee calculation | None |
-
-### Phase 8: Advanced Features (Low Priority) ⏳
-
-| Module | Status | Description | Dependencies |
-|--------|--------|-------------|--------------|
-| `sysvar` | ⏳ | System variable utilities | Multiple sysvars |
-| `transport` | ⏳ | Transport layer | None |
-| `sanitize` | ⏳ | Data sanitization | None |
-| `timing` | ⏳ | Timing utilities | None |
-| `program_option` | ⏳ | Program options | None |
-
-### Phase 9: Native Programs (Low Priority) ⏳
-
-| Module | Status | Description | Dependencies |
-|--------|--------|-------------|--------------|
-| `bpf_loader` | ⏳ | BPF loader interface | pubkey |
 | `system_program` | ⏳ | System program interface | instruction |
+| `bpf_loader` | ⏳ | BPF loader interface | pubkey |
 | `ed25519_program` | ⏳ | Ed25519 program interface | signature |
 | `secp256k1_program` | ⏳ | Secp256k1 program interface | None |
 | `stake_program` | ⏳ | Stake program interface | instruction |
 
-### Phase 10: Utilities (Low Priority) ⏳
+### Phase 9: Advanced Features (Low Priority) ⏳
 
 | Module | Status | Description | Dependencies |
 |--------|--------|-------------|--------------|
-| `account_utils` | ⏳ | Account utilities | account |
-| `debug_account_data` | ⏳ | Account debugging | account |
-| `inner_instruction` | ⏳ | Inner instruction tracking | instruction |
-| `simple_vote_transaction_checker` | ⏳ | Vote transaction validation | transaction |
+| `native_token` | ⏳ | Native token utilities | None |
+| `fee_calculator` | ⏳ | Fee calculation | None |
+| `sysvar` | ⏳ | Unified sysvar utilities | Multiple sysvars |
+| `sanitize` | ⏳ | Data sanitization | None |
+
+### Phase 10: Legacy/Optional (Deferred) ⏳
+
+| Module | Status | Description | Notes |
+|--------|--------|-------------|-------|
+| `program_memory` | ⏳ | Memory syscall wrappers | Zig stdlib sufficient |
+| `program_pack` | ⏳ | Legacy Pack trait | Use Borsh instead |
+| `serialize_utils` | ⏳ | Serialization helpers | Optional utilities |
 
 ## 🎯 Current Focus
 
-### Next Priority: Serialization (Phase 2)
-- [ ] `borsh.zig` - Borsh serialization format
-- [ ] `bincode.zig` - Bincode serialization format
-- [ ] `short_vec.zig` - Short vector encoding
+### Next Priority: Transaction System (Phase 6)
+- [ ] `message.zig` - Transaction message structure
+- [ ] `transaction.zig` - Full transaction types
+- [ ] `signer.zig` - Signer trait/interface
+- [ ] `signers.zig` - Multi-signer utilities
 
 ### Implementation Strategy
 
@@ -141,8 +140,12 @@ docs/
 ## 📈 Progress Tracking
 
 - **Phase 1**: 100% complete (4/4 modules) ✅
-- **Phase 2**: 0% complete (0/4 modules)
-- **Total**: ~7% complete (4/60+ modules)
+- **Phase 2**: 100% complete (3/3 modules) ✅
+- **Phase 3**: 100% complete (9/9 modules) ✅
+- **Phase 4**: 100% complete (3/3 modules) ✅
+- **Phase 5**: 33% complete (1/3 modules) 🔄
+- **Phase 6**: 0% (0/4 modules) ⏳
+- **Total**: ~40% complete (20/50 modules)
 
 Legend:
 - ✅ Complete

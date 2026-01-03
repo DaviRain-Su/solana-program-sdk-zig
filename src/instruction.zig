@@ -4,11 +4,109 @@
 //!
 //! This module provides the Instruction type for Cross-Program Invocation (CPI).
 //! Instructions contain program_id, accounts metadata, and instruction data.
+//!
+//! ## Key Types
+//! - `Instruction` - A directive for a single invocation of a Solana program
+//! - `AccountMeta` - Describes a single account used in an instruction
+//! - `InstructionData` - Helper for type-safe instruction data packing
 
 const std = @import("std");
 const Account = @import("account.zig").Account;
 const PublicKey = @import("public_key.zig").PublicKey;
 const bpf = @import("bpf.zig");
+
+/// Stack height when processing transaction-level instructions
+///
+/// Rust equivalent: `TRANSACTION_LEVEL_STACK_HEIGHT`
+pub const TRANSACTION_LEVEL_STACK_HEIGHT: usize = 1;
+
+/// Describes a single account used in an instruction.
+///
+/// Rust equivalent: `solana_instruction::AccountMeta`
+/// Source: https://github.com/anza-xyz/solana-sdk/blob/master/instruction/src/account_meta.rs
+pub const AccountMeta = struct {
+    /// The public key of the account
+    pubkey: PublicKey,
+    /// True if the instruction requires a transaction signature for this account
+    is_signer: bool,
+    /// True if the account data or metadata may be mutated during execution
+    is_writable: bool,
+
+    /// Construct metadata for a writable account that is also a signer.
+    ///
+    /// Equivalent to Rust's `AccountMeta::new(pubkey, true)`
+    pub fn newWritableSigner(pubkey: PublicKey) AccountMeta {
+        return .{
+            .pubkey = pubkey,
+            .is_signer = true,
+            .is_writable = true,
+        };
+    }
+
+    /// Construct metadata for a writable account that is not a signer.
+    ///
+    /// Equivalent to Rust's `AccountMeta::new(pubkey, false)`
+    pub fn newWritable(pubkey: PublicKey) AccountMeta {
+        return .{
+            .pubkey = pubkey,
+            .is_signer = false,
+            .is_writable = true,
+        };
+    }
+
+    /// Construct metadata for a read-only account that is also a signer.
+    ///
+    /// Equivalent to Rust's `AccountMeta::new_readonly(pubkey, true)`
+    pub fn newReadonlySigner(pubkey: PublicKey) AccountMeta {
+        return .{
+            .pubkey = pubkey,
+            .is_signer = true,
+            .is_writable = false,
+        };
+    }
+
+    /// Construct metadata for a read-only account that is not a signer.
+    ///
+    /// Equivalent to Rust's `AccountMeta::new_readonly(pubkey, false)`
+    pub fn newReadonly(pubkey: PublicKey) AccountMeta {
+        return .{
+            .pubkey = pubkey,
+            .is_signer = false,
+            .is_writable = false,
+        };
+    }
+
+    /// Create AccountMeta with explicit signer and writable flags
+    pub fn init(pubkey: PublicKey, is_signer: bool, is_writable: bool) AccountMeta {
+        return .{
+            .pubkey = pubkey,
+            .is_signer = is_signer,
+            .is_writable = is_writable,
+        };
+    }
+
+    /// Convert to Account.Param for use with Instruction
+    /// Note: Takes pointer to ensure the returned Param.id points to stable memory
+    pub fn toParam(self: *const AccountMeta) Account.Param {
+        return .{
+            .id = &self.pubkey,
+            .is_writable = self.is_writable,
+            .is_signer = self.is_signer,
+        };
+    }
+};
+
+/// Information about a processed sibling instruction.
+///
+/// Used with `sol_get_processed_sibling_instruction` syscall.
+///
+/// Rust equivalent: `ProcessedSiblingInstruction`
+pub const ProcessedSiblingInstruction = extern struct {
+    /// Length of the instruction data
+    data_len: u64,
+    /// Number of accounts
+    accounts_len: u64,
+};
 
 /// A Solana instruction for CPI
 ///
@@ -117,4 +215,58 @@ test "instruction: data transmute" {
 
     const instruction = InstructionData(Discriminant, Data){ .discriminant = Discriminant.three, .data = Data{ .a = 1, .b = 2, .c = 3 } };
     try std.testing.expectEqualSlices(u8, instruction.asBytes(), &[_]u8{ 3, 0, 0, 0, 1, 2, 0, 3, 0, 0, 0, 0, 0, 0, 0 });
+}
+
+test "instruction: AccountMeta constructors" {
+    const pubkey = PublicKey.from([_]u8{1} ** 32);
+
+    // Writable signer
+    {
+        const meta = AccountMeta.newWritableSigner(pubkey);
+        try std.testing.expectEqual(pubkey, meta.pubkey);
+        try std.testing.expect(meta.is_signer);
+        try std.testing.expect(meta.is_writable);
+    }
+
+    // Writable non-signer
+    {
+        const meta = AccountMeta.newWritable(pubkey);
+        try std.testing.expectEqual(pubkey, meta.pubkey);
+        try std.testing.expect(!meta.is_signer);
+        try std.testing.expect(meta.is_writable);
+    }
+
+    // Readonly signer
+    {
+        const meta = AccountMeta.newReadonlySigner(pubkey);
+        try std.testing.expectEqual(pubkey, meta.pubkey);
+        try std.testing.expect(meta.is_signer);
+        try std.testing.expect(!meta.is_writable);
+    }
+
+    // Readonly non-signer
+    {
+        const meta = AccountMeta.newReadonly(pubkey);
+        try std.testing.expectEqual(pubkey, meta.pubkey);
+        try std.testing.expect(!meta.is_signer);
+        try std.testing.expect(!meta.is_writable);
+    }
+}
+
+test "instruction: AccountMeta to Param conversion" {
+    const pubkey = PublicKey.from([_]u8{42} ** 32);
+    const meta = AccountMeta.init(pubkey, true, true);
+    const param = meta.toParam();
+
+    try std.testing.expectEqual(&meta.pubkey, param.id);
+    try std.testing.expect(param.is_signer);
+    try std.testing.expect(param.is_writable);
+}
+
+test "instruction: TRANSACTION_LEVEL_STACK_HEIGHT" {
+    try std.testing.expectEqual(@as(usize, 1), TRANSACTION_LEVEL_STACK_HEIGHT);
+}
+
+test "instruction: ProcessedSiblingInstruction size" {
+    try std.testing.expectEqual(@as(usize, 16), @sizeOf(ProcessedSiblingInstruction));
 }

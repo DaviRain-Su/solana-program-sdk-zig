@@ -28,6 +28,9 @@ pub const log = @import("log.zig");
 pub const hash = @import("hash.zig");
 pub const signature = @import("signature.zig");
 pub const keypair = @import("keypair.zig");
+pub const short_vec = @import("short_vec.zig");
+pub const borsh = @import("borsh.zig");
+pub const bincode = @import("bincode.zig");
 
 pub const blake3 = @import("blake3.zig");
 pub const slot_hashes = @import("slot_hashes.zig");
@@ -52,6 +55,8 @@ pub const SIGNATURE_BYTES = signature.SIGNATURE_BYTES;
 pub const Keypair = keypair.Keypair;
 pub const KEYPAIR_LENGTH = keypair.KEYPAIR_LENGTH;
 pub const SECRET_KEY_LENGTH = keypair.SECRET_KEY_LENGTH;
+pub const ShortU16 = short_vec.ShortU16;
+pub const ShortVec = short_vec.ShortVec;
 
 pub const native_loader_id = public_key.PublicKey.comptimeFromBase58("NativeLoader1111111111111111111111111111111");
 pub const incinerator_id = public_key.PublicKey.comptimeFromBase58("1nc1nerator11111111111111111111111111111111");

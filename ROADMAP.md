@@ -11,7 +11,7 @@ This roadmap outlines the complete implementation of the [Solana SDK](https://gi
 | `pubkey` | ✅ | Public key types and utilities | base58 |
 | `hash` | ✅ | SHA-256 hash functions | None |
 | `signature` | ✅ | Digital signatures | pubkey, hash |
-| `keypair` | ⏳ | Key pair generation and management | pubkey, signature |
+| `keypair` | ✅ | Key pair generation and management | pubkey, signature |
 
 ### Phase 2: Serialization (High Priority) 🔄
 
@@ -100,9 +100,10 @@ This roadmap outlines the complete implementation of the [Solana SDK](https://gi
 
 ## 🎯 Current Focus
 
-### Next Priority: Core Types Completion
-- [ ] `signature.zig` - Digital signature implementation
-- [ ] `keypair.zig` - Key pair generation and management
+### Next Priority: Serialization (Phase 2)
+- [ ] `borsh.zig` - Borsh serialization format
+- [ ] `bincode.zig` - Bincode serialization format
+- [ ] `short_vec.zig` - Short vector encoding
 
 ### Implementation Strategy
 
@@ -139,9 +140,9 @@ docs/
 
 ## 📈 Progress Tracking
 
-- **Phase 1**: 75% complete (3/4 modules)
+- **Phase 1**: 100% complete (4/4 modules) ✅
 - **Phase 2**: 0% complete (0/4 modules)
-- **Total**: ~5% complete (3/60+ modules)
+- **Total**: ~7% complete (4/60+ modules)
 
 Legend:
 - ✅ Complete

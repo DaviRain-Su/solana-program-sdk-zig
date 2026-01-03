@@ -573,6 +573,7 @@ pub const Pubkey = struct {
 | `public_key.zig` | `pubkey/` | `solana-sdk/blob/master/pubkey/src/lib.rs` |
 | `hash.zig` | `hash/` | `solana-sdk/blob/master/hash/src/lib.rs` |
 | `signature.zig` | `signature/` | `solana-sdk/blob/master/signature/src/lib.rs` |
+| `keypair.zig` | `keypair/` | `solana-sdk/blob/master/keypair/src/lib.rs` |
 | `account.zig` | `account-info/` | `solana-sdk/blob/master/account-info/src/lib.rs` |
 | `instruction.zig` | `instruction/` | `solana-sdk/blob/master/instruction/src/lib.rs` |
 | `clock.zig` | `clock/` | `solana-sdk/blob/master/clock/src/lib.rs` |
@@ -929,6 +930,159 @@ if (info.pointer.size == .slice) { ... }
 - `.Array` → `.array`
 - `.Optional` → `.optional`
 
+### Ed25519 加密 API（Zig 0.15+）
+
+**注意**: Zig 0.15 对 Ed25519 API 进行了重大重构，密钥类型现在是结构体而非原始字节数组。
+
+#### 类型变更
+
+```zig
+const Ed25519 = std.crypto.sign.Ed25519;
+
+// ❌ 旧版本 - SecretKey 是 [32]u8
+const secret: [32]u8 = ...;
+const kp = Ed25519.KeyPair.fromSecretKey(secret);
+
+// ✅ Zig 0.15+ - SecretKey 是结构体，包含 64 字节 (seed + public_key)
+const Ed25519 = std.crypto.sign.Ed25519;
+
+// SecretKey 结构体
+pub const SecretKey = struct {
+    bytes: [64]u8,  // 前 32 字节是 seed，后 32 字节是 public key
+    
+    pub fn seed(self: SecretKey) [32]u8;           // 获取 seed
+    pub fn publicKeyBytes(self: SecretKey) [32]u8; // 获取公钥字节
+    pub fn fromBytes(bytes: [64]u8) !SecretKey;    // 从字节创建
+    pub fn toBytes(self: SecretKey) [64]u8;        // 转换为字节
+};
+
+// PublicKey 结构体
+pub const PublicKey = struct {
+    bytes: [32]u8,
+    
+    pub fn fromBytes(bytes: [32]u8) !PublicKey;
+    pub fn toBytes(self: PublicKey) [32]u8;
+};
+```
+
+#### KeyPair 使用方式
+
+```zig
+const Ed25519 = std.crypto.sign.Ed25519;
+
+// ✅ 生成随机密钥对
+const kp = Ed25519.KeyPair.generate();
+
+// ✅ 从 32 字节 seed 确定性生成
+const seed: [32]u8 = ...;
+const kp = try Ed25519.KeyPair.generateDeterministic(seed);
+
+// ✅ 从 SecretKey 结构体创建
+var secret_bytes: [64]u8 = ...;
+const secret_key = try Ed25519.SecretKey.fromBytes(secret_bytes);
+const kp = try Ed25519.KeyPair.fromSecretKey(secret_key);
+
+// ✅ 获取公钥字节
+const pubkey_bytes: [32]u8 = kp.public_key.toBytes();
+
+// ✅ 获取 seed（用于重建密钥对）
+const seed: [32]u8 = kp.secret_key.seed();
+
+// ✅ 获取完整密钥字节（64 字节）
+const full_bytes: [64]u8 = kp.secret_key.toBytes();
+```
+
+#### Signature 使用方式
+
+```zig
+const Ed25519 = std.crypto.sign.Ed25519;
+
+// ❌ 旧版本 - fromBytes 返回 error union
+const sig = try Ed25519.Signature.fromBytes(bytes);
+
+// ✅ Zig 0.15+ - fromBytes 不返回 error union
+const sig = Ed25519.Signature.fromBytes(bytes);
+
+// ✅ 签名消息
+const signature = try kp.sign(message, null);  // null = 确定性签名
+const sig_bytes: [64]u8 = signature.toBytes();
+
+// ✅ 验证签名
+try sig.verify(message, kp.public_key);
+```
+
+#### 常见迁移错误
+
+| 错误消息 | 原因 | 解决方案 |
+|---------|------|---------|
+| `expected type 'SecretKey', found '[32]u8'` | SecretKey 现在是结构体 | 使用 `generateDeterministic(seed)` 或 `SecretKey.fromBytes()` |
+| `expected error union type, found 'Signature'` | `Signature.fromBytes` 不再返回错误 | 移除 `try` |
+| `type 'PublicKey' is not indexable` | PublicKey 是结构体 | 使用 `.toBytes()` 获取字节 |
+| `no member named 'secret_key' in struct` | 字段访问方式变更 | 检查 KeyPair 结构体定义 |
+
+#### Keypair 模块实现示例
+
+```zig
+//! keypair.zig - Ed25519 密钥对管理
+
+const std = @import("std");
+const Ed25519 = std.crypto.sign.Ed25519;
+
+pub const Keypair = struct {
+    inner: Ed25519.KeyPair,
+    
+    /// 生成随机密钥对
+    pub fn generate() Keypair {
+        return .{ .inner = Ed25519.KeyPair.generate() };
+    }
+    
+    /// 从 32 字节 seed 创建
+    pub fn fromSeed(seed: [32]u8) !Keypair {
+        const kp = Ed25519.KeyPair.generateDeterministic(seed) catch {
+            return error.InvalidSeed;
+        };
+        return .{ .inner = kp };
+    }
+    
+    /// 从 64 字节创建 (seed + public_key 格式)
+    pub fn fromBytes(bytes: []const u8) !Keypair {
+        if (bytes.len != 64) return error.InvalidLength;
+        
+        var secret_bytes: [64]u8 = undefined;
+        @memcpy(&secret_bytes, bytes);
+        
+        const secret_key = Ed25519.SecretKey.fromBytes(secret_bytes) catch {
+            return error.InvalidSecretKey;
+        };
+        const kp = Ed25519.KeyPair.fromSecretKey(secret_key) catch {
+            return error.PublicKeyMismatch;
+        };
+        return .{ .inner = kp };
+    }
+    
+    /// 获取 64 字节表示
+    pub fn toBytes(self: Keypair) [64]u8 {
+        return self.inner.secret_key.toBytes();
+    }
+    
+    /// 获取 32 字节 seed
+    pub fn seed(self: Keypair) [32]u8 {
+        return self.inner.secret_key.seed();
+    }
+    
+    /// 获取公钥字节
+    pub fn pubkeyBytes(self: Keypair) [32]u8 {
+        return self.inner.public_key.toBytes();
+    }
+    
+    /// 签名消息
+    pub fn sign(self: Keypair, message: []const u8) ![64]u8 {
+        const sig = try self.inner.sign(message, null);
+        return sig.toBytes();
+    }
+};
+```
+
 ---
 
 ## 内存管理
@@ -1104,6 +1258,9 @@ const thread = try std.Thread.spawn(.{}, workerFn, .{});
 | `no field named 'response_storage'` | fetch API 已移除 | 使用 request/response 模式 |
 | `member access not allowed on type` | 枚举大小写变更 | 使用小写枚举值 |
 | `expected type 'i2'` | compare 返回类型 | 返回 -1, 0, 1 而非枚举 |
+| `expected type 'SecretKey', found '[32]u8'` | Ed25519 SecretKey 是结构体 | 使用 `generateDeterministic()` |
+| `expected error union type, found 'Signature'` | Signature.fromBytes 不返回错误 | 移除 `try` |
+| `type 'PublicKey' is not indexable` | Ed25519 PublicKey 是结构体 | 使用 `.toBytes()` |
 
 ### 迁移检查清单
 
@@ -1113,6 +1270,8 @@ const thread = try std.Thread.spawn(.{}, workerFn, .{});
 - [ ] @typeInfo 枚举使用小写
 - [ ] 检查 compare 函数返回 i2
 - [ ] 测试所有网络错误处理
+- [ ] Ed25519 密钥使用结构体而非原始字节
+- [ ] Signature.fromBytes 移除 `try`
 
 ---
 

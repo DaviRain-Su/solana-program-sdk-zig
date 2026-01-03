@@ -75,7 +75,7 @@ pub const Signature = extern struct {
 
         // Convert signature from Solana format to Zig format
         // Solana uses 64 bytes directly, Zig uses structured format
-        const sig = try Ed25519.Signature.fromBytes(self.bytes);
+        const sig = Ed25519.Signature.fromBytes(self.bytes);
 
         // Verify using Zig's crypto
         try sig.verify(message, pubkey);

@@ -1,3 +1,11 @@
+//! Zig implementation of Solana SDK's entrypoint input deserialization
+//!
+//! Rust source: https://github.com/anza-xyz/solana-sdk/blob/master/program-entrypoint/src/lib.rs
+//!
+//! This module provides the Context type which parses the raw input buffer
+//! passed to BPF programs by the Solana runtime. The input format is defined
+//! by the Solana BPF loader specification.
+
 const std = @import("std");
 
 const Account = @import("account.zig").Account;
@@ -5,6 +13,10 @@ const ACCOUNT_DATA_PADDING = @import("account.zig").ACCOUNT_DATA_PADDING;
 const allocator = @import("allocator.zig").allocator;
 const PublicKey = @import("public_key.zig").PublicKey;
 
+/// Program execution context parsed from BPF entrypoint input
+///
+/// Rust equivalent: Deserialized from `entrypoint` input buffer
+/// Source: https://github.com/anza-xyz/solana-sdk/blob/master/program-entrypoint/src/lib.rs
 pub const Context = struct {
     num_accounts: u64,
     // MAX support parse account number is 64

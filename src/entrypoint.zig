@@ -1,9 +1,18 @@
+//! Zig implementation of Solana SDK's entrypoint module
+//!
+//! Rust source: https://github.com/anza-xyz/solana-sdk/blob/master/program-entrypoint/src/lib.rs
+//!
+//! This module provides the entrypoint macro and types for Solana BPF programs.
+//! It defines the ProcessInstruction function signature and ProgramResult type.
+
 const PublicKey = @import("public_key.zig").PublicKey;
 const Account = @import("account.zig").Account;
 const ProgramError = @import("error.zig").ProgramError;
 const Context = @import("context.zig").Context;
 
 /// Result type for process instruction functions
+///
+/// Rust equivalent: `solana_program_entrypoint::ProgramResult`
 pub const ProgramResult = union(enum) {
     ok: void,
     err: ProgramError,

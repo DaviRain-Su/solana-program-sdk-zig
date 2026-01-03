@@ -1,6 +1,17 @@
+//! Zig implementation of Solana SDK's slot_hashes sysvar
+//!
+//! Rust source: https://github.com/anza-xyz/solana-sdk/blob/master/slot-hashes/src/lib.rs
+//!
+//! This module provides the SlotHashes sysvar which contains recent slot hashes
+//! used for vote verification and other on-chain operations.
+
 const std = @import("std");
 const PublicKey = @import("public_key.zig").PublicKey;
 
+/// SlotHashes sysvar - contains recent slot hashes
+///
+/// Rust equivalent: `solana_slot_hashes::SlotHashes`
+/// Source: https://github.com/anza-xyz/solana-sdk/blob/master/slot-hashes/src/lib.rs
 pub const SlotHashes = struct {
     ptr: [*]SlotHash,
     len: u64,

@@ -1,6 +1,16 @@
+//! Zig implementation of Solana SDK's program_error module
+//!
+//! Rust source: https://github.com/anza-xyz/solana-sdk/blob/master/program-error/src/lib.rs
+//!
+//! This module provides the ProgramError enum which defines all standard
+//! error codes that Solana programs can return. Custom errors use the lower
+//! 32 bits, while builtin errors use the upper 32 bits.
+
 const std = @import("std");
 
 /// Builtin return values occupy the upper 32 bits
+///
+/// Rust equivalent: `solana_program_error::BUILTIN_BIT_SHIFT`
 pub const BUILTIN_BIT_SHIFT: u6 = 32;
 
 fn toBuiltin(comptime error_code: u64) u64 {

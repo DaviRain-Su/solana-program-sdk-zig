@@ -1,7 +1,18 @@
+//! Zig implementation of Solana SDK's account_info module
+//!
+//! Rust source: https://github.com/anza-xyz/solana-sdk/blob/master/account-info/src/lib.rs
+//!
+//! This module provides the Account type representing a Solana account as received
+//! by BPF programs. It includes account metadata (owner, lamports, executable flag)
+//! and the account's data buffer.
+
 const std = @import("std");
 const PublicKey = @import("public_key.zig").PublicKey;
 const testing = std.testing;
 
+/// Padding for account data reallocation
+///
+/// Rust equivalent: `solana_sdk::entrypoint::MAX_PERMITTED_DATA_INCREASE`
 pub const ACCOUNT_DATA_PADDING = 10 * 1024;
 
 pub const Account = struct {
@@ -93,7 +104,7 @@ pub const Account = struct {
     pub fn dataLen(self: Account) u64 {
         return self.ptr.data_len;
     }
-    
+
     pub fn realloc(self: Account, new_data_len: u64) error{InvalidRealloc}!void {
         const diff = @subWithOverflow(new_data_len, self.ptr.original_data_len);
         if (diff[1] == 0 and diff[0] > ACCOUNT_DATA_PADDING) {

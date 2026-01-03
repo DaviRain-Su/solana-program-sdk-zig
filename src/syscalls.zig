@@ -1,10 +1,13 @@
-//! Solana syscalls - Function pointers with MurmurHash3-32 hashes
+//! Zig implementation of Solana SDK's syscall definitions
+//!
+//! Rust source: https://github.com/anza-xyz/solana-sdk/blob/master/define-syscall/src/lib.rs
 //!
 //! Syscalls are invoked via function pointers from magic constants.
 //! These constants are MurmurHash3-32 hashes of the syscall names.
 //! The Solana VM resolves these at runtime via `call -0x1` instruction.
 //!
-//! Based on: https://github.com/anza-xyz/solana-sdk/blob/master/define-syscall/src/definitions.rs
+//! Each syscall constant is the MurmurHash3-32 hash of the syscall name,
+//! which the Solana BPF/SBF runtime resolves to the actual implementation.
 
 const builtin = @import("builtin");
 

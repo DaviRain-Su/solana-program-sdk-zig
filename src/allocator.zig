@@ -1,8 +1,21 @@
+//! Zig implementation of Solana SDK's BPF allocator
+//!
+//! Rust source: https://github.com/anza-xyz/solana-sdk/blob/master/program-entrypoint/src/lib.rs
+//!
+//! This module provides fixed buffer allocators for Solana BPF programs.
+//! The heap starts at address 0x300000000 with 32KB of available memory.
+//! Two allocator variants are provided: forward and reverse allocation.
+
 const std = @import("std");
 const assert = std.debug.assert;
 const Alignment = std.mem.Alignment;
 
+/// BPF heap start address
+/// Rust equivalent: `solana_program_entrypoint::HEAP_START_ADDRESS`
 const heap_start = @as([*]u8, @ptrFromInt(0x300000000));
+
+/// BPF heap length (32KB)
+/// Rust equivalent: `solana_program_entrypoint::HEAP_LENGTH`
 const heap_length = 32 * 1024;
 
 pub const reverse_allocator: std.mem.Allocator = @constCast(&ReverseFixedBufferAllocator.comptimeInit(heap_start[0..heap_length])).allocator();

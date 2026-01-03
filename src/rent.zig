@@ -1,7 +1,18 @@
+//! Zig implementation of Solana SDK's rent sysvar
+//!
+//! Rust source: https://github.com/anza-xyz/solana-sdk/blob/master/rent/src/lib.rs
+//!
+//! This module provides the Rent sysvar which contains rent calculation parameters
+//! including lamports per byte-year and exemption threshold.
+
 const bpf = @import("bpf.zig");
 const log = @import("log.zig");
 const PublicKey = @import("public_key.zig").PublicKey;
 
+/// Rent sysvar and calculation utilities
+///
+/// Rust equivalent: `solana_rent::Rent`
+/// Source: https://github.com/anza-xyz/solana-sdk/blob/master/rent/src/lib.rs
 pub const Rent = struct {
     pub const id = PublicKey.comptimeFromBase58("SysvarRent111111111111111111111111111111111");
 

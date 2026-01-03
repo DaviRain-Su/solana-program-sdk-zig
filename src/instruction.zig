@@ -1,8 +1,19 @@
+//! Zig implementation of Solana SDK's instruction module
+//!
+//! Rust source: https://github.com/anza-xyz/solana-sdk/blob/master/instruction/src/lib.rs
+//!
+//! This module provides the Instruction type for Cross-Program Invocation (CPI).
+//! Instructions contain program_id, accounts metadata, and instruction data.
+
 const std = @import("std");
 const Account = @import("account.zig").Account;
 const PublicKey = @import("public_key.zig").PublicKey;
 const bpf = @import("bpf.zig");
 
+/// A Solana instruction for CPI
+///
+/// Rust equivalent: `solana_instruction::Instruction`
+/// Source: https://github.com/anza-xyz/solana-sdk/blob/master/instruction/src/lib.rs
 pub const Instruction = extern struct {
     program_id: *const PublicKey,
     accounts: [*]const Account.Param,

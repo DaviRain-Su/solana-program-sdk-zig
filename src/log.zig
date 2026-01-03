@@ -1,8 +1,18 @@
+//! Zig implementation of Solana SDK's program-log module
+//!
+//! Rust source: https://github.com/anza-xyz/solana-sdk/blob/master/program-log/src/lib.rs
+//!
+//! This module provides logging utilities for Solana programs.
+//! In BPF mode, logs are sent to the Solana runtime via syscalls.
+//! In test mode, logs are printed to stderr.
+
 const std = @import("std");
 const builtin = @import("builtin");
 const syscalls = @import("syscalls.zig");
 
 /// Log a message to the Solana runtime
+///
+/// Rust equivalent: `solana_program_log::sol_log`
 pub inline fn log(message: []const u8) void {
     if (comptime syscalls.is_bpf_program) {
         syscalls.sol_log_(message.ptr, message.len);

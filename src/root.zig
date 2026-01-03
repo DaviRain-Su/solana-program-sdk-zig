@@ -1,3 +1,20 @@
+//! Solana Program SDK for Zig
+//!
+//! Rust source: https://github.com/anza-xyz/solana-sdk
+//!
+//! This is the main entry point for the Solana Program SDK in Zig.
+//! It provides a complete implementation of the Solana SDK for writing
+//! on-chain programs (smart contracts) in the Zig programming language.
+//!
+//! ## Modules
+//! - `public_key` - PublicKey type and PDA derivation
+//! - `account` - Account info and metadata
+//! - `instruction` - CPI instruction building
+//! - `entrypoint` - Program entrypoint macros
+//! - `error` - Program error types
+//! - `syscalls` - Solana runtime syscalls
+//! - `clock`, `rent`, `slot_hashes` - Sysvar access
+
 const std = @import("std");
 
 pub const public_key = @import("public_key.zig");

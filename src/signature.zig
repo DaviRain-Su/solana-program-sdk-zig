@@ -1,3 +1,10 @@
+//! Zig implementation of Solana SDK's signature module
+//!
+//! Rust source: https://github.com/anza-xyz/solana-sdk/blob/master/signature/src/lib.rs
+//!
+//! This module provides the Signature type representing an Ed25519 digital signature (64 bytes).
+//! Used for signing and verifying transactions and messages.
+
 const std = @import("std");
 const builtin = @import("builtin");
 
@@ -6,6 +13,8 @@ const Ed25519 = crypto.sign.Ed25519;
 const hash = @import("hash.zig");
 
 /// Number of bytes in a signature
+///
+/// Rust equivalent: `solana_sdk::signature::SIGNATURE_BYTES`
 pub const SIGNATURE_BYTES = 64;
 
 /// A digital signature using Ed25519
@@ -122,7 +131,7 @@ test "signature: basic operations" {
     try std.testing.expect(std.mem.eql(u8, sig2.asBytes(), &bytes));
 
     // Test tryFrom with wrong length
-    try std.testing.expectError(error.InvalidLength, Signature.tryFrom(&[_]u8{1, 2, 3}));
+    try std.testing.expectError(error.InvalidLength, Signature.tryFrom(&[_]u8{ 1, 2, 3 }));
 }
 
 test "signature: unique generation" {
@@ -134,4 +143,45 @@ test "signature: unique generation" {
     try std.testing.expect(!std.mem.eql(u8, sig1.asBytes(), sig2.asBytes()));
 }
 
+// Rust test: test_signature_fromstr
+// Source: https://github.com/anza-xyz/solana-sdk/blob/master/signature/src/lib.rs#L199
+test "signature: fromBase58 parsing" {
+    const signature_bytes = [_]u8{
+        103, 7,   88,  96,  203, 140, 191, 47,  231, 37,  30,  220, 61,  35,  93,  112,
+        225, 2,   5,   11,  158, 105, 246, 147, 133, 64,  109, 252, 119, 73,  108, 248,
+        167, 240, 160, 18,  222, 3,   1,   48,  51,  67,  94,  19,  91,  108, 227, 126,
+        100, 25,  212, 135, 90,  60,  61,  78,  186, 104, 22,  58,  242, 74,  148, 6,
+    };
+    const signature = Signature.from(signature_bytes);
 
+    // Convert to base58 and parse back
+    const base58 = @import("public_key.zig").base58_mod;
+    var buffer: [base58.bitcoin.getEncodedLengthUpperBound(SIGNATURE_BYTES)]u8 = undefined;
+    const encoded = base58.bitcoin.encode(&buffer, &signature.bytes);
+
+    // Parse should succeed
+    const parsed = try Signature.fromBase58(encoded);
+    try std.testing.expectEqualSlices(u8, &signature.bytes, &parsed.bytes);
+
+    // Test invalid base58 characters - base58 decoder returns InvalidBase58Digit for invalid chars
+    _ = Signature.fromBase58("I am not base58") catch |err| {
+        // Expect either InvalidBase58Digit or InvalidLength depending on base58 implementation
+        try std.testing.expect(err == error.InvalidBase58Digit or err == error.InvalidLength);
+        return;
+    };
+    // Should have failed
+    return error.TestExpectedError;
+}
+
+// Rust test: test_as_array
+// Source: https://github.com/anza-xyz/solana-sdk/blob/master/signature/src/lib.rs#L241
+test "signature: as_array" {
+    const bytes = [_]u8{1} ** SIGNATURE_BYTES;
+    const signature = Signature.from(bytes);
+
+    // Test asArray returns correct reference
+    try std.testing.expectEqualSlices(u8, &bytes, signature.asArray());
+
+    // Verify pointer is the same (no copy)
+    try std.testing.expectEqual(@intFromPtr(&signature.bytes), @intFromPtr(signature.asArray()));
+}

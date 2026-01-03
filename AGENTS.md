@@ -527,6 +527,197 @@ pub fn create(allocator: std.mem.Allocator, config: Config) !Resource {
 }
 ```
 
+### 重写项目源引用规范（强制）
+
+**核心原则**: 本项目是 Rust Solana SDK 的 Zig 重写实现，每个模块必须明确标识其对应的 Rust 源模块。
+
+#### 强制规则
+
+每个 Zig 模块文件**顶部**必须包含源引用注释，格式如下：
+
+```zig
+//! Zig implementation of Solana SDK's [模块名]
+//!
+//! Rust source: https://github.com/anza-xyz/solana-sdk/blob/master/[crate-name]/src/lib.rs
+//!
+//! 模块简短描述...
+```
+
+#### 完整示例
+
+```zig
+//! Zig implementation of Solana SDK's pubkey module
+//!
+//! Rust source: https://github.com/anza-xyz/solana-sdk/blob/master/pubkey/src/lib.rs
+//!
+//! This module provides the Pubkey type representing a Solana public key (Ed25519).
+//! It includes utilities for creating, parsing, and manipulating public keys.
+
+const std = @import("std");
+
+/// A Solana public key (32 bytes)
+/// 
+/// Rust equivalent: `solana_pubkey::Pubkey`
+/// Source: https://github.com/anza-xyz/solana-sdk/blob/master/pubkey/src/lib.rs
+pub const Pubkey = struct {
+    // ...
+};
+```
+
+#### solana-sdk 仓库结构
+
+**重要**: solana-sdk 是独立的 monorepo，每个模块是独立的 crate。
+
+| Zig 模块 | Rust crate 路径 | 链接示例 |
+|----------|----------------|---------|
+| `public_key.zig` | `pubkey/` | `solana-sdk/blob/master/pubkey/src/lib.rs` |
+| `hash.zig` | `hash/` | `solana-sdk/blob/master/hash/src/lib.rs` |
+| `signature.zig` | `signature/` | `solana-sdk/blob/master/signature/src/lib.rs` |
+| `account.zig` | `account-info/` | `solana-sdk/blob/master/account-info/src/lib.rs` |
+| `instruction.zig` | `instruction/` | `solana-sdk/blob/master/instruction/src/lib.rs` |
+| `clock.zig` | `clock/` | `solana-sdk/blob/master/clock/src/lib.rs` |
+| `rent.zig` | `rent/` | `solana-sdk/blob/master/rent/src/lib.rs` |
+| `slot_hashes.zig` | `slot-hashes/` | `solana-sdk/blob/master/slot-hashes/src/lib.rs` |
+| `log.zig` | `program-log/` | `solana-sdk/blob/master/program-log/src/lib.rs` |
+| `syscalls.zig` | `define-syscall/` | `solana-sdk/blob/master/define-syscall/src/lib.rs` |
+| `entrypoint.zig` | `program-entrypoint/` | `solana-sdk/blob/master/program-entrypoint/src/lib.rs` |
+| `error.zig` | `program-error/` | `solana-sdk/blob/master/program-error/src/lib.rs` |
+| `blake3.zig` | `blake3-hasher/` | `solana-sdk/blob/master/blake3-hasher/src/lib.rs` |
+
+#### 引用格式规范
+
+| 元素 | 格式 | 示例 |
+|------|------|------|
+| 模块级引用 | `//!` 文档注释 | 文件顶部 |
+| 类型级引用 | `///` 文档注释 | struct/enum 定义前 |
+| 函数级引用 | `///` 文档注释（可选） | 复杂函数实现前 |
+| 行号引用 | `#L{行号}` 或 `#L{起始}-L{结束}` | `#L50` 或 `#L50-L100` |
+
+#### Rust 源仓库地址
+
+| 仓库 | 用途 | 地址 |
+|------|------|------|
+| solana-sdk | 主 SDK 实现（独立 monorepo） | `https://github.com/anza-xyz/solana-sdk` |
+| agave | Solana 验证器 | `https://github.com/anza-xyz/agave` |
+| solana-program-library | SPL 程序 | `https://github.com/solana-labs/solana-program-library` |
+
+#### 链接验证规范（强制）
+
+**核心原则**: 添加的所有 GitHub 链接必须是可访问的有效链接。
+
+**验证步骤**:
+1. 添加链接前，必须在浏览器中验证链接可访问
+2. 使用正确的仓库结构路径（参考上表）
+3. 确保分支名称正确（`master` 或具体版本标签）
+
+**常见错误**:
+- ❌ `sdk/src/pubkey.rs` - 错误：旧的路径结构
+- ❌ `sdk/pubkey/src/lib.rs` - 错误：多余的 `sdk/` 前缀
+- ✅ `pubkey/src/lib.rs` - 正确：直接使用 crate 名称
+
+**验证命令**:
+```bash
+# 验证链接是否可访问
+curl -s -o /dev/null -w "%{http_code}" "https://github.com/anza-xyz/solana-sdk/blob/master/pubkey/src/lib.rs"
+# 应返回 200
+```
+
+#### 分支/标签规范
+
+- 优先使用稳定版本标签（如 `v2.0.0`）
+- 如无对应标签，使用 `master` 分支
+- 在注释中说明引用的版本：`//! Based on solana-sdk v2.0.0`
+
+#### 禁止行为
+
+- ❌ **禁止**: 创建新模块而不添加 Rust 源引用
+- ❌ **禁止**: 使用无效或无法访问的 GitHub 链接
+- ❌ **禁止**: 省略模块级 `//!` 文档注释
+- ❌ **禁止**: 不验证链接直接添加
+
+#### 审查要点
+
+- [ ] 每个 `.zig` 文件顶部都有 `//!` 源引用注释
+- [ ] GitHub 链接格式正确且**已验证可访问**
+- [ ] 使用正确的仓库路径结构（参考 solana-sdk 仓库结构表）
+- [ ] 复杂类型/函数有对应的 Rust 源引用
+- [ ] 版本/分支信息明确
+
+### 单元测试完整性规范（强制）
+
+**核心原则**: 重写模块的单元测试必须**完全覆盖**原 Rust 代码中的所有测试用例，只许多不许少。
+
+#### 强制规则
+
+1. **完全匹配**: 每个 Rust 模块中的 `#[test]` 函数都必须在 Zig 中有对应的 `test` 块
+2. **测试名称对应**: Zig 测试名称应能清晰对应 Rust 测试函数名
+3. **测试逻辑一致**: 测试的输入、预期输出、边界条件必须与 Rust 版本一致
+4. **可以增加**: 允许添加额外的 Zig 特有测试（如内存安全测试）
+5. **不可遗漏**: 禁止遗漏任何 Rust 源码中存在的测试
+
+#### 工作流程
+
+```
+1. 查看 Rust 源文件中的所有 #[test] 函数
+2. 为每个 Rust 测试创建对应的 Zig test 块
+3. 确保测试逻辑和断言完全一致
+4. 可选：添加 Zig 特有的额外测试
+```
+
+#### 测试命名规范
+
+```zig
+// Rust: #[test] fn test_create_program_address() { ... }
+// Zig:
+test "pubkey: create program address" {
+    // 测试逻辑与 Rust 版本一致
+}
+
+// Rust: #[test] fn test_find_program_address() { ... }
+// Zig:
+test "pubkey: find program address" {
+    // 测试逻辑与 Rust 版本一致
+}
+```
+
+#### 测试注释引用
+
+每个测试应注明对应的 Rust 测试：
+
+```zig
+/// Rust test: test_create_program_address
+/// Source: https://github.com/anza-xyz/solana-sdk/blob/master/pubkey/src/lib.rs#L500
+test "pubkey: create program address" {
+    // ...
+}
+```
+
+#### 验证命令
+
+```bash
+# 1. 查看 Rust 源码中的测试数量
+curl -s "https://raw.githubusercontent.com/anza-xyz/solana-sdk/master/pubkey/src/lib.rs" | grep -c "#\[test\]"
+
+# 2. 查看 Zig 模块中的测试数量  
+grep -c "^test " src/public_key.zig
+
+# 3. 对比确保 Zig 测试数量 >= Rust 测试数量
+```
+
+#### 禁止行为
+
+- ❌ **禁止**: 遗漏 Rust 源码中存在的任何测试
+- ❌ **禁止**: 简化或跳过复杂的测试用例
+- ❌ **禁止**: 修改测试预期值使其"通过"
+- ❌ **禁止**: 使用 `// TODO: add test` 注释代替实际测试
+
+#### 审查检查清单
+
+- [ ] 列出 Rust 源码中所有 `#[test]` 函数
+- [ ] 确认每个 Rust 测试在 Zig 中有对应实现
+- [ ] 验证测试逻辑与 Rust 版本一致
+- [ ] 运行 `zig build test` 确保所有测试通过
+
 ### 类型定义统一规范
 
 **强制规则**: 所有基础类型必须在统一位置定义，避免重复定义。
@@ -885,6 +1076,7 @@ const thread = try std.Thread.spawn(.{}, workerFn, .{});
 - [ ] 金融计算使用精确类型（如配置）
 - [ ] 日志不包含敏感信息
 - [ ] 公共 API 有文档注释
+- [ ] **强制**: 每个 `.zig` 文件顶部有 Rust 源引用注释（见重写项目源引用规范）
 - [ ] **强制**: 测试必须完全通过：`zig build test` (见强制规则)
 
 ### 文档规范

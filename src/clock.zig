@@ -1,7 +1,18 @@
+//! Zig implementation of Solana SDK's clock sysvar
+//!
+//! Rust source: https://github.com/anza-xyz/solana-sdk/blob/master/clock/src/lib.rs
+//!
+//! This module provides the Clock sysvar which contains timing information
+//! about the current slot, epoch, and Unix timestamp.
+
 const bpf = @import("bpf.zig");
 const log = @import("log.zig");
 const PublicKey = @import("public_key.zig").PublicKey;
 
+/// Clock sysvar data
+///
+/// Rust equivalent: `solana_clock::Clock`
+/// Source: https://github.com/anza-xyz/solana-sdk/blob/master/clock/src/lib.rs
 pub const Clock = extern struct {
     pub const id = PublicKey.comptimeFromBase58("SysvarC1ock11111111111111111111111111111111");
 

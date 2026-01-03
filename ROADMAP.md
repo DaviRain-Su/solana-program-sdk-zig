@@ -59,14 +59,14 @@ This roadmap outlines the complete implementation of the [Solana SDK](https://gi
 | `transaction` | ✅ | Transaction types | message, signature |
 | `signer` | ✅ | Signing interfaces | keypair |
 
-### Phase 7: Extended Sysvars (Medium Priority) ⏳
+### Phase 7: Extended Sysvars (Medium Priority) ✅
 
 | Module | Status | Description | Dependencies |
 |--------|--------|-------------|--------------|
-| `epoch_info` | ⏳ | Epoch information | None |
-| `epoch_schedule` | ⏳ | Epoch schedule | None |
-| `slot_history` | ⏳ | Slot history sysvar | None |
-| `stake_history` | ⏳ | Stake history sysvar | None |
+| `epoch_schedule` | ✅ | Epoch schedule sysvar | syscalls |
+| `slot_history` | ✅ | Slot history bitvector sysvar | None |
+| `epoch_info` | ❌ | Not a sysvar (RPC data only) | N/A |
+| `stake_history` | ❌ | Not in solana-sdk | N/A |
 
 ### Phase 8: Native Programs (Low Priority) ⏳
 
@@ -97,11 +97,11 @@ This roadmap outlines the complete implementation of the [Solana SDK](https://gi
 
 ## 🎯 Current Focus
 
-### Next Priority: Extended Sysvars (Phase 7)
-- [ ] `epoch_info.zig` - Epoch information sysvar
-- [ ] `epoch_schedule.zig` - Epoch schedule sysvar
-- [ ] `slot_history.zig` - Slot history sysvar
-- [ ] `stake_history.zig` - Stake history sysvar
+### Next Priority: Native Programs (Phase 8)
+- [ ] `system_program.zig` - System program CPI interface
+- [ ] `bpf_loader.zig` - BPF loader interface
+- [ ] `ed25519_program.zig` - Ed25519 signature verification
+- [ ] `secp256k1_program.zig` - Secp256k1 signature verification
 
 ### Implementation Strategy
 
@@ -144,7 +144,8 @@ docs/
 - **Phase 4**: 100% complete (3/3 modules) ✅
 - **Phase 5**: 100% complete (3/3 modules) ✅
 - **Phase 6**: 100% complete (3/3 modules) ✅
-- **Total**: ~50% complete (25/50 modules)
+- **Phase 7**: 100% complete (2/2 modules) ✅
+- **Total**: ~55% complete (27/50 modules)
 
 Legend:
 - ✅ Complete

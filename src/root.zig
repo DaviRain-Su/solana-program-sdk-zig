@@ -39,6 +39,8 @@ pub const blake3 = @import("blake3.zig");
 pub const sha256_hasher = @import("sha256_hasher.zig");
 pub const keccak_hasher = @import("keccak_hasher.zig");
 pub const slot_hashes = @import("slot_hashes.zig");
+pub const slot_history = @import("slot_history.zig");
+pub const epoch_schedule = @import("epoch_schedule.zig");
 
 pub const bpf = @import("bpf.zig");
 pub const syscalls = @import("syscalls.zig");

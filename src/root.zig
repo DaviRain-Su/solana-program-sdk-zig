@@ -31,8 +31,13 @@ pub const keypair = @import("keypair.zig");
 pub const short_vec = @import("short_vec.zig");
 pub const borsh = @import("borsh.zig");
 pub const bincode = @import("bincode.zig");
+pub const message = @import("message.zig");
+pub const signer = @import("signer.zig");
+pub const transaction = @import("transaction.zig");
 
 pub const blake3 = @import("blake3.zig");
+pub const sha256_hasher = @import("sha256_hasher.zig");
+pub const keccak_hasher = @import("keccak_hasher.zig");
 pub const slot_hashes = @import("slot_hashes.zig");
 
 pub const bpf = @import("bpf.zig");

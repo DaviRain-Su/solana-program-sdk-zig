@@ -43,22 +43,21 @@ This roadmap outlines the complete implementation of the [Solana SDK](https://gi
 | `rent` | ✅ | Rent sysvar | syscalls |
 | `slot_hashes` | ✅ | Slot hashes sysvar | hash |
 
-### Phase 5: Hash Functions (Medium Priority) 🔄
+### Phase 5: Hash Functions (Medium Priority) ✅
 
 | Module | Status | Description | Dependencies |
 |--------|--------|-------------|--------------|
 | `blake3` | ✅ | Blake3 hash via syscall | syscalls |
-| `sha256_hasher` | ⏳ | SHA-256 hash wrapper | hash |
-| `keccak_hasher` | ⏳ | Keccak hash wrapper | syscalls |
+| `sha256_hasher` | ✅ | SHA-256 hash wrapper | hash |
+| `keccak_hasher` | ✅ | Keccak hash wrapper | syscalls |
 
-### Phase 6: Transaction System (Medium Priority) ⏳
+### Phase 6: Transaction System (Medium Priority) ✅
 
 | Module | Status | Description | Dependencies |
 |--------|--------|-------------|--------------|
-| `message` | ⏳ | Transaction messages | pubkey, instruction |
-| `transaction` | ⏳ | Transaction types | message, signature |
-| `signer` | ⏳ | Signing interfaces | keypair |
-| `signers` | ⏳ | Multiple signer utilities | signer |
+| `message` | ✅ | Transaction messages | pubkey, instruction |
+| `transaction` | ✅ | Transaction types | message, signature |
+| `signer` | ✅ | Signing interfaces | keypair |
 
 ### Phase 7: Extended Sysvars (Medium Priority) ⏳
 
@@ -98,11 +97,11 @@ This roadmap outlines the complete implementation of the [Solana SDK](https://gi
 
 ## 🎯 Current Focus
 
-### Next Priority: Transaction System (Phase 6)
-- [ ] `message.zig` - Transaction message structure
-- [ ] `transaction.zig` - Full transaction types
-- [ ] `signer.zig` - Signer trait/interface
-- [ ] `signers.zig` - Multi-signer utilities
+### Next Priority: Extended Sysvars (Phase 7)
+- [ ] `epoch_info.zig` - Epoch information sysvar
+- [ ] `epoch_schedule.zig` - Epoch schedule sysvar
+- [ ] `slot_history.zig` - Slot history sysvar
+- [ ] `stake_history.zig` - Stake history sysvar
 
 ### Implementation Strategy
 
@@ -143,9 +142,9 @@ docs/
 - **Phase 2**: 100% complete (3/3 modules) ✅
 - **Phase 3**: 100% complete (9/9 modules) ✅
 - **Phase 4**: 100% complete (3/3 modules) ✅
-- **Phase 5**: 33% complete (1/3 modules) 🔄
-- **Phase 6**: 0% (0/4 modules) ⏳
-- **Total**: ~40% complete (20/50 modules)
+- **Phase 5**: 100% complete (3/3 modules) ✅
+- **Phase 6**: 100% complete (3/3 modules) ✅
+- **Total**: ~50% complete (25/50 modules)
 
 Legend:
 - ✅ Complete

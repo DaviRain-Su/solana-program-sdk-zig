@@ -108,7 +108,7 @@ test "bpf_loader: isBpfLoader check" {
     try std.testing.expect(isBpfLoader(bpf_loader_upgradeable_id));
 
     // System program should not be a BPF loader
-    const system_id = PublicKey.comptimeFromBase58("11111111111111111111111111111111");
+    const system_id = PublicKey.from([_]u8{0} ** 32);
     try std.testing.expect(!isBpfLoader(system_id));
 }
 

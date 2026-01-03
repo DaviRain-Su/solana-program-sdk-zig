@@ -8,8 +8,20 @@
 
 const std = @import("std");
 const PublicKey = @import("public_key.zig").PublicKey;
-const Instruction = @import("instruction.zig").Instruction;
 const AccountMeta = @import("instruction.zig").AccountMeta;
+
+/// Built instruction data for transaction building
+/// This is used for off-chain instruction creation (not CPI)
+pub const BuiltInstruction = struct {
+    program_id: PublicKey,
+    accounts: []AccountMeta,
+    data: []u8,
+
+    pub fn deinit(self: *BuiltInstruction, allocator: std.mem.Allocator) void {
+        allocator.free(self.accounts);
+        allocator.free(self.data);
+    }
+};
 
 /// System program ID
 ///
@@ -224,10 +236,10 @@ pub fn createAccount(
     lamports: u64,
     space: u64,
     owner: PublicKey,
-) !Instruction {
+) !BuiltInstruction {
     // CreateAccount: 4 (index) + 8 (lamports) + 8 (space) + 32 (owner) = 52 bytes
     var data = try std.ArrayList(u8).initCapacity(allocator, 52);
-    errdefer data.deinit();
+    errdefer data.deinit(allocator);
 
     // Instruction index: 0 = CreateAccount
     data.appendSliceAssumeCapacity(&[_]u8{ 0, 0, 0, 0 });
@@ -239,11 +251,11 @@ pub fn createAccount(
     data.appendSliceAssumeCapacity(&owner.bytes);
 
     var accounts = try std.ArrayList(AccountMeta).initCapacity(allocator, 2);
-    errdefer accounts.deinit();
+    errdefer accounts.deinit(allocator);
     accounts.appendAssumeCapacity(AccountMeta.init(from_pubkey, true, true));
     accounts.appendAssumeCapacity(AccountMeta.init(to_pubkey, true, true));
 
-    return Instruction{
+    return BuiltInstruction{
         .program_id = id,
         .accounts = try accounts.toOwnedSlice(allocator),
         .data = try data.toOwnedSlice(allocator),
@@ -256,10 +268,10 @@ pub fn transfer(
     from_pubkey: PublicKey,
     to_pubkey: PublicKey,
     lamports: u64,
-) !Instruction {
+) !BuiltInstruction {
     // Transfer: 4 (index) + 8 (lamports) = 12 bytes
     var data = try std.ArrayList(u8).initCapacity(allocator, 12);
-    errdefer data.deinit();
+    errdefer data.deinit(allocator);
 
     // Instruction index: 2 = Transfer
     data.appendSliceAssumeCapacity(&[_]u8{ 2, 0, 0, 0 });
@@ -267,11 +279,11 @@ pub fn transfer(
     data.appendSliceAssumeCapacity(&std.mem.toBytes(lamports));
 
     var accounts = try std.ArrayList(AccountMeta).initCapacity(allocator, 2);
-    errdefer accounts.deinit();
+    errdefer accounts.deinit(allocator);
     accounts.appendAssumeCapacity(AccountMeta.init(from_pubkey, true, true));
-    accounts.appendAssumeCapacity(AccountMeta.init(to_pubkey, true, false));
+    accounts.appendAssumeCapacity(AccountMeta.init(to_pubkey, false, true));
 
-    return Instruction{
+    return BuiltInstruction{
         .program_id = id,
         .accounts = try accounts.toOwnedSlice(allocator),
         .data = try data.toOwnedSlice(allocator),
@@ -283,10 +295,10 @@ pub fn assign(
     allocator: std.mem.Allocator,
     pubkey: PublicKey,
     owner: PublicKey,
-) !Instruction {
+) !BuiltInstruction {
     // Assign: 4 (index) + 32 (owner) = 36 bytes
     var data = try std.ArrayList(u8).initCapacity(allocator, 36);
-    errdefer data.deinit();
+    errdefer data.deinit(allocator);
 
     // Instruction index: 1 = Assign
     data.appendSliceAssumeCapacity(&[_]u8{ 1, 0, 0, 0 });
@@ -294,10 +306,10 @@ pub fn assign(
     data.appendSliceAssumeCapacity(&owner.bytes);
 
     var accounts = try std.ArrayList(AccountMeta).initCapacity(allocator, 1);
-    errdefer accounts.deinit();
+    errdefer accounts.deinit(allocator);
     accounts.appendAssumeCapacity(AccountMeta.init(pubkey, true, true));
 
-    return Instruction{
+    return BuiltInstruction{
         .program_id = id,
         .accounts = try accounts.toOwnedSlice(allocator),
         .data = try data.toOwnedSlice(allocator),
@@ -309,10 +321,10 @@ pub fn allocate(
     allocator: std.mem.Allocator,
     pubkey: PublicKey,
     space: u64,
-) !Instruction {
+) !BuiltInstruction {
     // Allocate: 4 (index) + 8 (space) = 12 bytes
     var data = try std.ArrayList(u8).initCapacity(allocator, 12);
-    errdefer data.deinit();
+    errdefer data.deinit(allocator);
 
     // Instruction index: 8 = Allocate
     data.appendSliceAssumeCapacity(&[_]u8{ 8, 0, 0, 0 });
@@ -320,10 +332,10 @@ pub fn allocate(
     data.appendSliceAssumeCapacity(&std.mem.toBytes(space));
 
     var accounts = try std.ArrayList(AccountMeta).initCapacity(allocator, 1);
-    errdefer accounts.deinit();
+    errdefer accounts.deinit(allocator);
     accounts.appendAssumeCapacity(AccountMeta.init(pubkey, true, true));
 
-    return Instruction{
+    return BuiltInstruction{
         .program_id = id,
         .accounts = try accounts.toOwnedSlice(allocator),
         .data = try data.toOwnedSlice(allocator),
@@ -343,17 +355,14 @@ test "system_program: program id is correct" {
 test "system_program: create account instruction" {
     const allocator = std.testing.allocator;
 
-    const from = PublicKey.comptimeFromBase58("11111111111111111111111111111111");
-    const to = PublicKey.comptimeFromBase58("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
-    const owner = PublicKey.comptimeFromBase58("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+    const from = PublicKey.from([_]u8{1} ** 32);
+    const to = PublicKey.from([_]u8{2} ** 32);
+    const owner = PublicKey.from([_]u8{3} ** 32);
 
     var ix = try createAccount(allocator, from, to, 1_000_000, 165, owner);
-    defer {
-        allocator.free(ix.accounts);
-        allocator.free(ix.data);
-    }
+    defer ix.deinit(allocator);
 
-    // Verify program ID
+    // Verify program ID (should be all zeros)
     try std.testing.expectEqualSlices(u8, &id.bytes, &ix.program_id.bytes);
 
     // Verify accounts
@@ -370,14 +379,11 @@ test "system_program: create account instruction" {
 test "system_program: transfer instruction" {
     const allocator = std.testing.allocator;
 
-    const from = PublicKey.comptimeFromBase58("11111111111111111111111111111111");
-    const to = PublicKey.comptimeFromBase58("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+    const from = PublicKey.from([_]u8{1} ** 32);
+    const to = PublicKey.from([_]u8{2} ** 32);
 
     var ix = try transfer(allocator, from, to, 1_000_000_000);
-    defer {
-        allocator.free(ix.accounts);
-        allocator.free(ix.data);
-    }
+    defer ix.deinit(allocator);
 
     // Verify instruction index (2 = Transfer)
     try std.testing.expectEqual(@as(u8, 2), ix.data[0]);
@@ -397,14 +403,11 @@ test "system_program: transfer instruction" {
 test "system_program: assign instruction" {
     const allocator = std.testing.allocator;
 
-    const pubkey = PublicKey.comptimeFromBase58("11111111111111111111111111111111");
-    const owner = PublicKey.comptimeFromBase58("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+    const pubkey = PublicKey.from([_]u8{1} ** 32);
+    const owner = PublicKey.from([_]u8{2} ** 32);
 
     var ix = try assign(allocator, pubkey, owner);
-    defer {
-        allocator.free(ix.accounts);
-        allocator.free(ix.data);
-    }
+    defer ix.deinit(allocator);
 
     // Verify instruction index (1 = Assign)
     try std.testing.expectEqual(@as(u8, 1), ix.data[0]);
@@ -416,13 +419,10 @@ test "system_program: assign instruction" {
 test "system_program: allocate instruction" {
     const allocator = std.testing.allocator;
 
-    const pubkey = PublicKey.comptimeFromBase58("11111111111111111111111111111111");
+    const pubkey = PublicKey.from([_]u8{1} ** 32);
 
     var ix = try allocate(allocator, pubkey, 1024);
-    defer {
-        allocator.free(ix.accounts);
-        allocator.free(ix.data);
-    }
+    defer ix.deinit(allocator);
 
     // Verify instruction index (8 = Allocate)
     try std.testing.expectEqual(@as(u8, 8), ix.data[0]);

@@ -68,15 +68,15 @@ This roadmap outlines the complete implementation of the [Solana SDK](https://gi
 | `epoch_info` | ❌ | Not a sysvar (RPC data only) | N/A |
 | `stake_history` | ❌ | Not in solana-sdk | N/A |
 
-### Phase 8: Native Programs (Low Priority) ⏳
+### Phase 8: Native Programs (Low Priority) ✅
 
 | Module | Status | Description | Dependencies |
 |--------|--------|-------------|--------------|
-| `system_program` | ⏳ | System program interface | instruction |
-| `bpf_loader` | ⏳ | BPF loader interface | pubkey |
-| `ed25519_program` | ⏳ | Ed25519 program interface | signature |
-| `secp256k1_program` | ⏳ | Secp256k1 program interface | None |
-| `stake_program` | ⏳ | Stake program interface | instruction |
+| `system_program` | ✅ | System program interface | instruction |
+| `bpf_loader` | ✅ | BPF loader program IDs | pubkey |
+| `ed25519_program` | ✅ | Ed25519 signature verification | None |
+| `secp256k1_program` | ✅ | Secp256k1 signature verification | None |
+| `stake_program` | ❌ | Deferred to future version | instruction |
 
 ### Phase 9: Advanced Features (Low Priority) ⏳
 
@@ -97,11 +97,11 @@ This roadmap outlines the complete implementation of the [Solana SDK](https://gi
 
 ## 🎯 Current Focus
 
-### Next Priority: Native Programs (Phase 8)
-- [ ] `system_program.zig` - System program CPI interface
-- [ ] `bpf_loader.zig` - BPF loader interface
-- [ ] `ed25519_program.zig` - Ed25519 signature verification
-- [ ] `secp256k1_program.zig` - Secp256k1 signature verification
+### Next Priority: Advanced Features (Phase 9)
+- [ ] `native_token.zig` - Native token utilities
+- [ ] `fee_calculator.zig` - Fee calculation
+- [ ] `sysvar.zig` - Unified sysvar utilities
+- [ ] `sanitize.zig` - Data sanitization
 
 ### Implementation Strategy
 
@@ -145,7 +145,8 @@ docs/
 - **Phase 5**: 100% complete (3/3 modules) ✅
 - **Phase 6**: 100% complete (3/3 modules) ✅
 - **Phase 7**: 100% complete (2/2 modules) ✅
-- **Total**: ~55% complete (27/50 modules)
+- **Phase 8**: 100% complete (4/4 modules) ✅
+- **Total**: ~62% complete (31/50 modules)
 
 Legend:
 - ✅ Complete

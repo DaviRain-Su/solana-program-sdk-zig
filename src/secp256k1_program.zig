@@ -8,7 +8,16 @@
 
 const std = @import("std");
 const PublicKey = @import("public_key.zig").PublicKey;
-const Instruction = @import("instruction.zig").Instruction;
+
+/// Built instruction for Secp256k1 verification
+pub const BuiltInstruction = struct {
+    program_id: PublicKey,
+    data: []u8,
+
+    pub fn deinit(self: *BuiltInstruction, allocator: std.mem.Allocator) void {
+        allocator.free(self.data);
+    }
+};
 
 /// Secp256k1 program ID
 ///
@@ -108,7 +117,7 @@ pub fn createInstruction(
     signature: *const [SIGNATURE_SERIALIZED_SIZE]u8,
     recovery_id: u8,
     eth_address: *const [HASHED_PUBKEY_SERIALIZED_SIZE]u8,
-) !Instruction {
+) !BuiltInstruction {
     // Layout:
     // [0]: num_signatures (u8)
     // [1..12]: SecpSignatureOffsets (11 bytes)
@@ -120,7 +129,7 @@ pub fn createInstruction(
     const sig_with_recovery_size = SIGNATURE_SERIALIZED_SIZE + 1;
     const total_size = DATA_START + sig_with_recovery_size + HASHED_PUBKEY_SERIALIZED_SIZE + message.len;
     var data = try std.ArrayList(u8).initCapacity(allocator, total_size);
-    errdefer data.deinit();
+    errdefer data.deinit(allocator);
 
     // Number of signatures
     data.appendAssumeCapacity(1);
@@ -152,9 +161,8 @@ pub fn createInstruction(
     // Write message
     try data.appendSlice(allocator, message);
 
-    return Instruction{
+    return BuiltInstruction{
         .program_id = id,
-        .accounts = &[_]@import("instruction.zig").AccountMeta{}, // No accounts needed
         .data = try data.toOwnedSlice(allocator),
     };
 }
@@ -208,13 +216,10 @@ test "secp256k1_program: create instruction" {
     @memset(&eth_address, 0xCD);
 
     var ix = try createInstruction(allocator, message, &signature, recovery_id, &eth_address);
-    defer allocator.free(ix.data);
+    defer ix.deinit(allocator);
 
     // Verify program ID
     try std.testing.expectEqualSlices(u8, &id.bytes, &ix.program_id.bytes);
-
-    // Verify no accounts needed
-    try std.testing.expectEqual(@as(usize, 0), ix.accounts.len);
 
     // Verify data structure
     try std.testing.expectEqual(@as(u8, 1), ix.data[0]); // num_signatures

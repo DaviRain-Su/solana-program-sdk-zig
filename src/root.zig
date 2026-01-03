@@ -45,6 +45,12 @@ pub const epoch_schedule = @import("epoch_schedule.zig");
 pub const bpf = @import("bpf.zig");
 pub const syscalls = @import("syscalls.zig");
 
+// Phase 8: Native Programs
+pub const system_program = @import("system_program.zig");
+pub const bpf_loader = @import("bpf_loader.zig");
+pub const ed25519_program = @import("ed25519_program.zig");
+pub const secp256k1_program = @import("secp256k1_program.zig");
+
 const entrypoint_mod = @import("entrypoint.zig");
 const error_mod = @import("error.zig");
 

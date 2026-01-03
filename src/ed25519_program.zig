@@ -7,7 +7,16 @@
 
 const std = @import("std");
 const PublicKey = @import("public_key.zig").PublicKey;
-const Instruction = @import("instruction.zig").Instruction;
+
+/// Built instruction for Ed25519 verification
+pub const BuiltInstruction = struct {
+    program_id: PublicKey,
+    data: []u8,
+
+    pub fn deinit(self: *BuiltInstruction, allocator: std.mem.Allocator) void {
+        allocator.free(self.data);
+    }
+};
 
 /// Ed25519 program ID
 ///
@@ -101,7 +110,7 @@ pub fn createInstruction(
     message: []const u8,
     signature: *const [SIGNATURE_SERIALIZED_SIZE]u8,
     pubkey: *const [PUBKEY_SERIALIZED_SIZE]u8,
-) !Instruction {
+) !BuiltInstruction {
     // Layout:
     // [0]: num_signatures (u8)
     // [1]: padding (u8)
@@ -112,7 +121,7 @@ pub fn createInstruction(
 
     const total_size = DATA_START + SIGNATURE_SERIALIZED_SIZE + PUBKEY_SERIALIZED_SIZE + message.len;
     var data = try std.ArrayList(u8).initCapacity(allocator, total_size);
-    errdefer data.deinit();
+    errdefer data.deinit(allocator);
 
     // Number of signatures
     data.appendAssumeCapacity(1);
@@ -143,9 +152,8 @@ pub fn createInstruction(
     // Write message
     try data.appendSlice(allocator, message);
 
-    return Instruction{
+    return BuiltInstruction{
         .program_id = id,
-        .accounts = &[_]@import("instruction.zig").AccountMeta{}, // No accounts needed
         .data = try data.toOwnedSlice(allocator),
     };
 }
@@ -197,13 +205,10 @@ test "ed25519_program: create instruction" {
     @memset(&pubkey, 0xCD);
 
     var ix = try createInstruction(allocator, message, &signature, &pubkey);
-    defer allocator.free(ix.data);
+    defer ix.deinit(allocator);
 
     // Verify program ID
     try std.testing.expectEqualSlices(u8, &id.bytes, &ix.program_id.bytes);
-
-    // Verify no accounts needed
-    try std.testing.expectEqual(@as(usize, 0), ix.accounts.len);
 
     // Verify data structure
     try std.testing.expectEqual(@as(u8, 1), ix.data[0]); // num_signatures

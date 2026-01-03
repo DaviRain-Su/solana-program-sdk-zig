@@ -9,6 +9,7 @@ pub const clock = @import("clock.zig");
 pub const rent = @import("rent.zig");
 pub const log = @import("log.zig");
 pub const hash = @import("hash.zig");
+pub const signature = @import("signature.zig");
 
 pub const blake3 = @import("blake3.zig");
 pub const slot_hashes = @import("slot_hashes.zig");
@@ -28,6 +29,8 @@ pub const PublicKey = public_key.PublicKey;
 pub const Account = account.Account;
 pub const ProgramError = error_mod.ProgramError;
 pub const print = log.print;
+pub const Signature = signature.Signature;
+pub const SIGNATURE_BYTES = signature.SIGNATURE_BYTES;
 
 pub const native_loader_id = public_key.PublicKey.comptimeFromBase58("NativeLoader1111111111111111111111111111111");
 pub const incinerator_id = public_key.PublicKey.comptimeFromBase58("1nc1nerator11111111111111111111111111111111");

@@ -1,5 +1,6 @@
 const std = @import("std");
 const base58 = @import("base58");
+pub const base58_mod = base58;
 const builtin = @import("builtin");
 
 const syscalls = @import("syscalls.zig");

@@ -8,13 +8,13 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 |----------|-------------|-------|----------|
 | Core Types | 8 | 8 | 100% |
 | Serialization | 3 | 3 | 100% |
-| Program Foundation | 13 | 14 | 93% |
+| Program Foundation | 16 | 16 | 100% |
 | Sysvars | 6 | 10 | 60% |
 | Hash Functions | 3 | 4 | 75% |
 | Native Programs | 8 | 12 | 67% |
 | Native Token | 1 | 1 | 100% |
 | Crypto (Advanced) | 0 | 3 | 0% |
-| **Total (On-chain)** | **42** | **55** | **76%** |
+| **Total (On-chain)** | **45** | **55** | **82%** |
 
 > Note: Client/RPC and Validator-only modules are excluded as they're not needed for on-chain program development.
 
@@ -186,9 +186,14 @@ These modules are NOT needed for on-chain program development:
 - ✅ `instructions_sysvar.zig` - Instruction introspection sysvar
 - ✅ `address_lookup_table.zig` - Address Lookup Tables for versioned transactions
 
-### v0.20.0 (Current) - Pack/Unpack & Nonce Support
+### v0.20.0 - Pack/Unpack & Nonce Support
 - ✅ `program_pack.zig` - Pack/Unpack traits for accounts
 - ✅ `nonce.zig` - Durable nonce support
+
+### v0.21.0 - Remaining Program Foundation
+- ✅ `program_option.zig` - Option types for programs
+- ✅ `msg.zig` - Message utilities
+- ✅ `stable-layout.zig` - Stable layout traits
 
 ### v0.18.0 - CPI, Compute Budget & Stack Optimization
 - ✅ CPI enhancements (`setReturnData`, `getReturnData` in instruction.zig)
@@ -207,10 +212,11 @@ These modules are NOT needed for on-chain program development:
 - ✅ Transaction system (message, transaction, signer)
 - ✅ Program test integration (cargo test passing)
 
-### Next: v0.21.0 - Remaining Program Foundation
-- [ ] `program_option.zig` - Option types for programs
-- [ ] `msg.zig` - Message utilities
-- [ ] `stable-layout.zig` - Stable layout traits
+### Next: v0.22.0 - Sysvar Completion
+- [ ] `last_restart_slot.zig` - Restart slot sysvar
+- [ ] `sysvar.zig` - Sysvar utilities
+- [ ] `sysvar-id.zig` - Sysvar ID constants
+- [ ] `epoch-rewards.zig` - Epoch rewards sysvar
 
 ---
 

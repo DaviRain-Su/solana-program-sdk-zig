@@ -14,7 +14,7 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 | Native Programs | 8 | 12 | 67% |
 | Native Token | 1 | 1 | 100% |
 | Crypto (Advanced) | 0 | 3 | 0% |
-| **Total (On-chain)** | **53** | **55** | **96%** |
+| **Total (On-chain)** | **55** | **55** | **100%** |
 
 > Note: Client/RPC and Validator-only modules are excluded as they're not needed for on-chain program development.
 
@@ -218,9 +218,13 @@ These modules are NOT needed for on-chain program development:
 - ✅ Transaction system (message, transaction, signer)
 - ✅ Program test integration (cargo test passing)
 
-### v0.23.0 (Current) - Advanced Crypto
-- [ ] `bn254.zig` - BN254 curve for ZK proofs
-- [ ] `big-mod-exp.zig` - Modular exponentiation
+### v0.23.0 - Advanced Crypto ✅
+- ✅ `bn254.zig` - BN254 curve for ZK proofs
+- ✅ `big-mod-exp.zig` - Modular exponentiation
+
+### v0.24.0 (Current) - Extended Native Programs
+- [ ] `loader_v4.zig` - New loader interface
+- [ ] `secp256r1_program.zig` - P-256/WebAuthn signatures
 
 ---
 

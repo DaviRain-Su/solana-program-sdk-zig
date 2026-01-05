@@ -75,6 +75,10 @@ pub const sysvar = @import("sysvar.zig");
 // Note: sysvar_id is already defined below as a constant
 pub const epoch_rewards = @import("epoch_rewards.zig");
 
+// Phase 14: v0.23.0 - Advanced Crypto
+pub const bn254 = @import("bn254.zig");
+pub const big_mod_exp = @import("big_mod_exp.zig");
+
 const entrypoint_mod = @import("entrypoint.zig");
 const error_mod = @import("error.zig");
 

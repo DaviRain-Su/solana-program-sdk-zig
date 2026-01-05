@@ -381,18 +381,18 @@ test "loader_v4: program size" {
 }
 
 test "loader_v4: program data parsing" {
-    // Create mock program data
-    var data: [64]u8 = undefined;
+    // Create mock program data (minimum 48 bytes for header)
+    var data: [48]u8 = undefined;
 
-    // Magic number
+    // Magic number (offset 0-4)
     std.mem.writeInt(u32, data[0..4], 0x12345678, .little);
-    // Version
+    // Version (offset 4-8)
     std.mem.writeInt(u32, data[4..8], 1, .little);
-    // Slot
+    // Slot (offset 8-16)
     std.mem.writeInt(u64, data[8..16], 12345, .little);
-    // Authority (at offset 13)
+    // Authority (offset 16-48)
     const authority_bytes = [_]u8{1} ** 32;
-    @memcpy(data[13..45], &authority_bytes);
+    @memcpy(data[16..48], &authority_bytes);
 
     const program_data = try ProgramData.parse(&data);
     try std.testing.expectEqual(@as(u32, 0x12345678), program_data.magic);

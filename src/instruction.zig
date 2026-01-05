@@ -162,6 +162,102 @@ pub const Instruction = extern struct {
     }
 };
 
+// ============================================================================
+// Return Data
+// ============================================================================
+
+/// Maximum size of return data from CPI (1024 bytes)
+///
+/// Rust equivalent: `solana_cpi::MAX_RETURN_DATA`
+pub const MAX_RETURN_DATA: usize = 1024;
+
+/// Return data from a CPI call
+pub const ReturnData = struct {
+    /// The program that set the return data
+    program_id: PublicKey,
+    /// The return data itself
+    data: []const u8,
+};
+
+/// Set the return data for this program invocation.
+///
+/// Return data is a way for a called program to return data to its caller.
+/// The data is limited to MAX_RETURN_DATA bytes (1024).
+///
+/// Rust equivalent: `solana_cpi::set_return_data`
+/// Source: https://github.com/anza-xyz/solana-sdk/blob/master/cpi/src/lib.rs
+pub fn setReturnData(data: []const u8) void {
+    if (bpf.is_bpf_program) {
+        const Syscall = struct {
+            extern fn sol_set_return_data(data: [*]const u8, len: u64) callconv(.c) void;
+        };
+        const len = @min(data.len, MAX_RETURN_DATA);
+        Syscall.sol_set_return_data(data.ptr, len);
+    }
+}
+
+/// Get the return data from the last CPI call.
+///
+/// Returns the program ID that set the data and the data itself.
+/// If no return data was set, returns null.
+///
+/// The caller must provide a buffer to receive the data. The buffer should
+/// be at least MAX_RETURN_DATA bytes to ensure all data can be received.
+///
+/// Rust equivalent: `solana_cpi::get_return_data`
+/// Source: https://github.com/anza-xyz/solana-sdk/blob/master/cpi/src/lib.rs
+pub fn getReturnData(buffer: []u8) ?ReturnData {
+    if (bpf.is_bpf_program) {
+        const Syscall = struct {
+            extern fn sol_get_return_data(data: [*]u8, len: u64, program_id: [*]u8) callconv(.c) u64;
+        };
+
+        var program_id_bytes: [32]u8 = undefined;
+        const size = Syscall.sol_get_return_data(
+            buffer.ptr,
+            buffer.len,
+            &program_id_bytes,
+        );
+
+        if (size == 0) return null;
+
+        const actual_size = @min(size, buffer.len);
+        return ReturnData{
+            .program_id = PublicKey.from(program_id_bytes),
+            .data = buffer[0..actual_size],
+        };
+    }
+    return null;
+}
+
+/// Get the return data from the last CPI call into a stack-allocated buffer.
+///
+/// This is a convenience function that uses a stack buffer of MAX_RETURN_DATA size.
+/// Returns a copy of the data and program ID if return data was set.
+pub fn getReturnDataStatic() ?struct {
+    program_id: PublicKey,
+    data: [MAX_RETURN_DATA]u8,
+    len: usize,
+} {
+    if (bpf.is_bpf_program) {
+        var buffer: [MAX_RETURN_DATA]u8 = undefined;
+        if (getReturnData(&buffer)) |result| {
+            var data: [MAX_RETURN_DATA]u8 = undefined;
+            @memcpy(data[0..result.data.len], result.data);
+            return .{
+                .program_id = result.program_id,
+                .data = data,
+                .len = result.data.len,
+            };
+        }
+    }
+    return null;
+}
+
+// ============================================================================
+// Instruction Data Helper
+// ============================================================================
+
 /// Helper for no-alloc CPIs. By providing a discriminant and data type, the
 /// dynamic type can be constructed in-place and used for instruction data:
 ///

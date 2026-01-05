@@ -8,12 +8,13 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 |----------|-------------|-------|----------|
 | Core Types | 8 | 8 | 100% |
 | Serialization | 3 | 6 | 50% |
-| Program Foundation | 9 | 12 | 75% |
+| Program Foundation | 10 | 12 | 83% |
 | Sysvars | 5 | 11 | 45% |
 | Hash Functions | 3 | 4 | 75% |
-| Native Programs | 6 | 11 | 55% |
+| Native Programs | 7 | 11 | 64% |
+| Native Token | 1 | 1 | 100% |
 | Crypto | 0 | 4 | 0% |
-| **Total (On-chain)** | **34** | **56** | **61%** |
+| **Total (On-chain)** | **37** | **57** | **65%** |
 
 > Note: Client/RPC and Validator modules are excluded as they're not needed for on-chain program development.
 
@@ -45,7 +46,7 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 | - | `serde-varint` | ⏳ | - |
 | - | `serialize-utils` | ⏳ | - |
 
-### Program Foundation (9/12 - 75%)
+### Program Foundation (10/12 - 83%)
 
 | Zig Module | Rust Crate | Status | Tests |
 |------------|------------|--------|-------|
@@ -57,7 +58,7 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 | `allocator.zig` | (BPF allocator) | ✅ | ✅ |
 | `bpf.zig` | (BPF utilities) | ✅ | ✅ |
 | `signer.zig` | `signer` | ✅ | ✅ |
-| - | `cpi` | ⏳ | - |
+| `instruction.zig` | `cpi` | ✅ | ✅ |
 | - | `program-memory` | ⏳ | - |
 | - | `program-option` | ⏳ | - |
 | - | `program-pack` | ⏳ | - |
@@ -87,7 +88,7 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 | `keccak_hasher.zig` | `keccak-hasher` | ✅ | ✅ |
 | - | `epoch-rewards-hasher` | ⏳ | - |
 
-### Native Programs (6/11 - 55%)
+### Native Programs (7/11 - 64%)
 
 | Zig Module | Rust Crate | Status | Tests |
 |------------|------------|--------|-------|
@@ -96,12 +97,18 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 | `bpf_loader.zig` | `loader-v3-interface` | ✅ | ✅ |
 | `ed25519_program.zig` | `ed25519-program` | ✅ | ✅ |
 | `secp256k1_program.zig` | `secp256k1-program` | ✅ | ✅ |
+| `compute_budget.zig` | `compute-budget-interface` | ✅ | ✅ |
 | - | `loader-v4-interface` | ⏳ | - |
 | - | `secp256r1-program` | ⏳ | - |
-| - | `compute-budget-interface` | ⏳ | - |
 | - | `address-lookup-table-interface` | ⏳ | - |
 | - | `vote-interface` | ⏳ | - |
 | - | `feature-gate-interface` | ⏳ | - |
+
+### Native Token (1/1 - 100%)
+
+| Zig Module | Rust Crate | Status | Tests |
+|------------|------------|--------|-------|
+| `native_token.zig` | `native-token` | ✅ | ✅ |
 
 ---
 
@@ -111,8 +118,6 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 
 | Module | Rust Crate | Description | Effort |
 |--------|------------|-------------|--------|
-| `cpi.zig` | `cpi` | Cross-Program Invocation | High |
-| `compute_budget.zig` | `compute-budget-interface` | Compute budget instructions | Medium |
 | `address_lookup_table.zig` | `address-lookup-table-interface` | ALT for versioned txns | Medium |
 | `instructions_sysvar.zig` | `instructions-sysvar` | Introspection sysvar | Low |
 
@@ -120,7 +125,6 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 
 | Module | Rust Crate | Description | Effort |
 |--------|------------|-------------|--------|
-| `native_token.zig` | `native-token` | SOL token utilities | Low |
 | `nonce.zig` | `nonce` | Durable nonce types | Medium |
 | `loader_v4.zig` | `loader-v4-interface` | New loader interface | Medium |
 | `secp256r1_program.zig` | `secp256r1-program` | P-256 signatures | Medium |
@@ -160,7 +164,12 @@ These modules are NOT needed for on-chain program development:
 
 ## 📈 Version History
 
-### v0.17.1 (Current) - Extended SDK Release
+### v0.18.0 (Current) - CPI & Compute Budget
+- ✅ CPI enhancements (setReturnData, getReturnData in instruction.zig)
+- ✅ `compute_budget.zig` - Compute budget program interface
+- ✅ `native_token.zig` - Native SOL token utilities (Sol, solStrToLamports)
+
+### v0.17.1 - Extended SDK Release
 - ✅ Core types complete (pubkey, hash, signature, keypair)
 - ✅ Serialization (Borsh, Bincode, ShortVec)
 - ✅ Program foundation (entrypoint, error, log, syscalls)
@@ -170,11 +179,10 @@ These modules are NOT needed for on-chain program development:
 - ✅ Transaction system (message, transaction, signer)
 - ✅ Program test integration (cargo test passing)
 
-### Next: v0.18.0 - CPI & Compute Budget
-- [ ] `cpi.zig` - Cross-Program Invocation
-- [ ] `compute_budget.zig` - Compute budget interface
+### Next: v0.19.0 - Address Lookup Tables & Sysvars
 - [ ] `address_lookup_table.zig` - Address Lookup Tables
-- [ ] `native_token.zig` - Native token utilities
+- [ ] `instructions_sysvar.zig` - Introspection sysvar
+- [ ] `nonce.zig` - Durable nonce types
 
 ---
 

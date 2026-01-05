@@ -50,6 +50,10 @@ pub const system_program = @import("system_program.zig");
 pub const bpf_loader = @import("bpf_loader.zig");
 pub const ed25519_program = @import("ed25519_program.zig");
 pub const secp256k1_program = @import("secp256k1_program.zig");
+pub const compute_budget = @import("compute_budget.zig");
+
+// Phase 9: Native Token
+pub const native_token = @import("native_token.zig");
 
 const entrypoint_mod = @import("entrypoint.zig");
 const error_mod = @import("error.zig");
@@ -79,8 +83,18 @@ pub const instructions_id = public_key.PublicKey.comptimeFromBase58("Sysvar1nstr
 
 pub const ed25519_program_id = public_key.PublicKey.comptimeFromBase58("Ed25519SigVerify111111111111111111111111111");
 pub const secp256k1_program_id = public_key.PublicKey.comptimeFromBase58("KeccakSecp256k11111111111111111111111111111");
+pub const compute_budget_program_id = compute_budget.ID;
 
-pub const lamports_per_sol = 1_000_000_000;
+// Native token exports
+pub const lamports_per_sol = native_token.LAMPORTS_PER_SOL;
+pub const LAMPORTS_PER_SOL = native_token.LAMPORTS_PER_SOL;
+pub const Sol = native_token.Sol;
+pub const solStrToLamports = native_token.solStrToLamports;
+
+// CPI exports
+pub const MAX_RETURN_DATA = instruction.MAX_RETURN_DATA;
+pub const setReturnData = instruction.setReturnData;
+pub const getReturnData = instruction.getReturnData;
 
 test {
     std.testing.refAllDecls(@This());

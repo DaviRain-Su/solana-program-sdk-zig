@@ -28,8 +28,9 @@ pub const ProcessInstruction = *const fn (
 pub fn declareEntrypoint(comptime process_instruction: ProcessInstruction) void {
     const S = struct {
         pub export fn entrypoint(input: [*]u8) callconv(.c) u64 {
-            var context = Context.load(input) catch return 1;
-            const result = process_instruction(context.program_id, context.accounts[0..context.num_accounts], context.data);
+            const context = Context.load(input) catch return 1;
+            // context.accounts is already a properly-sized slice (heap-allocated in BPF)
+            const result = process_instruction(context.program_id, context.accounts, context.data);
             return switch (result) {
                 .ok => 0,
                 .err => |e| e.toU64(),

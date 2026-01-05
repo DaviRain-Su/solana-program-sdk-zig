@@ -1,14 +1,13 @@
-const sdk = @import("sdk");
+const sol = @import("solana_program_sdk");
 
-fn processInstruction(program_id: *sdk.PublicKey, accounts: []sdk.Account, data: []const u8) sdk.ProgramResult {
+fn processInstruction(program_id: *sol.PublicKey, accounts: []sol.Account, data: []const u8) sol.ProgramResult {
     _ = accounts;
     _ = data;
-    sdk.print("Hello zig program!", .{});
-    sdk.log.logPubkey(&program_id.bytes);
+    sol.print("Hello zig program: {f}", .{program_id});
     return .ok;
 }
 
 // Declare the program entrypoint
 comptime {
-    sdk.entrypoint(&processInstruction);
+    sol.entrypoint(&processInstruction);
 }

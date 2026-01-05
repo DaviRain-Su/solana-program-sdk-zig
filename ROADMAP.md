@@ -1,155 +1,192 @@
 # Solana SDK Zig Implementation Roadmap
 
-This roadmap outlines the complete implementation of the [Solana SDK](https://github.com/anza-xyz/solana-sdk) in Zig, organized by priority and dependencies.
+This roadmap outlines the implementation of the [Solana SDK](https://github.com/anza-xyz/solana-sdk) in Zig.
 
-## 📋 Implementation Status
+## 📊 Implementation Summary
 
-### Phase 1: Core Types (High Priority) ✅
+| Category | Implemented | Total | Coverage |
+|----------|-------------|-------|----------|
+| Core Types | 8 | 8 | 100% |
+| Serialization | 3 | 6 | 50% |
+| Program Foundation | 9 | 12 | 75% |
+| Sysvars | 5 | 11 | 45% |
+| Hash Functions | 3 | 4 | 75% |
+| Native Programs | 6 | 11 | 55% |
+| Crypto | 0 | 4 | 0% |
+| **Total (On-chain)** | **34** | **56** | **61%** |
 
-| Module | Status | Description | Dependencies |
-|--------|--------|-------------|--------------|
-| `pubkey` | ✅ | Public key types and utilities | base58 |
-| `hash` | ✅ | SHA-256 hash functions | None |
-| `signature` | ✅ | Digital signatures | pubkey, hash |
-| `keypair` | ✅ | Key pair generation and management | pubkey, signature |
+> Note: Client/RPC and Validator modules are excluded as they're not needed for on-chain program development.
 
-### Phase 2: Serialization (High Priority) ✅
+---
 
-| Module | Status | Description | Dependencies |
-|--------|--------|-------------|--------------|
-| `short_vec` | ✅ | Short vector encoding | None |
-| `borsh` | ✅ | Borsh serialization format | None |
-| `bincode` | ✅ | Bincode serialization format | None |
+## ✅ Implemented Modules
 
-### Phase 3: Program Foundation (High Priority) ✅
+### Core Types (8/8 - 100%)
 
-| Module | Status | Description | Dependencies |
-|--------|--------|-------------|--------------|
-| `error` | ✅ | Program error types | None |
-| `instruction` | ✅ | Program instructions | pubkey |
-| `account` | ✅ | Account types and utilities | pubkey |
-| `context` | ✅ | Program context loading | account |
-| `entrypoint` | ✅ | Program entrypoint utilities | error, account |
-| `log` | ✅ | Program logging | syscalls |
-| `syscalls` | ✅ | Solana syscall definitions | None |
-| `bpf` | ✅ | BPF/SBF utilities | None |
-| `allocator` | ✅ | BPF memory allocator | None |
+| Zig Module | Rust Crate | Status | Tests |
+|------------|------------|--------|-------|
+| `public_key.zig` | `pubkey` | ✅ | ✅ |
+| `hash.zig` | `hash` | ✅ | ✅ |
+| `signature.zig` | `signature` | ✅ | ✅ |
+| `keypair.zig` | `keypair` | ✅ | ✅ |
+| `account.zig` | `account-info` | ✅ | ✅ |
+| `instruction.zig` | `instruction` | ✅ | ✅ |
+| `message.zig` | `message` | ✅ | ✅ |
+| `transaction.zig` | `transaction` | ✅ | ✅ |
 
-### Phase 4: System Variables (High Priority) ✅
+### Serialization (3/6 - 50%)
 
-| Module | Status | Description | Dependencies |
-|--------|--------|-------------|--------------|
-| `clock` | ✅ | Clock sysvar | syscalls |
-| `rent` | ✅ | Rent sysvar | syscalls |
-| `slot_hashes` | ✅ | Slot hashes sysvar | hash |
+| Zig Module | Rust Crate | Status | Tests |
+|------------|------------|--------|-------|
+| `bincode.zig` | `bincode` | ✅ | ✅ |
+| `borsh.zig` | `borsh` | ✅ | ✅ |
+| `short_vec.zig` | `short-vec` | ✅ | ✅ |
+| - | `serde` | ⏳ | - |
+| - | `serde-varint` | ⏳ | - |
+| - | `serialize-utils` | ⏳ | - |
 
-### Phase 5: Hash Functions (Medium Priority) ✅
+### Program Foundation (9/12 - 75%)
 
-| Module | Status | Description | Dependencies |
-|--------|--------|-------------|--------------|
-| `blake3` | ✅ | Blake3 hash via syscall | syscalls |
-| `sha256_hasher` | ✅ | SHA-256 hash wrapper | hash |
-| `keccak_hasher` | ✅ | Keccak hash wrapper | syscalls |
+| Zig Module | Rust Crate | Status | Tests |
+|------------|------------|--------|-------|
+| `entrypoint.zig` | `program-entrypoint` | ✅ | ✅ |
+| `error.zig` | `program-error` | ✅ | ✅ |
+| `log.zig` | `program-log` | ✅ | ✅ |
+| `syscalls.zig` | `define-syscall` | ✅ | ✅ |
+| `context.zig` | (entrypoint parsing) | ✅ | ✅ |
+| `allocator.zig` | (BPF allocator) | ✅ | ✅ |
+| `bpf.zig` | (BPF utilities) | ✅ | ✅ |
+| `signer.zig` | `signer` | ✅ | ✅ |
+| - | `cpi` | ⏳ | - |
+| - | `program-memory` | ⏳ | - |
+| - | `program-option` | ⏳ | - |
+| - | `program-pack` | ⏳ | - |
 
-### Phase 6: Transaction System (Medium Priority) ✅
+### Sysvars (5/11 - 45%)
 
-| Module | Status | Description | Dependencies |
-|--------|--------|-------------|--------------|
-| `message` | ✅ | Transaction messages | pubkey, instruction |
-| `transaction` | ✅ | Transaction types | message, signature |
-| `signer` | ✅ | Signing interfaces | keypair |
+| Zig Module | Rust Crate | Status | Tests |
+|------------|------------|--------|-------|
+| `clock.zig` | `clock` | ✅ | ✅ |
+| `rent.zig` | `rent` | ✅ | ✅ |
+| `slot_hashes.zig` | `slot-hashes` | ✅ | ✅ |
+| `slot_history.zig` | `slot-history` | ✅ | ✅ |
+| `epoch_schedule.zig` | `epoch-schedule` | ✅ | ✅ |
+| - | `epoch-info` | ⏳ | - |
+| - | `epoch-rewards` | ⏳ | - |
+| - | `last-restart-slot` | ⏳ | - |
+| - | `instructions-sysvar` | ⏳ | - |
+| - | `sysvar` | ⏳ | - |
+| - | `sysvar-id` | ⏳ | - |
 
-### Phase 7: Extended Sysvars (Medium Priority) ✅
+### Hash Functions (3/4 - 75%)
 
-| Module | Status | Description | Dependencies |
-|--------|--------|-------------|--------------|
-| `epoch_schedule` | ✅ | Epoch schedule sysvar | syscalls |
-| `slot_history` | ✅ | Slot history bitvector sysvar | None |
-| `epoch_info` | ❌ | Not a sysvar (RPC data only) | N/A |
-| `stake_history` | ❌ | Not in solana-sdk | N/A |
+| Zig Module | Rust Crate | Status | Tests |
+|------------|------------|--------|-------|
+| `blake3.zig` | `blake3-hasher` | ✅ | ✅ |
+| `sha256_hasher.zig` | `sha256-hasher` | ✅ | ✅ |
+| `keccak_hasher.zig` | `keccak-hasher` | ✅ | ✅ |
+| - | `epoch-rewards-hasher` | ⏳ | - |
 
-### Phase 8: Native Programs (Low Priority) ✅
+### Native Programs (6/11 - 55%)
 
-| Module | Status | Description | Dependencies |
-|--------|--------|-------------|--------------|
-| `system_program` | ✅ | System program interface | instruction |
-| `bpf_loader` | ✅ | BPF loader program IDs | pubkey |
-| `ed25519_program` | ✅ | Ed25519 signature verification | None |
-| `secp256k1_program` | ✅ | Secp256k1 signature verification | None |
-| `stake_program` | ❌ | Deferred to future version | instruction |
+| Zig Module | Rust Crate | Status | Tests |
+|------------|------------|--------|-------|
+| `system_program.zig` | `system-interface` | ✅ | ✅ |
+| `bpf_loader.zig` | `loader-v2-interface` | ✅ | ✅ |
+| `bpf_loader.zig` | `loader-v3-interface` | ✅ | ✅ |
+| `ed25519_program.zig` | `ed25519-program` | ✅ | ✅ |
+| `secp256k1_program.zig` | `secp256k1-program` | ✅ | ✅ |
+| - | `loader-v4-interface` | ⏳ | - |
+| - | `secp256r1-program` | ⏳ | - |
+| - | `compute-budget-interface` | ⏳ | - |
+| - | `address-lookup-table-interface` | ⏳ | - |
+| - | `vote-interface` | ⏳ | - |
+| - | `feature-gate-interface` | ⏳ | - |
 
-### Phase 9: Advanced Features (Low Priority) ⏳
+---
 
-| Module | Status | Description | Dependencies |
-|--------|--------|-------------|--------------|
-| `native_token` | ⏳ | Native token utilities | None |
-| `fee_calculator` | ⏳ | Fee calculation | None |
-| `sysvar` | ⏳ | Unified sysvar utilities | Multiple sysvars |
-| `sanitize` | ⏳ | Data sanitization | None |
+## ⏳ Pending Modules (Priority Order)
 
-### Phase 10: Legacy/Optional (Deferred) ⏳
+### High Priority (Essential for common programs)
 
-| Module | Status | Description | Notes |
-|--------|--------|-------------|-------|
-| `program_memory` | ⏳ | Memory syscall wrappers | Zig stdlib sufficient |
-| `program_pack` | ⏳ | Legacy Pack trait | Use Borsh instead |
-| `serialize_utils` | ⏳ | Serialization helpers | Optional utilities |
+| Module | Rust Crate | Description | Effort |
+|--------|------------|-------------|--------|
+| `cpi.zig` | `cpi` | Cross-Program Invocation | High |
+| `compute_budget.zig` | `compute-budget-interface` | Compute budget instructions | Medium |
+| `address_lookup_table.zig` | `address-lookup-table-interface` | ALT for versioned txns | Medium |
+| `instructions_sysvar.zig` | `instructions-sysvar` | Introspection sysvar | Low |
 
-## 🎯 Current Focus
+### Medium Priority (Extended functionality)
 
-### Next Priority: Advanced Features (Phase 9)
+| Module | Rust Crate | Description | Effort |
+|--------|------------|-------------|--------|
+| `native_token.zig` | `native-token` | SOL token utilities | Low |
+| `nonce.zig` | `nonce` | Durable nonce types | Medium |
+| `loader_v4.zig` | `loader-v4-interface` | New loader interface | Medium |
+| `secp256r1_program.zig` | `secp256r1-program` | P-256 signatures | Medium |
+| `last_restart_slot.zig` | `last-restart-slot` | Restart slot sysvar | Low |
+
+### Low Priority (Specialized use cases)
+
+| Module | Rust Crate | Description | Effort |
+|--------|------------|-------------|--------|
+| `vote_interface.zig` | `vote-interface` | Vote program | High |
+| `feature_gate.zig` | `feature-gate-interface` | Feature gates | Low |
+| `sanitize.zig` | `sanitize` | Input validation | Medium |
+| `bn254.zig` | `bn254` | BN254 curve ops | High |
+| `big_mod_exp.zig` | `big-mod-exp` | Modular exponentiation | Medium |
+
+---
+
+## 🚫 Out of Scope (Client/Validator modules)
+
+These modules are NOT needed for on-chain program development:
+
+- `client-traits` - RPC client interfaces
+- `commitment-config` - RPC commitment levels
+- `derivation-path` - HD wallet paths
+- `seed-phrase` - Mnemonic handling
+- `presigner` - Pre-signed transactions
+- `file-download` - File utilities
+- `genesis-config` - Genesis configuration
+- `hard-forks` - Network hard forks
+- `inflation` - Inflation parameters
+- `poh-config` - PoH configuration
+- `validator-exit` - Validator shutdown
+- `quic-definitions` - QUIC networking
+- `shred-version` - Shred versioning
+
+---
+
+## 📈 Version History
+
+### v0.17.1 (Current) - Extended SDK Release
+- ✅ Core types complete (pubkey, hash, signature, keypair)
+- ✅ Serialization (Borsh, Bincode, ShortVec)
+- ✅ Program foundation (entrypoint, error, log, syscalls)
+- ✅ Basic sysvars (clock, rent, slot_hashes, slot_history, epoch_schedule)
+- ✅ Hash functions (Blake3, SHA256, Keccak)
+- ✅ Native programs (System, BPF Loader, Ed25519, Secp256k1)
+- ✅ Transaction system (message, transaction, signer)
+- ✅ Program test integration (cargo test passing)
+
+### Next: v0.18.0 - CPI & Compute Budget
+- [ ] `cpi.zig` - Cross-Program Invocation
+- [ ] `compute_budget.zig` - Compute budget interface
+- [ ] `address_lookup_table.zig` - Address Lookup Tables
 - [ ] `native_token.zig` - Native token utilities
-- [ ] `fee_calculator.zig` - Fee calculation
-- [ ] `sysvar.zig` - Unified sysvar utilities
-- [ ] `sanitize.zig` - Data sanitization
 
-### Implementation Strategy
+---
 
-1. **Bottom-up approach**: Start with foundational types, build up to complex features
-2. **Test-driven development**: Each module must have comprehensive unit tests
-3. **API compatibility**: Maintain 1:1 compatibility with Rust SDK where possible
-4. **Performance**: Zero-cost abstractions, memory-safe Zig idioms
+## 🎯 Development Guidelines
 
-## 📚 Documentation Structure
+1. **Reference Implementation**: Always reference the Rust source in file headers
+2. **Test Coverage**: Match or exceed Rust SDK test coverage
+3. **API Compatibility**: Maintain similar API surface where possible
+4. **Zig Idioms**: Use Zig best practices (comptime, error unions, slices)
 
-```
-docs/
-├── design/          # Architecture and design decisions
-├── api/            # API reference documentation
-├── examples/       # Usage examples
-└── migration/      # Migration guides from Rust SDK
-```
+## 📚 Resources
 
-## 🔄 Development Workflow
-
-1. **Planning**: Update ROADMAP.md, create Story file
-2. **Design**: Document API in docs/design/
-3. **Implementation**: Write code with tests
-4. **Review**: Update documentation, run full test suite
-5. **Integration**: Merge and update ROADMAP status
-
-## ✅ Completion Criteria
-
-- [ ] All modules implemented with full API coverage
-- [ ] Comprehensive test suite (unit + integration)
-- [ ] Complete documentation
-- [ ] API compatibility verified against Rust SDK
-- [ ] Performance benchmarks meet or exceed Rust SDK
-
-## 📈 Progress Tracking
-
-- **Phase 1**: 100% complete (4/4 modules) ✅
-- **Phase 2**: 100% complete (3/3 modules) ✅
-- **Phase 3**: 100% complete (9/9 modules) ✅
-- **Phase 4**: 100% complete (3/3 modules) ✅
-- **Phase 5**: 100% complete (3/3 modules) ✅
-- **Phase 6**: 100% complete (3/3 modules) ✅
-- **Phase 7**: 100% complete (2/2 modules) ✅
-- **Phase 8**: 100% complete (4/4 modules) ✅
-- **Total**: ~62% complete (31/50 modules)
-
-Legend:
-- ✅ Complete
-- 🔄 In Progress  
-- ⏳ Planned
-- ❌ Blocked
+- [Solana SDK (Rust)](https://github.com/anza-xyz/solana-sdk)
+- [Solana Zig Compiler](https://github.com/joncinque/solana-zig)
+- [Zig Language](https://ziglang.org/)

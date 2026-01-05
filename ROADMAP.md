@@ -11,7 +11,7 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 | Program Foundation | 16 | 16 | 100% |
 | Sysvars | 10 | 10 | 100% |
 | Hash Functions | 3 | 4 | 75% |
-| Native Programs | 8 | 12 | 67% |
+| Native Programs | 10 | 12 | 83% |
 | Native Token | 1 | 1 | 100% |
 | Crypto (Advanced) | 0 | 3 | 0% |
 | **Total (On-chain)** | **55** | **55** | **100%** |
@@ -99,8 +99,8 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 | `secp256k1_program.zig` | `secp256k1-program` | ✅ | ✅ |
 | `compute_budget.zig` | `compute-budget-interface` | ✅ | ✅ |
 | `address_lookup_table.zig` | `address-lookup-table-interface` | ✅ | ✅ |
-| - | `loader-v4-interface` | ⏳ | - |
-| - | `secp256r1-program` | ⏳ | - |
+| `loader_v4.zig` | `loader-v4-interface` | ✅ | ✅ |
+| `secp256r1_program.zig` | `secp256r1-program` | ✅ | ✅ |
 | - | `vote-interface` | ⏳ | - |
 | - | `feature-gate-interface` | ⏳ | - |
 | - | `nonce` | ⏳ | - |
@@ -222,9 +222,9 @@ These modules are NOT needed for on-chain program development:
 - ✅ `bn254.zig` - BN254 curve for ZK proofs
 - ✅ `big-mod-exp.zig` - Modular exponentiation
 
-### v0.24.0 (Current) - Extended Native Programs
-- [ ] `loader_v4.zig` - New loader interface
-- [ ] `secp256r1_program.zig` - P-256/WebAuthn signatures
+### v0.24.0 - Extended Native Programs ✅
+- ✅ `loader_v4.zig` - New loader interface for advanced program deployment
+- ✅ `secp256r1_program.zig` - P-256/WebAuthn signature verification
 
 ---
 

@@ -79,6 +79,10 @@ pub const epoch_rewards = @import("epoch_rewards.zig");
 pub const bn254 = @import("bn254.zig");
 pub const big_mod_exp = @import("big_mod_exp.zig");
 
+// Phase 15: v0.24.0 - Extended Native Programs
+pub const loader_v4 = @import("loader_v4.zig");
+pub const secp256r1_program = @import("secp256r1_program.zig");
+
 const entrypoint_mod = @import("entrypoint.zig");
 const error_mod = @import("error.zig");
 

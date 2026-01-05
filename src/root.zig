@@ -60,6 +60,10 @@ pub const program_memory = @import("program_memory.zig");
 pub const instructions_sysvar = @import("instructions_sysvar.zig");
 pub const address_lookup_table = @import("address_lookup_table.zig");
 
+// Phase 11: v0.20.0 - Pack/Unpack & Nonce Support
+pub const program_pack = @import("program_pack.zig");
+pub const nonce = @import("nonce.zig");
+
 const entrypoint_mod = @import("entrypoint.zig");
 const error_mod = @import("error.zig");
 
@@ -112,6 +116,14 @@ pub const sol_memcmp = program_memory.sol_memcmp;
 pub const AddressLookupTable = address_lookup_table.AddressLookupTable;
 pub const LookupTableMeta = address_lookup_table.LookupTableMeta;
 pub const LOOKUP_TABLE_MAX_ADDRESSES = address_lookup_table.LOOKUP_TABLE_MAX_ADDRESSES;
+
+// Nonce exports
+pub const DurableNonce = nonce.DurableNonce;
+pub const State = nonce.State;
+pub const Data = nonce.Data;
+pub const Versions = nonce.Versions;
+pub const FeeCalculator = nonce.FeeCalculator;
+pub const NONCE_ACCOUNT_LENGTH = nonce.NONCE_ACCOUNT_LENGTH;
 
 test {
     std.testing.refAllDecls(@This());

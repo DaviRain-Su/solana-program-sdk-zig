@@ -8,13 +8,13 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 |----------|-------------|-------|----------|
 | Core Types | 8 | 8 | 100% |
 | Serialization | 3 | 3 | 100% |
-| Program Foundation | 11 | 14 | 79% |
+| Program Foundation | 13 | 14 | 93% |
 | Sysvars | 6 | 10 | 60% |
 | Hash Functions | 3 | 4 | 75% |
 | Native Programs | 8 | 12 | 67% |
 | Native Token | 1 | 1 | 100% |
 | Crypto (Advanced) | 0 | 3 | 0% |
-| **Total (On-chain)** | **40** | **55** | **73%** |
+| **Total (On-chain)** | **42** | **55** | **76%** |
 
 > Note: Client/RPC and Validator-only modules are excluded as they're not needed for on-chain program development.
 
@@ -127,8 +127,9 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 
 | Module | Rust Crate | Description | Effort |
 |--------|------------|-------------|--------|
-| `program_pack.zig` | `program-pack` | Pack/Unpack traits for accounts | Medium |
-| `nonce.zig` | `nonce` | Durable nonce support | Medium |
+| `program_option.zig` | `program-option` | Option types for programs | Medium |
+| `msg.zig` | `msg` | Message utilities | Medium |
+| `stable-layout.zig` | `stable-layout` | Stable layout traits | Medium |
 
 ### Medium Priority (Extended functionality)
 
@@ -180,10 +181,14 @@ These modules are NOT needed for on-chain program development:
 
 ## 📈 Version History
 
-### v0.19.0 (Current) - Memory, Instructions Sysvar & Address Lookup Tables
+### v0.19.0 - Memory, Instructions Sysvar & Address Lookup Tables
 - ✅ `program_memory.zig` - Memory operations (sol_memcpy, sol_memmove, sol_memset, sol_memcmp)
 - ✅ `instructions_sysvar.zig` - Instruction introspection sysvar
 - ✅ `address_lookup_table.zig` - Address Lookup Tables for versioned transactions
+
+### v0.20.0 (Current) - Pack/Unpack & Nonce Support
+- ✅ `program_pack.zig` - Pack/Unpack traits for accounts
+- ✅ `nonce.zig` - Durable nonce support
 
 ### v0.18.0 - CPI, Compute Budget & Stack Optimization
 - ✅ CPI enhancements (`setReturnData`, `getReturnData` in instruction.zig)
@@ -202,9 +207,10 @@ These modules are NOT needed for on-chain program development:
 - ✅ Transaction system (message, transaction, signer)
 - ✅ Program test integration (cargo test passing)
 
-### Next: v0.20.0 - Pack/Unpack & Nonce Support
-- [ ] `program_pack.zig` - Pack/Unpack traits for accounts
-- [ ] `nonce.zig` - Durable nonce support
+### Next: v0.21.0 - Remaining Program Foundation
+- [ ] `program_option.zig` - Option types for programs
+- [ ] `msg.zig` - Message utilities
+- [ ] `stable-layout.zig` - Stable layout traits
 
 ---
 

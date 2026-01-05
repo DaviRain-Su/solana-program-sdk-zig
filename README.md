@@ -50,8 +50,20 @@ solana-program-sdk-zig/
 
 ### For All Development
 - **Zig 0.15.2+** - [Download](https://ziglang.org/download/)
+  - *Alternative*: **Solana Zig** - Specialized Zig fork for Solana development
 - **LLVM 18** - Required for sbpf-linker
 - **sbpf-linker** - Solana BPF linker
+
+### Solana Zig Setup (Recommended for On-Chain Programs)
+```bash
+# Install solana-zig compiler
+./install-solana-zig.sh
+
+# Or set custom version
+SOLANA_ZIG_VERSION=v1.52.0 ./install-solana-zig.sh
+```
+
+**Note**: Solana Zig provides better integration with Solana's BPF runtime and may have performance optimizations.
 
 ### For On-Chain Programs
 ```bash
@@ -130,14 +142,17 @@ See [ROADMAP.md](ROADMAP.md) for current implementation status and priorities.
 ## Testing
 
 ```bash
-# Run all tests
+# With standard Zig
 zig build test
-
-# Run specific tests
 zig test src/pubkey.zig
 
-# Run integration tests
-cd program-test && ./test.sh
+# With solana-zig (recommended)
+./solana-zig/zig build test
+./solana-zig/zig test src/pubkey.zig
+
+# Run integration tests (requires solana-zig)
+cd program-test && ../solana-zig/zig build --summary all --verbose
+cargo test --manifest-path program-test/Cargo.toml
 ```
 
 ## Contributing
@@ -149,6 +164,27 @@ This project follows a **documentation-driven development** process:
 3. **Validation** - Ensure all tests pass and documentation is complete
 
 See [AGENTS.md](AGENTS.md) for detailed development guidelines.
+
+## Building with Solana Zig
+
+For on-chain program development, solana-zig is recommended:
+
+```bash
+# Install solana-zig
+./install-solana-zig.sh
+
+# Use solana-zig for all builds
+export ZIG="./solana-zig/zig"
+$ZIG build
+$ZIG build test
+
+# Or use the provided convenience script
+./build-solana-zig.sh
+./build-solana-zig.sh test
+
+# For integration testing
+./program-test/test.sh ./solana-zig/zig
+```
 
 ## License
 

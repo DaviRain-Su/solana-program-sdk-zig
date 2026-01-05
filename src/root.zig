@@ -64,6 +64,11 @@ pub const address_lookup_table = @import("address_lookup_table.zig");
 pub const program_pack = @import("program_pack.zig");
 pub const nonce = @import("nonce.zig");
 
+// Phase 12: v0.21.0 - Remaining Program Foundation
+pub const program_option = @import("program_option.zig");
+pub const msg = @import("msg.zig");
+pub const stable_layout = @import("stable_layout.zig");
+
 const entrypoint_mod = @import("entrypoint.zig");
 const error_mod = @import("error.zig");
 
@@ -124,6 +129,20 @@ pub const Data = nonce.Data;
 pub const Versions = nonce.Versions;
 pub const FeeCalculator = nonce.FeeCalculator;
 pub const NONCE_ACCOUNT_LENGTH = nonce.NONCE_ACCOUNT_LENGTH;
+
+// Program Option exports
+pub const COption = program_option.COption;
+
+// Msg exports
+pub const msg_fn = msg.msg;
+pub const format = msg.format;
+pub const formatBuf = msg.formatBuf;
+pub const formatBufTrunc = msg.formatBufTrunc;
+
+// Stable Layout exports
+pub const StableLayout = stable_layout.StableLayout;
+pub const ExampleStableAccount = stable_layout.ExampleStableAccount;
+pub const ExampleStableConfig = stable_layout.ExampleStableConfig;
 
 test {
     std.testing.refAllDecls(@This());

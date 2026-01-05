@@ -8,13 +8,13 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 |----------|-------------|-------|----------|
 | Core Types | 8 | 8 | 100% |
 | Serialization | 3 | 3 | 100% |
-| Program Foundation | 10 | 14 | 71% |
-| Sysvars | 5 | 10 | 50% |
+| Program Foundation | 11 | 14 | 79% |
+| Sysvars | 6 | 10 | 60% |
 | Hash Functions | 3 | 4 | 75% |
-| Native Programs | 7 | 12 | 58% |
+| Native Programs | 8 | 12 | 67% |
 | Native Token | 1 | 1 | 100% |
 | Crypto (Advanced) | 0 | 3 | 0% |
-| **Total (On-chain)** | **37** | **55** | **67%** |
+| **Total (On-chain)** | **40** | **55** | **73%** |
 
 > Note: Client/RPC and Validator-only modules are excluded as they're not needed for on-chain program development.
 
@@ -45,7 +45,7 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 
 > Note: `serde`, `serde-varint`, `serialize-utils` are client-only and out of scope.
 
-### Program Foundation (10/14 - 71%)
+### Program Foundation (11/14 - 79%)
 
 | Zig Module | Rust Crate | Status | Tests |
 |------------|------------|--------|-------|
@@ -58,13 +58,13 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 | `bpf.zig` | (BPF utilities) | ✅ | ✅ |
 | `signer.zig` | `signer` | ✅ | ✅ |
 | `instruction.zig` | `cpi` | ✅ | ✅ |
-| - | `program-memory` | ⏳ | - |
+| `program_memory.zig` | `program-memory` | ✅ | ✅ |
 | - | `program-option` | ⏳ | - |
 | - | `program-pack` | ⏳ | - |
 | - | `msg` | ⏳ | - |
 | - | `stable-layout` | ⏳ | - |
 
-### Sysvars (5/10 - 50%)
+### Sysvars (6/10 - 60%)
 
 | Zig Module | Rust Crate | Status | Tests |
 |------------|------------|--------|-------|
@@ -73,7 +73,7 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 | `slot_hashes.zig` | `slot-hashes` | ✅ | ✅ |
 | `slot_history.zig` | `slot-history` | ✅ | ✅ |
 | `epoch_schedule.zig` | `epoch-schedule` | ✅ | ✅ |
-| - | `instructions-sysvar` | ⏳ | - |
+| `instructions_sysvar.zig` | `instructions-sysvar` | ✅ | ✅ |
 | - | `last-restart-slot` | ⏳ | - |
 | - | `sysvar` | ⏳ | - |
 | - | `sysvar-id` | ⏳ | - |
@@ -88,7 +88,7 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 | `keccak_hasher.zig` | `keccak-hasher` | ✅ | ✅ |
 | - | `epoch-rewards-hasher` | ⏳ | - |
 
-### Native Programs (7/12 - 58%)
+### Native Programs (8/12 - 67%)
 
 | Zig Module | Rust Crate | Status | Tests |
 |------------|------------|--------|-------|
@@ -98,9 +98,9 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 | `ed25519_program.zig` | `ed25519-program` | ✅ | ✅ |
 | `secp256k1_program.zig` | `secp256k1-program` | ✅ | ✅ |
 | `compute_budget.zig` | `compute-budget-interface` | ✅ | ✅ |
+| `address_lookup_table.zig` | `address-lookup-table-interface` | ✅ | ✅ |
 | - | `loader-v4-interface` | ⏳ | - |
 | - | `secp256r1-program` | ⏳ | - |
-| - | `address-lookup-table-interface` | ⏳ | - |
 | - | `vote-interface` | ⏳ | - |
 | - | `feature-gate-interface` | ⏳ | - |
 | - | `nonce` | ⏳ | - |
@@ -127,16 +127,13 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 
 | Module | Rust Crate | Description | Effort |
 |--------|------------|-------------|--------|
-| `address_lookup_table.zig` | `address-lookup-table-interface` | ALT for versioned transactions | Medium |
-| `instructions_sysvar.zig` | `instructions-sysvar` | Instruction introspection | Low |
-| `program_memory.zig` | `program-memory` | sol_memcpy, sol_memmove, etc. | Low |
+| `program_pack.zig` | `program-pack` | Pack/Unpack traits for accounts | Medium |
+| `nonce.zig` | `nonce` | Durable nonce support | Medium |
 
 ### Medium Priority (Extended functionality)
 
 | Module | Rust Crate | Description | Effort |
 |--------|------------|-------------|--------|
-| `program_pack.zig` | `program-pack` | Pack/Unpack traits for accounts | Medium |
-| `nonce.zig` | `nonce` | Durable nonce support | Medium |
 | `loader_v4.zig` | `loader-v4-interface` | New loader interface | Medium |
 | `secp256r1_program.zig` | `secp256r1-program` | P-256/WebAuthn signatures | Medium |
 | `last_restart_slot.zig` | `last-restart-slot` | Restart slot sysvar | Low |
@@ -183,7 +180,12 @@ These modules are NOT needed for on-chain program development:
 
 ## 📈 Version History
 
-### v0.18.0 (Current) - CPI, Compute Budget & Stack Optimization
+### v0.19.0 (Current) - Memory, Instructions Sysvar & Address Lookup Tables
+- ✅ `program_memory.zig` - Memory operations (sol_memcpy, sol_memmove, sol_memset, sol_memcmp)
+- ✅ `instructions_sysvar.zig` - Instruction introspection sysvar
+- ✅ `address_lookup_table.zig` - Address Lookup Tables for versioned transactions
+
+### v0.18.0 - CPI, Compute Budget & Stack Optimization
 - ✅ CPI enhancements (`setReturnData`, `getReturnData` in instruction.zig)
 - ✅ `compute_budget.zig` - Compute budget program interface
 - ✅ `native_token.zig` - Native SOL token utilities (Sol, solStrToLamports)
@@ -200,10 +202,9 @@ These modules are NOT needed for on-chain program development:
 - ✅ Transaction system (message, transaction, signer)
 - ✅ Program test integration (cargo test passing)
 
-### Next: v0.19.0 - Address Lookup Tables & Program Memory
-- [ ] `address_lookup_table.zig` - Address Lookup Tables
-- [ ] `instructions_sysvar.zig` - Instruction introspection sysvar
-- [ ] `program_memory.zig` - Memory operations (sol_memcpy, etc.)
+### Next: v0.20.0 - Pack/Unpack & Nonce Support
+- [ ] `program_pack.zig` - Pack/Unpack traits for accounts
+- [ ] `nonce.zig` - Durable nonce support
 
 ---
 

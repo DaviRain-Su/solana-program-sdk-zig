@@ -55,6 +55,11 @@ pub const compute_budget = @import("compute_budget.zig");
 // Phase 9: Native Token
 pub const native_token = @import("native_token.zig");
 
+// Phase 10: v0.19.0 - Memory, Instructions Sysvar, Address Lookup Tables
+pub const program_memory = @import("program_memory.zig");
+pub const instructions_sysvar = @import("instructions_sysvar.zig");
+pub const address_lookup_table = @import("address_lookup_table.zig");
+
 const entrypoint_mod = @import("entrypoint.zig");
 const error_mod = @import("error.zig");
 
@@ -79,11 +84,12 @@ pub const native_loader_id = public_key.PublicKey.comptimeFromBase58("NativeLoad
 pub const incinerator_id = public_key.PublicKey.comptimeFromBase58("1nc1nerator11111111111111111111111111111111");
 
 pub const sysvar_id = public_key.PublicKey.comptimeFromBase58("Sysvar1111111111111111111111111111111111111");
-pub const instructions_id = public_key.PublicKey.comptimeFromBase58("Sysvar1nstructions1111111111111111111111111");
+pub const instructions_sysvar_id = instructions_sysvar.ID;
 
 pub const ed25519_program_id = public_key.PublicKey.comptimeFromBase58("Ed25519SigVerify111111111111111111111111111");
 pub const secp256k1_program_id = public_key.PublicKey.comptimeFromBase58("KeccakSecp256k11111111111111111111111111111");
 pub const compute_budget_program_id = compute_budget.ID;
+pub const address_lookup_table_program_id = address_lookup_table.ID;
 
 // Native token exports
 pub const lamports_per_sol = native_token.LAMPORTS_PER_SOL;
@@ -95,6 +101,17 @@ pub const solStrToLamports = native_token.solStrToLamports;
 pub const MAX_RETURN_DATA = instruction.MAX_RETURN_DATA;
 pub const setReturnData = instruction.setReturnData;
 pub const getReturnData = instruction.getReturnData;
+
+// Memory operations exports
+pub const sol_memcpy = program_memory.sol_memcpy;
+pub const sol_memmove = program_memory.sol_memmove;
+pub const sol_memset = program_memory.sol_memset;
+pub const sol_memcmp = program_memory.sol_memcmp;
+
+// Address Lookup Table exports
+pub const AddressLookupTable = address_lookup_table.AddressLookupTable;
+pub const LookupTableMeta = address_lookup_table.LookupTableMeta;
+pub const LOOKUP_TABLE_MAX_ADDRESSES = address_lookup_table.LOOKUP_TABLE_MAX_ADDRESSES;
 
 test {
     std.testing.refAllDecls(@This());

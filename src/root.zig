@@ -69,6 +69,12 @@ pub const program_option = @import("program_option.zig");
 pub const msg = @import("msg.zig");
 pub const stable_layout = @import("stable_layout.zig");
 
+// Phase 13: v0.22.0 - Sysvar Completion
+pub const last_restart_slot = @import("last_restart_slot.zig");
+pub const sysvar = @import("sysvar.zig");
+// Note: sysvar_id is already defined below as a constant
+pub const epoch_rewards = @import("epoch_rewards.zig");
+
 const entrypoint_mod = @import("entrypoint.zig");
 const error_mod = @import("error.zig");
 
@@ -143,6 +149,29 @@ pub const formatBufTrunc = msg.formatBufTrunc;
 pub const StableLayout = stable_layout.StableLayout;
 pub const ExampleStableAccount = stable_layout.ExampleStableAccount;
 pub const ExampleStableConfig = stable_layout.ExampleStableConfig;
+
+// Sysvar exports
+pub const LastRestartSlot = last_restart_slot.LastRestartSlot;
+pub const EpochRewards = epoch_rewards.EpochRewards;
+
+// Sysvar ID exports (from sysvar_id.zig module)
+pub const CLOCK_ID = @import("sysvar_id.zig").CLOCK;
+pub const RENT_ID = @import("sysvar_id.zig").RENT;
+pub const SLOT_HASHES_ID = @import("sysvar_id.zig").SLOT_HASHES;
+pub const SLOT_HISTORY_ID = @import("sysvar_id.zig").SLOT_HISTORY;
+pub const STAKE_HISTORY_ID = @import("sysvar_id.zig").STAKE_HISTORY;
+pub const INSTRUCTIONS_ID = @import("sysvar_id.zig").INSTRUCTIONS;
+pub const EPOCH_REWARDS_ID = @import("sysvar_id.zig").EPOCH_REWARDS;
+pub const LAST_RESTART_SLOT_ID = @import("sysvar_id.zig").LAST_RESTART_SLOT;
+
+// Sysvar size constants
+pub const CLOCK_SIZE = @import("clock.zig").Clock.SIZE;
+pub const RENT_SIZE = @import("rent.zig").Rent.SIZE;
+pub const SLOT_HASHES_SIZE = @import("slot_hashes.zig").SlotHashes.SIZE;
+pub const SLOT_HISTORY_SIZE = @import("slot_history.zig").SlotHistory.SIZE;
+// Instructions sysvar doesn't have a fixed SIZE constant
+pub const EPOCH_REWARDS_SIZE = epoch_rewards.EpochRewards.SIZE;
+pub const LAST_RESTART_SLOT_SIZE = last_restart_slot.LastRestartSlot.SIZE;
 
 test {
     std.testing.refAllDecls(@This());

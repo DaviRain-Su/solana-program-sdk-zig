@@ -40,6 +40,7 @@ pub const Check = enum {
 /// Source: https://github.com/anza-xyz/solana-sdk/blob/master/slot-history/src/lib.rs
 pub const SlotHistory = struct {
     pub const id = PublicKey.comptimeFromBase58("SysvarS1otHistory11111111111111111111111111");
+    pub const SIZE = @sizeOf(SlotHistory);
 
     /// Bitvector storing slot presence
     bits: [BITVEC_WORDS]u64,

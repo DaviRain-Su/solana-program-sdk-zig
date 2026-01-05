@@ -15,6 +15,7 @@ const PublicKey = @import("public_key.zig").PublicKey;
 /// Source: https://github.com/anza-xyz/solana-sdk/blob/master/clock/src/lib.rs
 pub const Clock = extern struct {
     pub const id = PublicKey.comptimeFromBase58("SysvarC1ock11111111111111111111111111111111");
+    pub const SIZE = @sizeOf(Clock);
 
     /// The current network/bank slot
     slot: u64,

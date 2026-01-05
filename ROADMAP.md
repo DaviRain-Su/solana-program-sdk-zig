@@ -9,12 +9,12 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 | Core Types | 8 | 8 | 100% |
 | Serialization | 3 | 3 | 100% |
 | Program Foundation | 16 | 16 | 100% |
-| Sysvars | 6 | 10 | 60% |
+| Sysvars | 10 | 10 | 100% |
 | Hash Functions | 3 | 4 | 75% |
 | Native Programs | 8 | 12 | 67% |
 | Native Token | 1 | 1 | 100% |
 | Crypto (Advanced) | 0 | 3 | 0% |
-| **Total (On-chain)** | **45** | **55** | **82%** |
+| **Total (On-chain)** | **53** | **55** | **96%** |
 
 > Note: Client/RPC and Validator-only modules are excluded as they're not needed for on-chain program development.
 
@@ -64,7 +64,7 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 | - | `msg` | ⏳ | - |
 | - | `stable-layout` | ⏳ | - |
 
-### Sysvars (6/10 - 60%)
+### Sysvars (10/10 - 100%)
 
 | Zig Module | Rust Crate | Status | Tests |
 |------------|------------|--------|-------|
@@ -74,10 +74,10 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 | `slot_history.zig` | `slot-history` | ✅ | ✅ |
 | `epoch_schedule.zig` | `epoch-schedule` | ✅ | ✅ |
 | `instructions_sysvar.zig` | `instructions-sysvar` | ✅ | ✅ |
-| - | `last-restart-slot` | ⏳ | - |
-| - | `sysvar` | ⏳ | - |
-| - | `sysvar-id` | ⏳ | - |
-| - | `epoch-rewards` | ⏳ | - |
+| `last_restart_slot.zig` | `last-restart-slot` | ✅ | ✅ |
+| `sysvar.zig` | `sysvar` | ✅ | ✅ |
+| `sysvar_id.zig` | `sysvar-id` | ✅ | ✅ |
+| `epoch_rewards.zig` | `epoch-rewards` | ✅ | ✅ |
 
 ### Hash Functions (3/4 - 75%)
 
@@ -195,6 +195,12 @@ These modules are NOT needed for on-chain program development:
 - ✅ `msg.zig` - Message utilities
 - ✅ `stable-layout.zig` - Stable layout traits
 
+### v0.22.0 - Sysvar Completion ✅
+- ✅ `last_restart_slot.zig` - Restart slot sysvar
+- ✅ `sysvar.zig` - Sysvar utilities
+- ✅ `sysvar_id.zig` - Sysvar ID constants
+- ✅ `epoch_rewards.zig` - Epoch rewards sysvar
+
 ### v0.18.0 - CPI, Compute Budget & Stack Optimization
 - ✅ CPI enhancements (`setReturnData`, `getReturnData` in instruction.zig)
 - ✅ `compute_budget.zig` - Compute budget program interface
@@ -212,11 +218,9 @@ These modules are NOT needed for on-chain program development:
 - ✅ Transaction system (message, transaction, signer)
 - ✅ Program test integration (cargo test passing)
 
-### Next: v0.22.0 - Sysvar Completion
-- [ ] `last_restart_slot.zig` - Restart slot sysvar
-- [ ] `sysvar.zig` - Sysvar utilities
-- [ ] `sysvar-id.zig` - Sysvar ID constants
-- [ ] `epoch-rewards.zig` - Epoch rewards sysvar
+### v0.23.0 (Current) - Advanced Crypto
+- [ ] `bn254.zig` - BN254 curve for ZK proofs
+- [ ] `big-mod-exp.zig` - Modular exponentiation
 
 ---
 

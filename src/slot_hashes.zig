@@ -17,6 +17,7 @@ pub const SlotHashes = struct {
     len: u64,
 
     pub const id = PublicKey.comptimeFromBase58("SysvarS1otHashes111111111111111111111111111");
+    pub const SIZE = @sizeOf(SlotHashes);
 
     /// About 2.5 minutes to get your vote in.
     pub const max_entries = 512;

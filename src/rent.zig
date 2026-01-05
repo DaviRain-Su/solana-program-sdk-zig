@@ -15,6 +15,7 @@ const PublicKey = @import("public_key.zig").PublicKey;
 /// Source: https://github.com/anza-xyz/solana-sdk/blob/master/rent/src/lib.rs
 pub const Rent = struct {
     pub const id = PublicKey.comptimeFromBase58("SysvarRent111111111111111111111111111111111");
+    pub const SIZE = @sizeOf(Rent.Data);
 
     /// Default rental rate in lamports/byte-year based on:
     /// - 10^9 lamports per SOL
@@ -33,6 +34,8 @@ pub const Rent = struct {
     pub const account_storage_overhead: u64 = 128;
 
     pub const Data = packed struct {
+        pub const SIZE = @sizeOf(Rent.Data);
+
         lamports_per_byte_year: u64 = Rent.default_lamports_per_byte_year,
         exemption_threshold: f64 = Rent.default_exemption_threshold,
         burn_percent: u8 = Rent.default_burn_percent,

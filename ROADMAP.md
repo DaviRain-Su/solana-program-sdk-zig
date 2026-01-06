@@ -8,13 +8,13 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 |----------|-------------|-------|----------|
 | Core Types | 8 | 8 | 100% |
 | Serialization | 3 | 3 | 100% |
-| Program Foundation | 16 | 16 | 100% |
+| Program Foundation | 14 | 14 | 100% |
 | Sysvars | 10 | 10 | 100% |
-| Hash Functions | 3 | 4 | 75% |
+| Hash Functions | 4 | 4 | 100% |
 | Native Programs | 10 | 12 | 83% |
 | Native Token | 1 | 1 | 100% |
-| Crypto (Advanced) | 0 | 3 | 0% |
-| **Total (On-chain)** | **55** | **55** | **100%** |
+| Crypto (Advanced) | 2 | 3 | 67% |
+| **Total (On-chain)** | **52** | **55** | **95%** |
 
 > Note: Client/RPC and Validator-only modules are excluded as they're not needed for on-chain program development.
 
@@ -45,7 +45,7 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 
 > Note: `serde`, `serde-varint`, `serialize-utils` are client-only and out of scope.
 
-### Program Foundation (11/14 - 79%)
+### Program Foundation (14/14 - 100%)
 
 | Zig Module | Rust Crate | Status | Tests |
 |------------|------------|--------|-------|
@@ -59,10 +59,10 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 | `signer.zig` | `signer` | ✅ | ✅ |
 | `instruction.zig` | `cpi` | ✅ | ✅ |
 | `program_memory.zig` | `program-memory` | ✅ | ✅ |
-| - | `program-option` | ⏳ | - |
-| - | `program-pack` | ⏳ | - |
-| - | `msg` | ⏳ | - |
-| - | `stable-layout` | ⏳ | - |
+| `program_option.zig` | `program-option` | ✅ | ✅ |
+| `program_pack.zig` | `program-pack` | ✅ | ✅ |
+| `msg.zig` | `msg` | ✅ | ✅ |
+| `stable_layout.zig` | `stable-layout` | ✅ | ✅ |
 
 ### Sysvars (10/10 - 100%)
 
@@ -79,16 +79,16 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 | `sysvar_id.zig` | `sysvar-id` | ✅ | ✅ |
 | `epoch_rewards.zig` | `epoch-rewards` | ✅ | ✅ |
 
-### Hash Functions (3/4 - 75%)
+### Hash Functions (4/4 - 100%)
 
 | Zig Module | Rust Crate | Status | Tests |
 |------------|------------|--------|-------|
 | `blake3.zig` | `blake3-hasher` | ✅ | ✅ |
 | `sha256_hasher.zig` | `sha256-hasher` | ✅ | ✅ |
 | `keccak_hasher.zig` | `keccak-hasher` | ✅ | ✅ |
-| - | `epoch-rewards-hasher` | ⏳ | - |
+| `epoch_rewards_hasher.zig` | `epoch-rewards-hasher` | ✅ | ✅ |
 
-### Native Programs (8/12 - 67%)
+### Native Programs (10/12 - 83%)
 
 | Zig Module | Rust Crate | Status | Tests |
 |------------|------------|--------|-------|
@@ -101,9 +101,9 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 | `address_lookup_table.zig` | `address-lookup-table-interface` | ✅ | ✅ |
 | `loader_v4.zig` | `loader-v4-interface` | ✅ | ✅ |
 | `secp256r1_program.zig` | `secp256r1-program` | ✅ | ✅ |
+| `nonce.zig` | `nonce` | ✅ | ✅ |
 | - | `vote-interface` | ⏳ | - |
 | - | `feature-gate-interface` | ⏳ | - |
-| - | `nonce` | ⏳ | - |
 
 ### Native Token (1/1 - 100%)
 
@@ -111,43 +111,30 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 |------------|------------|--------|-------|
 | `native_token.zig` | `native-token` | ✅ | ✅ |
 
-### Advanced Crypto (0/3 - 0%)
+### Advanced Crypto (2/3 - 67%)
 
 | Zig Module | Rust Crate | Status | Tests |
 |------------|------------|--------|-------|
-| - | `bn254` | ⏳ | - |
-| - | `big-mod-exp` | ⏳ | - |
+| `bn254.zig` | `bn254` | ✅ | ✅ |
+| `big_mod_exp.zig` | `big-mod-exp` | ✅ | ✅ |
 | - | `bls-signatures` | ⏳ | - |
 
 ---
 
 ## ⏳ Pending Modules (Priority Order)
 
-### High Priority (Essential for common programs)
-
-| Module | Rust Crate | Description | Effort |
-|--------|------------|-------------|--------|
-| `program_option.zig` | `program-option` | Option types for programs | Medium |
-| `msg.zig` | `msg` | Message utilities | Medium |
-| `stable-layout.zig` | `stable-layout` | Stable layout traits | Medium |
-
 ### Medium Priority (Extended functionality)
 
 | Module | Rust Crate | Description | Effort |
 |--------|------------|-------------|--------|
-| `loader_v4.zig` | `loader-v4-interface` | New loader interface | Medium |
-| `secp256r1_program.zig` | `secp256r1-program` | P-256/WebAuthn signatures | Medium |
-| `last_restart_slot.zig` | `last-restart-slot` | Restart slot sysvar | Low |
+| `vote_interface.zig` | `vote-interface` | Vote program interface | High |
+| `feature_gate.zig` | `feature-gate-interface` | Feature gates interface | Low |
 
 ### Low Priority (Specialized use cases)
 
 | Module | Rust Crate | Description | Effort |
 |--------|------------|-------------|--------|
-| `vote_interface.zig` | `vote-interface` | Vote program | High |
-| `feature_gate.zig` | `feature-gate-interface` | Feature gates | Low |
-| `bn254.zig` | `bn254` | BN254 curve for ZK proofs | High |
-| `big_mod_exp.zig` | `big-mod-exp` | Modular exponentiation | Medium |
-| `sanitize.zig` | `sanitize` | Input validation utilities | Medium |
+| `bls_signatures.zig` | `bls-signatures` | BLS signatures for consensus | High |
 
 ---
 
@@ -225,6 +212,10 @@ These modules are NOT needed for on-chain program development:
 ### v0.24.0 - Extended Native Programs ✅
 - ✅ `loader_v4.zig` - New loader interface for advanced program deployment
 - ✅ `secp256r1_program.zig` - P-256/WebAuthn signature verification
+
+### v0.25.0 - Epoch Rewards Hasher ✅
+- ✅ `epoch_rewards_hasher.zig` - SipHash-1-3 based deterministic partition hasher
+- Hash Functions now at 100% (4/4 modules)
 
 ---
 

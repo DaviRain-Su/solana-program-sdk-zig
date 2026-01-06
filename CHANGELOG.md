@@ -2,6 +2,24 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+## Session 2026-01-06-002
+
+**日期**: 2026-01-06
+**目标**: Bug Fix - big_mod_exp.zig compilation error
+
+#### 完成的工作
+1. Fixed `src/big_mod_exp.zig` compilation error:
+   - Added missing `initFromBytes()` helper function for initializing `Managed` big integers from little-endian byte arrays
+   - Fixed `writeTwosComplement()` API call - Zig 0.15 only takes 2 parameters (removed `.unsigned`)
+2. Updated `stories/v0.2.0-serialization.md`:
+   - Marked `serialize_utils.zig` as out of scope (client-only)
+   - Updated status to ✅ completed
+
+#### 测试结果
+- 375/375 tests passed ✅
+
+---
+
 ## Session 2026-01-06-001
 
 **日期**: 2026-01-06

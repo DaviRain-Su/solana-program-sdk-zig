@@ -11,10 +11,10 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 | Program Foundation | 14 | 14 | 100% |
 | Sysvars | 10 | 10 | 100% |
 | Hash Functions | 4 | 4 | 100% |
-| Native Programs | 10 | 12 | 83% |
+| Native Programs | 11 | 12 | 92% |
 | Native Token | 1 | 1 | 100% |
 | Crypto (Advanced) | 2 | 3 | 67% |
-| **Total (On-chain)** | **52** | **55** | **95%** |
+| **Total (On-chain)** | **53** | **55** | **96%** |
 
 > Note: Client/RPC and Validator-only modules are excluded as they're not needed for on-chain program development.
 
@@ -102,8 +102,8 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 | `loader_v4.zig` | `loader-v4-interface` | ✅ | ✅ |
 | `secp256r1_program.zig` | `secp256r1-program` | ✅ | ✅ |
 | `nonce.zig` | `nonce` | ✅ | ✅ |
+| `feature_gate.zig` | `feature-gate-interface` | ✅ | ✅ |
 | - | `vote-interface` | ⏳ | - |
-| - | `feature-gate-interface` | ⏳ | - |
 
 ### Native Token (1/1 - 100%)
 
@@ -128,7 +128,6 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 | Module | Rust Crate | Description | Effort |
 |--------|------------|-------------|--------|
 | `vote_interface.zig` | `vote-interface` | Vote program interface | High |
-| `feature_gate.zig` | `feature-gate-interface` | Feature gates interface | Low |
 
 ### Low Priority (Specialized use cases)
 
@@ -216,6 +215,10 @@ These modules are NOT needed for on-chain program development:
 ### v0.25.0 - Epoch Rewards Hasher ✅
 - ✅ `epoch_rewards_hasher.zig` - SipHash-1-3 based deterministic partition hasher
 - Hash Functions now at 100% (4/4 modules)
+
+### v0.26.0 - Feature Gate ✅
+- ✅ `feature_gate.zig` - Feature Gate program interface for runtime feature activation
+- Native Programs now at 92% (11/12 modules)
 
 ---
 

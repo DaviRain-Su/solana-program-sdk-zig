@@ -82,6 +82,9 @@ pub const big_mod_exp = @import("big_mod_exp.zig");
 // Phase 16: v0.25.0 - Epoch Rewards Hasher
 pub const epoch_rewards_hasher = @import("epoch_rewards_hasher.zig");
 
+// Phase 17: v0.26.0 - Feature Gate
+pub const feature_gate = @import("feature_gate.zig");
+
 // Phase 15: v0.24.0 - Extended Native Programs
 pub const loader_v4 = @import("loader_v4.zig");
 pub const secp256r1_program = @import("secp256r1_program.zig");

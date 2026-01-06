@@ -133,6 +133,37 @@ jobs:
         shell: bash
         run: ./program-test/test.sh
 
+  # MCL tests - optional, for off-chain BN254 operations
+  mcl-test:
+    name: MCL Tests
+    needs: format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Cache solana-zig
+        uses: actions/cache@v4
+        with:
+          path: solana-zig
+          key: solana-zig-${{ env.SOLANA_ZIG_VERSION }}-linux
+
+      - name: Cache MCL build
+        uses: actions/cache@v4
+        with:
+          path: vendor/mcl/lib
+          key: mcl-lib-${{ hashFiles('vendor/mcl/src/**', 'vendor/mcl/include/**') }}
+
+      - name: Install solana-zig
+        run: ./install-solana-zig.sh solana-zig
+
+      - name: Install clang
+        run: sudo apt-get update && sudo apt-get install -y clang libc++-dev libc++abi-dev
+
+      - name: Test with MCL
+        run: ./solana-zig/zig build test -Dwith-mcl --summary all
+
   # Build check for Solana target
   build-solana:
     name: Build for Solana

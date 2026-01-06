@@ -9,7 +9,12 @@
 const std = @import("std");
 const PublicKey = @import("public_key.zig").PublicKey;
 const Instruction = @import("instruction.zig").Instruction;
+const AccountMeta = @import("instruction.zig").AccountMeta;
 const Account = @import("account.zig").Account;
+const system_program = @import("system_program.zig");
+
+/// Instruction type for off-chain construction
+pub const BuiltInstruction = system_program.BuiltInstruction;
 
 /// BPF Loader v4 program ID
 ///
@@ -151,6 +156,8 @@ pub fn getProgramSize() usize {
 /// Upgrade a program
 ///
 /// Creates an instruction to upgrade an existing program with new data.
+/// This is similar to deploy but includes a spill account to receive
+/// excess lamports if the new program data is smaller than the old.
 ///
 /// # Arguments
 /// * `allocator` - Memory allocator
@@ -160,24 +167,49 @@ pub fn getProgramSize() usize {
 /// * `spill_address` - Address to receive excess lamports if account shrinks
 ///
 /// # Returns
-/// Instruction to upgrade the program
+/// Instruction to upgrade the program, or error if allocation fails
 ///
 /// Rust equivalent: `solana_loader_v4_program::upgrade_program()`
-// pub fn upgradeProgram(
-//     allocator: std.mem.Allocator,
-//     program_data_address: PublicKey,
-//     program_data: []const u8,
-//     authority_address: PublicKey,
-//     spill_address: PublicKey,
-// ) !Instruction {
-//     // Similar to deploy but with different discriminator and spill account
-//     _ = allocator;
-//     _ = program_data_address;
-//     _ = program_data;
-//     _ = authority_address;
-//     _ = spill_address;
-//     @panic("upgradeProgram not yet implemented");
-// }
+pub fn upgradeProgram(
+    allocator: std.mem.Allocator,
+    program_data_address: PublicKey,
+    program_data: []const u8,
+    authority_address: PublicKey,
+    spill_address: PublicKey,
+) !BuiltInstruction {
+    // Instruction data format:
+    // - Instruction discriminator: 1 byte (2 = RedeployProgram)
+    // - Program data length: 4 bytes (little endian)
+    // - Program data: variable length
+
+    const data_len = 1 + 4 + program_data.len;
+    var instruction_data = try allocator.alloc(u8, data_len);
+    errdefer allocator.free(instruction_data);
+
+    // Discriminator for RedeployProgram (upgrade)
+    instruction_data[0] = @intFromEnum(InstructionType.redeploy_program);
+
+    // Program data length (little endian)
+    const len_bytes = std.mem.toBytes(@as(u32, @intCast(program_data.len)));
+    @memcpy(instruction_data[1..5], &len_bytes);
+
+    // Program data
+    @memcpy(instruction_data[5..], program_data);
+
+    // Build account metas
+    var accounts = try std.ArrayList(AccountMeta).initCapacity(allocator, 3);
+    errdefer accounts.deinit(allocator);
+
+    accounts.appendAssumeCapacity(AccountMeta.init(program_data_address, false, true)); // writable, not signer
+    accounts.appendAssumeCapacity(AccountMeta.init(authority_address, true, false)); // signer, not writable
+    accounts.appendAssumeCapacity(AccountMeta.init(spill_address, false, true)); // writable, not signer
+
+    return BuiltInstruction{
+        .program_id = id,
+        .accounts = try accounts.toOwnedSlice(allocator),
+        .data = instruction_data,
+    };
+}
 
 /// Close a program
 ///
@@ -423,4 +455,52 @@ test "loader_v4: get program data" {
     for (program_data) |byte| {
         try std.testing.expectEqual(@as(u8, 0xAA), byte);
     }
+}
+
+test "loader_v4: upgradeProgram instruction" {
+    const allocator = std.testing.allocator;
+
+    // Create test addresses
+    const program_data_addr = PublicKey.from([_]u8{1} ** 32);
+    const authority_addr = PublicKey.from([_]u8{2} ** 32);
+    const spill_addr = PublicKey.from([_]u8{3} ** 32);
+
+    // Test program data
+    const program_bytes = [_]u8{ 0xDE, 0xAD, 0xBE, 0xEF };
+
+    // Create upgrade instruction
+    var instruction = try upgradeProgram(
+        allocator,
+        program_data_addr,
+        &program_bytes,
+        authority_addr,
+        spill_addr,
+    );
+    defer instruction.deinit(allocator);
+
+    // Verify instruction program ID
+    try std.testing.expect(std.mem.eql(u8, &instruction.program_id.bytes, &id.bytes));
+
+    // Verify accounts
+    try std.testing.expectEqual(@as(usize, 3), instruction.accounts.len);
+    try std.testing.expect(std.mem.eql(u8, &instruction.accounts[0].pubkey.bytes, &program_data_addr.bytes));
+    try std.testing.expect(instruction.accounts[0].is_writable);
+    try std.testing.expect(!instruction.accounts[0].is_signer);
+    try std.testing.expect(std.mem.eql(u8, &instruction.accounts[1].pubkey.bytes, &authority_addr.bytes));
+    try std.testing.expect(!instruction.accounts[1].is_writable);
+    try std.testing.expect(instruction.accounts[1].is_signer);
+    try std.testing.expect(std.mem.eql(u8, &instruction.accounts[2].pubkey.bytes, &spill_addr.bytes));
+    try std.testing.expect(instruction.accounts[2].is_writable);
+    try std.testing.expect(!instruction.accounts[2].is_signer);
+
+    // Verify instruction data format
+    try std.testing.expectEqual(@as(usize, 1 + 4 + program_bytes.len), instruction.data.len);
+    try std.testing.expectEqual(@as(u8, @intFromEnum(InstructionType.redeploy_program)), instruction.data[0]);
+
+    // Verify program data length
+    const data_len = std.mem.readInt(u32, instruction.data[1..5], .little);
+    try std.testing.expectEqual(@as(u32, program_bytes.len), data_len);
+
+    // Verify program data
+    try std.testing.expect(std.mem.eql(u8, instruction.data[5..], &program_bytes));
 }

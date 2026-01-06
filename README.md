@@ -7,76 +7,64 @@ This project provides a comprehensive, type-safe Zig SDK that mirrors the Rust `
 ## Features
 
 - **Complete Solana SDK Implementation** - Full feature parity with Rust `solana-sdk`
-- **Standard Zig Compiler** - No custom compiler forks required
+- **Native SBF Support** - solana-zig compiles directly to Solana BPF target
 - **Type-Safe API** - Zero-cost abstractions matching Rust SDK
-- **BPF Program Development** - Write on-chain programs in Zig
-- **Client Development** - Build off-chain clients and tools
+- **Two-Layer Architecture** - Shared SDK types + Program SDK with syscalls
 
 ## Architecture
 
-### Two-Stage Build Pipeline
+### Build Pipeline
 
-For on-chain programs:
 ```
-┌─────────────┐    ┌──────────────┐    ┌─────────────┐
-│   Zig Code  │───>│ LLVM Bitcode │───>│ Solana eBPF │
-│             │    │   (.bc)      │    │   (.so)     │
-└─────────────┘    └──────────────┘    └─────────────┘
-    zig build        sbpf-linker        deploy
+┌─────────────┐                    ┌─────────────┐
+│   Zig Code  │───────────────────>│ Solana eBPF │
+│             │    solana-zig      │   (.so)     │
+└─────────────┘                    └─────────────┘
 ```
 
 ### Module Structure
 
 ```
 solana-program-sdk-zig/
-├── src/
-│   ├── pubkey.zig          # Public key types
-│   ├── hash.zig            # Hash functions
-│   ├── signature.zig       # Digital signatures
-│   ├── keypair.zig         # Key pair management
-│   ├── instruction.zig     # Program instructions
+├── sdk/                    # Shared SDK (no syscalls)
+│   └── src/
+│       ├── public_key.zig  # PublicKey type (pure SHA256 PDA)
+│       ├── hash.zig        # Hash type
+│       ├── signature.zig   # Signature type
+│       ├── keypair.zig     # Keypair type
+│       ├── instruction.zig # Instruction types (no CPI)
+│       ├── bincode.zig     # Bincode serialization
+│       ├── borsh.zig       # Borsh serialization
+│       └── ...
+├── src/                    # Program SDK (with syscalls)
+│   ├── public_key.zig      # Re-exports SDK + syscall PDA
+│   ├── instruction.zig     # Re-exports SDK + CPI
 │   ├── account.zig         # Account types
-│   ├── message.zig         # Transaction messages
-│   ├── transaction.zig     # Transactions
-│   ├── program_error.zig   # Program errors
-│   └── syscalls.zig        # Solana syscalls
-├── tools/
-│   └── murmur3.zig         # Hash utilities
+│   ├── syscalls.zig        # Solana syscalls
+│   ├── entrypoint.zig      # Program entrypoint
+│   ├── log.zig             # Logging
+│   └── ...
 ├── program-test/           # Integration tests
-└── build.zig               # Build system
+└── build.zig
 ```
 
 ## Prerequisites
 
-### For All Development
-- **Zig 0.15.2+** - [Download](https://ziglang.org/download/)
-  - *Alternative*: **Solana Zig** - Specialized Zig fork for Solana development
-- **LLVM 18** - Required for sbpf-linker
-- **sbpf-linker** - Solana BPF linker
+### solana-zig (Required)
 
-### Solana Zig Setup (Recommended for On-Chain Programs)
 ```bash
-# Install solana-zig compiler
 ./install-solana-zig.sh
 
 # Or set custom version
 SOLANA_ZIG_VERSION=v1.52.0 ./install-solana-zig.sh
 ```
 
-**Note**: Solana Zig provides better integration with Solana's BPF runtime and may have performance optimizations.
+solana-zig is a modified Zig compiler with native Solana SBF target support. It compiles directly to `.so` files without external linkers.
 
-### For On-Chain Programs
+### For Deployment (Optional)
+
 ```bash
-# Ubuntu/Debian
-sudo apt-get install llvm-18 llvm-18-dev
-
-# Install sbpf-linker
-cargo install --git https://github.com/blueshift-gg/sbpf-linker.git
-```
-
-### For Client Development
-```bash
-# Solana CLI for deployment
+# Solana CLI
 sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
 ```
 
@@ -89,116 +77,64 @@ sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
 const sdk = @import("solana_program_sdk");
 
 fn processInstruction(
-    program_id: *sdk.Pubkey,
+    program_id: *sdk.PublicKey,
     accounts: []sdk.Account,
     data: []const u8,
 ) sdk.ProgramResult {
-    // Your program logic here
+    sdk.log.sol_log("Hello from Zig!");
     return .ok;
 }
 
 comptime {
-    sdk.entrypoint(&processInstruction);
+    sdk.entrypoint.define(processInstruction);
 }
 ```
 
-```zig
-// build.zig
-const solana = @import("solana_program_sdk");
-
-pub fn build(b: *std.Build) void {
-    const program = solana.addSolanaProgram(b, .{
-        .name = "my_program",
-        .root_source_file = b.path("src/main.zig"),
-    });
-    b.getInstallStep().dependOn(program.getInstallStep());
-}
+```bash
+# Build for Solana
+./solana-zig/zig build -Dtarget=sbf-solana
 ```
 
-### 2. Client Development
+### 2. Using SDK Types (Off-Chain)
 
 ```zig
-const sdk = @import("solana_program_sdk");
+const sdk = @import("solana_sdk");
 
 pub fn main() !void {
-    // Create a public key
-    const pubkey = try sdk.Pubkey.fromBase58("11111111111111111111111111111112");
-    
-    // Create a keypair
+    const pubkey = try sdk.PublicKey.fromBase58("11111111111111111111111111111112");
     const keypair = sdk.Keypair.generate();
     
-    // Build a transaction
-    var transaction = sdk.Transaction.new();
-    // ... add instructions
-    
-    std.debug.print("Public key: {f}\n", .{pubkey});
+    std.debug.print("Public key: {s}\n", .{pubkey.toBase58()});
 }
 ```
-
-## Development Status
-
-See [ROADMAP.md](ROADMAP.md) for current implementation status and priorities.
 
 ## Testing
 
 ```bash
-# With standard Zig
-zig build test
-zig test src/pubkey.zig
+# Test Program SDK (285 tests)
+./solana-zig/zig build test --summary all
 
-# With solana-zig (recommended)
-./solana-zig/zig build test
-./solana-zig/zig test src/pubkey.zig
+# Test SDK only (105 tests)
+cd sdk && ../solana-zig/zig build test --summary all
 
-# Run integration tests (requires solana-zig)
-cd program-test && ../solana-zig/zig build --summary all --verbose
-cargo test --manifest-path program-test/Cargo.toml
+# Integration tests
+./program-test/test.sh
 ```
 
 ### Testing with MCL (Optional)
 
-For off-chain BN254 elliptic curve operations (e.g., ZK proofs development), enable MCL:
+For off-chain BN254 elliptic curve operations:
 
 ```bash
-# First time: fetch MCL submodule
 git submodule update --init vendor/mcl
-
-# Run tests with MCL (auto-builds if needed, requires clang)
 ./solana-zig/zig build test -Dwith-mcl
 ```
 
-**Note**: MCL is optional and only used for off-chain testing. On-chain programs use Solana's native syscalls (`sol_alt_bn128_*`) which don't require MCL.
+MCL is optional. On-chain programs use Solana's native syscalls (`sol_alt_bn128_*`).
 
-## Contributing
+## Development Status
 
-This project follows a **documentation-driven development** process:
-
-1. **Documentation First** - Update ROADMAP.md and create Story files
-2. **Implementation** - Write code with comprehensive tests
-3. **Validation** - Ensure all tests pass and documentation is complete
-
-See [AGENTS.md](AGENTS.md) for detailed development guidelines.
-
-## Building with Solana Zig
-
-For on-chain program development, solana-zig is recommended:
-
-```bash
-# Install solana-zig
-./install-solana-zig.sh
-
-# Use solana-zig for all builds
-export ZIG="./solana-zig/zig"
-$ZIG build
-$ZIG build test
-
-# Or use the provided convenience script
-./build-solana-zig.sh
-./build-solana-zig.sh test
-
-# For integration testing
-./program-test/test.sh ./solana-zig/zig
-```
+See [ROADMAP.md](ROADMAP.md) for current implementation status.
 
 ## License
 

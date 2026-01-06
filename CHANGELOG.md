@@ -2,6 +2,48 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+## Session 2026-01-06-001
+
+**日期**: 2026-01-06
+**目标**: MCL Integration for Off-Chain BN254 Operations
+
+#### 完成的工作
+1. Created `src/mcl.zig` - Complete MCL (Multiprecision Computing Library) bindings
+   - High-level Zig wrapper types: `G1`, `G2`, `GT`, `Fr`, etc.
+   - Extern C declarations for MCL BN254 API
+   - `mcl_available` compile-time flag controlled by build options
+   - `init()`, `pairing()`, serialization/deserialization functions
+2. Updated `src/bn254.zig` to use MCL when available for off-chain operations
+   - `g1AdditionLE()` now uses MCL for off-chain mode
+   - Dual implementation: syscalls (on-chain) + MCL (off-chain)
+3. Updated `build.zig` with MCL build options:
+   - `-Dwith-mcl`: Auto-build MCL from source (requires clang)
+   - `-Dmcl-lib=<path>`: Use pre-compiled MCL static library
+   - Clang version auto-detection (clang-20, clang)
+4. Added MCL as git submodule in `vendor/mcl/`
+5. Updated `src/root.zig` to export mcl module
+
+#### Build Commands
+```bash
+# Without MCL (syscalls only, for on-chain)
+./solana-zig/zig build test
+
+# With MCL (off-chain testing) - auto-builds if needed
+./solana-zig/zig build test -Dwith-mcl
+```
+
+#### 测试结果
+- Without MCL: 370/370 tests passed
+- With MCL: 370/370 tests passed
+- MCL auto-build: Works with clang-20/clang + libc++
+
+#### 技术说明
+- MCL must be compiled with Clang + libc++ for Zig ABI compatibility
+- MCL provides native BN254 operations for off-chain testing/development
+- On-chain programs use Solana syscalls (sol_alt_bn128_*)
+
+---
+
 ## Session 2026-01-05-002
 
 **日期**: 2026-01-05

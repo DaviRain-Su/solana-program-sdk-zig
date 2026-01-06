@@ -78,6 +78,7 @@ pub const epoch_rewards = @import("epoch_rewards.zig");
 // Phase 14: v0.23.0 - Advanced Crypto
 pub const bn254 = @import("bn254.zig");
 pub const big_mod_exp = @import("big_mod_exp.zig");
+pub const mcl = @import("mcl.zig");
 
 // Phase 16: v0.25.0 - Epoch Rewards Hasher
 pub const epoch_rewards_hasher = @import("epoch_rewards_hasher.zig");

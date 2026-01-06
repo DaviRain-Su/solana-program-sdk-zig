@@ -155,6 +155,20 @@ cd program-test && ../solana-zig/zig build --summary all --verbose
 cargo test --manifest-path program-test/Cargo.toml
 ```
 
+### Testing with MCL (Optional)
+
+For off-chain BN254 elliptic curve operations (e.g., ZK proofs development), enable MCL:
+
+```bash
+# First time: fetch MCL submodule
+git submodule update --init vendor/mcl
+
+# Run tests with MCL (auto-builds if needed, requires clang)
+./solana-zig/zig build test -Dwith-mcl
+```
+
+**Note**: MCL is optional and only used for off-chain testing. On-chain programs use Solana's native syscalls (`sol_alt_bn128_*`) which don't require MCL.
+
 ## Contributing
 
 This project follows a **documentation-driven development** process:

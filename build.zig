@@ -4,12 +4,27 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    // MCL option: -Dwith-mcl enables MCL for off-chain BN254 operations
+    // - If vendor/mcl/lib/libmcl.a exists, uses it directly
+    // - If not, automatically builds MCL (requires clang)
+    const with_mcl = b.option(bool, "with-mcl", "Enable MCL library for off-chain BN254 operations") orelse false;
+
+    // Determine if MCL is enabled
+    const mcl_enabled = with_mcl;
+
+    // Create build options module to pass MCL availability to source code
+    const build_options = b.addOptions();
+    build_options.addOption(bool, "mcl_linked", mcl_enabled);
+
     // Export self as a module
     const solana_mod = b.addModule("solana_program_sdk", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
     });
+
+    // Add build options to module
+    solana_mod.addOptions("build_options", build_options);
 
     const base58_dep = b.dependency("base58", .{
         .target = target,
@@ -23,11 +38,80 @@ pub fn build(b: *std.Build) void {
     });
 
     lib_unit_tests.root_module.addImport("base58", base58_mod);
+    lib_unit_tests.root_module.addOptions("build_options", build_options);
+
+    // Handle MCL linking
+    if (with_mcl) {
+        // Check if libmcl.a already exists
+        const mcl_lib_exists = blk: {
+            std.fs.cwd().access("vendor/mcl/lib/libmcl.a", .{}) catch break :blk false;
+            break :blk true;
+        };
+
+        // Only build if libmcl.a doesn't exist
+        if (!mcl_lib_exists) {
+            const mcl_build = buildMcl(b);
+            lib_unit_tests.step.dependOn(&mcl_build.step);
+        }
+
+        lib_unit_tests.addObjectFile(b.path("vendor/mcl/lib/libmcl.a"));
+        lib_unit_tests.root_module.addIncludePath(b.path("vendor/mcl/include"));
+        lib_unit_tests.linkLibCpp();
+    }
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
+
+    // Add a separate step to just build MCL
+    const mcl_step = b.step("mcl", "Build MCL library");
+    mcl_step.dependOn(&buildMcl(b).step);
+}
+
+/// Build MCL library using make with Clang + libc++
+/// Note: Requires clang-20 or clang to be installed
+fn buildMcl(b: *std.Build) *std.Build.Step.Run {
+    // Detect clang version - try clang-20 first, fall back to clang
+    const cc = detectClang("clang-20", "clang");
+    const cxx = detectClangPP("clang++-20", "clang++");
+
+    // Build MCL with Clang + libc++ for Zig compatibility
+    // make will skip already-built targets automatically
+    const build_cmd = b.addSystemCommand(&.{
+        "make",
+        "-C",
+        "vendor/mcl",
+        b.fmt("CXX={s} -stdlib=libc++", .{cxx}),
+        b.fmt("CC={s}", .{cc}),
+        "MCL_FP_BIT=256",
+        "MCL_FR_BIT=256",
+        "lib/libmcl.a",
+        "-j4",
+    });
+
+    return build_cmd;
+}
+
+fn detectClang(preferred: []const u8, fallback: []const u8) []const u8 {
+    // Check if preferred clang exists
+    const result = std.process.Child.run(.{
+        .allocator = std.heap.page_allocator,
+        .argv = &.{ "which", preferred },
+    }) catch return fallback;
+    defer std.heap.page_allocator.free(result.stdout);
+    defer std.heap.page_allocator.free(result.stderr);
+    return if (result.term.Exited == 0) preferred else fallback;
+}
+
+fn detectClangPP(preferred: []const u8, fallback: []const u8) []const u8 {
+    const result = std.process.Child.run(.{
+        .allocator = std.heap.page_allocator,
+        .argv = &.{ "which", preferred },
+    }) catch return fallback;
+    defer std.heap.page_allocator.free(result.stdout);
+    defer std.heap.page_allocator.free(result.stderr);
+    return if (result.term.Exited == 0) preferred else fallback;
 }
 
 // General helper function to do all the tricky build steps, by adding the

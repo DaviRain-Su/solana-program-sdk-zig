@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 use solana_sdk::{
     hash::Hash,
+    native_token::sol_str_to_lamports,
     pubkey::Pubkey,
+    rent::Rent,
     short_vec,
     signature::{Keypair, Signature, Signer},
 };
@@ -72,6 +74,20 @@ pub struct Sha256TestVector {
     pub name: String,
     pub input: Vec<u8>,
     pub hash: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct LamportsTestVector {
+    pub name: String,
+    pub sol_str: String,
+    pub lamports: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct RentTestVector {
+    pub name: String,
+    pub data_len: u64,
+    pub minimum_balance: u64,
 }
 
 pub fn generate_pubkey_vectors(output_dir: &Path) {
@@ -356,6 +372,118 @@ pub fn generate_sha256_vectors(output_dir: &Path) {
     fs::write(output_dir.join("sha256_vectors.json"), json).unwrap();
 }
 
+pub fn generate_lamports_vectors(output_dir: &Path) {
+    let vectors = vec![
+        LamportsTestVector {
+            name: "zero".to_string(),
+            sol_str: "0".to_string(),
+            lamports: sol_str_to_lamports("0"),
+        },
+        LamportsTestVector {
+            name: "zero_decimal".to_string(),
+            sol_str: "0.0".to_string(),
+            lamports: sol_str_to_lamports("0.0"),
+        },
+        LamportsTestVector {
+            name: "one_sol".to_string(),
+            sol_str: "1".to_string(),
+            lamports: sol_str_to_lamports("1"),
+        },
+        LamportsTestVector {
+            name: "one_sol_decimal".to_string(),
+            sol_str: "1.0".to_string(),
+            lamports: sol_str_to_lamports("1.0"),
+        },
+        LamportsTestVector {
+            name: "half_sol".to_string(),
+            sol_str: "0.5".to_string(),
+            lamports: sol_str_to_lamports("0.5"),
+        },
+        LamportsTestVector {
+            name: "one_and_half_sol".to_string(),
+            sol_str: "1.5".to_string(),
+            lamports: sol_str_to_lamports("1.5"),
+        },
+        LamportsTestVector {
+            name: "one_lamport".to_string(),
+            sol_str: "0.000000001".to_string(),
+            lamports: sol_str_to_lamports("0.000000001"),
+        },
+        LamportsTestVector {
+            name: "full_precision".to_string(),
+            sol_str: "1.123456789".to_string(),
+            lamports: sol_str_to_lamports("1.123456789"),
+        },
+        LamportsTestVector {
+            name: "large_value".to_string(),
+            sol_str: "1000".to_string(),
+            lamports: sol_str_to_lamports("1000"),
+        },
+        LamportsTestVector {
+            name: "complex_decimal".to_string(),
+            sol_str: "8.50228288".to_string(),
+            lamports: sol_str_to_lamports("8.50228288"),
+        },
+        LamportsTestVector {
+            name: "empty_string".to_string(),
+            sol_str: "".to_string(),
+            lamports: sol_str_to_lamports(""),
+        },
+        LamportsTestVector {
+            name: "just_dot".to_string(),
+            sol_str: ".".to_string(),
+            lamports: sol_str_to_lamports("."),
+        },
+        LamportsTestVector {
+            name: "negative".to_string(),
+            sol_str: "-1".to_string(),
+            lamports: sol_str_to_lamports("-1"),
+        },
+        LamportsTestVector {
+            name: "invalid_chars".to_string(),
+            sol_str: "abc".to_string(),
+            lamports: sol_str_to_lamports("abc"),
+        },
+        LamportsTestVector {
+            name: "multiple_dots".to_string(),
+            sol_str: "1.2.3".to_string(),
+            lamports: sol_str_to_lamports("1.2.3"),
+        },
+    ];
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("lamports_vectors.json"), json).unwrap();
+}
+
+pub fn generate_rent_vectors(output_dir: &Path) {
+    let rent = Rent::default();
+
+    // Test various data lengths
+    let test_cases: Vec<(&str, u64)> = vec![
+        ("empty", 0),
+        ("small", 100),
+        ("medium", 1000),
+        ("large", 10000),
+        ("account_data", 165), // Token account size
+        ("mint_data", 82),     // Mint account size
+        ("nonce_data", 80),    // Nonce account size
+    ];
+
+    let mut vectors: Vec<RentTestVector> = Vec::new();
+
+    for (name, data_len) in test_cases {
+        let minimum_balance = rent.minimum_balance(data_len as usize);
+        vectors.push(RentTestVector {
+            name: name.to_string(),
+            data_len,
+            minimum_balance,
+        });
+    }
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("rent_vectors.json"), json).unwrap();
+}
+
 pub fn generate_all_vectors(output_dir: &Path) {
     fs::create_dir_all(output_dir).unwrap();
 
@@ -367,6 +495,8 @@ pub fn generate_all_vectors(output_dir: &Path) {
     generate_epoch_info_vectors(output_dir);
     generate_short_vec_vectors(output_dir);
     generate_sha256_vectors(output_dir);
+    generate_lamports_vectors(output_dir);
+    generate_rent_vectors(output_dir);
 
     println!("Generated all test vectors in {:?}", output_dir);
 }

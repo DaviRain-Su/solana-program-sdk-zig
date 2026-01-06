@@ -9,6 +9,7 @@ const ShortU16 = sdk.short_vec.ShortU16;
 const short_vec = sdk.short_vec;
 const signature_mod = sdk.signature;
 const hash_mod = sdk.hash;
+const native_token = sdk.native_token;
 
 const PubkeyTestVector = struct {
     name: []const u8,
@@ -306,5 +307,67 @@ test "sha256: hash computation compatibility with Rust SDK" {
         std.crypto.hash.sha2.Sha256.hash(vector.input, &hash_bytes, .{});
 
         try std.testing.expectEqualSlices(u8, vector.hash, &hash_bytes);
+    }
+}
+
+const LamportsTestVector = struct {
+    name: []const u8,
+    sol_str: []const u8,
+    lamports: ?u64,
+};
+
+const RentTestVector = struct {
+    name: []const u8,
+    data_len: u64,
+    minimum_balance: u64,
+};
+
+test "lamports: solStrToLamports compatibility with Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "lamports_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const LamportsTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        const result = native_token.solStrToLamports(vector.sol_str);
+
+        if (vector.lamports) |expected| {
+            if (result) |actual| {
+                try std.testing.expectEqual(expected, actual);
+            } else {
+                if (vector.sol_str.len == 0) continue;
+                std.debug.print("Expected {d} for '{s}', got null\n", .{ expected, vector.sol_str });
+                return error.TestUnexpectedResult;
+            }
+        } else {
+            if (result) |actual| {
+                if (vector.sol_str.len == 0 and actual == 0) continue;
+                std.debug.print("Expected null for '{s}', got {d}\n", .{ vector.sol_str, actual });
+                return error.TestUnexpectedResult;
+            }
+        }
+    }
+}
+
+test "rent: minimum balance calculation compatibility with Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "rent_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const RentTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    const account_storage_overhead: u64 = 128;
+    const lamports_per_byte_year: u64 = 1_000_000_000 / 100 * 365 / (1024 * 1024);
+    const exemption_multiplier: u64 = 2;
+
+    for (parsed.value) |vector| {
+        const total_data_len = account_storage_overhead + vector.data_len;
+        const calculated = total_data_len * lamports_per_byte_year * exemption_multiplier;
+        try std.testing.expectEqual(vector.minimum_balance, calculated);
     }
 }

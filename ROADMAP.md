@@ -149,6 +149,59 @@ The following client-side modules are planned for future implementation in a sep
 
 ---
 
+## 🏗️ v1.0.0 - SDK Architecture Restructure (Planned)
+
+To better separate concerns and enable independent versioning, the SDK will be restructured into three layers:
+
+### Target Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│              solana-sdk-zig (共享核心类型)                    │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │  PublicKey, Hash, Signature, Keypair                │   │
+│  │  Transaction, Message, Instruction, AccountMeta     │   │
+│  │  bincode, borsh, short_vec, error, native_token     │   │
+│  └─────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+                    ▲                       ▲
+                    │ depends on            │ depends on
+        ┌───────────┴───────────┐ ┌────────┴────────────┐
+        │                       │ │                     │
+┌───────▼───────────────┐  ┌────▼────────────────────┐
+│ solana-program-sdk-zig│  │ solana-client-sdk-zig   │
+│ (On-chain Programs)   │  │ (Off-chain Clients)     │
+│ ┌───────────────────┐ │  │ ┌────────────────────┐  │
+│ │ syscalls          │ │  │ │ RPC Client         │  │
+│ │ entrypoint        │ │  │ │ Connection API     │  │
+│ │ CPI               │ │  │ │ Transaction Signer │  │
+│ │ sysvars           │ │  │ │ Wallet Integration │  │
+│ │ native programs   │ │  │ └────────────────────┘  │
+│ │ crypto (syscall)  │ │  │                         │
+│ └───────────────────┘ │  │                         │
+└───────────────────────┘  └─────────────────────────┘
+```
+
+### Module Classification
+
+| Layer | Modules | Criteria |
+|-------|---------|----------|
+| **SDK (Shared)** | public_key, hash, signature, keypair, account, instruction, message, transaction, bincode, borsh, short_vec, error, nonce, native_token | No syscall dependency, pure Zig |
+| **Program SDK** | syscalls, entrypoint, allocator, log, context, bpf, program_memory, sysvars, native programs, crypto | Syscall-dependent, BPF-specific |
+| **Client SDK** | rpc/client, connection, transaction/builder, wallet/keypair | HTTP/networking, signing |
+
+### Restructure Phases
+
+| Phase | Goal | Status |
+|-------|------|--------|
+| Phase 1 | Extract shared types to `sdk/` directory | ⏳ Planned |
+| Phase 2 | Refactor program-sdk to depend on sdk/ | ⏳ Planned |
+| Phase 3 | Create client-sdk with RPC client | ⏳ Planned |
+
+> **See**: `stories/v1.0.0-sdk-restructure.md` for detailed implementation plan.
+
+---
+
 ## 🚫 Out of Scope (Validator-only modules)
 
 These modules are NOT needed for on-chain program development or client development:

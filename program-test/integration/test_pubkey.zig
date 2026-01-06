@@ -2,6 +2,8 @@ const std = @import("std");
 const sdk = @import("solana_sdk");
 const PublicKey = sdk.public_key.PublicKey;
 const Hash = sdk.hash.Hash;
+const Signature = sdk.signature.Signature;
+const signature_mod = sdk.signature;
 const hash_mod = sdk.hash;
 
 const PubkeyTestVector = struct {
@@ -14,6 +16,19 @@ const HashTestVector = struct {
     name: []const u8,
     bytes: [32]u8,
     hex: []const u8,
+};
+
+const SignatureTestVector = struct {
+    name: []const u8,
+    bytes: [64]u8,
+    base58: []const u8,
+};
+
+const PdaTestVector = struct {
+    program_id: [32]u8,
+    seeds: []const []const u8,
+    expected_pubkey: [32]u8,
+    expected_bump: u8,
 };
 
 fn readTestVectorFile(allocator: std.mem.Allocator, filename: []const u8) ![]const u8 {
@@ -80,5 +95,56 @@ test "hash: base58 encoding compatibility with Rust SDK" {
         const encoded = hash.toBase58(&base58_buffer);
 
         try std.testing.expectEqualStrings(vector.hex, encoded);
+    }
+}
+
+test "signature: base58 encoding compatibility with Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "signature_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const SignatureTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        const sig = Signature{ .bytes = vector.bytes };
+        var base58_buffer: [signature_mod.MAX_BASE58_LEN]u8 = undefined;
+        const encoded = sig.toBase58(&base58_buffer);
+
+        try std.testing.expectEqualStrings(vector.base58, encoded);
+    }
+}
+
+test "signature: base58 decoding compatibility with Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "signature_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const SignatureTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        const decoded = try Signature.fromBase58(vector.base58);
+        try std.testing.expectEqualSlices(u8, &vector.bytes, &decoded.bytes);
+    }
+}
+
+test "pda: derivation compatibility with Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "pda_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const PdaTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        const program_id = PublicKey.from(vector.program_id);
+        const pda = try PublicKey.findProgramAddressSlice(vector.seeds, program_id);
+
+        try std.testing.expectEqualSlices(u8, &vector.expected_pubkey, &pda.address.bytes);
+        try std.testing.expectEqual(vector.expected_bump, pda.bump_seed[0]);
     }
 }

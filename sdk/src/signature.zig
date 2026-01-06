@@ -17,6 +17,9 @@ const hash = @import("hash.zig");
 /// Rust equivalent: `solana_sdk::signature::SIGNATURE_BYTES`
 pub const SIGNATURE_BYTES = 64;
 
+/// Maximum string length of a base58 encoded Signature
+pub const MAX_BASE58_LEN: usize = 88;
+
 /// A digital signature using Ed25519
 pub const Signature = extern struct {
     /// The 64-byte signature data
@@ -100,6 +103,12 @@ pub const Signature = extern struct {
         var buffer: [base58.bitcoin.getEncodedLengthUpperBound(SIGNATURE_BYTES)]u8 = undefined;
         const encoded = base58.bitcoin.encode(&buffer, &self.bytes);
         try writer.writeAll(encoded);
+    }
+
+    /// Convert to base58 string
+    pub fn toBase58(self: Signature, buffer: *[MAX_BASE58_LEN]u8) []const u8 {
+        const base58 = @import("public_key.zig").base58_mod;
+        return base58.bitcoin.encode(buffer, &self.bytes);
     }
 
     /// Parse from base58 string

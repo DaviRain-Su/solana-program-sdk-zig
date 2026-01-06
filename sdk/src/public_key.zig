@@ -205,6 +205,68 @@ pub const PublicKey = extern struct {
         return pda;
     }
 
+    /// Create a program address using pure SHA256 computation.
+    /// Runtime version that accepts a slice of slices for seeds.
+    pub fn createProgramAddressSlice(seeds: []const []const u8, program_id: PublicKey) !PublicKey {
+        if (seeds.len > PublicKey.max_num_seeds) {
+            return error.MaxSeedLengthExceeded;
+        }
+
+        for (seeds) |seed| {
+            if (seed.len > PublicKey.max_seed_length) {
+                return error.MaxSeedLengthExceeded;
+            }
+        }
+
+        var address: PublicKey = undefined;
+
+        var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+        for (seeds) |seed| {
+            hasher.update(seed);
+        }
+        hasher.update(&program_id.bytes);
+        hasher.update("ProgramDerivedAddress");
+        hasher.final(&address.bytes);
+
+        if (address.isPointOnCurve()) {
+            return error.InvalidSeeds;
+        }
+
+        return address;
+    }
+
+    /// Find a program address and bump seed using pure computation.
+    /// Runtime version that accepts a slice of slices for seeds.
+    pub fn findProgramAddressSlice(seeds: []const []const u8, program_id: PublicKey) !ProgramDerivedAddress {
+        if (seeds.len >= PublicKey.max_num_seeds) {
+            return error.MaxSeedLengthExceeded;
+        }
+
+        // Create seeds array with space for bump seed
+        var seeds_with_bump: [PublicKey.max_num_seeds][]const u8 = undefined;
+        for (seeds, 0..) |seed, i| {
+            seeds_with_bump[i] = seed;
+        }
+
+        var bump_seed: [1]u8 = .{255};
+        seeds_with_bump[seeds.len] = &bump_seed;
+
+        while (true) {
+            const result = PublicKey.createProgramAddressSlice(seeds_with_bump[0 .. seeds.len + 1], program_id) catch {
+                if (bump_seed[0] == 0) {
+                    return error.NoViableBumpSeed;
+                }
+                bump_seed[0] -= 1;
+                continue;
+            };
+
+            return ProgramDerivedAddress{
+                .address = result,
+                .bump_seed = bump_seed,
+            };
+        }
+    }
+
     pub fn jsonStringify(self: PublicKey, options: anytype, writer: anytype) !void {
         _ = options;
         try writer.print("\"{f}\"", .{self});

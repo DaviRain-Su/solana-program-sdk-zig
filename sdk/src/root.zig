@@ -72,6 +72,22 @@ pub const short_vec = @import("short_vec.zig");
 pub const @"error" = @import("error.zig");
 pub const ProgramError = @"error".ProgramError;
 
+pub const instruction_error = @import("instruction_error.zig");
+pub const InstructionError = instruction_error.InstructionError;
+pub const LamportsError = instruction_error.LamportsError;
+
+pub const transaction_error = @import("transaction_error.zig");
+pub const TransactionError = transaction_error.TransactionError;
+pub const AddressLoaderError = transaction_error.AddressLoaderError;
+pub const SanitizeMessageError = transaction_error.SanitizeMessageError;
+
+// ============================================================================
+// Epoch Info
+// ============================================================================
+
+pub const epoch_info = @import("epoch_info.zig");
+pub const EpochInfo = epoch_info.EpochInfo;
+
 // ============================================================================
 // Native Token
 // ============================================================================

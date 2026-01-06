@@ -14,9 +14,12 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 | Native Programs | 12 | 12 | 100% |
 | Native Token | 1 | 1 | 100% |
 | Crypto (Advanced) | 3 | 3 | 100% |
-| **Total (On-chain)** | **55** | **55** | **100%** |
+| Error Types | 3 | 3 | 100% |
+| Other (epoch_info) | 1 | 1 | 100% |
+| **Total (On-chain)** | **59** | **59** | **100%** |
 
-> Note: Client/RPC and Validator-only modules are excluded as they're not needed for on-chain program development.
+> Note: Client/RPC and Validator-only modules are excluded.
+> v0.29.0 complete: Added loader-v3 instructions, instruction_error, transaction_error, epoch_info.
 
 ---
 
@@ -121,47 +124,51 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 
 ---
 
-## 🔮 Future: Client SDK (Planned)
+## 🔮 v1.1.0 - Client SDK (Planned)
 
-The following client-side modules are planned for future implementation in a separate `solana-client-sdk-zig` package:
+The following client-side modules are planned for implementation in `client/`:
 
-### RPC Client (Planned)
+### RPC Methods (52 total)
+
+| Priority | Count | Examples |
+|----------|-------|----------|
+| **P0** | 6 | `getBalance`, `getAccountInfo`, `getLatestBlockhash`, `sendTransaction` |
+| **P1** | 18 | `getMultipleAccounts`, `simulateTransaction`, `requestAirdrop` |
+| **P2** | 28 | Remaining methods |
+
+### Infrastructure
 | Module | Description | Status |
 |--------|-------------|--------|
-| `rpc/client.zig` | JSON-RPC client | ⏳ Planned |
-| `rpc/types.zig` | RPC request/response types | ⏳ Planned |
-| `connection.zig` | High-level Connection API | ⏳ Planned |
+| `client/src/json_rpc.zig` | JSON-RPC 2.0 client | ⏳ Planned |
+| `client/src/error.zig` | RPC error types | ⏳ Planned |
+| `client/src/commitment.zig` | Commitment levels | ⏳ Planned |
+| `client/src/types.zig` | Response types | ⏳ Planned |
 
-### Transaction Building (Planned)
+### Transaction Building
 | Module | Description | Status |
 |--------|-------------|--------|
 | `transaction/builder.zig` | Transaction builder | ⏳ Planned |
 | `transaction/signer.zig` | Transaction signing | ⏳ Planned |
 
-### Wallet Integration (Planned)
-| Module | Description | Status |
-|--------|-------------|--------|
-| `wallet/keypair.zig` | Enhanced keypair management | ⏳ Planned |
-| `wallet/mnemonic.zig` | BIP39 mnemonic support | ⏳ Planned |
-
-> **Note**: Client SDK development will begin after the current on-chain SDK is stable.
-> The client SDK will depend on the shared types from this repository.
+> **See**: `stories/v1.1.0-client-sdk.md` for detailed 52-method implementation plan.
 
 ---
 
-## 🏗️ v1.0.0 - SDK Architecture Restructure (Planned)
+## 🏗️ v1.0.0 - SDK Architecture Restructure ✅
 
-To better separate concerns and enable independent versioning, the SDK will be restructured into three layers:
+The SDK has been restructured into a two-layer architecture for better separation of concerns:
 
-### Target Architecture
+### Current Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│              solana-sdk-zig (共享核心类型)                    │
+│              sdk/ (共享核心类型 - 132 tests)                  │
 │  ┌─────────────────────────────────────────────────────┐   │
 │  │  PublicKey, Hash, Signature, Keypair                │   │
-│  │  Transaction, Message, Instruction, AccountMeta     │   │
+│  │  Instruction, AccountMeta (types only)              │   │
 │  │  bincode, borsh, short_vec, error, native_token     │   │
+│  │  nonce, instruction_error, transaction_error        │   │
+│  │  epoch_info (pure types via SHA256)                 │   │
 │  └─────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
                     ▲                       ▲
@@ -169,12 +176,12 @@ To better separate concerns and enable independent versioning, the SDK will be r
         ┌───────────┴───────────┐ ┌────────┴────────────┐
         │                       │ │                     │
 ┌───────▼───────────────┐  ┌────▼────────────────────┐
-│ solana-program-sdk-zig│  │ solana-client-sdk-zig   │
-│ (On-chain Programs)   │  │ (Off-chain Clients)     │
+│ src/ (Program SDK)    │  │ client/ (Planned)       │
+│ (300 tests)           │  │                         │
 │ ┌───────────────────┐ │  │ ┌────────────────────┐  │
 │ │ syscalls          │ │  │ │ RPC Client         │  │
 │ │ entrypoint        │ │  │ │ Connection API     │  │
-│ │ CPI               │ │  │ │ Transaction Signer │  │
+│ │ CPI (invokeSigned)│ │  │ │ Transaction Signer │  │
 │ │ sysvars           │ │  │ │ Wallet Integration │  │
 │ │ native programs   │ │  │ └────────────────────┘  │
 │ │ crypto (syscall)  │ │  │                         │
@@ -182,23 +189,47 @@ To better separate concerns and enable independent versioning, the SDK will be r
 └───────────────────────┘  └─────────────────────────┘
 ```
 
-### Module Classification
-
-| Layer | Modules | Criteria |
-|-------|---------|----------|
-| **SDK (Shared)** | public_key, hash, signature, keypair, account, instruction, message, transaction, bincode, borsh, short_vec, error, nonce, native_token | No syscall dependency, pure Zig |
-| **Program SDK** | syscalls, entrypoint, allocator, log, context, bpf, program_memory, sysvars, native programs, crypto | Syscall-dependent, BPF-specific |
-| **Client SDK** | rpc/client, connection, transaction/builder, wallet/keypair | HTTP/networking, signing |
-
 ### Restructure Phases
 
 | Phase | Goal | Status |
 |-------|------|--------|
-| Phase 1 | Extract shared types to `sdk/` directory | ⏳ Planned |
-| Phase 2 | Refactor program-sdk to depend on sdk/ | ⏳ Planned |
-| Phase 3 | Create client-sdk with RPC client | ⏳ Planned |
+| Phase 1 | Extract shared types to `sdk/` directory | ✅ Complete |
+| Phase 2 | Refactor program-sdk to depend on sdk/ | ✅ Complete |
+| Phase 3 | Create client-sdk with RPC client | ⏳ Planned (v1.1.0) |
 
-> **See**: `stories/v1.0.0-sdk-restructure.md` for detailed implementation plan.
+> **See**: `stories/v1.0.0-sdk-restructure.md` for implementation details.
+
+---
+
+## ✅ v0.29.0 - Program SDK Completion (Complete)
+
+Based on full analysis of [solana-sdk](https://github.com/anza-xyz/solana-sdk) (107 crates), all critical on-chain modules are now implemented.
+
+### Implemented Modules
+
+| Zig Module | Rust Crate | Priority | Status | Tests |
+|------------|------------|----------|--------|-------|
+| `bpf_loader.zig` (extend) | `loader-v3-interface` instructions | P1 | ✅ | 15 |
+| `instruction_error.zig` | `instruction-error` | P1 | ✅ | 6 |
+| `transaction_error.zig` | `transaction-error` | P2 | ✅ | 10 |
+| `epoch_info.zig` | `epoch-info` | P2 | ✅ | 11 |
+
+### loader-v3 Instructions (UpgradeableLoaderInstruction)
+
+| Instruction | Description | Status |
+|-------------|-------------|--------|
+| `InitializeBuffer` | Initialize buffer account | ✅ |
+| `Write` | Write program data to buffer | ✅ |
+| `DeployWithMaxDataLen` | Deploy upgradeable program | ✅ |
+| `Upgrade` | Upgrade program | ✅ |
+| `SetAuthority` | Set upgrade authority | ✅ |
+| `Close` | Close account | ✅ |
+| `ExtendProgram` | Extend program data | ✅ |
+| `SetAuthorityChecked` | Set authority (with signer) | ✅ |
+| `Migrate` | Migrate to loader-v4 | ✅ |
+| `ExtendProgramChecked` | Extend program (with signer) | ✅ |
+
+> **See**: `stories/v0.29.0-program-sdk-completion.md` for details.
 
 ---
 
@@ -281,14 +312,26 @@ These modules are NOT needed for on-chain program development or client developm
 - Instruction builders: initializeAccount, authorize, withdraw, updateCommission, etc.
 - Native Programs now at 100% (12/12 modules)
 
-### v0.28.0 - BLS Signatures ✅ (100% Complete!)
+### v0.28.0 - BLS Signatures ✅
 - ✅ `bls_signatures.zig` - BLS12-381 signature types for consensus
 - Core types: Pubkey (96 bytes), PubkeyCompressed (48 bytes)
 - Signature types: Signature (192 bytes), SignatureCompressed (96 bytes)
 - ProofOfPossession types for rogue key attack prevention
 - BlsError enum with 7 error types
 - Base64 encoding for display formatting
-- **SDK Implementation Complete: 55/55 modules (100%)**
+
+### v1.0.0 - SDK Architecture Restructure ✅
+- ✅ Two-layer architecture: `sdk/` (shared) + `src/` (program)
+- ✅ SDK layer: 105 tests (no syscall dependencies)
+- ✅ Program SDK layer: 285 tests (with syscall support)
+- ✅ Clean separation of pure types and BPF-specific code
+
+### v0.29.0 - Program SDK Completion ⏳
+- ⏳ `loader-v3` instruction builders (UpgradeableLoaderInstruction)
+- ⏳ `instruction_error.zig` - Runtime instruction errors
+- ⏳ `transaction_error.zig` - Transaction errors (for Client SDK)
+- ⏳ `epoch_info.zig` - EpochInfo type (for Client SDK)
+- ⏳ `sdk_ids.zig` - Centralized program ID constants
 
 ---
 

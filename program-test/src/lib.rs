@@ -192,6 +192,30 @@ pub struct CompiledInstructionTestVector {
     pub encoded: Vec<u8>,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct FeatureStateTestVector {
+    pub name: String,
+    pub activated_at: Option<u64>,
+    pub encoded: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct NonceVersionsTestVector {
+    pub name: String,
+    pub authority: Vec<u8>,
+    pub durable_nonce: Vec<u8>,
+    pub lamports_per_signature: u64,
+    pub encoded: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct InstructionErrorTestVector {
+    pub name: String,
+    pub error_code: u32,
+    pub custom_code: Option<u32>,
+    pub encoded: Vec<u8>,
+}
+
 pub fn generate_pubkey_vectors(output_dir: &Path) {
     let bpf_loader_upgradeable_id =
         Pubkey::from_str_const("BPFLoaderUpgradeab1e11111111111111111111111");
@@ -1303,6 +1327,139 @@ pub fn generate_compiled_instruction_vectors(output_dir: &Path) {
     fs::write(output_dir.join("compiled_instruction_vectors.json"), json).unwrap();
 }
 
+pub fn generate_feature_state_vectors(output_dir: &Path) {
+    let mut vectors: Vec<FeatureStateTestVector> = Vec::new();
+
+    vectors.push(FeatureStateTestVector {
+        name: "unactivated".to_string(),
+        activated_at: None,
+        encoded: vec![0, 0, 0, 0, 0, 0, 0, 0, 0],
+    });
+
+    vectors.push(FeatureStateTestVector {
+        name: "activated_slot_0".to_string(),
+        activated_at: Some(0),
+        encoded: vec![1, 0, 0, 0, 0, 0, 0, 0, 0],
+    });
+
+    vectors.push(FeatureStateTestVector {
+        name: "activated_slot_100".to_string(),
+        activated_at: Some(100),
+        encoded: vec![1, 100, 0, 0, 0, 0, 0, 0, 0],
+    });
+
+    vectors.push(FeatureStateTestVector {
+        name: "activated_slot_max".to_string(),
+        activated_at: Some(u64::MAX),
+        encoded: vec![1, 255, 255, 255, 255, 255, 255, 255, 255],
+    });
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("feature_state_vectors.json"), json).unwrap();
+}
+
+pub fn generate_nonce_versions_vectors(output_dir: &Path) {
+    use solana_nonce::state::{Data, DurableNonce, State};
+    use solana_nonce::versions::Versions;
+
+    let mut vectors: Vec<NonceVersionsTestVector> = Vec::new();
+
+    let authority = Pubkey::from_str_const("4rL4RCWHz3iNCdCaveD8KcHfV9YagGbXgSYq9QWPZ4Zx");
+    let blockhash = Hash::new_from_array([0x42; 32]);
+    let durable_nonce = DurableNonce::from_blockhash(&blockhash);
+    let fee_calculator_lamports = 5000u64;
+
+    let data = Data::new(authority, durable_nonce, fee_calculator_lamports);
+    let state = State::Initialized(data);
+    let versions = Versions::new(state);
+    let encoded = bincode::serialize(&versions).unwrap();
+
+    vectors.push(NonceVersionsTestVector {
+        name: "initialized".to_string(),
+        authority: authority.to_bytes().to_vec(),
+        durable_nonce: durable_nonce.as_hash().to_bytes().to_vec(),
+        lamports_per_signature: fee_calculator_lamports,
+        encoded,
+    });
+
+    let uninitialized = Versions::new(State::Uninitialized);
+    let encoded = bincode::serialize(&uninitialized).unwrap();
+
+    vectors.push(NonceVersionsTestVector {
+        name: "uninitialized".to_string(),
+        authority: vec![],
+        durable_nonce: vec![],
+        lamports_per_signature: 0,
+        encoded,
+    });
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("nonce_versions_vectors.json"), json).unwrap();
+}
+
+pub fn generate_instruction_error_vectors(output_dir: &Path) {
+    use solana_sdk::instruction::InstructionError;
+
+    let mut vectors: Vec<InstructionErrorTestVector> = Vec::new();
+
+    let err = InstructionError::GenericError;
+    let encoded = bincode::serialize(&err).unwrap();
+    vectors.push(InstructionErrorTestVector {
+        name: "generic_error".to_string(),
+        error_code: 0,
+        custom_code: None,
+        encoded,
+    });
+
+    let err = InstructionError::InvalidArgument;
+    let encoded = bincode::serialize(&err).unwrap();
+    vectors.push(InstructionErrorTestVector {
+        name: "invalid_argument".to_string(),
+        error_code: 1,
+        custom_code: None,
+        encoded,
+    });
+
+    let err = InstructionError::InvalidInstructionData;
+    let encoded = bincode::serialize(&err).unwrap();
+    vectors.push(InstructionErrorTestVector {
+        name: "invalid_instruction_data".to_string(),
+        error_code: 2,
+        custom_code: None,
+        encoded,
+    });
+
+    let err = InstructionError::Custom(42);
+    let encoded = bincode::serialize(&err).unwrap();
+    vectors.push(InstructionErrorTestVector {
+        name: "custom_42".to_string(),
+        error_code: 7,
+        custom_code: Some(42),
+        encoded,
+    });
+
+    let err = InstructionError::InsufficientFunds;
+    let encoded = bincode::serialize(&err).unwrap();
+    vectors.push(InstructionErrorTestVector {
+        name: "insufficient_funds".to_string(),
+        error_code: 4,
+        custom_code: None,
+        encoded,
+    });
+
+    let err = InstructionError::AccountAlreadyInitialized;
+    let encoded = bincode::serialize(&err).unwrap();
+    vectors.push(InstructionErrorTestVector {
+        name: "account_already_initialized".to_string(),
+        error_code: 8,
+        custom_code: None,
+        encoded,
+    });
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("instruction_error_vectors.json"), json).unwrap();
+}
+
 pub fn generate_all_vectors(output_dir: &Path) {
     fs::create_dir_all(output_dir).unwrap();
 
@@ -1327,6 +1484,9 @@ pub fn generate_all_vectors(output_dir: &Path) {
     generate_ed25519_verify_vectors(output_dir);
     generate_message_header_vectors(output_dir);
     generate_compiled_instruction_vectors(output_dir);
+    generate_feature_state_vectors(output_dir);
+    generate_nonce_versions_vectors(output_dir);
+    generate_instruction_error_vectors(output_dir);
 
     println!("Generated all test vectors in {:?}", output_dir);
 }

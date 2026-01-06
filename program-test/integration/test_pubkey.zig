@@ -847,3 +847,72 @@ test "compiled_instruction: encoding compatibility with Rust" {
         try std.testing.expectEqualSlices(u8, vector.encoded, buf[0..pos]);
     }
 }
+
+const FeatureStateTestVector = struct {
+    name: []const u8,
+    activated_at: ?u64,
+    encoded: []const u8,
+};
+
+test "feature_state: encoding compatibility with Rust" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "feature_state_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const FeatureStateTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        var buf: [9]u8 = undefined;
+
+        if (vector.activated_at) |slot| {
+            buf[0] = 1;
+            std.mem.writeInt(u64, buf[1..9], slot, .little);
+        } else {
+            buf[0] = 0;
+            @memset(buf[1..9], 0);
+        }
+
+        try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+    }
+}
+
+const InstructionErrorTestVector = struct {
+    name: []const u8,
+    error_code: u32,
+    custom_code: ?u32,
+    encoded: []const u8,
+};
+
+test "instruction_error: bincode encoding compatibility with Rust" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "instruction_error_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const InstructionErrorTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        if (vector.custom_code) |custom| {
+            var buf: [8]u8 = undefined;
+            const discriminant: u32 = 25;
+            std.mem.writeInt(u32, buf[0..4], discriminant, .little);
+            std.mem.writeInt(u32, buf[4..8], custom, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else {
+            var buf: [4]u8 = undefined;
+            const encoded_value = switch (vector.error_code) {
+                0 => @as(u32, 0),
+                1 => @as(u32, 1),
+                2 => @as(u32, 2),
+                4 => @as(u32, 5),
+                8 => @as(u32, 8),
+                else => continue,
+            };
+            std.mem.writeInt(u32, buf[0..4], encoded_value, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        }
+    }
+}

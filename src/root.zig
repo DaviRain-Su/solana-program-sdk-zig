@@ -85,6 +85,9 @@ pub const epoch_rewards_hasher = @import("epoch_rewards_hasher.zig");
 // Phase 17: v0.26.0 - Feature Gate
 pub const feature_gate = @import("feature_gate.zig");
 
+// Phase 18: v0.27.0 - Vote Interface
+pub const vote_interface = @import("vote_interface.zig");
+
 // Phase 15: v0.24.0 - Extended Native Programs
 pub const loader_v4 = @import("loader_v4.zig");
 pub const secp256r1_program = @import("secp256r1_program.zig");
@@ -169,6 +172,12 @@ pub const LastRestartSlot = last_restart_slot.LastRestartSlot;
 pub const EpochRewards = epoch_rewards.EpochRewards;
 
 // Sysvar ID exports (from sysvar_id.zig module)
+// Vote Interface exports
+pub const vote_program_id = vote_interface.ID;
+pub const VoteInit = vote_interface.VoteInit;
+pub const VoteError = vote_interface.VoteError;
+pub const Lockout = vote_interface.Lockout;
+
 pub const CLOCK_ID = @import("sysvar_id.zig").CLOCK;
 pub const RENT_ID = @import("sysvar_id.zig").RENT;
 pub const SLOT_HASHES_ID = @import("sysvar_id.zig").SLOT_HASHES;

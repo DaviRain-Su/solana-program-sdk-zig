@@ -11,10 +11,10 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 | Program Foundation | 14 | 14 | 100% |
 | Sysvars | 10 | 10 | 100% |
 | Hash Functions | 4 | 4 | 100% |
-| Native Programs | 11 | 12 | 92% |
+| Native Programs | 12 | 12 | 100% |
 | Native Token | 1 | 1 | 100% |
 | Crypto (Advanced) | 2 | 3 | 67% |
-| **Total (On-chain)** | **53** | **55** | **96%** |
+| **Total (On-chain)** | **54** | **55** | **98%** |
 
 > Note: Client/RPC and Validator-only modules are excluded as they're not needed for on-chain program development.
 
@@ -88,7 +88,7 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 | `keccak_hasher.zig` | `keccak-hasher` | ✅ | ✅ |
 | `epoch_rewards_hasher.zig` | `epoch-rewards-hasher` | ✅ | ✅ |
 
-### Native Programs (10/12 - 83%)
+### Native Programs (12/12 - 100%)
 
 | Zig Module | Rust Crate | Status | Tests |
 |------------|------------|--------|-------|
@@ -103,7 +103,7 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 | `secp256r1_program.zig` | `secp256r1-program` | ✅ | ✅ |
 | `nonce.zig` | `nonce` | ✅ | ✅ |
 | `feature_gate.zig` | `feature-gate-interface` | ✅ | ✅ |
-| - | `vote-interface` | ⏳ | - |
+| `vote_interface.zig` | `vote-interface` | ✅ | ✅ |
 
 ### Native Token (1/1 - 100%)
 
@@ -122,12 +122,6 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 ---
 
 ## ⏳ Pending Modules (Priority Order)
-
-### Medium Priority (Extended functionality)
-
-| Module | Rust Crate | Description | Effort |
-|--------|------------|-------------|--------|
-| `vote_interface.zig` | `vote-interface` | Vote program interface | High |
 
 ### Low Priority (Specialized use cases)
 
@@ -219,6 +213,13 @@ These modules are NOT needed for on-chain program development:
 ### v0.26.0 - Feature Gate ✅
 - ✅ `feature_gate.zig` - Feature Gate program interface for runtime feature activation
 - Native Programs now at 92% (11/12 modules)
+
+### v0.27.0 - Vote Interface ✅
+- ✅ `vote_interface.zig` - Vote program interface for validator voting
+- Core types: Lockout, LandedVote, Vote, VoteInit, VoteAuthorize
+- VoteError enum with 21 error types
+- Instruction builders: initializeAccount, authorize, withdraw, updateCommission, etc.
+- Native Programs now at 100% (12/12 modules)
 
 ---
 

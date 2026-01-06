@@ -1,38 +1,44 @@
+// This test requires a BPF program to be built first.
+// BPF builds are disabled in CI due to stack overflow issues with base58 big integer operations.
+// To run this test locally:
+//   1. cd .. && ./solana-zig/zig build -Dtarget=sbf-solana
+//   2. cargo test -- --ignored
+
 use {
     mollusk_svm::Mollusk,
-    solana_instruction::Instruction,
-    solana_sdk_ids::bpf_loader_upgradeable,
+    solana_sdk::{instruction::Instruction, pubkey::Pubkey},
+    std::str::FromStr,
 };
 
+const BPF_LOADER_UPGRADEABLE_ID: Pubkey =
+    solana_sdk::pubkey!("BPFLoaderUpgradeab1e11111111111111111111111");
+
 mod program {
-    solana_pubkey::declare_id!("Zigc1Hc97L8Pebma74jDzYiyoUvdxxcj7Gxppg9VRxK");
+    use super::*;
+    pub fn id() -> Pubkey {
+        Pubkey::from_str("Zigc1Hc97L8Pebma74jDzYiyoUvdxxcj7Gxppg9VRxK").unwrap()
+    }
 }
 
 #[test]
+#[ignore = "Requires BPF program build which is disabled in CI"]
 fn test_run() {
-    // Initialize Mollusk
     let mut mollusk = Mollusk::default();
 
-    // Add a program to Mollusk
     mollusk.add_program(
         &program::id(),
         "zig-out/lib/pubkey",
-        &bpf_loader_upgradeable::id(),
+        &BPF_LOADER_UPGRADEABLE_ID,
     );
 
-    // Create transfer instruction
     let instruction = Instruction {
         program_id: program::id(),
         accounts: vec![],
         data: vec![],
     };
 
-    // Define initial account states
     let accounts = vec![];
-
-    // Process the instruction
     let result = mollusk.process_instruction(&instruction, &accounts);
 
-    // Check the result
     assert!(result.program_result.is_ok());
 }

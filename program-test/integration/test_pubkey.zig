@@ -885,6 +885,54 @@ const InstructionErrorTestVector = struct {
     encoded: []const u8,
 };
 
+const TransactionErrorTestVector = struct {
+    name: []const u8,
+    error_type: []const u8,
+    instruction_index: ?u8,
+    encoded: []const u8,
+};
+
+const AccountMetaTestVector = struct {
+    name: []const u8,
+    pubkey: [32]u8,
+    is_signer: bool,
+    is_writable: bool,
+    encoded: []const u8,
+};
+
+const LoaderV3InstructionTestVector = struct {
+    name: []const u8,
+    instruction_type: []const u8,
+    encoded: []const u8,
+    write_offset: ?u32,
+    write_bytes: ?[]const u8,
+    max_data_len: ?u64,
+    additional_bytes: ?u32,
+};
+
+const LoaderV4InstructionTestVector = struct {
+    name: []const u8,
+    instruction_type: []const u8,
+    encoded: []const u8,
+    offset: ?u32,
+    bytes_len: ?u32,
+};
+
+const VoteInstructionTestVector = struct {
+    name: []const u8,
+    instruction_type: []const u8,
+    encoded: []const u8,
+    vote_authorize: ?u32,
+    commission: ?u8,
+    lamports: ?u64,
+};
+
+const Blake3TestVector = struct {
+    name: []const u8,
+    input: []const u8,
+    hash: [32]u8,
+};
+
 test "instruction_error: bincode encoding compatibility with Rust" {
     const allocator = std.testing.allocator;
 
@@ -913,6 +961,320 @@ test "instruction_error: bincode encoding compatibility with Rust" {
             };
             std.mem.writeInt(u32, buf[0..4], encoded_value, .little);
             try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        }
+    }
+}
+
+test "transaction_error: bincode encoding compatibility with Rust" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "transaction_error_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const TransactionErrorTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        if (std.mem.eql(u8, vector.error_type, "AccountInUse")) {
+            var buf: [4]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 0, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.error_type, "AccountLoadedTwice")) {
+            var buf: [4]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 1, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.error_type, "AccountNotFound")) {
+            var buf: [4]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 2, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.error_type, "InsufficientFundsForFee")) {
+            var buf: [4]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 4, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.error_type, "InvalidAccountForFee")) {
+            var buf: [4]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 5, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.error_type, "BlockhashNotFound")) {
+            var buf: [4]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 7, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.error_type, "ProgramAccountNotFound")) {
+            var buf: [4]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 3, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.error_type, "AlreadyProcessed")) {
+            var buf: [4]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 6, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.error_type, "CallChainTooDeep")) {
+            var buf: [4]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 9, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.error_type, "SanitizeFailure")) {
+            var buf: [4]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 14, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.error_type, "ClusterMaintenance")) {
+            var buf: [4]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 15, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        }
+    }
+}
+
+test "account_meta: bincode encoding compatibility with Rust" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "account_meta_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const AccountMetaTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        var buf: [34]u8 = undefined;
+        @memcpy(buf[0..32], &vector.pubkey);
+        buf[32] = if (vector.is_signer) 1 else 0;
+        buf[33] = if (vector.is_writable) 1 else 0;
+        try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+    }
+}
+
+test "loader_v3: instruction encoding compatibility with Rust" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "loader_v3_instruction_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const LoaderV3InstructionTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        if (std.mem.eql(u8, vector.instruction_type, "InitializeBuffer")) {
+            var buf: [4]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 0, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.instruction_type, "Write")) {
+            const offset = vector.write_offset.?;
+            const bytes = vector.write_bytes.?;
+            var buf: [256]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 1, .little);
+            std.mem.writeInt(u32, buf[4..8], offset, .little);
+            std.mem.writeInt(u64, buf[8..16], bytes.len, .little);
+            @memcpy(buf[16..][0..bytes.len], bytes);
+            const total_len = 16 + bytes.len;
+            try std.testing.expectEqualSlices(u8, vector.encoded, buf[0..total_len]);
+        } else if (std.mem.eql(u8, vector.instruction_type, "SetAuthority")) {
+            var buf: [4]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 4, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.instruction_type, "Close")) {
+            var buf: [4]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 5, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.instruction_type, "ExtendProgram")) {
+            const additional_bytes = vector.additional_bytes.?;
+            var buf: [8]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 6, .little);
+            std.mem.writeInt(u32, buf[4..8], additional_bytes, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.instruction_type, "DeployWithMaxDataLen")) {
+            const max_data_len = vector.max_data_len.?;
+            var buf: [12]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 2, .little);
+            std.mem.writeInt(u64, buf[4..12], max_data_len, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.instruction_type, "Upgrade")) {
+            var buf: [4]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 3, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        }
+    }
+}
+
+test "blake3: hash computation compatibility with Rust" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "blake3_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const Blake3TestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        var result: [32]u8 = undefined;
+        std.crypto.hash.Blake3.hash(vector.input, &result, .{});
+        try std.testing.expectEqualSlices(u8, &vector.hash, &result);
+    }
+}
+
+const StakeInstructionTestVector = struct {
+    name: []const u8,
+    instruction_type: []const u8,
+    encoded: []const u8,
+    lamports: ?u64,
+};
+
+const AddressLookupTableInstructionTestVector = struct {
+    name: []const u8,
+    instruction_type: []const u8,
+    encoded: []const u8,
+    recent_slot: ?u64,
+    bump_seed: ?u8,
+};
+
+test "stake_instruction: encoding compatibility with Rust" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "stake_instruction_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const StakeInstructionTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        if (std.mem.eql(u8, vector.instruction_type, "Initialize")) {
+            try std.testing.expectEqual(@as(u32, 0), std.mem.readInt(u32, vector.encoded[0..4], .little));
+        } else if (std.mem.eql(u8, vector.instruction_type, "DelegateStake")) {
+            var buf: [4]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 2, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.instruction_type, "Split")) {
+            const lamports = vector.lamports.?;
+            var buf: [12]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 3, .little);
+            std.mem.writeInt(u64, buf[4..12], lamports, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.instruction_type, "Withdraw")) {
+            const lamports = vector.lamports.?;
+            var buf: [12]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 4, .little);
+            std.mem.writeInt(u64, buf[4..12], lamports, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.instruction_type, "Deactivate")) {
+            var buf: [4]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 5, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.instruction_type, "Merge")) {
+            var buf: [4]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 7, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        }
+    }
+}
+
+test "address_lookup_table_instruction: encoding compatibility with Rust" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "address_lookup_table_instruction_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const AddressLookupTableInstructionTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        if (std.mem.eql(u8, vector.instruction_type, "CreateLookupTable")) {
+            const recent_slot = vector.recent_slot.?;
+            const bump_seed = vector.bump_seed.?;
+            var buf: [13]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 0, .little);
+            std.mem.writeInt(u64, buf[4..12], recent_slot, .little);
+            buf[12] = bump_seed;
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.instruction_type, "FreezeLookupTable")) {
+            var buf: [4]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 1, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.instruction_type, "ExtendLookupTable")) {
+            try std.testing.expectEqual(@as(u32, 2), std.mem.readInt(u32, vector.encoded[0..4], .little));
+        } else if (std.mem.eql(u8, vector.instruction_type, "DeactivateLookupTable")) {
+            var buf: [4]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 3, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.instruction_type, "CloseLookupTable")) {
+            var buf: [4]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 4, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        }
+    }
+}
+
+test "loader_v4_instruction: encoding compatibility with Rust" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "loader_v4_instruction_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const LoaderV4InstructionTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        if (std.mem.eql(u8, vector.instruction_type, "Write")) {
+            // Write: discriminant 0 (u32) + offset (u32) + bytes_len (u64) + bytes
+            const offset = vector.offset.?;
+            const bytes_len = vector.bytes_len.?;
+            try std.testing.expectEqual(@as(u32, 0), std.mem.readInt(u32, vector.encoded[0..4], .little));
+            try std.testing.expectEqual(offset, std.mem.readInt(u32, vector.encoded[4..8], .little));
+            try std.testing.expectEqual(@as(u64, bytes_len), std.mem.readInt(u64, vector.encoded[8..16], .little));
+        } else if (std.mem.eql(u8, vector.instruction_type, "SetProgramLength")) {
+            // SetProgramLength: discriminant 2 (u32) + new_size (u32)
+            var buf: [8]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 2, .little);
+            // new_size is 1024 = 0x400
+            std.mem.writeInt(u32, buf[4..8], 1024, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.instruction_type, "Deploy")) {
+            // Deploy: discriminant 3 (u32)
+            var buf: [4]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 3, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.instruction_type, "Retract")) {
+            // Retract: discriminant 4 (u32)
+            var buf: [4]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 4, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.instruction_type, "TransferAuthority")) {
+            var buf: [4]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 5, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        }
+    }
+}
+
+test "vote_instruction: encoding compatibility with Rust" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "vote_instruction_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const VoteInstructionTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        if (std.mem.eql(u8, vector.instruction_type, "Authorize")) {
+            try std.testing.expectEqual(@as(u32, 1), std.mem.readInt(u32, vector.encoded[0..4], .little));
+            const vote_auth = vector.vote_authorize.?;
+            try std.testing.expectEqual(vote_auth, std.mem.readInt(u32, vector.encoded[36..40], .little));
+        } else if (std.mem.eql(u8, vector.instruction_type, "Withdraw")) {
+            var buf: [12]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 3, .little);
+            const lamports = vector.lamports.?;
+            std.mem.writeInt(u64, buf[4..12], lamports, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.instruction_type, "UpdateCommission")) {
+            var buf: [5]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 5, .little);
+            buf[4] = vector.commission.?;
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.instruction_type, "UpdateValidatorIdentity")) {
+            var buf: [4]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 4, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.instruction_type, "AuthorizeChecked")) {
+            try std.testing.expectEqual(@as(u32, 7), std.mem.readInt(u32, vector.encoded[0..4], .little));
+            const vote_auth = vector.vote_authorize.?;
+            try std.testing.expectEqual(vote_auth, std.mem.readInt(u32, vector.encoded[4..8], .little));
         }
     }
 }

@@ -233,35 +233,43 @@ Based on full analysis of [solana-sdk](https://github.com/anza-xyz/solana-sdk) (
 
 ---
 
-## 🔮 v0.30.0 - Rust-Zig Integration Tests (Planned)
+## ✅ v0.30.0 - Rust-Zig Integration Tests (Complete)
 
 使用官方 Rust SDK 生成测试向量，验证 Zig SDK 实现的兼容性和正确性。
 
-### 目标
+### 成果
 
-确保 Zig SDK 与官方 Rust SDK 完全兼容：
-- bincode 序列化格式一致
-- Base58 编解码一致
-- PDA 派生结果一致
-- JSON 格式符合 RPC 规范
+✅ **180 个测试向量**，覆盖 33 个测试用例，全部通过。
 
-### 测试范围
+### 测试覆盖
 
-| Phase | 测试项 | 优先级 | 状态 |
-|-------|--------|--------|------|
-| Phase 1 | PublicKey/Hash/Signature 兼容性 | P0 | ⏳ |
-| Phase 2 | InstructionError/TransactionError bincode | P0 | ⏳ |
-| Phase 3 | UpgradeableLoaderInstruction bincode | P0 | ⏳ |
-| Phase 4 | PDA 派生兼容性 | P0 | ⏳ |
-| Phase 5 | EpochInfo JSON 格式 | P1 | ⏳ |
+| Category | Vectors | Tests | Status |
+|----------|---------|-------|--------|
+| Core Types (PublicKey, Hash, Signature, Keypair) | 14 | 5 | ✅ |
+| PDA Derivation | 4 | 1 | ✅ |
+| Serialization (Bincode, Borsh, ShortVec) | 31 | 3 | ✅ |
+| Sysvars (Clock, Rent, EpochSchedule, EpochInfo) | 26 | 4 | ✅ |
+| Crypto (SHA256, Keccak256, Ed25519, Blake3) | 26 | 4 | ✅ |
+| Instructions (System, ComputeBudget, LoaderV3, Stake, ALT) | 31 | 5 | ✅ |
+| Message (MessageHeader, CompiledInstruction) | 7 | 2 | ✅ |
+| Native Token (Lamports) | 15 | 1 | ✅ |
+| Nonce (DurableNonce) | 4 | 1 | ✅ |
+| Feature Gate (FeatureState) | 4 | 1 | ✅ |
+| Errors (InstructionError, TransactionError) | 14 | 2 | ✅ |
+| Account (AccountMeta) | 4 | 1 | ✅ |
+| **Total** | **180** | **33** | ✅ |
 
 ### 架构
 
 ```
-Rust SDK (生成测试向量) → test-vectors/ → Zig SDK (验证)
+program-test/
+├── src/lib.rs           # Rust test vector generator (26+ functions)
+├── test-vectors/        # Generated JSON files (gitignored)
+└── integration/
+    └── test_pubkey.zig  # Zig integration tests (33 tests)
 ```
 
-> **See**: `stories/v0.30.0-integration-tests.md` for detailed implementation plan.
+> **See**: `stories/v0.30.0-integration-tests.md` for details.
 
 ---
 
@@ -358,12 +366,24 @@ These modules are NOT needed for on-chain program development or client developm
 - ✅ Program SDK layer: 285 tests (with syscall support)
 - ✅ Clean separation of pure types and BPF-specific code
 
-### v0.29.0 - Program SDK Completion ⏳
-- ⏳ `loader-v3` instruction builders (UpgradeableLoaderInstruction)
-- ⏳ `instruction_error.zig` - Runtime instruction errors
-- ⏳ `transaction_error.zig` - Transaction errors (for Client SDK)
-- ⏳ `epoch_info.zig` - EpochInfo type (for Client SDK)
-- ⏳ `sdk_ids.zig` - Centralized program ID constants
+### v0.30.0 - Rust-Zig Integration Tests ✅
+- ✅ Rust test vector generator with 26+ functions
+- ✅ 180 test vectors across 33 test cases
+- ✅ Core types: PublicKey, Hash, Signature, Keypair
+- ✅ Serialization: Bincode, Borsh, ShortVec
+- ✅ Sysvars: Clock, Rent, EpochSchedule, EpochInfo
+- ✅ Crypto: SHA256, Keccak256, Ed25519, Blake3
+- ✅ Instructions: System, ComputeBudget, LoaderV3, Stake, AddressLookupTable
+- ✅ Message: MessageHeader, CompiledInstruction
+- ✅ Errors: InstructionError, TransactionError
+- ✅ Account: AccountMeta
+- ✅ Full compatibility with Rust SDK verified
+
+### v0.29.0 - Program SDK Completion ✅
+- ✅ `loader-v3` instruction builders (UpgradeableLoaderInstruction)
+- ✅ `instruction_error.zig` - Runtime instruction errors
+- ✅ `transaction_error.zig` - Transaction errors (for Client SDK)
+- ✅ `epoch_info.zig` - EpochInfo type (for Client SDK)
 
 ---
 

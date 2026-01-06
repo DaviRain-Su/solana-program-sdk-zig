@@ -216,6 +216,77 @@ pub struct InstructionErrorTestVector {
     pub encoded: Vec<u8>,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct TransactionErrorTestVector {
+    pub name: String,
+    pub error_type: String,
+    pub instruction_index: Option<u8>,
+    pub encoded: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct AccountMetaTestVector {
+    pub name: String,
+    pub pubkey: [u8; 32],
+    pub is_signer: bool,
+    pub is_writable: bool,
+    pub encoded: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct LoaderV3InstructionTestVector {
+    pub name: String,
+    pub instruction_type: String,
+    pub encoded: Vec<u8>,
+    pub write_offset: Option<u32>,
+    pub write_bytes: Option<Vec<u8>>,
+    pub max_data_len: Option<u64>,
+    pub additional_bytes: Option<u32>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Blake3TestVector {
+    pub name: String,
+    pub input: Vec<u8>,
+    pub hash: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct StakeInstructionTestVector {
+    pub name: String,
+    pub instruction_type: String,
+    pub encoded: Vec<u8>,
+    pub lamports: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct AddressLookupTableInstructionTestVector {
+    pub name: String,
+    pub instruction_type: String,
+    pub encoded: Vec<u8>,
+    pub recent_slot: Option<u64>,
+    pub bump_seed: Option<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct LoaderV4InstructionTestVector {
+    pub name: String,
+    pub instruction_type: String,
+    pub encoded: Vec<u8>,
+    pub offset: Option<u32>,
+    pub bytes_len: Option<u32>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct VoteInstructionTestVector {
+    pub name: String,
+    pub instruction_type: String,
+    pub encoded: Vec<u8>,
+    pub vote_authorize: Option<u32>,
+    pub commission: Option<u8>,
+    pub lamports: Option<u64>,
+}
+
 pub fn generate_pubkey_vectors(output_dir: &Path) {
     let bpf_loader_upgradeable_id =
         Pubkey::from_str_const("BPFLoaderUpgradeab1e11111111111111111111111");
@@ -1460,6 +1531,656 @@ pub fn generate_instruction_error_vectors(output_dir: &Path) {
     fs::write(output_dir.join("instruction_error_vectors.json"), json).unwrap();
 }
 
+pub fn generate_transaction_error_vectors(output_dir: &Path) {
+    use solana_sdk::instruction::InstructionError;
+    use solana_transaction_error::TransactionError;
+
+    let mut vectors: Vec<TransactionErrorTestVector> = Vec::new();
+
+    // AccountInUse
+    let err = TransactionError::AccountInUse;
+    let encoded = bincode::serialize(&err).unwrap();
+    vectors.push(TransactionErrorTestVector {
+        name: "account_in_use".to_string(),
+        error_type: "AccountInUse".to_string(),
+        instruction_index: None,
+        encoded,
+    });
+
+    // AccountLoadedTwice
+    let err = TransactionError::AccountLoadedTwice;
+    let encoded = bincode::serialize(&err).unwrap();
+    vectors.push(TransactionErrorTestVector {
+        name: "account_loaded_twice".to_string(),
+        error_type: "AccountLoadedTwice".to_string(),
+        instruction_index: None,
+        encoded,
+    });
+
+    // AccountNotFound
+    let err = TransactionError::AccountNotFound;
+    let encoded = bincode::serialize(&err).unwrap();
+    vectors.push(TransactionErrorTestVector {
+        name: "account_not_found".to_string(),
+        error_type: "AccountNotFound".to_string(),
+        instruction_index: None,
+        encoded,
+    });
+
+    // InsufficientFundsForFee
+    let err = TransactionError::InsufficientFundsForFee;
+    let encoded = bincode::serialize(&err).unwrap();
+    vectors.push(TransactionErrorTestVector {
+        name: "insufficient_funds_for_fee".to_string(),
+        error_type: "InsufficientFundsForFee".to_string(),
+        instruction_index: None,
+        encoded,
+    });
+
+    // InvalidAccountForFee
+    let err = TransactionError::InvalidAccountForFee;
+    let encoded = bincode::serialize(&err).unwrap();
+    vectors.push(TransactionErrorTestVector {
+        name: "invalid_account_for_fee".to_string(),
+        error_type: "InvalidAccountForFee".to_string(),
+        instruction_index: None,
+        encoded,
+    });
+
+    // InstructionError with index
+    let err = TransactionError::InstructionError(0, InstructionError::GenericError);
+    let encoded = bincode::serialize(&err).unwrap();
+    vectors.push(TransactionErrorTestVector {
+        name: "instruction_error_generic".to_string(),
+        error_type: "InstructionError".to_string(),
+        instruction_index: Some(0),
+        encoded,
+    });
+
+    // InstructionError with different index
+    let err = TransactionError::InstructionError(5, InstructionError::InvalidArgument);
+    let encoded = bincode::serialize(&err).unwrap();
+    vectors.push(TransactionErrorTestVector {
+        name: "instruction_error_invalid_arg".to_string(),
+        error_type: "InstructionError".to_string(),
+        instruction_index: Some(5),
+        encoded,
+    });
+
+    // BlockhashNotFound
+    let err = TransactionError::BlockhashNotFound;
+    let encoded = bincode::serialize(&err).unwrap();
+    vectors.push(TransactionErrorTestVector {
+        name: "blockhash_not_found".to_string(),
+        error_type: "BlockhashNotFound".to_string(),
+        instruction_index: None,
+        encoded,
+    });
+
+    // ProgramAccountNotFound - discriminant 3
+    let err = TransactionError::ProgramAccountNotFound;
+    let encoded = bincode::serialize(&err).unwrap();
+    vectors.push(TransactionErrorTestVector {
+        name: "program_account_not_found".to_string(),
+        error_type: "ProgramAccountNotFound".to_string(),
+        instruction_index: None,
+        encoded,
+    });
+
+    // AlreadyProcessed - discriminant 6
+    let err = TransactionError::AlreadyProcessed;
+    let encoded = bincode::serialize(&err).unwrap();
+    vectors.push(TransactionErrorTestVector {
+        name: "already_processed".to_string(),
+        error_type: "AlreadyProcessed".to_string(),
+        instruction_index: None,
+        encoded,
+    });
+
+    // CallChainTooDeep - discriminant 9
+    let err = TransactionError::CallChainTooDeep;
+    let encoded = bincode::serialize(&err).unwrap();
+    vectors.push(TransactionErrorTestVector {
+        name: "call_chain_too_deep".to_string(),
+        error_type: "CallChainTooDeep".to_string(),
+        instruction_index: None,
+        encoded,
+    });
+
+    // SanitizeFailure - discriminant 12
+    let err = TransactionError::SanitizeFailure;
+    let encoded = bincode::serialize(&err).unwrap();
+    vectors.push(TransactionErrorTestVector {
+        name: "sanitize_failure".to_string(),
+        error_type: "SanitizeFailure".to_string(),
+        instruction_index: None,
+        encoded,
+    });
+
+    // ClusterMaintenance - discriminant 13
+    let err = TransactionError::ClusterMaintenance;
+    let encoded = bincode::serialize(&err).unwrap();
+    vectors.push(TransactionErrorTestVector {
+        name: "cluster_maintenance".to_string(),
+        error_type: "ClusterMaintenance".to_string(),
+        instruction_index: None,
+        encoded,
+    });
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("transaction_error_vectors.json"), json).unwrap();
+}
+
+pub fn generate_account_meta_vectors(output_dir: &Path) {
+    use solana_sdk::instruction::AccountMeta;
+
+    let mut vectors: Vec<AccountMetaTestVector> = Vec::new();
+
+    let pubkey = Pubkey::from_str_const("4rL4RCWHz3iNCdCaveD8KcHfV9YagGbXgSYq9QWPZ4Zx");
+
+    // Signer + Writable
+    let meta = AccountMeta::new(pubkey, true);
+    let encoded = bincode::serialize(&meta).unwrap();
+    vectors.push(AccountMetaTestVector {
+        name: "signer_writable".to_string(),
+        pubkey: pubkey.to_bytes(),
+        is_signer: true,
+        is_writable: true,
+        encoded,
+    });
+
+    // Signer + ReadOnly
+    let meta = AccountMeta::new_readonly(pubkey, true);
+    let encoded = bincode::serialize(&meta).unwrap();
+    vectors.push(AccountMetaTestVector {
+        name: "signer_readonly".to_string(),
+        pubkey: pubkey.to_bytes(),
+        is_signer: true,
+        is_writable: false,
+        encoded,
+    });
+
+    // Non-Signer + Writable
+    let meta = AccountMeta::new(pubkey, false);
+    let encoded = bincode::serialize(&meta).unwrap();
+    vectors.push(AccountMetaTestVector {
+        name: "nonsigner_writable".to_string(),
+        pubkey: pubkey.to_bytes(),
+        is_signer: false,
+        is_writable: true,
+        encoded,
+    });
+
+    // Non-Signer + ReadOnly
+    let meta = AccountMeta::new_readonly(pubkey, false);
+    let encoded = bincode::serialize(&meta).unwrap();
+    vectors.push(AccountMetaTestVector {
+        name: "nonsigner_readonly".to_string(),
+        pubkey: pubkey.to_bytes(),
+        is_signer: false,
+        is_writable: false,
+        encoded,
+    });
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("account_meta_vectors.json"), json).unwrap();
+}
+
+pub fn generate_loader_v3_instruction_vectors(output_dir: &Path) {
+    use solana_loader_v3_interface::instruction::UpgradeableLoaderInstruction;
+
+    let mut vectors: Vec<LoaderV3InstructionTestVector> = Vec::new();
+
+    let ix = UpgradeableLoaderInstruction::InitializeBuffer;
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(LoaderV3InstructionTestVector {
+        name: "initialize_buffer".to_string(),
+        instruction_type: "InitializeBuffer".to_string(),
+        encoded,
+        write_offset: None,
+        write_bytes: None,
+        max_data_len: None,
+        additional_bytes: None,
+    });
+
+    let offset = 100u32;
+    let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
+    let ix = UpgradeableLoaderInstruction::Write {
+        offset,
+        bytes: data.clone(),
+    };
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(LoaderV3InstructionTestVector {
+        name: "write".to_string(),
+        instruction_type: "Write".to_string(),
+        encoded,
+        write_offset: Some(offset),
+        write_bytes: Some(data),
+        max_data_len: None,
+        additional_bytes: None,
+    });
+
+    let ix = UpgradeableLoaderInstruction::SetAuthority;
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(LoaderV3InstructionTestVector {
+        name: "set_authority".to_string(),
+        instruction_type: "SetAuthority".to_string(),
+        encoded,
+        write_offset: None,
+        write_bytes: None,
+        max_data_len: None,
+        additional_bytes: None,
+    });
+
+    let ix = UpgradeableLoaderInstruction::Close;
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(LoaderV3InstructionTestVector {
+        name: "close".to_string(),
+        instruction_type: "Close".to_string(),
+        encoded,
+        write_offset: None,
+        write_bytes: None,
+        max_data_len: None,
+        additional_bytes: None,
+    });
+
+    let additional_bytes = 1024u32;
+    let ix = UpgradeableLoaderInstruction::ExtendProgram { additional_bytes };
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(LoaderV3InstructionTestVector {
+        name: "extend_program".to_string(),
+        instruction_type: "ExtendProgram".to_string(),
+        encoded,
+        write_offset: None,
+        write_bytes: None,
+        max_data_len: None,
+        additional_bytes: Some(additional_bytes),
+    });
+
+    let max_data_len = 10000usize;
+    let ix = UpgradeableLoaderInstruction::DeployWithMaxDataLen { max_data_len };
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(LoaderV3InstructionTestVector {
+        name: "deploy_with_max_data_len".to_string(),
+        instruction_type: "DeployWithMaxDataLen".to_string(),
+        encoded,
+        write_offset: None,
+        write_bytes: None,
+        max_data_len: Some(max_data_len as u64),
+        additional_bytes: None,
+    });
+
+    let ix = UpgradeableLoaderInstruction::Upgrade;
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(LoaderV3InstructionTestVector {
+        name: "upgrade".to_string(),
+        instruction_type: "Upgrade".to_string(),
+        encoded,
+        write_offset: None,
+        write_bytes: None,
+        max_data_len: None,
+        additional_bytes: None,
+    });
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("loader_v3_instruction_vectors.json"), json).unwrap();
+}
+
+pub fn generate_blake3_vectors(output_dir: &Path) {
+    let mut vectors: Vec<Blake3TestVector> = Vec::new();
+
+    // Empty input
+    let hash = blake3::hash(b"");
+    vectors.push(Blake3TestVector {
+        name: "empty".to_string(),
+        input: vec![],
+        hash: hash.as_bytes().to_vec(),
+    });
+
+    // "hello"
+    let hash = blake3::hash(b"hello");
+    vectors.push(Blake3TestVector {
+        name: "hello".to_string(),
+        input: b"hello".to_vec(),
+        hash: hash.as_bytes().to_vec(),
+    });
+
+    // "hello world"
+    let hash = blake3::hash(b"hello world");
+    vectors.push(Blake3TestVector {
+        name: "hello_world".to_string(),
+        input: b"hello world".to_vec(),
+        hash: hash.as_bytes().to_vec(),
+    });
+
+    // "Solana"
+    let hash = blake3::hash(b"Solana");
+    vectors.push(Blake3TestVector {
+        name: "solana".to_string(),
+        input: b"Solana".to_vec(),
+        hash: hash.as_bytes().to_vec(),
+    });
+
+    // Single byte
+    let hash = blake3::hash(&[0x42]);
+    vectors.push(Blake3TestVector {
+        name: "single_byte".to_string(),
+        input: vec![0x42],
+        hash: hash.as_bytes().to_vec(),
+    });
+
+    // 32 bytes of zeros
+    let hash = blake3::hash(&[0u8; 32]);
+    vectors.push(Blake3TestVector {
+        name: "zeros_32".to_string(),
+        input: vec![0u8; 32],
+        hash: hash.as_bytes().to_vec(),
+    });
+
+    // 32 bytes of 0xff
+    let hash = blake3::hash(&[0xffu8; 32]);
+    vectors.push(Blake3TestVector {
+        name: "ones_32".to_string(),
+        input: vec![0xffu8; 32],
+        hash: hash.as_bytes().to_vec(),
+    });
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("blake3_vectors.json"), json).unwrap();
+}
+
+pub fn generate_stake_instruction_vectors(output_dir: &Path) {
+    use solana_stake_interface::instruction::StakeInstruction;
+
+    let mut vectors: Vec<StakeInstructionTestVector> = Vec::new();
+
+    let ix = StakeInstruction::Initialize(
+        solana_stake_interface::state::Authorized {
+            staker: Pubkey::default(),
+            withdrawer: Pubkey::default(),
+        },
+        solana_stake_interface::state::Lockup::default(),
+    );
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(StakeInstructionTestVector {
+        name: "initialize".to_string(),
+        instruction_type: "Initialize".to_string(),
+        encoded,
+        lamports: None,
+    });
+
+    let ix = StakeInstruction::DelegateStake;
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(StakeInstructionTestVector {
+        name: "delegate_stake".to_string(),
+        instruction_type: "DelegateStake".to_string(),
+        encoded,
+        lamports: None,
+    });
+
+    let lamports = 1_000_000_000u64;
+    let ix = StakeInstruction::Split(lamports);
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(StakeInstructionTestVector {
+        name: "split".to_string(),
+        instruction_type: "Split".to_string(),
+        encoded,
+        lamports: Some(lamports),
+    });
+
+    let lamports = 500_000_000u64;
+    let ix = StakeInstruction::Withdraw(lamports);
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(StakeInstructionTestVector {
+        name: "withdraw".to_string(),
+        instruction_type: "Withdraw".to_string(),
+        encoded,
+        lamports: Some(lamports),
+    });
+
+    let ix = StakeInstruction::Deactivate;
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(StakeInstructionTestVector {
+        name: "deactivate".to_string(),
+        instruction_type: "Deactivate".to_string(),
+        encoded,
+        lamports: None,
+    });
+
+    let ix = StakeInstruction::Merge;
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(StakeInstructionTestVector {
+        name: "merge".to_string(),
+        instruction_type: "Merge".to_string(),
+        encoded,
+        lamports: None,
+    });
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("stake_instruction_vectors.json"), json).unwrap();
+}
+
+pub fn generate_address_lookup_table_instruction_vectors(output_dir: &Path) {
+    use solana_address_lookup_table_interface::instruction::ProgramInstruction;
+
+    let mut vectors: Vec<AddressLookupTableInstructionTestVector> = Vec::new();
+
+    let recent_slot = 12345678u64;
+    let bump_seed = 255u8;
+    let ix = ProgramInstruction::CreateLookupTable {
+        recent_slot,
+        bump_seed,
+    };
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(AddressLookupTableInstructionTestVector {
+        name: "create_lookup_table".to_string(),
+        instruction_type: "CreateLookupTable".to_string(),
+        encoded,
+        recent_slot: Some(recent_slot),
+        bump_seed: Some(bump_seed),
+    });
+
+    let ix = ProgramInstruction::FreezeLookupTable;
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(AddressLookupTableInstructionTestVector {
+        name: "freeze_lookup_table".to_string(),
+        instruction_type: "FreezeLookupTable".to_string(),
+        encoded,
+        recent_slot: None,
+        bump_seed: None,
+    });
+
+    let ix = ProgramInstruction::ExtendLookupTable {
+        new_addresses: vec![],
+    };
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(AddressLookupTableInstructionTestVector {
+        name: "extend_lookup_table_empty".to_string(),
+        instruction_type: "ExtendLookupTable".to_string(),
+        encoded,
+        recent_slot: None,
+        bump_seed: None,
+    });
+
+    let ix = ProgramInstruction::DeactivateLookupTable;
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(AddressLookupTableInstructionTestVector {
+        name: "deactivate_lookup_table".to_string(),
+        instruction_type: "DeactivateLookupTable".to_string(),
+        encoded,
+        recent_slot: None,
+        bump_seed: None,
+    });
+
+    let ix = ProgramInstruction::CloseLookupTable;
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(AddressLookupTableInstructionTestVector {
+        name: "close_lookup_table".to_string(),
+        instruction_type: "CloseLookupTable".to_string(),
+        encoded,
+        recent_slot: None,
+        bump_seed: None,
+    });
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(
+        output_dir.join("address_lookup_table_instruction_vectors.json"),
+        json,
+    )
+    .unwrap();
+}
+
+pub fn generate_loader_v4_instruction_vectors(output_dir: &Path) {
+    use solana_loader_v4_interface::instruction::LoaderV4Instruction;
+
+    let mut vectors: Vec<LoaderV4InstructionTestVector> = Vec::new();
+
+    let ix = LoaderV4Instruction::Write {
+        offset: 0,
+        bytes: vec![1, 2, 3, 4],
+    };
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(LoaderV4InstructionTestVector {
+        name: "write".to_string(),
+        instruction_type: "Write".to_string(),
+        encoded,
+        offset: Some(0),
+        bytes_len: Some(4),
+    });
+
+    let ix = LoaderV4Instruction::Write {
+        offset: 100,
+        bytes: vec![0xAB; 8],
+    };
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(LoaderV4InstructionTestVector {
+        name: "write_with_offset".to_string(),
+        instruction_type: "Write".to_string(),
+        encoded,
+        offset: Some(100),
+        bytes_len: Some(8),
+    });
+
+    let ix = LoaderV4Instruction::SetProgramLength { new_size: 1024 };
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(LoaderV4InstructionTestVector {
+        name: "set_program_length".to_string(),
+        instruction_type: "SetProgramLength".to_string(),
+        encoded,
+        offset: None,
+        bytes_len: None,
+    });
+
+    let ix = LoaderV4Instruction::Deploy;
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(LoaderV4InstructionTestVector {
+        name: "deploy".to_string(),
+        instruction_type: "Deploy".to_string(),
+        encoded,
+        offset: None,
+        bytes_len: None,
+    });
+
+    let ix = LoaderV4Instruction::Retract;
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(LoaderV4InstructionTestVector {
+        name: "retract".to_string(),
+        instruction_type: "Retract".to_string(),
+        encoded,
+        offset: None,
+        bytes_len: None,
+    });
+
+    let ix = LoaderV4Instruction::TransferAuthority;
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(LoaderV4InstructionTestVector {
+        name: "transfer_authority".to_string(),
+        instruction_type: "TransferAuthority".to_string(),
+        encoded,
+        offset: None,
+        bytes_len: None,
+    });
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("loader_v4_instruction_vectors.json"), json).unwrap();
+}
+
+pub fn generate_vote_instruction_vectors(output_dir: &Path) {
+    use solana_vote_interface::instruction::VoteInstruction;
+    use solana_vote_interface::state::VoteAuthorize;
+
+    let mut vectors: Vec<VoteInstructionTestVector> = Vec::new();
+
+    let ix = VoteInstruction::Authorize(Pubkey::new_unique(), VoteAuthorize::Voter);
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(VoteInstructionTestVector {
+        name: "authorize_voter".to_string(),
+        instruction_type: "Authorize".to_string(),
+        encoded,
+        vote_authorize: Some(0),
+        commission: None,
+        lamports: None,
+    });
+
+    let ix = VoteInstruction::Authorize(Pubkey::new_unique(), VoteAuthorize::Withdrawer);
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(VoteInstructionTestVector {
+        name: "authorize_withdrawer".to_string(),
+        instruction_type: "Authorize".to_string(),
+        encoded,
+        vote_authorize: Some(1),
+        commission: None,
+        lamports: None,
+    });
+
+    let ix = VoteInstruction::Withdraw(1_000_000_000);
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(VoteInstructionTestVector {
+        name: "withdraw".to_string(),
+        instruction_type: "Withdraw".to_string(),
+        encoded,
+        vote_authorize: None,
+        commission: None,
+        lamports: Some(1_000_000_000),
+    });
+
+    let ix = VoteInstruction::UpdateCommission(50);
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(VoteInstructionTestVector {
+        name: "update_commission".to_string(),
+        instruction_type: "UpdateCommission".to_string(),
+        encoded,
+        vote_authorize: None,
+        commission: Some(50),
+        lamports: None,
+    });
+
+    let ix = VoteInstruction::UpdateValidatorIdentity;
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(VoteInstructionTestVector {
+        name: "update_validator_identity".to_string(),
+        instruction_type: "UpdateValidatorIdentity".to_string(),
+        encoded,
+        vote_authorize: None,
+        commission: None,
+        lamports: None,
+    });
+
+    let ix = VoteInstruction::AuthorizeChecked(VoteAuthorize::Voter);
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(VoteInstructionTestVector {
+        name: "authorize_checked_voter".to_string(),
+        instruction_type: "AuthorizeChecked".to_string(),
+        encoded,
+        vote_authorize: Some(0),
+        commission: None,
+        lamports: None,
+    });
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("vote_instruction_vectors.json"), json).unwrap();
+}
+
 pub fn generate_all_vectors(output_dir: &Path) {
     fs::create_dir_all(output_dir).unwrap();
 
@@ -1487,6 +2208,14 @@ pub fn generate_all_vectors(output_dir: &Path) {
     generate_feature_state_vectors(output_dir);
     generate_nonce_versions_vectors(output_dir);
     generate_instruction_error_vectors(output_dir);
+    generate_transaction_error_vectors(output_dir);
+    generate_account_meta_vectors(output_dir);
+    generate_loader_v3_instruction_vectors(output_dir);
+    generate_blake3_vectors(output_dir);
+    generate_stake_instruction_vectors(output_dir);
+    generate_address_lookup_table_instruction_vectors(output_dir);
+    generate_loader_v4_instruction_vectors(output_dir);
+    generate_vote_instruction_vectors(output_dir);
 
     println!("Generated all test vectors in {:?}", output_dir);
 }

@@ -269,8 +269,22 @@ pub fn g1AdditionBE(input: []const u8, result: *[ALT_BN128_G1_ADDITION_OUTPUT_SI
         if (ret != 0) {
             return errorFromCode(ret);
         }
+    } else if (comptime mcl.mcl_available) {
+        // Off-chain with MCL: convert BE->LE, compute, convert LE->BE
+        mcl.init() catch return AltBn128Error.UnexpectedError;
+
+        var le_input: [ALT_BN128_G1_ADDITION_INPUT_SIZE]u8 = undefined;
+        beToLeG1Input(input, &le_input);
+
+        const p1 = mcl.G1.deserialize(le_input[0..64]) catch return AltBn128Error.InvalidInputData;
+        const p2 = mcl.G1.deserialize(le_input[64..128]) catch return AltBn128Error.InvalidInputData;
+        const sum = p1.add(&p2);
+
+        var le_result: [ALT_BN128_G1_ADDITION_OUTPUT_SIZE]u8 = undefined;
+        _ = sum.serialize(&le_result) catch return AltBn128Error.UnexpectedError;
+        leToBeG1Output(&le_result, result);
     } else {
-        // In test mode, just return zeros (actual computation needs arkworks)
+        // Test mode without MCL: return zeros (placeholder)
         @memset(result, 0);
     }
 }
@@ -326,6 +340,20 @@ pub fn g1SubtractionBE(input: []const u8, result: *[ALT_BN128_G1_ADDITION_OUTPUT
         if (ret != 0) {
             return errorFromCode(ret);
         }
+    } else if (comptime mcl.mcl_available) {
+        // Off-chain with MCL: convert BE->LE, compute, convert LE->BE
+        mcl.init() catch return AltBn128Error.UnexpectedError;
+
+        var le_input: [ALT_BN128_G1_ADDITION_INPUT_SIZE]u8 = undefined;
+        beToLeG1Input(input, &le_input);
+
+        const p1 = mcl.G1.deserialize(le_input[0..64]) catch return AltBn128Error.InvalidInputData;
+        const p2 = mcl.G1.deserialize(le_input[64..128]) catch return AltBn128Error.InvalidInputData;
+        const diff = p1.sub(&p2);
+
+        var le_result: [ALT_BN128_G1_ADDITION_OUTPUT_SIZE]u8 = undefined;
+        _ = diff.serialize(&le_result) catch return AltBn128Error.UnexpectedError;
+        leToBeG1Output(&le_result, result);
     } else {
         @memset(result, 0);
     }
@@ -343,6 +371,14 @@ pub fn g1SubtractionLE(input: *const [ALT_BN128_G1_ADDITION_INPUT_SIZE]u8, resul
         if (ret != 0) {
             return errorFromCode(ret);
         }
+    } else if (comptime mcl.mcl_available) {
+        // Off-chain with MCL: use native curve operations
+        mcl.init() catch return AltBn128Error.UnexpectedError;
+
+        const p1 = mcl.G1.deserialize(input[0..64]) catch return AltBn128Error.InvalidInputData;
+        const p2 = mcl.G1.deserialize(input[64..128]) catch return AltBn128Error.InvalidInputData;
+        const diff = p1.sub(&p2);
+        _ = diff.serialize(result) catch return AltBn128Error.UnexpectedError;
     } else {
         @memset(result, 0);
     }
@@ -367,6 +403,20 @@ pub fn g1MultiplicationBE(input: []const u8, result: *[ALT_BN128_G1_MULTIPLICATI
         if (ret != 0) {
             return errorFromCode(ret);
         }
+    } else if (comptime mcl.mcl_available) {
+        // Off-chain with MCL: convert BE->LE, compute, convert LE->BE
+        mcl.init() catch return AltBn128Error.UnexpectedError;
+
+        var le_input: [ALT_BN128_G1_MULTIPLICATION_INPUT_SIZE]u8 = undefined;
+        beToLeG1MulInput(input, &le_input);
+
+        const point = mcl.G1.deserialize(le_input[0..64]) catch return AltBn128Error.InvalidInputData;
+        const scalar = mcl.Fr.fromLittleEndian(le_input[64..96]) catch return AltBn128Error.InvalidInputData;
+        const product = point.mul(&scalar);
+
+        var le_result: [ALT_BN128_G1_MULTIPLICATION_OUTPUT_SIZE]u8 = undefined;
+        _ = product.serialize(&le_result) catch return AltBn128Error.UnexpectedError;
+        leToBeG1Output(&le_result, result);
     } else {
         @memset(result, 0);
     }
@@ -384,6 +434,14 @@ pub fn g1MultiplicationLE(input: *const [ALT_BN128_G1_MULTIPLICATION_INPUT_SIZE]
         if (ret != 0) {
             return errorFromCode(ret);
         }
+    } else if (comptime mcl.mcl_available) {
+        // Off-chain with MCL: use native curve operations
+        mcl.init() catch return AltBn128Error.UnexpectedError;
+
+        const point = mcl.G1.deserialize(input[0..64]) catch return AltBn128Error.InvalidInputData;
+        const scalar = mcl.Fr.fromLittleEndian(input[64..96]) catch return AltBn128Error.InvalidInputData;
+        const product = point.mul(&scalar);
+        _ = product.serialize(result) catch return AltBn128Error.UnexpectedError;
     } else {
         @memset(result, 0);
     }
@@ -411,8 +469,33 @@ pub fn pairingBE(input: []const u8) !bool {
         }
         // Result is 1 if pairing check passes
         return result[31] == 1 and std.mem.allEqual(u8, result[0..31], 0);
+    } else if (comptime mcl.mcl_available) {
+        // Off-chain with MCL: convert BE->LE, compute pairing product
+        mcl.init() catch return AltBn128Error.UnexpectedError;
+
+        const num_pairs = input.len / ALT_BN128_PAIRING_ELEMENT_SIZE;
+        var accumulated: ?mcl.GT = null;
+
+        for (0..num_pairs) |i| {
+            const offset = i * ALT_BN128_PAIRING_ELEMENT_SIZE;
+            var le_g1: [64]u8 = undefined;
+            var le_g2: [128]u8 = undefined;
+            beToLePairingElement(input[offset..][0..ALT_BN128_PAIRING_ELEMENT_SIZE], &le_g1, &le_g2);
+
+            const g1 = mcl.G1.deserialize(&le_g1) catch return AltBn128Error.InvalidInputData;
+            const g2 = mcl.G2.deserialize(&le_g2) catch return AltBn128Error.InvalidInputData;
+            const p = mcl.pairing(&g1, &g2);
+
+            if (accumulated) |*acc| {
+                acc.* = acc.mul(&p);
+            } else {
+                accumulated = p;
+            }
+        }
+
+        return if (accumulated) |acc| acc.isOne() else true;
     } else {
-        // In test mode, return true
+        // Test mode without MCL: return true (placeholder)
         return true;
     }
 }
@@ -435,7 +518,29 @@ pub fn pairingLE(input: []const u8) !bool {
             return errorFromCode(ret);
         }
         return result[0] == 1 and std.mem.allEqual(u8, result[1..32], 0);
+    } else if (comptime mcl.mcl_available) {
+        // Off-chain with MCL: input is already little-endian
+        mcl.init() catch return AltBn128Error.UnexpectedError;
+
+        const num_pairs = input.len / ALT_BN128_PAIRING_ELEMENT_SIZE;
+        var accumulated: ?mcl.GT = null;
+
+        for (0..num_pairs) |i| {
+            const offset = i * ALT_BN128_PAIRING_ELEMENT_SIZE;
+            const g1 = mcl.G1.deserialize(input[offset..][0..64]) catch return AltBn128Error.InvalidInputData;
+            const g2 = mcl.G2.deserialize(input[offset + 64 ..][0..128]) catch return AltBn128Error.InvalidInputData;
+            const p = mcl.pairing(&g1, &g2);
+
+            if (accumulated) |*acc| {
+                acc.* = acc.mul(&p);
+            } else {
+                accumulated = p;
+            }
+        }
+
+        return if (accumulated) |acc| acc.isOne() else true;
     } else {
+        // Test mode without MCL: return true (placeholder)
         return true;
     }
 }
@@ -489,6 +594,44 @@ fn reverseBytes(src: []const u8, dst: []u8) void {
     for (src, 0..) |byte, i| {
         dst[dst.len - 1 - i] = byte;
     }
+}
+
+/// Convert big-endian G1 input (128 bytes) to little-endian
+fn beToLeG1Input(be_input: []const u8, le_output: *[ALT_BN128_G1_ADDITION_INPUT_SIZE]u8) void {
+    // Each G1 point has two 32-byte field elements
+    // Reverse each field element separately
+    reverseBytes(be_input[0..32], le_output[0..32]);
+    reverseBytes(be_input[32..64], le_output[32..64]);
+    reverseBytes(be_input[64..96], le_output[64..96]);
+    reverseBytes(be_input[96..128], le_output[96..128]);
+}
+
+/// Convert little-endian G1 output (64 bytes) to big-endian
+fn leToBeG1Output(le_input: *const [ALT_BN128_G1_ADDITION_OUTPUT_SIZE]u8, be_output: *[ALT_BN128_G1_ADDITION_OUTPUT_SIZE]u8) void {
+    reverseBytes(le_input[0..32], be_output[0..32]);
+    reverseBytes(le_input[32..64], be_output[32..64]);
+}
+
+/// Convert big-endian G1 multiplication input (96 bytes) to little-endian
+fn beToLeG1MulInput(be_input: []const u8, le_output: *[ALT_BN128_G1_MULTIPLICATION_INPUT_SIZE]u8) void {
+    // G1 point (64 bytes) + scalar (32 bytes)
+    reverseBytes(be_input[0..32], le_output[0..32]);
+    reverseBytes(be_input[32..64], le_output[32..64]);
+    reverseBytes(be_input[64..96], le_output[64..96]);
+}
+
+/// Convert big-endian pairing element (192 bytes) to little-endian buffers
+/// Input: 64 bytes G1 (BE) + 128 bytes G2 (BE)
+/// Output: separate G1 (LE) and G2 (LE) buffers
+fn beToLePairingElement(be_input: []const u8, le_g1: *[64]u8, le_g2: *[128]u8) void {
+    // G1: 2 field elements
+    reverseBytes(be_input[0..32], le_g1[0..32]);
+    reverseBytes(be_input[32..64], le_g1[32..64]);
+    // G2: 4 field elements
+    reverseBytes(be_input[64..96], le_g2[0..32]);
+    reverseBytes(be_input[96..128], le_g2[32..64]);
+    reverseBytes(be_input[128..160], le_g2[64..96]);
+    reverseBytes(be_input[160..192], le_g2[96..128]);
 }
 
 // ============================================================================

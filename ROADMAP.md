@@ -233,6 +233,38 @@ Based on full analysis of [solana-sdk](https://github.com/anza-xyz/solana-sdk) (
 
 ---
 
+## 🔮 v0.30.0 - Rust-Zig Integration Tests (Planned)
+
+使用官方 Rust SDK 生成测试向量，验证 Zig SDK 实现的兼容性和正确性。
+
+### 目标
+
+确保 Zig SDK 与官方 Rust SDK 完全兼容：
+- bincode 序列化格式一致
+- Base58 编解码一致
+- PDA 派生结果一致
+- JSON 格式符合 RPC 规范
+
+### 测试范围
+
+| Phase | 测试项 | 优先级 | 状态 |
+|-------|--------|--------|------|
+| Phase 1 | PublicKey/Hash/Signature 兼容性 | P0 | ⏳ |
+| Phase 2 | InstructionError/TransactionError bincode | P0 | ⏳ |
+| Phase 3 | UpgradeableLoaderInstruction bincode | P0 | ⏳ |
+| Phase 4 | PDA 派生兼容性 | P0 | ⏳ |
+| Phase 5 | EpochInfo JSON 格式 | P1 | ⏳ |
+
+### 架构
+
+```
+Rust SDK (生成测试向量) → test-vectors/ → Zig SDK (验证)
+```
+
+> **See**: `stories/v0.30.0-integration-tests.md` for detailed implementation plan.
+
+---
+
 ## 🚫 Out of Scope (Validator-only modules)
 
 These modules are NOT needed for on-chain program development or client development:

@@ -2613,6 +2613,7 @@ name = "solana-sdk-zig-program-test"
 version = "0.0.1"
 dependencies = [
  "bincode",
+ "borsh",
  "hex",
  "mollusk-svm",
  "num_enum",

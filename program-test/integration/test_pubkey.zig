@@ -505,3 +505,129 @@ test "durable_nonce: fromBlockhash compatibility with Rust SDK" {
         try std.testing.expectEqualSlices(u8, vector.durable_nonce, &durable_nonce.hash.bytes);
     }
 }
+
+const BincodeTestVector = struct {
+    name: []const u8,
+    type_name: []const u8,
+    value_json: []const u8,
+    encoded: []const u8,
+};
+
+const BorshTestVector = struct {
+    name: []const u8,
+    type_name: []const u8,
+    value_json: []const u8,
+    encoded: []const u8,
+};
+
+test "bincode: integer serialization compatibility with Rust" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "bincode_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const BincodeTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        if (std.mem.eql(u8, vector.type_name, "u8")) {
+            const value = try std.fmt.parseInt(u8, vector.value_json, 10);
+            var buf: [1]u8 = undefined;
+            const len = try sdk.bincode.serialize(u8, value, &buf);
+            try std.testing.expectEqual(@as(usize, 1), len);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.type_name, "u16")) {
+            const value = try std.fmt.parseInt(u16, vector.value_json, 10);
+            var buf: [2]u8 = undefined;
+            const len = try sdk.bincode.serialize(u16, value, &buf);
+            try std.testing.expectEqual(@as(usize, 2), len);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.type_name, "u32")) {
+            const value = try std.fmt.parseInt(u32, vector.value_json, 10);
+            var buf: [4]u8 = undefined;
+            const len = try sdk.bincode.serialize(u32, value, &buf);
+            try std.testing.expectEqual(@as(usize, 4), len);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.type_name, "u64")) {
+            const value = try std.fmt.parseInt(u64, vector.value_json, 10);
+            var buf: [8]u8 = undefined;
+            const len = try sdk.bincode.serialize(u64, value, &buf);
+            try std.testing.expectEqual(@as(usize, 8), len);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.type_name, "i32")) {
+            const value = try std.fmt.parseInt(i32, vector.value_json, 10);
+            var buf: [4]u8 = undefined;
+            const len = try sdk.bincode.serialize(i32, value, &buf);
+            try std.testing.expectEqual(@as(usize, 4), len);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.type_name, "i64")) {
+            const value = try std.fmt.parseInt(i64, vector.value_json, 10);
+            var buf: [8]u8 = undefined;
+            const len = try sdk.bincode.serialize(i64, value, &buf);
+            try std.testing.expectEqual(@as(usize, 8), len);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.type_name, "bool")) {
+            const value = std.mem.eql(u8, vector.value_json, "true");
+            var buf: [1]u8 = undefined;
+            const len = try sdk.bincode.serialize(bool, value, &buf);
+            try std.testing.expectEqual(@as(usize, 1), len);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        }
+    }
+}
+
+test "borsh: integer serialization compatibility with Rust" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "borsh_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const BorshTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        if (std.mem.eql(u8, vector.type_name, "u8")) {
+            const value = try std.fmt.parseInt(u8, vector.value_json, 10);
+            var buf: [1]u8 = undefined;
+            const len = try sdk.borsh.serialize(u8, value, &buf);
+            try std.testing.expectEqual(@as(usize, 1), len);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.type_name, "u16")) {
+            const value = try std.fmt.parseInt(u16, vector.value_json, 10);
+            var buf: [2]u8 = undefined;
+            const len = try sdk.borsh.serialize(u16, value, &buf);
+            try std.testing.expectEqual(@as(usize, 2), len);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.type_name, "u32")) {
+            const value = try std.fmt.parseInt(u32, vector.value_json, 10);
+            var buf: [4]u8 = undefined;
+            const len = try sdk.borsh.serialize(u32, value, &buf);
+            try std.testing.expectEqual(@as(usize, 4), len);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.type_name, "u64")) {
+            const value = try std.fmt.parseInt(u64, vector.value_json, 10);
+            var buf: [8]u8 = undefined;
+            const len = try sdk.borsh.serialize(u64, value, &buf);
+            try std.testing.expectEqual(@as(usize, 8), len);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.type_name, "i32")) {
+            const value = try std.fmt.parseInt(i32, vector.value_json, 10);
+            var buf: [4]u8 = undefined;
+            const len = try sdk.borsh.serialize(i32, value, &buf);
+            try std.testing.expectEqual(@as(usize, 4), len);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.type_name, "i64")) {
+            const value = try std.fmt.parseInt(i64, vector.value_json, 10);
+            var buf: [8]u8 = undefined;
+            const len = try sdk.borsh.serialize(i64, value, &buf);
+            try std.testing.expectEqual(@as(usize, 8), len);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.type_name, "bool")) {
+            const value = std.mem.eql(u8, vector.value_json, "true");
+            var buf: [1]u8 = undefined;
+            const len = try sdk.borsh.serialize(bool, value, &buf);
+            try std.testing.expectEqual(@as(usize, 1), len);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        }
+    }
+}

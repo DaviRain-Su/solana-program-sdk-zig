@@ -122,6 +122,22 @@ pub struct DurableNonceTestVector {
     pub durable_nonce: Vec<u8>,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BincodeTestVector {
+    pub name: String,
+    pub type_name: String,
+    pub value_json: String,
+    pub encoded: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BorshTestVector {
+    pub name: String,
+    pub type_name: String,
+    pub value_json: String,
+    pub encoded: Vec<u8>,
+}
+
 pub fn generate_pubkey_vectors(output_dir: &Path) {
     let bpf_loader_upgradeable_id =
         Pubkey::from_str_const("BPFLoaderUpgradeab1e11111111111111111111111");
@@ -644,6 +660,198 @@ pub fn generate_durable_nonce_vectors(output_dir: &Path) {
     fs::write(output_dir.join("durable_nonce_vectors.json"), json).unwrap();
 }
 
+pub fn generate_bincode_vectors(output_dir: &Path) {
+    let mut vectors: Vec<BincodeTestVector> = Vec::new();
+
+    vectors.push(BincodeTestVector {
+        name: "u8_zero".to_string(),
+        type_name: "u8".to_string(),
+        value_json: "0".to_string(),
+        encoded: bincode::serialize(&0u8).unwrap(),
+    });
+
+    vectors.push(BincodeTestVector {
+        name: "u8_max".to_string(),
+        type_name: "u8".to_string(),
+        value_json: "255".to_string(),
+        encoded: bincode::serialize(&255u8).unwrap(),
+    });
+
+    vectors.push(BincodeTestVector {
+        name: "u16_value".to_string(),
+        type_name: "u16".to_string(),
+        value_json: "12345".to_string(),
+        encoded: bincode::serialize(&12345u16).unwrap(),
+    });
+
+    vectors.push(BincodeTestVector {
+        name: "u32_value".to_string(),
+        type_name: "u32".to_string(),
+        value_json: "305419896".to_string(),
+        encoded: bincode::serialize(&0x12345678u32).unwrap(),
+    });
+
+    vectors.push(BincodeTestVector {
+        name: "u64_value".to_string(),
+        type_name: "u64".to_string(),
+        value_json: "1311768467463790320".to_string(), // 0x123456789ABCDEF0
+        encoded: bincode::serialize(&0x123456789ABCDEF0u64).unwrap(),
+    });
+
+    vectors.push(BincodeTestVector {
+        name: "i32_negative".to_string(),
+        type_name: "i32".to_string(),
+        value_json: "-12345".to_string(),
+        encoded: bincode::serialize(&-12345i32).unwrap(),
+    });
+
+    vectors.push(BincodeTestVector {
+        name: "i64_negative".to_string(),
+        type_name: "i64".to_string(),
+        value_json: "-9876543210".to_string(),
+        encoded: bincode::serialize(&-9876543210i64).unwrap(),
+    });
+
+    vectors.push(BincodeTestVector {
+        name: "bool_true".to_string(),
+        type_name: "bool".to_string(),
+        value_json: "true".to_string(),
+        encoded: bincode::serialize(&true).unwrap(),
+    });
+
+    vectors.push(BincodeTestVector {
+        name: "bool_false".to_string(),
+        type_name: "bool".to_string(),
+        value_json: "false".to_string(),
+        encoded: bincode::serialize(&false).unwrap(),
+    });
+
+    vectors.push(BincodeTestVector {
+        name: "option_some_u32".to_string(),
+        type_name: "Option<u32>".to_string(),
+        value_json: "42".to_string(),
+        encoded: bincode::serialize(&Some(42u32)).unwrap(),
+    });
+
+    vectors.push(BincodeTestVector {
+        name: "option_none_u32".to_string(),
+        type_name: "Option<u32>".to_string(),
+        value_json: "null".to_string(),
+        encoded: bincode::serialize(&None::<u32>).unwrap(),
+    });
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("bincode_vectors.json"), json).unwrap();
+}
+
+pub fn generate_borsh_vectors(output_dir: &Path) {
+    use borsh::BorshSerialize;
+
+    let mut vectors: Vec<BorshTestVector> = Vec::new();
+
+    let mut buf = Vec::new();
+    BorshSerialize::serialize(&0u8, &mut buf).unwrap();
+    vectors.push(BorshTestVector {
+        name: "u8_zero".to_string(),
+        type_name: "u8".to_string(),
+        value_json: "0".to_string(),
+        encoded: buf.clone(),
+    });
+
+    buf.clear();
+    BorshSerialize::serialize(&255u8, &mut buf).unwrap();
+    vectors.push(BorshTestVector {
+        name: "u8_max".to_string(),
+        type_name: "u8".to_string(),
+        value_json: "255".to_string(),
+        encoded: buf.clone(),
+    });
+
+    buf.clear();
+    BorshSerialize::serialize(&12345u16, &mut buf).unwrap();
+    vectors.push(BorshTestVector {
+        name: "u16_value".to_string(),
+        type_name: "u16".to_string(),
+        value_json: "12345".to_string(),
+        encoded: buf.clone(),
+    });
+
+    buf.clear();
+    BorshSerialize::serialize(&0x12345678u32, &mut buf).unwrap();
+    vectors.push(BorshTestVector {
+        name: "u32_value".to_string(),
+        type_name: "u32".to_string(),
+        value_json: "305419896".to_string(),
+        encoded: buf.clone(),
+    });
+
+    buf.clear();
+    BorshSerialize::serialize(&0x123456789ABCDEF0u64, &mut buf).unwrap();
+    vectors.push(BorshTestVector {
+        name: "u64_value".to_string(),
+        type_name: "u64".to_string(),
+        value_json: "1311768467463790320".to_string(),
+        encoded: buf.clone(),
+    });
+
+    buf.clear();
+    BorshSerialize::serialize(&-12345i32, &mut buf).unwrap();
+    vectors.push(BorshTestVector {
+        name: "i32_negative".to_string(),
+        type_name: "i32".to_string(),
+        value_json: "-12345".to_string(),
+        encoded: buf.clone(),
+    });
+
+    buf.clear();
+    BorshSerialize::serialize(&-9876543210i64, &mut buf).unwrap();
+    vectors.push(BorshTestVector {
+        name: "i64_negative".to_string(),
+        type_name: "i64".to_string(),
+        value_json: "-9876543210".to_string(),
+        encoded: buf.clone(),
+    });
+
+    buf.clear();
+    BorshSerialize::serialize(&true, &mut buf).unwrap();
+    vectors.push(BorshTestVector {
+        name: "bool_true".to_string(),
+        type_name: "bool".to_string(),
+        value_json: "true".to_string(),
+        encoded: buf.clone(),
+    });
+
+    buf.clear();
+    BorshSerialize::serialize(&false, &mut buf).unwrap();
+    vectors.push(BorshTestVector {
+        name: "bool_false".to_string(),
+        type_name: "bool".to_string(),
+        value_json: "false".to_string(),
+        encoded: buf.clone(),
+    });
+
+    buf.clear();
+    BorshSerialize::serialize(&Some(42u32), &mut buf).unwrap();
+    vectors.push(BorshTestVector {
+        name: "option_some_u32".to_string(),
+        type_name: "Option<u32>".to_string(),
+        value_json: "42".to_string(),
+        encoded: buf.clone(),
+    });
+
+    buf.clear();
+    BorshSerialize::serialize(&None::<u32>, &mut buf).unwrap();
+    vectors.push(BorshTestVector {
+        name: "option_none_u32".to_string(),
+        type_name: "Option<u32>".to_string(),
+        value_json: "null".to_string(),
+        encoded: buf.clone(),
+    });
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("borsh_vectors.json"), json).unwrap();
+}
+
 pub fn generate_all_vectors(output_dir: &Path) {
     fs::create_dir_all(output_dir).unwrap();
 
@@ -660,6 +868,8 @@ pub fn generate_all_vectors(output_dir: &Path) {
     generate_clock_vectors(output_dir);
     generate_epoch_schedule_vectors(output_dir);
     generate_durable_nonce_vectors(output_dir);
+    generate_bincode_vectors(output_dir);
+    generate_borsh_vectors(output_dir);
 
     println!("Generated all test vectors in {:?}", output_dir);
 }

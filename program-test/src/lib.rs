@@ -138,6 +138,18 @@ pub struct BorshTestVector {
     pub encoded: Vec<u8>,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SystemInstructionTestVector {
+    pub name: String,
+    pub instruction_type: String,
+    pub encoded: Vec<u8>,
+    pub from_pubkey: Option<[u8; 32]>,
+    pub to_pubkey: Option<[u8; 32]>,
+    pub lamports: Option<u64>,
+    pub space: Option<u64>,
+    pub owner: Option<[u8; 32]>,
+}
+
 pub fn generate_pubkey_vectors(output_dir: &Path) {
     let bpf_loader_upgradeable_id =
         Pubkey::from_str_const("BPFLoaderUpgradeab1e11111111111111111111111");
@@ -852,6 +864,91 @@ pub fn generate_borsh_vectors(output_dir: &Path) {
     fs::write(output_dir.join("borsh_vectors.json"), json).unwrap();
 }
 
+pub fn generate_system_instruction_vectors(output_dir: &Path) {
+    use solana_system_interface::instruction as system_instruction;
+
+    let from_pubkey = Pubkey::from_str_const("4rL4RCWHz3iNCdCaveD8KcHfV9YagGbXgSYq9QWPZ4Zx");
+    let to_pubkey = Pubkey::from_str_const("8opHzTAnfzRpPEx21XtnrVTX28YQuCpAjcn1PczScKh");
+    let owner = Pubkey::from_str_const("BPFLoaderUpgradeab1e11111111111111111111111");
+
+    let mut vectors: Vec<SystemInstructionTestVector> = Vec::new();
+
+    let ix = system_instruction::transfer(&from_pubkey, &to_pubkey, 1_000_000_000);
+    vectors.push(SystemInstructionTestVector {
+        name: "transfer_1_sol".to_string(),
+        instruction_type: "Transfer".to_string(),
+        encoded: ix.data.clone(),
+        from_pubkey: Some(from_pubkey.to_bytes()),
+        to_pubkey: Some(to_pubkey.to_bytes()),
+        lamports: Some(1_000_000_000),
+        space: None,
+        owner: None,
+    });
+
+    let ix = system_instruction::transfer(&from_pubkey, &to_pubkey, 0);
+    vectors.push(SystemInstructionTestVector {
+        name: "transfer_zero".to_string(),
+        instruction_type: "Transfer".to_string(),
+        encoded: ix.data.clone(),
+        from_pubkey: Some(from_pubkey.to_bytes()),
+        to_pubkey: Some(to_pubkey.to_bytes()),
+        lamports: Some(0),
+        space: None,
+        owner: None,
+    });
+
+    let ix = system_instruction::transfer(&from_pubkey, &to_pubkey, u64::MAX);
+    vectors.push(SystemInstructionTestVector {
+        name: "transfer_max".to_string(),
+        instruction_type: "Transfer".to_string(),
+        encoded: ix.data.clone(),
+        from_pubkey: Some(from_pubkey.to_bytes()),
+        to_pubkey: Some(to_pubkey.to_bytes()),
+        lamports: Some(u64::MAX),
+        space: None,
+        owner: None,
+    });
+
+    let ix = system_instruction::create_account(&from_pubkey, &to_pubkey, 1_000_000, 100, &owner);
+    vectors.push(SystemInstructionTestVector {
+        name: "create_account".to_string(),
+        instruction_type: "CreateAccount".to_string(),
+        encoded: ix.data.clone(),
+        from_pubkey: Some(from_pubkey.to_bytes()),
+        to_pubkey: Some(to_pubkey.to_bytes()),
+        lamports: Some(1_000_000),
+        space: Some(100),
+        owner: Some(owner.to_bytes()),
+    });
+
+    let ix = system_instruction::assign(&to_pubkey, &owner);
+    vectors.push(SystemInstructionTestVector {
+        name: "assign".to_string(),
+        instruction_type: "Assign".to_string(),
+        encoded: ix.data.clone(),
+        from_pubkey: None,
+        to_pubkey: Some(to_pubkey.to_bytes()),
+        lamports: None,
+        space: None,
+        owner: Some(owner.to_bytes()),
+    });
+
+    let ix = system_instruction::allocate(&to_pubkey, 200);
+    vectors.push(SystemInstructionTestVector {
+        name: "allocate".to_string(),
+        instruction_type: "Allocate".to_string(),
+        encoded: ix.data.clone(),
+        from_pubkey: None,
+        to_pubkey: Some(to_pubkey.to_bytes()),
+        lamports: None,
+        space: Some(200),
+        owner: None,
+    });
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("system_instruction_vectors.json"), json).unwrap();
+}
+
 pub fn generate_all_vectors(output_dir: &Path) {
     fs::create_dir_all(output_dir).unwrap();
 
@@ -870,6 +967,7 @@ pub fn generate_all_vectors(output_dir: &Path) {
     generate_durable_nonce_vectors(output_dir);
     generate_bincode_vectors(output_dir);
     generate_borsh_vectors(output_dir);
+    generate_system_instruction_vectors(output_dir);
 
     println!("Generated all test vectors in {:?}", output_dir);
 }

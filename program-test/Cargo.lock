@@ -2622,6 +2622,7 @@ dependencies = [
  "solana-epoch-schedule",
  "solana-nonce",
  "solana-sdk",
+ "solana-system-interface",
 ]
 
 [[package]]

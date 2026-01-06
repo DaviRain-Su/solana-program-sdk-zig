@@ -631,3 +631,50 @@ test "borsh: integer serialization compatibility with Rust" {
         }
     }
 }
+
+const SystemInstructionTestVector = struct {
+    name: []const u8,
+    instruction_type: []const u8,
+    encoded: []const u8,
+    from_pubkey: ?[32]u8,
+    to_pubkey: ?[32]u8,
+    lamports: ?u64,
+    space: ?u64,
+    owner: ?[32]u8,
+};
+
+test "system_instruction: encoding compatibility with Rust" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "system_instruction_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const SystemInstructionTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        if (std.mem.eql(u8, vector.instruction_type, "Transfer")) {
+            var buf: [12]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 2, .little);
+            std.mem.writeInt(u64, buf[4..12], vector.lamports.?, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.instruction_type, "CreateAccount")) {
+            var buf: [52]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 0, .little);
+            std.mem.writeInt(u64, buf[4..12], vector.lamports.?, .little);
+            std.mem.writeInt(u64, buf[12..20], vector.space.?, .little);
+            @memcpy(buf[20..52], &vector.owner.?);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.instruction_type, "Assign")) {
+            var buf: [36]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 1, .little);
+            @memcpy(buf[4..36], &vector.owner.?);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.instruction_type, "Allocate")) {
+            var buf: [12]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 8, .little);
+            std.mem.writeInt(u64, buf[4..12], vector.space.?, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        }
+    }
+}

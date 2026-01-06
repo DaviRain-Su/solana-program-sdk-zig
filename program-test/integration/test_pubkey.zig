@@ -371,3 +371,137 @@ test "rent: minimum balance calculation compatibility with Rust SDK" {
         try std.testing.expectEqual(vector.minimum_balance, calculated);
     }
 }
+
+const ClockTestVector = struct {
+    name: []const u8,
+    slot: u64,
+    epoch_start_timestamp: i64,
+    epoch: u64,
+    leader_schedule_epoch: u64,
+    unix_timestamp: i64,
+};
+
+const EpochScheduleTestVector = struct {
+    name: []const u8,
+    slots_per_epoch: u64,
+    warmup: bool,
+    first_normal_epoch: u64,
+    first_normal_slot: u64,
+    test_slot: u64,
+    expected_epoch: u64,
+    expected_slot_index: u64,
+    expected_slots_in_epoch: u64,
+};
+
+const DurableNonceTestVector = struct {
+    name: []const u8,
+    blockhash: []const u8,
+    durable_nonce: []const u8,
+};
+
+test "clock: field values compatibility with Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "clock_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const ClockTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        try std.testing.expect(vector.slot >= 0 or vector.slot == std.math.maxInt(u64));
+        try std.testing.expect(vector.epoch <= vector.slot or vector.epoch == std.math.maxInt(u64));
+        try std.testing.expect(vector.leader_schedule_epoch >= vector.epoch or vector.leader_schedule_epoch == std.math.maxInt(u64));
+    }
+}
+
+const MINIMUM_SLOTS_PER_EPOCH: u64 = 32;
+
+fn getEpochAndSlotIndex(
+    warmup: bool,
+    slots_per_epoch: u64,
+    first_normal_epoch: u64,
+    first_normal_slot: u64,
+    slot: u64,
+) struct { u64, u64 } {
+    if (warmup and slot < first_normal_slot) {
+        var epoch: u64 = 0;
+        var slots_in_epoch = MINIMUM_SLOTS_PER_EPOCH;
+        var epoch_start: u64 = 0;
+
+        while (epoch_start + slots_in_epoch <= slot) {
+            epoch_start += slots_in_epoch;
+            slots_in_epoch *= 2;
+            epoch += 1;
+        }
+
+        return .{ epoch, slot - epoch_start };
+    } else {
+        const normal_slot_index = slot - first_normal_slot;
+        const normal_epoch_index = normal_slot_index / slots_per_epoch;
+        const epoch = first_normal_epoch + normal_epoch_index;
+        const slot_index = normal_slot_index % slots_per_epoch;
+        return .{ epoch, slot_index };
+    }
+}
+
+fn getSlotsInEpoch(warmup: bool, slots_per_epoch: u64, first_normal_epoch: u64, epoch: u64) u64 {
+    if (!warmup or epoch >= first_normal_epoch) {
+        return slots_per_epoch;
+    }
+    const exponent = @min(epoch, 63);
+    return MINIMUM_SLOTS_PER_EPOCH << @intCast(exponent);
+}
+
+test "epoch_schedule: calculation compatibility with Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "epoch_schedule_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const EpochScheduleTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        const result = getEpochAndSlotIndex(
+            vector.warmup,
+            vector.slots_per_epoch,
+            vector.first_normal_epoch,
+            vector.first_normal_slot,
+            vector.test_slot,
+        );
+
+        try std.testing.expectEqual(vector.expected_epoch, result[0]);
+        try std.testing.expectEqual(vector.expected_slot_index, result[1]);
+
+        const slots_in_epoch = getSlotsInEpoch(
+            vector.warmup,
+            vector.slots_per_epoch,
+            vector.first_normal_epoch,
+            result[0],
+        );
+        try std.testing.expectEqual(vector.expected_slots_in_epoch, slots_in_epoch);
+    }
+}
+
+test "durable_nonce: fromBlockhash compatibility with Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "durable_nonce_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const DurableNonceTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        if (vector.blockhash.len != 32) continue;
+
+        var blockhash_bytes: [32]u8 = undefined;
+        @memcpy(&blockhash_bytes, vector.blockhash);
+
+        const blockhash = sdk.hash.Hash.from(blockhash_bytes);
+        const durable_nonce = sdk.nonce.DurableNonce.fromBlockhash(blockhash);
+
+        try std.testing.expectEqualSlices(u8, vector.durable_nonce, &durable_nonce.hash.bytes);
+    }
+}

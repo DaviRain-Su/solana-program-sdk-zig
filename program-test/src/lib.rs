@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+use solana_epoch_schedule::EpochSchedule;
+use solana_nonce::state::DurableNonce;
 use solana_sdk::{
     hash::Hash,
     native_token::sol_str_to_lamports,
@@ -88,6 +90,36 @@ pub struct RentTestVector {
     pub name: String,
     pub data_len: u64,
     pub minimum_balance: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ClockTestVector {
+    pub name: String,
+    pub slot: u64,
+    pub epoch_start_timestamp: i64,
+    pub epoch: u64,
+    pub leader_schedule_epoch: u64,
+    pub unix_timestamp: i64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct EpochScheduleTestVector {
+    pub name: String,
+    pub slots_per_epoch: u64,
+    pub warmup: bool,
+    pub first_normal_epoch: u64,
+    pub first_normal_slot: u64,
+    pub test_slot: u64,
+    pub expected_epoch: u64,
+    pub expected_slot_index: u64,
+    pub expected_slots_in_epoch: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DurableNonceTestVector {
+    pub name: String,
+    pub blockhash: Vec<u8>,
+    pub durable_nonce: Vec<u8>,
 }
 
 pub fn generate_pubkey_vectors(output_dir: &Path) {
@@ -484,6 +516,134 @@ pub fn generate_rent_vectors(output_dir: &Path) {
     fs::write(output_dir.join("rent_vectors.json"), json).unwrap();
 }
 
+pub fn generate_clock_vectors(output_dir: &Path) {
+    let vectors = vec![
+        ClockTestVector {
+            name: "genesis".to_string(),
+            slot: 0,
+            epoch_start_timestamp: 0,
+            epoch: 0,
+            leader_schedule_epoch: 0,
+            unix_timestamp: 0,
+        },
+        ClockTestVector {
+            name: "mainnet_typical".to_string(),
+            slot: 250_000_000,
+            epoch_start_timestamp: 1700000000,
+            epoch: 578,
+            leader_schedule_epoch: 579,
+            unix_timestamp: 1700100000,
+        },
+        ClockTestVector {
+            name: "negative_timestamp".to_string(),
+            slot: 1000,
+            epoch_start_timestamp: -86400,
+            epoch: 0,
+            leader_schedule_epoch: 0,
+            unix_timestamp: -1,
+        },
+        ClockTestVector {
+            name: "max_values".to_string(),
+            slot: u64::MAX,
+            epoch_start_timestamp: i64::MAX,
+            epoch: u64::MAX,
+            leader_schedule_epoch: u64::MAX,
+            unix_timestamp: i64::MAX,
+        },
+    ];
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("clock_vectors.json"), json).unwrap();
+}
+
+pub fn generate_epoch_schedule_vectors(output_dir: &Path) {
+    let schedule_no_warmup = EpochSchedule::without_warmup();
+    let schedule_with_warmup = EpochSchedule::custom(256, 256, true);
+
+    let mut vectors: Vec<EpochScheduleTestVector> = Vec::new();
+
+    let no_warmup_tests = vec![
+        ("no_warmup_slot_0", 0u64),
+        ("no_warmup_slot_100", 100),
+        ("no_warmup_epoch_boundary", 432000),
+        ("no_warmup_epoch_5", 432000 * 5 + 1000),
+    ];
+
+    for (name, slot) in no_warmup_tests {
+        let (epoch, slot_index) = schedule_no_warmup.get_epoch_and_slot_index(slot);
+        vectors.push(EpochScheduleTestVector {
+            name: name.to_string(),
+            slots_per_epoch: schedule_no_warmup.slots_per_epoch,
+            warmup: false,
+            first_normal_epoch: schedule_no_warmup.first_normal_epoch,
+            first_normal_slot: schedule_no_warmup.first_normal_slot,
+            test_slot: slot,
+            expected_epoch: epoch,
+            expected_slot_index: slot_index,
+            expected_slots_in_epoch: schedule_no_warmup.get_slots_in_epoch(epoch),
+        });
+    }
+
+    let warmup_tests = vec![
+        ("warmup_epoch_0", 0u64),
+        ("warmup_epoch_0_end", 31),
+        ("warmup_epoch_1", 32),
+        ("warmup_epoch_2", 96),
+        ("warmup_first_normal", 224),
+        ("warmup_normal_epoch", 480),
+    ];
+
+    for (name, slot) in warmup_tests {
+        let (epoch, slot_index) = schedule_with_warmup.get_epoch_and_slot_index(slot);
+        vectors.push(EpochScheduleTestVector {
+            name: name.to_string(),
+            slots_per_epoch: schedule_with_warmup.slots_per_epoch,
+            warmup: true,
+            first_normal_epoch: schedule_with_warmup.first_normal_epoch,
+            first_normal_slot: schedule_with_warmup.first_normal_slot,
+            test_slot: slot,
+            expected_epoch: epoch,
+            expected_slot_index: slot_index,
+            expected_slots_in_epoch: schedule_with_warmup.get_slots_in_epoch(epoch),
+        });
+    }
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("epoch_schedule_vectors.json"), json).unwrap();
+}
+
+pub fn generate_durable_nonce_vectors(output_dir: &Path) {
+    let test_blockhashes: Vec<(&str, [u8; 32])> = vec![
+        ("zero", [0u8; 32]),
+        ("one", [1u8; 32]),
+        ("sequential", {
+            let mut arr = [0u8; 32];
+            for i in 0..32 {
+                arr[i] = i as u8;
+            }
+            arr
+        }),
+        ("max", [0xFFu8; 32]),
+    ];
+
+    let mut vectors: Vec<DurableNonceTestVector> = Vec::new();
+
+    for (name, blockhash_bytes) in test_blockhashes {
+        let blockhash = Hash::new_from_array(blockhash_bytes);
+        let durable_nonce = DurableNonce::from_blockhash(&blockhash);
+        let nonce_hash = durable_nonce.as_hash();
+
+        vectors.push(DurableNonceTestVector {
+            name: name.to_string(),
+            blockhash: blockhash_bytes.to_vec(),
+            durable_nonce: nonce_hash.to_bytes().to_vec(),
+        });
+    }
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("durable_nonce_vectors.json"), json).unwrap();
+}
+
 pub fn generate_all_vectors(output_dir: &Path) {
     fs::create_dir_all(output_dir).unwrap();
 
@@ -497,6 +657,9 @@ pub fn generate_all_vectors(output_dir: &Path) {
     generate_sha256_vectors(output_dir);
     generate_lamports_vectors(output_dir);
     generate_rent_vectors(output_dir);
+    generate_clock_vectors(output_dir);
+    generate_epoch_schedule_vectors(output_dir);
+    generate_durable_nonce_vectors(output_dir);
 
     println!("Generated all test vectors in {:?}", output_dir);
 }

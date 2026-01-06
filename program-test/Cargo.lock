@@ -2618,6 +2618,8 @@ dependencies = [
  "num_enum",
  "serde",
  "serde_json",
+ "solana-epoch-schedule",
+ "solana-nonce",
  "solana-sdk",
 ]
 

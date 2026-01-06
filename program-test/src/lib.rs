@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use solana_sdk::{
     hash::Hash,
     pubkey::Pubkey,
+    short_vec,
     signature::{Keypair, Signature, Signer},
 };
 use std::fs;
@@ -57,6 +58,20 @@ pub struct EpochInfoTestVector {
     pub absolute_slot: u64,
     pub block_height: u64,
     pub transaction_count: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ShortVecTestVector {
+    pub name: String,
+    pub value: u16,
+    pub encoded: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Sha256TestVector {
+    pub name: String,
+    pub input: Vec<u8>,
+    pub hash: Vec<u8>,
 }
 
 pub fn generate_pubkey_vectors(output_dir: &Path) {
@@ -284,6 +299,63 @@ pub fn generate_epoch_info_vectors(output_dir: &Path) {
     fs::write(output_dir.join("epoch_info_vectors.json"), json).unwrap();
 }
 
+pub fn generate_short_vec_vectors(output_dir: &Path) {
+    let test_values: Vec<(&str, u16)> = vec![
+        ("zero", 0),
+        ("one", 1),
+        ("max_1byte", 0x7f),
+        ("min_2byte", 0x80),
+        ("mid_2byte", 0x3fff),
+        ("max_2byte", 0x3fff),
+        ("min_3byte", 0x4000),
+        ("mid_3byte", 0x8000),
+        ("max_u16", 0xffff),
+    ];
+
+    let mut vectors: Vec<ShortVecTestVector> = Vec::new();
+
+    for (name, value) in test_values {
+        let short_u16 = short_vec::ShortU16(value);
+        let encoded = bincode::serialize(&short_u16).unwrap();
+        vectors.push(ShortVecTestVector {
+            name: name.to_string(),
+            value,
+            encoded,
+        });
+    }
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("short_vec_vectors.json"), json).unwrap();
+}
+
+pub fn generate_sha256_vectors(output_dir: &Path) {
+    use solana_sdk::hash::hashv;
+
+    let test_cases: Vec<(&str, Vec<u8>)> = vec![
+        ("empty", vec![]),
+        ("hello", b"hello".to_vec()),
+        ("hello_world", b"hello world".to_vec()),
+        ("solana", b"solana".to_vec()),
+        ("binary_data", vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
+        ("all_zeros", vec![0u8; 32]),
+        ("all_ones", vec![0xff; 32]),
+    ];
+
+    let mut vectors: Vec<Sha256TestVector> = Vec::new();
+
+    for (name, input) in test_cases {
+        let hash = hashv(&[&input]);
+        vectors.push(Sha256TestVector {
+            name: name.to_string(),
+            input: input.clone(),
+            hash: hash.to_bytes().to_vec(),
+        });
+    }
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("sha256_vectors.json"), json).unwrap();
+}
+
 pub fn generate_all_vectors(output_dir: &Path) {
     fs::create_dir_all(output_dir).unwrap();
 
@@ -293,6 +365,8 @@ pub fn generate_all_vectors(output_dir: &Path) {
     generate_pda_vectors(output_dir);
     generate_keypair_vectors(output_dir);
     generate_epoch_info_vectors(output_dir);
+    generate_short_vec_vectors(output_dir);
+    generate_sha256_vectors(output_dir);
 
     println!("Generated all test vectors in {:?}", output_dir);
 }

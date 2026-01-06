@@ -5,6 +5,8 @@ const Hash = sdk.hash.Hash;
 const Signature = sdk.signature.Signature;
 const Keypair = sdk.keypair.Keypair;
 const EpochInfo = sdk.epoch_info.EpochInfo;
+const ShortU16 = sdk.short_vec.ShortU16;
+const short_vec = sdk.short_vec;
 const signature_mod = sdk.signature;
 const hash_mod = sdk.hash;
 
@@ -50,6 +52,18 @@ const EpochInfoTestVector = struct {
     absolute_slot: u64,
     block_height: u64,
     transaction_count: ?u64,
+};
+
+const ShortVecTestVector = struct {
+    name: []const u8,
+    value: u16,
+    encoded: []const u8,
+};
+
+const Sha256TestVector = struct {
+    name: []const u8,
+    input: []const u8,
+    hash: []const u8,
 };
 
 fn readTestVectorFile(allocator: std.mem.Allocator, filename: []const u8) ![]const u8 {
@@ -242,5 +256,55 @@ test "epoch_info: field values compatibility with Rust SDK" {
 
         const expected_first = vector.absolute_slot - vector.slot_index;
         try std.testing.expectEqual(expected_first, epoch_info.getFirstSlotInEpoch());
+    }
+}
+
+test "short_vec: encoding compatibility with Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "short_vec_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const ShortVecTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        var buffer: [short_vec.MAX_ENCODING_LENGTH]u8 = undefined;
+        const len = short_vec.encodeU16(vector.value, &buffer);
+
+        try std.testing.expectEqualSlices(u8, vector.encoded, buffer[0..len]);
+    }
+}
+
+test "short_vec: decoding compatibility with Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "short_vec_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const ShortVecTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        const result = try short_vec.decodeU16Len(vector.encoded);
+        try std.testing.expectEqual(vector.value, @as(u16, @intCast(result.value)));
+        try std.testing.expectEqual(vector.encoded.len, result.bytes_read);
+    }
+}
+
+test "sha256: hash computation compatibility with Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "sha256_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const Sha256TestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        var hash_bytes: [32]u8 = undefined;
+        std.crypto.hash.sha2.Sha256.hash(vector.input, &hash_bytes, .{});
+
+        try std.testing.expectEqualSlices(u8, vector.hash, &hash_bytes);
     }
 }

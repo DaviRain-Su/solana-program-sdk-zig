@@ -1,5 +1,9 @@
 use serde::{Deserialize, Serialize};
-use solana_sdk::{hash::Hash, pubkey::Pubkey, signature::Signature};
+use solana_sdk::{
+    hash::Hash,
+    pubkey::Pubkey,
+    signature::{Keypair, Signature, Signer},
+};
 use std::fs;
 use std::path::Path;
 
@@ -32,6 +36,27 @@ pub struct PdaTestVector {
     pub seeds: Vec<Vec<u8>>,
     pub expected_pubkey: [u8; 32],
     pub expected_bump: u8,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct KeypairTestVector {
+    pub name: String,
+    pub seed: Vec<u8>,
+    pub keypair_bytes: Vec<u8>,
+    pub pubkey: Vec<u8>,
+    pub message: Vec<u8>,
+    pub signature: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct EpochInfoTestVector {
+    pub name: String,
+    pub epoch: u64,
+    pub slot_index: u64,
+    pub slots_in_epoch: u64,
+    pub absolute_slot: u64,
+    pub block_height: u64,
+    pub transaction_count: Option<u64>,
 }
 
 pub fn generate_pubkey_vectors(output_dir: &Path) {
@@ -159,6 +184,106 @@ pub fn generate_pda_vectors(output_dir: &Path) {
     fs::write(output_dir.join("pda_vectors.json"), json).unwrap();
 }
 
+pub fn generate_keypair_vectors(output_dir: &Path) {
+    let test_cases = vec![
+        ("zero_seed", [0u8; 32], b"hello world".to_vec()),
+        (
+            "sequential_seed",
+            {
+                let mut seed = [0u8; 32];
+                for i in 0..32 {
+                    seed[i] = i as u8;
+                }
+                seed
+            },
+            b"test message".to_vec(),
+        ),
+        ("max_seed", [0xff; 32], b"".to_vec()),
+        (
+            "solana_example",
+            {
+                let mut seed = [0u8; 32];
+                seed[0] = 1;
+                seed
+            },
+            b"Sign this message for authentication".to_vec(),
+        ),
+    ];
+
+    let mut vectors: Vec<KeypairTestVector> = Vec::new();
+
+    for (name, seed, message) in test_cases {
+        let keypair = Keypair::new_from_array(seed);
+        let signature = keypair.sign_message(&message);
+        let sig_bytes: [u8; 64] = signature.into();
+
+        vectors.push(KeypairTestVector {
+            name: name.to_string(),
+            seed: seed.to_vec(),
+            keypair_bytes: keypair.to_bytes().to_vec(),
+            pubkey: keypair.pubkey().to_bytes().to_vec(),
+            message: message.clone(),
+            signature: sig_bytes.to_vec(),
+        });
+    }
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("keypair_vectors.json"), json).unwrap();
+}
+
+pub fn generate_epoch_info_vectors(output_dir: &Path) {
+    let vectors = vec![
+        EpochInfoTestVector {
+            name: "mainnet_typical".to_string(),
+            epoch: 500,
+            slot_index: 216000,
+            slots_in_epoch: 432000,
+            absolute_slot: 216216000,
+            block_height: 180000000,
+            transaction_count: Some(5000000000),
+        },
+        EpochInfoTestVector {
+            name: "epoch_start".to_string(),
+            epoch: 100,
+            slot_index: 0,
+            slots_in_epoch: 432000,
+            absolute_slot: 43200000,
+            block_height: 35000000,
+            transaction_count: Some(1000000000),
+        },
+        EpochInfoTestVector {
+            name: "epoch_end".to_string(),
+            epoch: 100,
+            slot_index: 431999,
+            slots_in_epoch: 432000,
+            absolute_slot: 43631999,
+            block_height: 35500000,
+            transaction_count: Some(1100000000),
+        },
+        EpochInfoTestVector {
+            name: "null_tx_count".to_string(),
+            epoch: 0,
+            slot_index: 0,
+            slots_in_epoch: 432000,
+            absolute_slot: 0,
+            block_height: 0,
+            transaction_count: None,
+        },
+        EpochInfoTestVector {
+            name: "devnet".to_string(),
+            epoch: 1000,
+            slot_index: 50000,
+            slots_in_epoch: 432000,
+            absolute_slot: 432050000,
+            block_height: 300000000,
+            transaction_count: Some(10000000000),
+        },
+    ];
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("epoch_info_vectors.json"), json).unwrap();
+}
+
 pub fn generate_all_vectors(output_dir: &Path) {
     fs::create_dir_all(output_dir).unwrap();
 
@@ -166,6 +291,8 @@ pub fn generate_all_vectors(output_dir: &Path) {
     generate_hash_vectors(output_dir);
     generate_signature_vectors(output_dir);
     generate_pda_vectors(output_dir);
+    generate_keypair_vectors(output_dir);
+    generate_epoch_info_vectors(output_dir);
 
     println!("Generated all test vectors in {:?}", output_dir);
 }

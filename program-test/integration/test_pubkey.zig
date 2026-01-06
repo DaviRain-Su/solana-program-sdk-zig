@@ -3,6 +3,8 @@ const sdk = @import("solana_sdk");
 const PublicKey = sdk.public_key.PublicKey;
 const Hash = sdk.hash.Hash;
 const Signature = sdk.signature.Signature;
+const Keypair = sdk.keypair.Keypair;
+const EpochInfo = sdk.epoch_info.EpochInfo;
 const signature_mod = sdk.signature;
 const hash_mod = sdk.hash;
 
@@ -29,6 +31,25 @@ const PdaTestVector = struct {
     seeds: []const []const u8,
     expected_pubkey: [32]u8,
     expected_bump: u8,
+};
+
+const KeypairTestVector = struct {
+    name: []const u8,
+    seed: []const u8,
+    keypair_bytes: []const u8,
+    pubkey: []const u8,
+    message: []const u8,
+    signature: []const u8,
+};
+
+const EpochInfoTestVector = struct {
+    name: []const u8,
+    epoch: u64,
+    slot_index: u64,
+    slots_in_epoch: u64,
+    absolute_slot: u64,
+    block_height: u64,
+    transaction_count: ?u64,
 };
 
 fn readTestVectorFile(allocator: std.mem.Allocator, filename: []const u8) ![]const u8 {
@@ -146,5 +167,80 @@ test "pda: derivation compatibility with Rust SDK" {
 
         try std.testing.expectEqualSlices(u8, &vector.expected_pubkey, &pda.address.bytes);
         try std.testing.expectEqual(vector.expected_bump, pda.bump_seed[0]);
+    }
+}
+
+test "keypair: seed to pubkey compatibility with Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "keypair_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const KeypairTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        if (vector.seed.len != 32) continue;
+
+        var seed: [32]u8 = undefined;
+        @memcpy(&seed, vector.seed);
+
+        const keypair = try Keypair.fromSeed(seed);
+        const pubkey = keypair.pubkey();
+
+        try std.testing.expectEqualSlices(u8, vector.pubkey, &pubkey.bytes);
+    }
+}
+
+test "keypair: signing compatibility with Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "keypair_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const KeypairTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        if (vector.seed.len != 32) continue;
+
+        var seed: [32]u8 = undefined;
+        @memcpy(&seed, vector.seed);
+
+        const keypair = try Keypair.fromSeed(seed);
+        const signature = keypair.sign(vector.message);
+
+        try std.testing.expectEqualSlices(u8, vector.signature, &signature.bytes);
+    }
+}
+
+test "epoch_info: field values compatibility with Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "epoch_info_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const EpochInfoTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        const epoch_info = EpochInfo.init(
+            vector.epoch,
+            vector.slot_index,
+            vector.slots_in_epoch,
+            vector.absolute_slot,
+            vector.block_height,
+            vector.transaction_count,
+        );
+
+        try std.testing.expectEqual(vector.epoch, epoch_info.epoch);
+        try std.testing.expectEqual(vector.slot_index, epoch_info.slot_index);
+        try std.testing.expectEqual(vector.slots_in_epoch, epoch_info.slots_in_epoch);
+        try std.testing.expectEqual(vector.absolute_slot, epoch_info.absolute_slot);
+        try std.testing.expectEqual(vector.block_height, epoch_info.block_height);
+        try std.testing.expectEqual(vector.transaction_count, epoch_info.transaction_count);
+
+        const expected_first = vector.absolute_slot - vector.slot_index;
+        try std.testing.expectEqual(expected_first, epoch_info.getFirstSlotInEpoch());
     }
 }

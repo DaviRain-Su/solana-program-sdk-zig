@@ -88,6 +88,9 @@ pub const feature_gate = @import("feature_gate.zig");
 // Phase 18: v0.27.0 - Vote Interface
 pub const vote_interface = @import("vote_interface.zig");
 
+// Phase 19: v0.28.0 - BLS Signatures
+pub const bls_signatures = @import("bls_signatures.zig");
+
 // Phase 15: v0.24.0 - Extended Native Programs
 pub const loader_v4 = @import("loader_v4.zig");
 pub const secp256r1_program = @import("secp256r1_program.zig");
@@ -177,6 +180,20 @@ pub const vote_program_id = vote_interface.ID;
 pub const VoteInit = vote_interface.VoteInit;
 pub const VoteError = vote_interface.VoteError;
 pub const Lockout = vote_interface.Lockout;
+
+// BLS Signatures exports
+pub const BlsError = bls_signatures.BlsError;
+pub const BlsPubkey = bls_signatures.Pubkey;
+pub const BlsPubkeyCompressed = bls_signatures.PubkeyCompressed;
+pub const BlsSignature = bls_signatures.Signature;
+pub const BlsSignatureCompressed = bls_signatures.SignatureCompressed;
+pub const ProofOfPossession = bls_signatures.ProofOfPossession;
+pub const ProofOfPossessionCompressed = bls_signatures.ProofOfPossessionCompressed;
+pub const BLS_PUBLIC_KEY_COMPRESSED_SIZE = bls_signatures.BLS_PUBLIC_KEY_COMPRESSED_SIZE;
+pub const BLS_PUBLIC_KEY_AFFINE_SIZE = bls_signatures.BLS_PUBLIC_KEY_AFFINE_SIZE;
+pub const BLS_SIGNATURE_COMPRESSED_SIZE = bls_signatures.BLS_SIGNATURE_COMPRESSED_SIZE;
+pub const BLS_SIGNATURE_AFFINE_SIZE = bls_signatures.BLS_SIGNATURE_AFFINE_SIZE;
+pub const POP_DST = bls_signatures.POP_DST;
 
 pub const CLOCK_ID = @import("sysvar_id.zig").CLOCK;
 pub const RENT_ID = @import("sysvar_id.zig").RENT;

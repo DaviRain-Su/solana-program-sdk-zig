@@ -13,8 +13,8 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 | Hash Functions | 4 | 4 | 100% |
 | Native Programs | 12 | 12 | 100% |
 | Native Token | 1 | 1 | 100% |
-| Crypto (Advanced) | 2 | 3 | 67% |
-| **Total (On-chain)** | **54** | **55** | **98%** |
+| Crypto (Advanced) | 3 | 3 | 100% |
+| **Total (On-chain)** | **55** | **55** | **100%** |
 
 > Note: Client/RPC and Validator-only modules are excluded as they're not needed for on-chain program development.
 
@@ -111,23 +111,13 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 |------------|------------|--------|-------|
 | `native_token.zig` | `native-token` | ✅ | ✅ |
 
-### Advanced Crypto (2/3 - 67%)
+### Advanced Crypto (3/3 - 100%)
 
 | Zig Module | Rust Crate | Status | Tests |
 |------------|------------|--------|-------|
 | `bn254.zig` | `bn254` | ✅ | ✅ |
 | `big_mod_exp.zig` | `big-mod-exp` | ✅ | ✅ |
-| - | `bls-signatures` | ⏳ | - |
-
----
-
-## ⏳ Pending Modules (Priority Order)
-
-### Low Priority (Specialized use cases)
-
-| Module | Rust Crate | Description | Effort |
-|--------|------------|-------------|--------|
-| `bls_signatures.zig` | `bls-signatures` | BLS signatures for consensus | High |
+| `bls_signatures.zig` | `bls-signatures` | ✅ | ✅ |
 
 ---
 
@@ -220,6 +210,15 @@ These modules are NOT needed for on-chain program development:
 - VoteError enum with 21 error types
 - Instruction builders: initializeAccount, authorize, withdraw, updateCommission, etc.
 - Native Programs now at 100% (12/12 modules)
+
+### v0.28.0 - BLS Signatures ✅ (100% Complete!)
+- ✅ `bls_signatures.zig` - BLS12-381 signature types for consensus
+- Core types: Pubkey (96 bytes), PubkeyCompressed (48 bytes)
+- Signature types: Signature (192 bytes), SignatureCompressed (96 bytes)
+- ProofOfPossession types for rogue key attack prevention
+- BlsError enum with 7 error types
+- Base64 encoding for display formatting
+- **SDK Implementation Complete: 55/55 modules (100%)**
 
 ---
 

@@ -387,6 +387,55 @@ pub struct ProgramDataTestVector {
     pub serialized_header: Vec<u8>,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Ed25519InstructionTestVector {
+    pub name: String,
+    pub num_signatures: u8,
+    pub signature_offset: u16,
+    pub signature_instruction_index: u16,
+    pub public_key_offset: u16,
+    pub public_key_instruction_index: u16,
+    pub message_data_offset: u16,
+    pub message_data_size: u16,
+    pub message_instruction_index: u16,
+    pub serialized_offsets: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SystemInstructionExtendedTestVector {
+    pub name: String,
+    pub instruction_type: String,
+    pub encoded: Vec<u8>,
+    pub base: Option<[u8; 32]>,
+    pub seed: Option<String>,
+    pub lamports: Option<u64>,
+    pub space: Option<u64>,
+    pub owner: Option<[u8; 32]>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct AddressLookupTableStateTestVector {
+    pub name: String,
+    pub deactivation_slot: u64,
+    pub last_extended_slot: u64,
+    pub last_extended_slot_start_index: u8,
+    pub authority: Option<[u8; 32]>,
+    pub addresses: Vec<[u8; 32]>,
+    pub serialized: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct VersionedMessageTestVector {
+    pub name: String,
+    pub version: u8,
+    pub num_required_signatures: u8,
+    pub num_readonly_signed: u8,
+    pub num_readonly_unsigned: u8,
+    pub static_account_keys_count: u8,
+    pub address_table_lookups_count: u8,
+    pub serialized_prefix: Vec<u8>,
+}
+
 pub fn generate_pubkey_vectors(output_dir: &Path) {
     let bpf_loader_upgradeable_id =
         Pubkey::from_str_const("BPFLoaderUpgradeab1e11111111111111111111111");
@@ -2856,6 +2905,303 @@ pub fn generate_program_data_vectors(output_dir: &Path) {
     fs::write(output_dir.join("program_data_vectors.json"), json).unwrap();
 }
 
+pub fn generate_ed25519_instruction_vectors(output_dir: &Path) {
+    let offsets_data: &[(&str, u8, u16, u16, u16, u16, u16, u16, u16)] = &[
+        (
+            "single_sig_current_instr",
+            1,
+            16,
+            0xFFFF,
+            80,
+            0xFFFF,
+            112,
+            32,
+            0xFFFF,
+        ),
+        ("single_sig_other_instr", 1, 0, 0, 64, 0, 96, 128, 0),
+        ("single_sig_mixed_instr", 1, 16, 0xFFFF, 0, 1, 32, 64, 2),
+        ("multiple_sigs", 2, 16, 0xFFFF, 80, 0xFFFF, 112, 32, 0xFFFF),
+        (
+            "zero_message_size",
+            1,
+            16,
+            0xFFFF,
+            80,
+            0xFFFF,
+            112,
+            0,
+            0xFFFF,
+        ),
+        (
+            "large_message",
+            1,
+            16,
+            0xFFFF,
+            80,
+            0xFFFF,
+            112,
+            1232,
+            0xFFFF,
+        ),
+    ];
+
+    let mut vectors: Vec<Ed25519InstructionTestVector> = Vec::new();
+
+    for (
+        name,
+        num_sigs,
+        sig_offset,
+        sig_instr_idx,
+        pk_offset,
+        pk_instr_idx,
+        msg_offset,
+        msg_size,
+        msg_instr_idx,
+    ) in offsets_data
+    {
+        let mut serialized = Vec::new();
+        serialized.extend_from_slice(&sig_offset.to_le_bytes());
+        serialized.extend_from_slice(&sig_instr_idx.to_le_bytes());
+        serialized.extend_from_slice(&pk_offset.to_le_bytes());
+        serialized.extend_from_slice(&pk_instr_idx.to_le_bytes());
+        serialized.extend_from_slice(&msg_offset.to_le_bytes());
+        serialized.extend_from_slice(&msg_size.to_le_bytes());
+        serialized.extend_from_slice(&msg_instr_idx.to_le_bytes());
+
+        vectors.push(Ed25519InstructionTestVector {
+            name: name.to_string(),
+            num_signatures: *num_sigs,
+            signature_offset: *sig_offset,
+            signature_instruction_index: *sig_instr_idx,
+            public_key_offset: *pk_offset,
+            public_key_instruction_index: *pk_instr_idx,
+            message_data_offset: *msg_offset,
+            message_data_size: *msg_size,
+            message_instruction_index: *msg_instr_idx,
+            serialized_offsets: serialized,
+        });
+    }
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("ed25519_instruction_vectors.json"), json).unwrap();
+}
+
+pub fn generate_system_instruction_extended_vectors(output_dir: &Path) {
+    use solana_system_interface::instruction::SystemInstruction;
+
+    let base = Pubkey::from_str_const("11111111111111111111111111111111");
+    let owner = Pubkey::from_str_const("BPFLoaderUpgradeab1e11111111111111111111111");
+
+    let mut vectors: Vec<SystemInstructionExtendedTestVector> = Vec::new();
+
+    let instr = SystemInstruction::CreateAccountWithSeed {
+        base: base,
+        seed: "test_seed".to_string(),
+        lamports: 1_000_000,
+        space: 100,
+        owner: owner,
+    };
+    let encoded = bincode::serialize(&instr).unwrap();
+    vectors.push(SystemInstructionExtendedTestVector {
+        name: "create_account_with_seed".to_string(),
+        instruction_type: "CreateAccountWithSeed".to_string(),
+        encoded,
+        base: Some(base.to_bytes()),
+        seed: Some("test_seed".to_string()),
+        lamports: Some(1_000_000),
+        space: Some(100),
+        owner: Some(owner.to_bytes()),
+    });
+
+    let instr = SystemInstruction::AllocateWithSeed {
+        base: base,
+        seed: "alloc_seed".to_string(),
+        space: 200,
+        owner: owner,
+    };
+    let encoded = bincode::serialize(&instr).unwrap();
+    vectors.push(SystemInstructionExtendedTestVector {
+        name: "allocate_with_seed".to_string(),
+        instruction_type: "AllocateWithSeed".to_string(),
+        encoded,
+        base: Some(base.to_bytes()),
+        seed: Some("alloc_seed".to_string()),
+        lamports: None,
+        space: Some(200),
+        owner: Some(owner.to_bytes()),
+    });
+
+    let instr = SystemInstruction::AssignWithSeed {
+        base: base,
+        seed: "assign_seed".to_string(),
+        owner: owner,
+    };
+    let encoded = bincode::serialize(&instr).unwrap();
+    vectors.push(SystemInstructionExtendedTestVector {
+        name: "assign_with_seed".to_string(),
+        instruction_type: "AssignWithSeed".to_string(),
+        encoded,
+        base: Some(base.to_bytes()),
+        seed: Some("assign_seed".to_string()),
+        lamports: None,
+        space: None,
+        owner: Some(owner.to_bytes()),
+    });
+
+    let instr = SystemInstruction::TransferWithSeed {
+        lamports: 500_000,
+        from_seed: "from_seed".to_string(),
+        from_owner: owner,
+    };
+    let encoded = bincode::serialize(&instr).unwrap();
+    vectors.push(SystemInstructionExtendedTestVector {
+        name: "transfer_with_seed".to_string(),
+        instruction_type: "TransferWithSeed".to_string(),
+        encoded,
+        base: None,
+        seed: Some("from_seed".to_string()),
+        lamports: Some(500_000),
+        space: None,
+        owner: Some(owner.to_bytes()),
+    });
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(
+        output_dir.join("system_instruction_extended_vectors.json"),
+        json,
+    )
+    .unwrap();
+}
+
+pub fn generate_address_lookup_table_state_vectors(output_dir: &Path) {
+    let authority = Pubkey::from_str_const("11111111111111111111111111111111");
+    let addr1 = Pubkey::from_str_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+    let addr2 = Pubkey::from_str_const("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+
+    let test_cases: &[(&str, u64, u64, u8, Option<[u8; 32]>, Vec<[u8; 32]>)] = &[
+        (
+            "active_with_authority",
+            u64::MAX,
+            1000,
+            0,
+            Some(authority.to_bytes()),
+            vec![addr1.to_bytes(), addr2.to_bytes()],
+        ),
+        (
+            "deactivating",
+            500,
+            1000,
+            2,
+            Some(authority.to_bytes()),
+            vec![addr1.to_bytes()],
+        ),
+        (
+            "frozen_no_authority",
+            u64::MAX,
+            2000,
+            0,
+            None,
+            vec![addr1.to_bytes(), addr2.to_bytes()],
+        ),
+        (
+            "empty_table",
+            u64::MAX,
+            0,
+            0,
+            Some(authority.to_bytes()),
+            vec![],
+        ),
+    ];
+
+    let mut vectors: Vec<AddressLookupTableStateTestVector> = Vec::new();
+
+    for (
+        name,
+        deactivation_slot,
+        last_extended_slot,
+        last_extended_slot_start_index,
+        auth,
+        addresses,
+    ) in test_cases
+    {
+        let mut serialized = Vec::new();
+        serialized.extend_from_slice(&1u32.to_le_bytes());
+        serialized.extend_from_slice(&deactivation_slot.to_le_bytes());
+        serialized.extend_from_slice(&last_extended_slot.to_le_bytes());
+        serialized.push(*last_extended_slot_start_index);
+        if let Some(a) = auth {
+            serialized.push(1);
+            serialized.extend_from_slice(a);
+        } else {
+            serialized.push(0);
+        }
+        serialized.extend_from_slice(&[0u8; 2]);
+        for addr in addresses {
+            serialized.extend_from_slice(addr);
+        }
+
+        vectors.push(AddressLookupTableStateTestVector {
+            name: name.to_string(),
+            deactivation_slot: *deactivation_slot,
+            last_extended_slot: *last_extended_slot,
+            last_extended_slot_start_index: *last_extended_slot_start_index,
+            authority: *auth,
+            addresses: addresses.clone(),
+            serialized,
+        });
+    }
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(
+        output_dir.join("address_lookup_table_state_vectors.json"),
+        json,
+    )
+    .unwrap();
+}
+
+pub fn generate_versioned_message_vectors(output_dir: &Path) {
+    let test_cases: &[(&str, u8, u8, u8, u8, u8, u8)] = &[
+        ("v0_simple", 0, 1, 0, 1, 2, 0),
+        ("v0_with_lookups", 0, 2, 1, 2, 3, 2),
+        ("v0_readonly_signed", 0, 3, 2, 1, 4, 1),
+        ("v0_max_signers", 0, 255, 127, 127, 10, 5),
+    ];
+
+    let mut vectors: Vec<VersionedMessageTestVector> = Vec::new();
+
+    for (
+        name,
+        version,
+        num_required_signatures,
+        num_readonly_signed,
+        num_readonly_unsigned,
+        static_keys_count,
+        lookups_count,
+    ) in test_cases
+    {
+        let mut serialized = Vec::new();
+        serialized.push(0x80 | version);
+        serialized.push(*num_required_signatures);
+        serialized.push(*num_readonly_signed);
+        serialized.push(*num_readonly_unsigned);
+        serialized.push(*static_keys_count);
+
+        vectors.push(VersionedMessageTestVector {
+            name: name.to_string(),
+            version: *version,
+            num_required_signatures: *num_required_signatures,
+            num_readonly_signed: *num_readonly_signed,
+            num_readonly_unsigned: *num_readonly_unsigned,
+            static_account_keys_count: *static_keys_count,
+            address_table_lookups_count: *lookups_count,
+            serialized_prefix: serialized,
+        });
+    }
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("versioned_message_vectors.json"), json).unwrap();
+}
+
 pub fn generate_sysvar_id_vectors(output_dir: &Path) {
     use solana_sdk::sysvar;
 
@@ -2962,6 +3308,10 @@ pub fn generate_all_vectors(output_dir: &Path) {
     generate_secp256r1_instruction_vectors(output_dir);
     generate_feature_gate_instruction_vectors(output_dir);
     generate_program_data_vectors(output_dir);
+    generate_ed25519_instruction_vectors(output_dir);
+    generate_system_instruction_extended_vectors(output_dir);
+    generate_address_lookup_table_state_vectors(output_dir);
+    generate_versioned_message_vectors(output_dir);
 
     println!("Generated all test vectors in {:?}", output_dir);
 }

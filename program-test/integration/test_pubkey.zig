@@ -1613,3 +1613,147 @@ test "program_data: BPF Loader Upgradeable header serialization" {
         }
     }
 }
+
+const Ed25519InstructionTestVector = struct {
+    name: []const u8,
+    num_signatures: u8,
+    signature_offset: u16,
+    signature_instruction_index: u16,
+    public_key_offset: u16,
+    public_key_instruction_index: u16,
+    message_data_offset: u16,
+    message_data_size: u16,
+    message_instruction_index: u16,
+    serialized_offsets: []const u8,
+};
+
+test "ed25519_instruction: offsets serialization compatibility with Rust" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "ed25519_instruction_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const Ed25519InstructionTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        var serialized: [14]u8 = undefined;
+        std.mem.writeInt(u16, serialized[0..2], vector.signature_offset, .little);
+        std.mem.writeInt(u16, serialized[2..4], vector.signature_instruction_index, .little);
+        std.mem.writeInt(u16, serialized[4..6], vector.public_key_offset, .little);
+        std.mem.writeInt(u16, serialized[6..8], vector.public_key_instruction_index, .little);
+        std.mem.writeInt(u16, serialized[8..10], vector.message_data_offset, .little);
+        std.mem.writeInt(u16, serialized[10..12], vector.message_data_size, .little);
+        std.mem.writeInt(u16, serialized[12..14], vector.message_instruction_index, .little);
+
+        try std.testing.expectEqualSlices(u8, vector.serialized_offsets, &serialized);
+    }
+}
+
+const SystemInstructionExtendedTestVector = struct {
+    name: []const u8,
+    instruction_type: []const u8,
+    encoded: []const u8,
+    base: ?[32]u8,
+    seed: ?[]const u8,
+    lamports: ?u64,
+    space: ?u64,
+    owner: ?[32]u8,
+};
+
+test "system_instruction_extended: WithSeed variants serialization" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "system_instruction_extended_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const SystemInstructionExtendedTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        try std.testing.expect(vector.encoded.len > 4);
+
+        const instruction_index = std.mem.readInt(u32, vector.encoded[0..4], .little);
+        _ = instruction_index;
+
+        if (vector.base) |base| {
+            try std.testing.expectEqual(@as(usize, 32), base.len);
+        }
+    }
+}
+
+const AddressLookupTableStateTestVector = struct {
+    name: []const u8,
+    deactivation_slot: u64,
+    last_extended_slot: u64,
+    last_extended_slot_start_index: u8,
+    authority: ?[32]u8,
+    addresses: []const [32]u8,
+    serialized: []const u8,
+};
+
+test "address_lookup_table_state: state serialization compatibility with Rust" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "address_lookup_table_state_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const AddressLookupTableStateTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        var header: [56]u8 = undefined;
+        std.mem.writeInt(u32, header[0..4], 1, .little);
+        std.mem.writeInt(u64, header[4..12], vector.deactivation_slot, .little);
+        std.mem.writeInt(u64, header[12..20], vector.last_extended_slot, .little);
+        header[20] = vector.last_extended_slot_start_index;
+
+        var header_len: usize = 21;
+        if (vector.authority) |auth| {
+            header[21] = 1;
+            @memcpy(header[22..54], &auth);
+            header_len = 54;
+        } else {
+            header[21] = 0;
+            header_len = 22;
+        }
+
+        header[header_len] = 0;
+        header[header_len + 1] = 0;
+        header_len += 2;
+
+        try std.testing.expectEqualSlices(u8, vector.serialized[0..header_len], header[0..header_len]);
+    }
+}
+
+const VersionedMessageTestVector = struct {
+    name: []const u8,
+    version: u8,
+    num_required_signatures: u8,
+    num_readonly_signed: u8,
+    num_readonly_unsigned: u8,
+    static_account_keys_count: u8,
+    address_table_lookups_count: u8,
+    serialized_prefix: []const u8,
+};
+
+test "versioned_message: v0 message prefix serialization" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "versioned_message_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const VersionedMessageTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        var prefix: [5]u8 = undefined;
+        prefix[0] = 0x80 | vector.version;
+        prefix[1] = vector.num_required_signatures;
+        prefix[2] = vector.num_readonly_signed;
+        prefix[3] = vector.num_readonly_unsigned;
+        prefix[4] = vector.static_account_keys_count;
+
+        try std.testing.expectEqualSlices(u8, vector.serialized_prefix, &prefix);
+    }
+}

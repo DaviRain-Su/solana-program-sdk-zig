@@ -1379,3 +1379,56 @@ test "sysvar_id: Base58 encoding compatibility with Rust" {
         try std.testing.expectEqualStrings(vector.base58, base58_str);
     }
 }
+
+test "native_program_id: Base58 encoding compatibility with Rust" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "native_program_id_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const SysvarIdTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        const pubkey = sdk.PublicKey{ .bytes = vector.pubkey };
+        var base58_buf: [44]u8 = undefined;
+        const base58_str = pubkey.toBase58(&base58_buf);
+        try std.testing.expectEqualStrings(vector.base58, base58_str);
+    }
+}
+
+const Secp256k1InstructionTestVector = struct {
+    name: []const u8,
+    num_signatures: u8,
+    signature_offset: u16,
+    signature_instruction_index: u8,
+    eth_address_offset: u16,
+    eth_address_instruction_index: u8,
+    message_data_offset: u16,
+    message_data_size: u16,
+    message_instruction_index: u8,
+    serialized_offsets: []const u8,
+};
+
+test "secp256k1_instruction: offsets serialization compatibility with Rust" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "secp256k1_instruction_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const Secp256k1InstructionTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        var serialized: [11]u8 = undefined;
+        std.mem.writeInt(u16, serialized[0..2], vector.signature_offset, .little);
+        serialized[2] = vector.signature_instruction_index;
+        std.mem.writeInt(u16, serialized[3..5], vector.eth_address_offset, .little);
+        serialized[5] = vector.eth_address_instruction_index;
+        std.mem.writeInt(u16, serialized[6..8], vector.message_data_offset, .little);
+        std.mem.writeInt(u16, serialized[8..10], vector.message_data_size, .little);
+        serialized[10] = vector.message_instruction_index;
+
+        try std.testing.expectEqualSlices(u8, vector.serialized_offsets, &serialized);
+    }
+}

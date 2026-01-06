@@ -288,6 +288,20 @@ pub struct VoteInstructionTestVector {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+pub struct Secp256k1InstructionTestVector {
+    pub name: String,
+    pub num_signatures: u8,
+    pub signature_offset: u16,
+    pub signature_instruction_index: u8,
+    pub eth_address_offset: u16,
+    pub eth_address_instruction_index: u8,
+    pub message_data_offset: u16,
+    pub message_data_size: u16,
+    pub message_instruction_index: u8,
+    pub serialized_offsets: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct MessageTestVector {
     pub name: String,
     pub num_required_signatures: u8,
@@ -2396,6 +2410,144 @@ pub fn generate_transaction_vectors(output_dir: &Path) {
     fs::write(output_dir.join("transaction_vectors.json"), json).unwrap();
 }
 
+pub fn generate_secp256k1_instruction_vectors(output_dir: &Path) {
+    let mut vectors: Vec<Secp256k1InstructionTestVector> = Vec::new();
+
+    let offsets_data: &[(&str, u8, u16, u8, u16, u8, u16, u16, u8)] = &[
+        ("basic_offsets", 1, 12, 0, 76, 0, 141, 32, 0),
+        ("multiple_sigs", 2, 24, 0, 88, 0, 153, 64, 0),
+        ("different_instruction", 1, 12, 1, 76, 1, 141, 32, 1),
+        ("zero_offsets", 1, 0, 0, 0, 0, 0, 0, 0),
+        ("max_message_size", 1, 12, 0, 76, 0, 141, 1232, 0),
+        ("alt_instruction_indices", 1, 12, 2, 76, 3, 141, 32, 4),
+    ];
+
+    for (
+        name,
+        num_sigs,
+        sig_offset,
+        sig_instr_idx,
+        eth_addr_offset,
+        eth_addr_instr_idx,
+        msg_data_offset,
+        msg_data_size,
+        msg_instr_idx,
+    ) in offsets_data
+    {
+        let mut serialized = Vec::new();
+        serialized.extend_from_slice(&sig_offset.to_le_bytes());
+        serialized.push(*sig_instr_idx);
+        serialized.extend_from_slice(&eth_addr_offset.to_le_bytes());
+        serialized.push(*eth_addr_instr_idx);
+        serialized.extend_from_slice(&msg_data_offset.to_le_bytes());
+        serialized.extend_from_slice(&msg_data_size.to_le_bytes());
+        serialized.push(*msg_instr_idx);
+
+        vectors.push(Secp256k1InstructionTestVector {
+            name: name.to_string(),
+            num_signatures: *num_sigs,
+            signature_offset: *sig_offset,
+            signature_instruction_index: *sig_instr_idx,
+            eth_address_offset: *eth_addr_offset,
+            eth_address_instruction_index: *eth_addr_instr_idx,
+            message_data_offset: *msg_data_offset,
+            message_data_size: *msg_data_size,
+            message_instruction_index: *msg_instr_idx,
+            serialized_offsets: serialized,
+        });
+    }
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("secp256k1_instruction_vectors.json"), json).unwrap();
+}
+
+pub fn generate_native_program_id_vectors(output_dir: &Path) {
+    use solana_sdk::bpf_loader;
+    use solana_sdk::bpf_loader_deprecated;
+
+    let system_program_id = Pubkey::from_str_const("11111111111111111111111111111111");
+    let bpf_loader_upgradeable_id =
+        Pubkey::from_str_const("BPFLoaderUpgradeab1e11111111111111111111111");
+    let vote_program_id = Pubkey::from_str_const("Vote111111111111111111111111111111111111111");
+    let stake_program_id = Pubkey::from_str_const("Stake11111111111111111111111111111111111111");
+    let config_program_id = Pubkey::from_str_const("Config1111111111111111111111111111111111111");
+    let ed25519_program_id = Pubkey::from_str_const("Ed25519SigVerify111111111111111111111111111");
+    let secp256k1_program_id =
+        Pubkey::from_str_const("KeccakSecp256k11111111111111111111111111111");
+    let compute_budget_program_id =
+        Pubkey::from_str_const("ComputeBudget111111111111111111111111111111");
+    let address_lookup_table_program_id =
+        Pubkey::from_str_const("AddressLookupTab1e1111111111111111111111111");
+    let loader_v4_program_id =
+        Pubkey::from_str_const("LoaderV411111111111111111111111111111111111");
+
+    let vectors = vec![
+        SysvarIdTestVector {
+            name: "system_program".to_string(),
+            pubkey: system_program_id.to_bytes(),
+            base58: system_program_id.to_string(),
+        },
+        SysvarIdTestVector {
+            name: "bpf_loader_deprecated".to_string(),
+            pubkey: bpf_loader_deprecated::ID.to_bytes(),
+            base58: bpf_loader_deprecated::ID.to_string(),
+        },
+        SysvarIdTestVector {
+            name: "bpf_loader".to_string(),
+            pubkey: bpf_loader::ID.to_bytes(),
+            base58: bpf_loader::ID.to_string(),
+        },
+        SysvarIdTestVector {
+            name: "bpf_loader_upgradeable".to_string(),
+            pubkey: bpf_loader_upgradeable_id.to_bytes(),
+            base58: bpf_loader_upgradeable_id.to_string(),
+        },
+        SysvarIdTestVector {
+            name: "vote_program".to_string(),
+            pubkey: vote_program_id.to_bytes(),
+            base58: vote_program_id.to_string(),
+        },
+        SysvarIdTestVector {
+            name: "stake_program".to_string(),
+            pubkey: stake_program_id.to_bytes(),
+            base58: stake_program_id.to_string(),
+        },
+        SysvarIdTestVector {
+            name: "config_program".to_string(),
+            pubkey: config_program_id.to_bytes(),
+            base58: config_program_id.to_string(),
+        },
+        SysvarIdTestVector {
+            name: "ed25519_program".to_string(),
+            pubkey: ed25519_program_id.to_bytes(),
+            base58: ed25519_program_id.to_string(),
+        },
+        SysvarIdTestVector {
+            name: "secp256k1_program".to_string(),
+            pubkey: secp256k1_program_id.to_bytes(),
+            base58: secp256k1_program_id.to_string(),
+        },
+        SysvarIdTestVector {
+            name: "compute_budget_program".to_string(),
+            pubkey: compute_budget_program_id.to_bytes(),
+            base58: compute_budget_program_id.to_string(),
+        },
+        SysvarIdTestVector {
+            name: "address_lookup_table_program".to_string(),
+            pubkey: address_lookup_table_program_id.to_bytes(),
+            base58: address_lookup_table_program_id.to_string(),
+        },
+        SysvarIdTestVector {
+            name: "loader_v4_program".to_string(),
+            pubkey: loader_v4_program_id.to_bytes(),
+            base58: loader_v4_program_id.to_string(),
+        },
+    ];
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("native_program_id_vectors.json"), json).unwrap();
+}
+
 pub fn generate_sysvar_id_vectors(output_dir: &Path) {
     use solana_sdk::sysvar;
 
@@ -2494,6 +2646,8 @@ pub fn generate_all_vectors(output_dir: &Path) {
     generate_message_vectors(output_dir);
     generate_transaction_vectors(output_dir);
     generate_sysvar_id_vectors(output_dir);
+    generate_native_program_id_vectors(output_dir);
+    generate_secp256k1_instruction_vectors(output_dir);
 
     println!("Generated all test vectors in {:?}", output_dir);
 }

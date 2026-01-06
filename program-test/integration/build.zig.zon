@@ -1,0 +1,11 @@
+.{
+    .name = .solana_sdk_integration_tests,
+    .version = "0.0.1",
+    .fingerprint = 0xf9cd55db1266e8d,
+    .paths = .{""},
+    .dependencies = .{
+        .solana_sdk = .{
+            .path = "../../sdk",
+        },
+    },
+}

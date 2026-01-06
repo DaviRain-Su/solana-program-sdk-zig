@@ -121,20 +121,37 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 
 ---
 
-## 🚫 Out of Scope (Client/Validator modules)
+## 🔮 Future: Client SDK (Planned)
 
-These modules are NOT needed for on-chain program development:
+The following client-side modules are planned for future implementation in a separate `solana-client-sdk-zig` package:
 
-### Client-Only
-- `client-traits` - RPC client interfaces
-- `commitment-config` - RPC commitment levels
-- `derivation-path` - HD wallet paths
-- `seed-phrase` - Mnemonic handling
-- `presigner` - Pre-signed transactions
-- `file-download` - File utilities
-- `serde` / `serde-varint` - Client serialization
-- `transaction-error` - Client error handling
-- `fee-calculator` / `fee-structure` - Fee computation
+### RPC Client (Planned)
+| Module | Description | Status |
+|--------|-------------|--------|
+| `rpc/client.zig` | JSON-RPC client | ⏳ Planned |
+| `rpc/types.zig` | RPC request/response types | ⏳ Planned |
+| `connection.zig` | High-level Connection API | ⏳ Planned |
+
+### Transaction Building (Planned)
+| Module | Description | Status |
+|--------|-------------|--------|
+| `transaction/builder.zig` | Transaction builder | ⏳ Planned |
+| `transaction/signer.zig` | Transaction signing | ⏳ Planned |
+
+### Wallet Integration (Planned)
+| Module | Description | Status |
+|--------|-------------|--------|
+| `wallet/keypair.zig` | Enhanced keypair management | ⏳ Planned |
+| `wallet/mnemonic.zig` | BIP39 mnemonic support | ⏳ Planned |
+
+> **Note**: Client SDK development will begin after the current on-chain SDK is stable.
+> The client SDK will depend on the shared types from this repository.
+
+---
+
+## 🚫 Out of Scope (Validator-only modules)
+
+These modules are NOT needed for on-chain program development or client development:
 
 ### Validator-Only
 - `genesis-config` - Genesis configuration

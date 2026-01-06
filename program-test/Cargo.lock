@@ -2873,6 +2873,7 @@ dependencies = [
  "solana-keccak-hasher",
  "solana-loader-v3-interface 3.0.0",
  "solana-loader-v4-interface 2.2.1",
+ "solana-message",
  "solana-nonce",
  "solana-sdk",
  "solana-stake-interface",

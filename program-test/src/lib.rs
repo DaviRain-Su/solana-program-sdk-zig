@@ -287,6 +287,18 @@ pub struct VoteInstructionTestVector {
     pub lamports: Option<u64>,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct MessageTestVector {
+    pub name: String,
+    pub num_required_signatures: u8,
+    pub num_readonly_signed_accounts: u8,
+    pub num_readonly_unsigned_accounts: u8,
+    pub account_keys: Vec<[u8; 32]>,
+    pub recent_blockhash: [u8; 32],
+    pub instructions_count: u8,
+    pub serialized: Vec<u8>,
+}
+
 pub fn generate_pubkey_vectors(output_dir: &Path) {
     let bpf_loader_upgradeable_id =
         Pubkey::from_str_const("BPFLoaderUpgradeab1e11111111111111111111111");
@@ -1079,6 +1091,51 @@ pub fn generate_system_instruction_vectors(output_dir: &Path) {
         to_pubkey: Some(to_pubkey.to_bytes()),
         lamports: None,
         space: Some(200),
+        owner: None,
+    });
+
+    let nonce_pubkey = Pubkey::from_str_const("9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin");
+    let authority_pubkey = Pubkey::from_str_const("HWHvQhFmJB6gPtqJx3gjxHX1iDZhQ9WJorxwb3iTWVHi");
+
+    let ix = system_instruction::advance_nonce_account(&nonce_pubkey, &authority_pubkey);
+    vectors.push(SystemInstructionTestVector {
+        name: "advance_nonce".to_string(),
+        instruction_type: "AdvanceNonceAccount".to_string(),
+        encoded: ix.data.clone(),
+        from_pubkey: None,
+        to_pubkey: None,
+        lamports: None,
+        space: None,
+        owner: None,
+    });
+
+    let ix = system_instruction::withdraw_nonce_account(
+        &nonce_pubkey,
+        &authority_pubkey,
+        &to_pubkey,
+        500_000,
+    );
+    vectors.push(SystemInstructionTestVector {
+        name: "withdraw_nonce".to_string(),
+        instruction_type: "WithdrawNonceAccount".to_string(),
+        encoded: ix.data.clone(),
+        from_pubkey: None,
+        to_pubkey: None,
+        lamports: Some(500_000),
+        space: None,
+        owner: None,
+    });
+
+    let ix =
+        system_instruction::authorize_nonce_account(&nonce_pubkey, &authority_pubkey, &to_pubkey);
+    vectors.push(SystemInstructionTestVector {
+        name: "authorize_nonce".to_string(),
+        instruction_type: "AuthorizeNonceAccount".to_string(),
+        encoded: ix.data.clone(),
+        from_pubkey: None,
+        to_pubkey: None,
+        lamports: None,
+        space: None,
         owner: None,
     });
 
@@ -2181,6 +2238,92 @@ pub fn generate_vote_instruction_vectors(output_dir: &Path) {
     fs::write(output_dir.join("vote_instruction_vectors.json"), json).unwrap();
 }
 
+pub fn generate_message_vectors(output_dir: &Path) {
+    use solana_message::compiled_instruction::CompiledInstruction;
+    use solana_message::legacy::Message;
+
+    let mut vectors: Vec<MessageTestVector> = Vec::new();
+
+    let account1 = Pubkey::from_str_const("4rL4RCWHz3iNCdCaveD8KcHfV9YagGbXgSYq9QWPZ4Zx");
+    let account2 = Pubkey::from_str_const("8opHzTAnfzRpPEx21XtnrVTX28YQuCpAjcn1PczScKh");
+    let program_id = SYSTEM_PROGRAM_ID;
+    let recent_blockhash = Hash::new_unique();
+
+    let message = Message::new_with_compiled_instructions(
+        1,
+        0,
+        1,
+        vec![account1, account2, program_id],
+        recent_blockhash,
+        vec![CompiledInstruction::new(
+            2,
+            &[2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            vec![0, 1],
+        )],
+    );
+    let serialized = bincode::serialize(&message).unwrap();
+    vectors.push(MessageTestVector {
+        name: "simple_transfer".to_string(),
+        num_required_signatures: 1,
+        num_readonly_signed_accounts: 0,
+        num_readonly_unsigned_accounts: 1,
+        account_keys: vec![
+            account1.to_bytes(),
+            account2.to_bytes(),
+            program_id.to_bytes(),
+        ],
+        recent_blockhash: recent_blockhash.to_bytes(),
+        instructions_count: 1,
+        serialized,
+    });
+
+    let message_empty =
+        Message::new_with_compiled_instructions(0, 0, 0, vec![], Hash::default(), vec![]);
+    let serialized = bincode::serialize(&message_empty).unwrap();
+    vectors.push(MessageTestVector {
+        name: "empty_message".to_string(),
+        num_required_signatures: 0,
+        num_readonly_signed_accounts: 0,
+        num_readonly_unsigned_accounts: 0,
+        account_keys: vec![],
+        recent_blockhash: Hash::default().to_bytes(),
+        instructions_count: 0,
+        serialized,
+    });
+
+    let account3 = Pubkey::from_str_const("BPFLoaderUpgradeab1e11111111111111111111111");
+    let message_multi = Message::new_with_compiled_instructions(
+        2,
+        1,
+        1,
+        vec![account1, account2, account3, program_id],
+        recent_blockhash,
+        vec![
+            CompiledInstruction::new(3, &[2, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0], vec![0, 1]),
+            CompiledInstruction::new(3, &[1, 0, 0, 0], vec![1, 2]),
+        ],
+    );
+    let serialized = bincode::serialize(&message_multi).unwrap();
+    vectors.push(MessageTestVector {
+        name: "multi_instruction".to_string(),
+        num_required_signatures: 2,
+        num_readonly_signed_accounts: 1,
+        num_readonly_unsigned_accounts: 1,
+        account_keys: vec![
+            account1.to_bytes(),
+            account2.to_bytes(),
+            account3.to_bytes(),
+            program_id.to_bytes(),
+        ],
+        recent_blockhash: recent_blockhash.to_bytes(),
+        instructions_count: 2,
+        serialized,
+    });
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("message_vectors.json"), json).unwrap();
+}
+
 pub fn generate_all_vectors(output_dir: &Path) {
     fs::create_dir_all(output_dir).unwrap();
 
@@ -2216,6 +2359,7 @@ pub fn generate_all_vectors(output_dir: &Path) {
     generate_address_lookup_table_instruction_vectors(output_dir);
     generate_loader_v4_instruction_vectors(output_dir);
     generate_vote_instruction_vectors(output_dir);
+    generate_message_vectors(output_dir);
 
     println!("Generated all test vectors in {:?}", output_dir);
 }

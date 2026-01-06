@@ -675,6 +675,17 @@ test "system_instruction: encoding compatibility with Rust" {
             std.mem.writeInt(u32, buf[0..4], 8, .little);
             std.mem.writeInt(u64, buf[4..12], vector.space.?, .little);
             try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.instruction_type, "AdvanceNonceAccount")) {
+            var buf: [4]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 4, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.instruction_type, "WithdrawNonceAccount")) {
+            var buf: [12]u8 = undefined;
+            std.mem.writeInt(u32, buf[0..4], 5, .little);
+            std.mem.writeInt(u64, buf[4..12], vector.lamports.?, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.instruction_type, "AuthorizeNonceAccount")) {
+            try std.testing.expectEqual(@as(u32, 7), std.mem.readInt(u32, vector.encoded[0..4], .little));
         }
     }
 }
@@ -1275,6 +1286,42 @@ test "vote_instruction: encoding compatibility with Rust" {
             try std.testing.expectEqual(@as(u32, 7), std.mem.readInt(u32, vector.encoded[0..4], .little));
             const vote_auth = vector.vote_authorize.?;
             try std.testing.expectEqual(vote_auth, std.mem.readInt(u32, vector.encoded[4..8], .little));
+        }
+    }
+}
+
+const MessageTestVector = struct {
+    name: []const u8,
+    num_required_signatures: u8,
+    num_readonly_signed_accounts: u8,
+    num_readonly_unsigned_accounts: u8,
+    account_keys: []const [32]u8,
+    recent_blockhash: [32]u8,
+    instructions_count: u8,
+    serialized: []const u8,
+};
+
+test "message: serialization compatibility with Rust" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "message_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const MessageTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        try std.testing.expectEqual(vector.num_required_signatures, vector.serialized[0]);
+        try std.testing.expectEqual(vector.num_readonly_signed_accounts, vector.serialized[1]);
+        try std.testing.expectEqual(vector.num_readonly_unsigned_accounts, vector.serialized[2]);
+
+        const account_keys_count = vector.serialized[3];
+        try std.testing.expectEqual(@as(u8, @intCast(vector.account_keys.len)), account_keys_count);
+
+        if (vector.account_keys.len > 0) {
+            const first_key_start: usize = 4;
+            const first_key_end: usize = first_key_start + 32;
+            try std.testing.expectEqualSlices(u8, &vector.account_keys[0], vector.serialized[first_key_start..first_key_end]);
         }
     }
 }

@@ -26,6 +26,7 @@ solana-stake-interface = { version = "2.0.2", features = ["bincode"] }
 solana-address-lookup-table-interface = { version = "3.0.0", features = ["bincode"] }
 solana-loader-v4-interface = { version = "2.0.0", features = ["bincode"] }
 solana-vote-interface = { version = "3.0.0", features = ["bincode"] }
+solana-message = { version = "3.0.0", features = ["bincode"] }
 
 [dev-dependencies]
 num_enum = "0.7"

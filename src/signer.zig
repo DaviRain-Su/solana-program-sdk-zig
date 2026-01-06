@@ -6,9 +6,10 @@
 //! The primary implementation is the Keypair type.
 
 const std = @import("std");
+const sdk = @import("solana_sdk");
 const PublicKey = @import("public_key.zig").PublicKey;
-const Signature = @import("signature.zig").Signature;
-const Keypair = @import("keypair.zig").Keypair;
+const Signature = sdk.Signature;
+const Keypair = sdk.Keypair;
 
 /// Error types for signing operations.
 ///

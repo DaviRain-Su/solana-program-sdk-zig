@@ -7,7 +7,7 @@
 
 const PublicKey = @import("public_key.zig").PublicKey;
 const Account = @import("account.zig").Account;
-const ProgramError = @import("error.zig").ProgramError;
+const ProgramError = @import("solana_sdk").ProgramError;
 const Context = @import("context.zig").Context;
 
 /// Result type for process instruction functions

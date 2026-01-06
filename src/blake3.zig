@@ -7,7 +7,7 @@
 
 const syscalls = @import("syscalls.zig");
 const log = @import("log.zig");
-const Hash = @import("hash.zig").Hash;
+const Hash = @import("solana_sdk").Hash;
 
 /// Return a Blake3 hash for the given data.
 ///

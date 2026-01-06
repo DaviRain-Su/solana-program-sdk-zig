@@ -6,9 +6,10 @@
 //! A message contains the account keys, recent blockhash, and instructions to execute.
 
 const std = @import("std");
+const sdk = @import("solana_sdk");
 const PublicKey = @import("public_key.zig").PublicKey;
-const Hash = @import("hash.zig").Hash;
-const short_vec = @import("short_vec.zig");
+const Hash = sdk.Hash;
+const short_vec = sdk.short_vec;
 const Instruction = @import("instruction.zig").Instruction;
 
 /// Message header containing signature and account type counts.

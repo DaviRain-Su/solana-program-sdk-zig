@@ -7,16 +7,20 @@
 //! on-chain programs (smart contracts) in the Zig programming language.
 //!
 //! ## Modules
-//! - `public_key` - PublicKey type and PDA derivation
+//! - `public_key` - PublicKey type and PDA derivation (with syscall support)
 //! - `account` - Account info and metadata
-//! - `instruction` - CPI instruction building
+//! - `instruction` - CPI instruction building (with syscall support)
 //! - `entrypoint` - Program entrypoint macros
-//! - `error` - Program error types
+//! - `error` - Program error types (from SDK)
 //! - `syscalls` - Solana runtime syscalls
 //! - `clock`, `rent`, `slot_hashes` - Sysvar access
 
 const std = @import("std");
 
+// Import shared SDK types (no syscall dependencies)
+const sdk = @import("solana_sdk");
+
+// Program-specific modules (with syscall/BPF support)
 pub const public_key = @import("public_key.zig");
 pub const account = @import("account.zig");
 pub const instruction = @import("instruction.zig");
@@ -25,15 +29,20 @@ pub const context = @import("context.zig");
 pub const clock = @import("clock.zig");
 pub const rent = @import("rent.zig");
 pub const log = @import("log.zig");
-pub const hash = @import("hash.zig");
-pub const signature = @import("signature.zig");
-pub const keypair = @import("keypair.zig");
-pub const short_vec = @import("short_vec.zig");
-pub const borsh = @import("borsh.zig");
-pub const bincode = @import("bincode.zig");
 pub const message = @import("message.zig");
 pub const signer = @import("signer.zig");
 pub const transaction = @import("transaction.zig");
+
+// Re-export pure modules from SDK
+pub const hash = sdk.hash;
+pub const signature = sdk.signature;
+pub const keypair = sdk.keypair;
+pub const short_vec = sdk.short_vec;
+pub const borsh = sdk.borsh;
+pub const bincode = sdk.bincode;
+pub const native_token = sdk.native_token;
+pub const nonce = sdk.nonce;
+const error_mod = sdk.@"error";
 
 pub const blake3 = @import("blake3.zig");
 pub const sha256_hasher = @import("sha256_hasher.zig");
@@ -52,8 +61,7 @@ pub const ed25519_program = @import("ed25519_program.zig");
 pub const secp256k1_program = @import("secp256k1_program.zig");
 pub const compute_budget = @import("compute_budget.zig");
 
-// Phase 9: Native Token
-pub const native_token = @import("native_token.zig");
+// Phase 9: Native Token (re-exported from SDK)
 
 // Phase 10: v0.19.0 - Memory, Instructions Sysvar, Address Lookup Tables
 pub const program_memory = @import("program_memory.zig");
@@ -62,7 +70,7 @@ pub const address_lookup_table = @import("address_lookup_table.zig");
 
 // Phase 11: v0.20.0 - Pack/Unpack & Nonce Support
 pub const program_pack = @import("program_pack.zig");
-pub const nonce = @import("nonce.zig");
+// nonce re-exported from SDK
 
 // Phase 12: v0.21.0 - Remaining Program Foundation
 pub const program_option = @import("program_option.zig");
@@ -97,7 +105,7 @@ pub const loader_v4 = @import("loader_v4.zig");
 pub const secp256r1_program = @import("secp256r1_program.zig");
 
 const entrypoint_mod = @import("entrypoint.zig");
-const error_mod = @import("error.zig");
+// error_mod defined above from SDK
 
 // Direct exports for convenience
 pub const entrypoint = entrypoint_mod.entrypoint;

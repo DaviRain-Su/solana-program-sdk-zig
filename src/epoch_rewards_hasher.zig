@@ -12,7 +12,7 @@
 
 const std = @import("std");
 const PublicKey = @import("public_key.zig").PublicKey;
-const Hash = @import("hash.zig").Hash;
+const Hash = @import("solana_sdk").Hash;
 
 /// SipHash-1-3 implementation (same parameters as Rust's SipHasher13)
 /// Using Zig's standard library SipHash with c_rounds=1, d_rounds=3

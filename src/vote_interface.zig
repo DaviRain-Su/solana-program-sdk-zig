@@ -8,7 +8,7 @@
 
 const std = @import("std");
 const PublicKey = @import("public_key.zig").PublicKey;
-const Hash = @import("hash.zig").Hash;
+const Hash = @import("solana_sdk").Hash;
 const AccountMeta = @import("instruction.zig").AccountMeta;
 const system_program = @import("system_program.zig");
 const Rent = @import("rent.zig").Rent;

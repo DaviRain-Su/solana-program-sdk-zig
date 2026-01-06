@@ -19,7 +19,7 @@
 //! used for compatibility with existing SPL programs like SPL Token.
 
 const std = @import("std");
-const ProgramError = @import("error.zig").ProgramError;
+const ProgramError = @import("solana_sdk").ProgramError;
 
 // ============================================================================
 // Error Types

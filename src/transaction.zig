@@ -6,15 +6,16 @@
 //! A transaction contains signatures and a message to be processed by the runtime.
 
 const std = @import("std");
+const sdk = @import("solana_sdk");
 const PublicKey = @import("public_key.zig").PublicKey;
-const Hash = @import("hash.zig").Hash;
-const Signature = @import("signature.zig").Signature;
-const SIGNATURE_BYTES = @import("signature.zig").SIGNATURE_BYTES;
+const Hash = sdk.Hash;
+const Signature = sdk.Signature;
+const SIGNATURE_BYTES = sdk.SIGNATURE_BYTES;
 const Message = @import("message.zig").Message;
 const MessageHeader = @import("message.zig").MessageHeader;
 const CompiledInstruction = @import("message.zig").CompiledInstruction;
-const Keypair = @import("keypair.zig").Keypair;
-const short_vec = @import("short_vec.zig");
+const Keypair = sdk.Keypair;
+const short_vec = sdk.short_vec;
 const Signer = @import("signer.zig").Signer;
 const SignerError = @import("signer.zig").SignerError;
 

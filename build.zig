@@ -33,12 +33,17 @@ pub fn build(b: *std.Build) void {
     const base58_mod = base58_dep.module("base58");
     solana_mod.addImport("base58", base58_mod);
 
-    // Also export the shared SDK module (no syscall dependencies)
-    // This allows consumers to use just the core types without program-specific code
+    // Get the shared SDK module (no syscall dependencies)
     const solana_sdk_dep = b.dependency("solana_sdk", .{
         .target = target,
         .optimize = optimize,
     });
+    const solana_sdk_mod = solana_sdk_dep.module("solana_sdk");
+
+    // Add SDK as an import to program SDK so src/ modules can use SDK types
+    solana_mod.addImport("solana_sdk", solana_sdk_mod);
+
+    // Also export the shared SDK module for consumers who only need core types
     _ = b.addModule("solana_sdk", .{
         .root_source_file = solana_sdk_dep.path("src/root.zig"),
         .target = target,

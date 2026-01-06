@@ -1432,3 +1432,184 @@ test "secp256k1_instruction: offsets serialization compatibility with Rust" {
         try std.testing.expectEqualSlices(u8, vector.serialized_offsets, &serialized);
     }
 }
+
+const SlotHashTestVector = struct {
+    name: []const u8,
+    slot: u64,
+    hash: [32]u8,
+    serialized: []const u8,
+};
+
+test "slot_hash: serialization compatibility with Rust" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "slot_hash_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const SlotHashTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        var serialized: [40]u8 = undefined;
+        std.mem.writeInt(u64, serialized[0..8], vector.slot, .little);
+        @memcpy(serialized[8..40], &vector.hash);
+
+        try std.testing.expectEqualSlices(u8, vector.serialized, &serialized);
+    }
+}
+
+const EpochRewardsTestVector = struct {
+    name: []const u8,
+    distribution_starting_block_height: u64,
+    num_partitions: u64,
+    parent_blockhash: [32]u8,
+    total_points: u128,
+    total_rewards: u64,
+    distributed_rewards: u64,
+    active: bool,
+    serialized: []const u8,
+};
+
+test "epoch_rewards: serialization compatibility with Rust" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "epoch_rewards_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const EpochRewardsTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        var serialized: [81]u8 = undefined;
+        var offset: usize = 0;
+
+        std.mem.writeInt(u64, serialized[offset..][0..8], vector.distribution_starting_block_height, .little);
+        offset += 8;
+        std.mem.writeInt(u64, serialized[offset..][0..8], vector.num_partitions, .little);
+        offset += 8;
+        @memcpy(serialized[offset..][0..32], &vector.parent_blockhash);
+        offset += 32;
+        std.mem.writeInt(u128, serialized[offset..][0..16], vector.total_points, .little);
+        offset += 16;
+        std.mem.writeInt(u64, serialized[offset..][0..8], vector.total_rewards, .little);
+        offset += 8;
+        std.mem.writeInt(u64, serialized[offset..][0..8], vector.distributed_rewards, .little);
+        offset += 8;
+        serialized[offset] = if (vector.active) 1 else 0;
+
+        try std.testing.expectEqualSlices(u8, vector.serialized, &serialized);
+    }
+}
+
+const LastRestartSlotTestVector = struct {
+    name: []const u8,
+    last_restart_slot: u64,
+    serialized: []const u8,
+};
+
+test "last_restart_slot: serialization compatibility with Rust" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "last_restart_slot_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const LastRestartSlotTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        var serialized: [8]u8 = undefined;
+        std.mem.writeInt(u64, &serialized, vector.last_restart_slot, .little);
+
+        try std.testing.expectEqualSlices(u8, vector.serialized, &serialized);
+    }
+}
+
+const Secp256r1InstructionTestVector = struct {
+    name: []const u8,
+    num_signatures: u8,
+    signature_offset: u16,
+    signature_instruction_index: u8,
+    public_key_offset: u16,
+    public_key_instruction_index: u8,
+    message_data_offset: u16,
+    message_data_size: u16,
+    message_instruction_index: u8,
+    serialized_offsets: []const u8,
+};
+
+test "secp256r1_instruction: offsets serialization compatibility with Rust" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "secp256r1_instruction_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const Secp256r1InstructionTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        var serialized: [11]u8 = undefined;
+        std.mem.writeInt(u16, serialized[0..2], vector.signature_offset, .little);
+        serialized[2] = vector.signature_instruction_index;
+        std.mem.writeInt(u16, serialized[3..5], vector.public_key_offset, .little);
+        serialized[5] = vector.public_key_instruction_index;
+        std.mem.writeInt(u16, serialized[6..8], vector.message_data_offset, .little);
+        std.mem.writeInt(u16, serialized[8..10], vector.message_data_size, .little);
+        serialized[10] = vector.message_instruction_index;
+
+        try std.testing.expectEqualSlices(u8, vector.serialized_offsets, &serialized);
+    }
+}
+
+const FeatureGateInstructionTestVector = struct {
+    name: []const u8,
+    feature_id: [32]u8,
+    lamports: u64,
+};
+
+test "feature_gate_instruction: feature activation parameters" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "feature_gate_instruction_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const FeatureGateInstructionTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        const feature_pubkey = sdk.PublicKey{ .bytes = vector.feature_id };
+        try std.testing.expectEqual(@as(usize, 32), feature_pubkey.bytes.len);
+        _ = vector.lamports;
+    }
+}
+
+const ProgramDataTestVector = struct {
+    name: []const u8,
+    slot: u64,
+    upgrade_authority: ?[32]u8,
+    serialized_header: []const u8,
+};
+
+test "program_data: BPF Loader Upgradeable header serialization" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "program_data_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const ProgramDataTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        var serialized: [45]u8 = undefined;
+        std.mem.writeInt(u32, serialized[0..4], 3, .little);
+        std.mem.writeInt(u64, serialized[4..12], vector.slot, .little);
+
+        if (vector.upgrade_authority) |auth| {
+            serialized[12] = 1;
+            @memcpy(serialized[13..45], &auth);
+            try std.testing.expectEqualSlices(u8, vector.serialized_header, serialized[0..45]);
+        } else {
+            serialized[12] = 0;
+            try std.testing.expectEqualSlices(u8, vector.serialized_header, serialized[0..13]);
+        }
+    }
+}

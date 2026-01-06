@@ -330,6 +330,63 @@ pub struct SysvarIdTestVector {
     pub base58: String,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SlotHashTestVector {
+    pub name: String,
+    pub slot: u64,
+    pub hash: [u8; 32],
+    pub serialized: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct EpochRewardsTestVector {
+    pub name: String,
+    pub distribution_starting_block_height: u64,
+    pub num_partitions: u64,
+    pub parent_blockhash: [u8; 32],
+    pub total_points: u128,
+    pub total_rewards: u64,
+    pub distributed_rewards: u64,
+    pub active: bool,
+    pub serialized: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct LastRestartSlotTestVector {
+    pub name: String,
+    pub last_restart_slot: u64,
+    pub serialized: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Secp256r1InstructionTestVector {
+    pub name: String,
+    pub num_signatures: u8,
+    pub signature_offset: u16,
+    pub signature_instruction_index: u8,
+    pub public_key_offset: u16,
+    pub public_key_instruction_index: u8,
+    pub message_data_offset: u16,
+    pub message_data_size: u16,
+    pub message_instruction_index: u8,
+    pub serialized_offsets: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct FeatureGateInstructionTestVector {
+    pub name: String,
+    pub feature_id: [u8; 32],
+    pub lamports: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ProgramDataTestVector {
+    pub name: String,
+    pub slot: u64,
+    pub upgrade_authority: Option<[u8; 32]>,
+    pub serialized_header: Vec<u8>,
+}
+
 pub fn generate_pubkey_vectors(output_dir: &Path) {
     let bpf_loader_upgradeable_id =
         Pubkey::from_str_const("BPFLoaderUpgradeab1e11111111111111111111111");
@@ -2548,6 +2605,257 @@ pub fn generate_native_program_id_vectors(output_dir: &Path) {
     fs::write(output_dir.join("native_program_id_vectors.json"), json).unwrap();
 }
 
+pub fn generate_slot_hash_vectors(output_dir: &Path) {
+    let test_cases: &[(&str, u64, [u8; 32])] = &[
+        ("genesis_slot", 0, [0u8; 32]),
+        ("slot_100", 100, {
+            let mut h = [0u8; 32];
+            h[0] = 100;
+            h
+        }),
+        ("slot_1000", 1000, {
+            let mut h = [0u8; 32];
+            h[0] = 0xe8;
+            h[1] = 0x03;
+            h
+        }),
+        ("max_slot", u64::MAX, [0xff; 32]),
+    ];
+
+    let mut vectors: Vec<SlotHashTestVector> = Vec::new();
+
+    for (name, slot, hash_bytes) in test_cases {
+        let mut serialized = Vec::new();
+        serialized.extend_from_slice(&slot.to_le_bytes());
+        serialized.extend_from_slice(hash_bytes);
+
+        vectors.push(SlotHashTestVector {
+            name: name.to_string(),
+            slot: *slot,
+            hash: *hash_bytes,
+            serialized,
+        });
+    }
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("slot_hash_vectors.json"), json).unwrap();
+}
+
+pub fn generate_epoch_rewards_vectors(output_dir: &Path) {
+    let test_cases: &[(&str, u64, u64, [u8; 32], u128, u64, u64, bool)] = &[
+        (
+            "initial_rewards",
+            1000,
+            4,
+            [1u8; 32],
+            1_000_000_000_000,
+            500_000_000,
+            0,
+            true,
+        ),
+        (
+            "partial_distribution",
+            2000,
+            8,
+            [2u8; 32],
+            2_000_000_000_000,
+            1_000_000_000,
+            500_000_000,
+            true,
+        ),
+        (
+            "completed_distribution",
+            3000,
+            16,
+            [3u8; 32],
+            3_000_000_000_000,
+            1_500_000_000,
+            1_500_000_000,
+            false,
+        ),
+        ("zero_rewards", 0, 1, [0u8; 32], 0, 0, 0, false),
+    ];
+
+    let mut vectors: Vec<EpochRewardsTestVector> = Vec::new();
+
+    for (
+        name,
+        distribution_starting_block_height,
+        num_partitions,
+        parent_blockhash,
+        total_points,
+        total_rewards,
+        distributed_rewards,
+        active,
+    ) in test_cases
+    {
+        let mut serialized = Vec::new();
+        serialized.extend_from_slice(&distribution_starting_block_height.to_le_bytes());
+        serialized.extend_from_slice(&num_partitions.to_le_bytes());
+        serialized.extend_from_slice(parent_blockhash);
+        serialized.extend_from_slice(&total_points.to_le_bytes());
+        serialized.extend_from_slice(&total_rewards.to_le_bytes());
+        serialized.extend_from_slice(&distributed_rewards.to_le_bytes());
+        serialized.push(if *active { 1 } else { 0 });
+
+        vectors.push(EpochRewardsTestVector {
+            name: name.to_string(),
+            distribution_starting_block_height: *distribution_starting_block_height,
+            num_partitions: *num_partitions,
+            parent_blockhash: *parent_blockhash,
+            total_points: *total_points,
+            total_rewards: *total_rewards,
+            distributed_rewards: *distributed_rewards,
+            active: *active,
+            serialized,
+        });
+    }
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("epoch_rewards_vectors.json"), json).unwrap();
+}
+
+pub fn generate_last_restart_slot_vectors(output_dir: &Path) {
+    let test_cases: &[(&str, u64)] = &[
+        ("zero_slot", 0),
+        ("recent_slot", 123456789),
+        ("large_slot", 1_000_000_000),
+        ("max_slot", u64::MAX),
+    ];
+
+    let mut vectors: Vec<LastRestartSlotTestVector> = Vec::new();
+
+    for (name, slot) in test_cases {
+        let serialized = slot.to_le_bytes().to_vec();
+
+        vectors.push(LastRestartSlotTestVector {
+            name: name.to_string(),
+            last_restart_slot: *slot,
+            serialized,
+        });
+    }
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("last_restart_slot_vectors.json"), json).unwrap();
+}
+
+pub fn generate_secp256r1_instruction_vectors(output_dir: &Path) {
+    let offsets_data: &[(&str, u8, u16, u8, u16, u8, u16, u16, u8)] = &[
+        ("basic_offsets", 1, 14, 0, 78, 0, 143, 32, 0),
+        ("multiple_sigs", 2, 28, 0, 92, 0, 157, 64, 0),
+        ("different_instruction", 1, 14, 1, 78, 1, 143, 32, 1),
+        ("zero_offsets", 1, 0, 0, 0, 0, 0, 0, 0),
+        ("max_message_size", 1, 14, 0, 78, 0, 143, 1232, 0),
+    ];
+
+    let mut vectors: Vec<Secp256r1InstructionTestVector> = Vec::new();
+
+    for (
+        name,
+        num_sigs,
+        sig_offset,
+        sig_instr_idx,
+        pk_offset,
+        pk_instr_idx,
+        msg_data_offset,
+        msg_data_size,
+        msg_instr_idx,
+    ) in offsets_data
+    {
+        let mut serialized = Vec::new();
+        serialized.extend_from_slice(&sig_offset.to_le_bytes());
+        serialized.push(*sig_instr_idx);
+        serialized.extend_from_slice(&pk_offset.to_le_bytes());
+        serialized.push(*pk_instr_idx);
+        serialized.extend_from_slice(&msg_data_offset.to_le_bytes());
+        serialized.extend_from_slice(&msg_data_size.to_le_bytes());
+        serialized.push(*msg_instr_idx);
+
+        vectors.push(Secp256r1InstructionTestVector {
+            name: name.to_string(),
+            num_signatures: *num_sigs,
+            signature_offset: *sig_offset,
+            signature_instruction_index: *sig_instr_idx,
+            public_key_offset: *pk_offset,
+            public_key_instruction_index: *pk_instr_idx,
+            message_data_offset: *msg_data_offset,
+            message_data_size: *msg_data_size,
+            message_instruction_index: *msg_instr_idx,
+            serialized_offsets: serialized,
+        });
+    }
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("secp256r1_instruction_vectors.json"), json).unwrap();
+}
+
+pub fn generate_feature_gate_instruction_vectors(output_dir: &Path) {
+    let feature_id = Pubkey::from_str_const("Feature111111111111111111111111111111111111");
+
+    let test_cases: &[(&str, [u8; 32], u64)] = &[
+        ("activate_basic", feature_id.to_bytes(), 1_500_000),
+        ("activate_min_rent", [1u8; 32], 890_880),
+        ("activate_large_rent", [2u8; 32], 10_000_000),
+        ("activate_zero_bytes", [0u8; 32], 0),
+    ];
+
+    let mut vectors: Vec<FeatureGateInstructionTestVector> = Vec::new();
+
+    for (name, feature_id, lamports) in test_cases {
+        vectors.push(FeatureGateInstructionTestVector {
+            name: name.to_string(),
+            feature_id: *feature_id,
+            lamports: *lamports,
+        });
+    }
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(
+        output_dir.join("feature_gate_instruction_vectors.json"),
+        json,
+    )
+    .unwrap();
+}
+
+pub fn generate_program_data_vectors(output_dir: &Path) {
+    let upgrade_authority = Pubkey::from_str_const("11111111111111111111111111111111");
+
+    let test_cases: &[(&str, u64, Option<[u8; 32]>)] = &[
+        (
+            "with_authority",
+            12345678,
+            Some(upgrade_authority.to_bytes()),
+        ),
+        ("no_authority", 87654321, None),
+        ("slot_zero", 0, Some([1u8; 32])),
+        ("max_slot", u64::MAX, Some([0xff; 32])),
+    ];
+
+    let mut vectors: Vec<ProgramDataTestVector> = Vec::new();
+
+    for (name, slot, authority) in test_cases {
+        let mut serialized = Vec::new();
+        serialized.extend_from_slice(&3u32.to_le_bytes());
+        serialized.extend_from_slice(&slot.to_le_bytes());
+        if let Some(auth) = authority {
+            serialized.push(1);
+            serialized.extend_from_slice(auth);
+        } else {
+            serialized.push(0);
+        }
+
+        vectors.push(ProgramDataTestVector {
+            name: name.to_string(),
+            slot: *slot,
+            upgrade_authority: *authority,
+            serialized_header: serialized,
+        });
+    }
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("program_data_vectors.json"), json).unwrap();
+}
+
 pub fn generate_sysvar_id_vectors(output_dir: &Path) {
     use solana_sdk::sysvar;
 
@@ -2648,6 +2956,12 @@ pub fn generate_all_vectors(output_dir: &Path) {
     generate_sysvar_id_vectors(output_dir);
     generate_native_program_id_vectors(output_dir);
     generate_secp256k1_instruction_vectors(output_dir);
+    generate_slot_hash_vectors(output_dir);
+    generate_epoch_rewards_vectors(output_dir);
+    generate_last_restart_slot_vectors(output_dir);
+    generate_secp256r1_instruction_vectors(output_dir);
+    generate_feature_gate_instruction_vectors(output_dir);
+    generate_program_data_vectors(output_dir);
 
     println!("Generated all test vectors in {:?}", output_dir);
 }

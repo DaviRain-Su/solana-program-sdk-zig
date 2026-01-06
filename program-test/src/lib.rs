@@ -299,6 +299,23 @@ pub struct MessageTestVector {
     pub serialized: Vec<u8>,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct TransactionTestVector {
+    pub name: String,
+    pub num_signatures: u8,
+    pub message_header: [u8; 3],
+    pub account_keys_count: u8,
+    pub recent_blockhash: [u8; 32],
+    pub serialized: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SysvarIdTestVector {
+    pub name: String,
+    pub pubkey: [u8; 32],
+    pub base58: String,
+}
+
 pub fn generate_pubkey_vectors(output_dir: &Path) {
     let bpf_loader_upgradeable_id =
         Pubkey::from_str_const("BPFLoaderUpgradeab1e11111111111111111111111");
@@ -2324,6 +2341,121 @@ pub fn generate_message_vectors(output_dir: &Path) {
     fs::write(output_dir.join("message_vectors.json"), json).unwrap();
 }
 
+pub fn generate_transaction_vectors(output_dir: &Path) {
+    use solana_message::compiled_instruction::CompiledInstruction;
+    use solana_message::legacy::Message;
+    use solana_sdk::transaction::Transaction;
+
+    let mut vectors: Vec<TransactionTestVector> = Vec::new();
+
+    let payer = Keypair::new();
+    let recipient = Pubkey::new_unique();
+    let recent_blockhash = Hash::new_unique();
+
+    let message = Message::new_with_compiled_instructions(
+        1,
+        0,
+        1,
+        vec![payer.pubkey(), recipient, SYSTEM_PROGRAM_ID],
+        recent_blockhash,
+        vec![CompiledInstruction::new(
+            2,
+            &[2, 0, 0, 0, 0, 202, 154, 59, 0, 0, 0, 0],
+            vec![0, 1],
+        )],
+    );
+
+    let mut tx = Transaction::new_unsigned(message);
+    tx.sign(&[&payer], recent_blockhash);
+    let serialized = bincode::serialize(&tx).unwrap();
+
+    vectors.push(TransactionTestVector {
+        name: "signed_transfer".to_string(),
+        num_signatures: 1,
+        message_header: [1, 0, 1],
+        account_keys_count: 3,
+        recent_blockhash: recent_blockhash.to_bytes(),
+        serialized,
+    });
+
+    let message_empty =
+        Message::new_with_compiled_instructions(0, 0, 0, vec![], Hash::default(), vec![]);
+    let tx_empty = Transaction::new_unsigned(message_empty);
+    let serialized = bincode::serialize(&tx_empty).unwrap();
+
+    vectors.push(TransactionTestVector {
+        name: "empty_unsigned".to_string(),
+        num_signatures: 0,
+        message_header: [0, 0, 0],
+        account_keys_count: 0,
+        recent_blockhash: Hash::default().to_bytes(),
+        serialized,
+    });
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("transaction_vectors.json"), json).unwrap();
+}
+
+pub fn generate_sysvar_id_vectors(output_dir: &Path) {
+    use solana_sdk::sysvar;
+
+    let vectors = vec![
+        SysvarIdTestVector {
+            name: "clock".to_string(),
+            pubkey: sysvar::clock::ID.to_bytes(),
+            base58: sysvar::clock::ID.to_string(),
+        },
+        SysvarIdTestVector {
+            name: "epoch_schedule".to_string(),
+            pubkey: sysvar::epoch_schedule::ID.to_bytes(),
+            base58: sysvar::epoch_schedule::ID.to_string(),
+        },
+        SysvarIdTestVector {
+            name: "fees".to_string(),
+            pubkey: sysvar::fees::ID.to_bytes(),
+            base58: sysvar::fees::ID.to_string(),
+        },
+        SysvarIdTestVector {
+            name: "instructions".to_string(),
+            pubkey: sysvar::instructions::ID.to_bytes(),
+            base58: sysvar::instructions::ID.to_string(),
+        },
+        SysvarIdTestVector {
+            name: "recent_blockhashes".to_string(),
+            pubkey: sysvar::recent_blockhashes::ID.to_bytes(),
+            base58: sysvar::recent_blockhashes::ID.to_string(),
+        },
+        SysvarIdTestVector {
+            name: "rent".to_string(),
+            pubkey: sysvar::rent::ID.to_bytes(),
+            base58: sysvar::rent::ID.to_string(),
+        },
+        SysvarIdTestVector {
+            name: "slot_hashes".to_string(),
+            pubkey: sysvar::slot_hashes::ID.to_bytes(),
+            base58: sysvar::slot_hashes::ID.to_string(),
+        },
+        SysvarIdTestVector {
+            name: "slot_history".to_string(),
+            pubkey: sysvar::slot_history::ID.to_bytes(),
+            base58: sysvar::slot_history::ID.to_string(),
+        },
+        SysvarIdTestVector {
+            name: "epoch_rewards".to_string(),
+            pubkey: sysvar::epoch_rewards::ID.to_bytes(),
+            base58: sysvar::epoch_rewards::ID.to_string(),
+        },
+        SysvarIdTestVector {
+            name: "last_restart_slot".to_string(),
+            pubkey: sysvar::last_restart_slot::ID.to_bytes(),
+            base58: sysvar::last_restart_slot::ID.to_string(),
+        },
+    ];
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("sysvar_id_vectors.json"), json).unwrap();
+}
+
 pub fn generate_all_vectors(output_dir: &Path) {
     fs::create_dir_all(output_dir).unwrap();
 
@@ -2360,6 +2492,8 @@ pub fn generate_all_vectors(output_dir: &Path) {
     generate_loader_v4_instruction_vectors(output_dir);
     generate_vote_instruction_vectors(output_dir);
     generate_message_vectors(output_dir);
+    generate_transaction_vectors(output_dir);
+    generate_sysvar_id_vectors(output_dir);
 
     println!("Generated all test vectors in {:?}", output_dir);
 }

@@ -1325,3 +1325,57 @@ test "message: serialization compatibility with Rust" {
         }
     }
 }
+
+const TransactionTestVector = struct {
+    name: []const u8,
+    num_signatures: u8,
+    message_header: [3]u8,
+    account_keys_count: u8,
+    recent_blockhash: [32]u8,
+    serialized: []const u8,
+};
+
+test "transaction: serialization compatibility with Rust" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "transaction_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const TransactionTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        const sig_count = vector.serialized[0];
+        try std.testing.expectEqual(vector.num_signatures, sig_count);
+
+        if (sig_count > 0) {
+            const header_offset: usize = 1 + @as(usize, sig_count) * 64;
+            try std.testing.expectEqual(vector.message_header[0], vector.serialized[header_offset]);
+            try std.testing.expectEqual(vector.message_header[1], vector.serialized[header_offset + 1]);
+            try std.testing.expectEqual(vector.message_header[2], vector.serialized[header_offset + 2]);
+        }
+    }
+}
+
+const SysvarIdTestVector = struct {
+    name: []const u8,
+    pubkey: [32]u8,
+    base58: []const u8,
+};
+
+test "sysvar_id: Base58 encoding compatibility with Rust" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "sysvar_id_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const SysvarIdTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        const pubkey = sdk.PublicKey{ .bytes = vector.pubkey };
+        var base58_buf: [44]u8 = undefined;
+        const base58_str = pubkey.toBase58(&base58_buf);
+        try std.testing.expectEqualStrings(vector.base58, base58_str);
+    }
+}

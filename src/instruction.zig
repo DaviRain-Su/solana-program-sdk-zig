@@ -1,114 +1,74 @@
-//! Zig implementation of Solana SDK's instruction module
+//! Zig implementation of Solana SDK's instruction module (Program SDK version)
 //!
 //! Rust source: https://github.com/anza-xyz/solana-sdk/blob/master/instruction/src/lib.rs
 //!
 //! This module provides the Instruction type for Cross-Program Invocation (CPI).
-//! Instructions contain program_id, accounts metadata, and instruction data.
+//! It re-exports pure types from the SDK and adds syscall-based CPI functionality.
 //!
-//! ## Key Types
-//! - `Instruction` - A directive for a single invocation of a Solana program
+//! ## Re-exported from SDK
 //! - `AccountMeta` - Describes a single account used in an instruction
+//! - `CompiledInstruction` - Compiled instruction for transaction building
 //! - `InstructionData` - Helper for type-safe instruction data packing
+//! - `ProcessedSiblingInstruction` - Info about processed sibling instructions
+//! - `ReturnData` - Return data type definition
+//!
+//! ## Program SDK Additions
+//! - `Instruction` - CPI instruction with invoke/invokeSigned methods
+//! - `setReturnData` / `getReturnData` - Syscall-based return data handling
+//! - `accountMetaToParam` - Convert AccountMeta to Account.Param for CPI
 
 const std = @import("std");
+const sdk = @import("solana_sdk");
 const Account = @import("account.zig").Account;
 const PublicKey = @import("public_key.zig").PublicKey;
 const bpf = @import("bpf.zig");
 
+// ============================================================================
+// Re-export SDK types
+// ============================================================================
+
 /// Stack height when processing transaction-level instructions
-///
-/// Rust equivalent: `TRANSACTION_LEVEL_STACK_HEIGHT`
-pub const TRANSACTION_LEVEL_STACK_HEIGHT: usize = 1;
+pub const TRANSACTION_LEVEL_STACK_HEIGHT = sdk.instruction.TRANSACTION_LEVEL_STACK_HEIGHT;
+
+/// Maximum size of return data from CPI (1024 bytes)
+pub const MAX_RETURN_DATA = sdk.instruction.MAX_RETURN_DATA;
 
 /// Describes a single account used in an instruction.
 ///
-/// Rust equivalent: `solana_instruction::AccountMeta`
-/// Source: https://github.com/anza-xyz/solana-sdk/blob/master/instruction/src/account_meta.rs
-pub const AccountMeta = struct {
-    /// The public key of the account
-    pubkey: PublicKey,
-    /// True if the instruction requires a transaction signature for this account
-    is_signer: bool,
-    /// True if the account data or metadata may be mutated during execution
-    is_writable: bool,
-
-    /// Construct metadata for a writable account that is also a signer.
-    ///
-    /// Equivalent to Rust's `AccountMeta::new(pubkey, true)`
-    pub fn newWritableSigner(pubkey: PublicKey) AccountMeta {
-        return .{
-            .pubkey = pubkey,
-            .is_signer = true,
-            .is_writable = true,
-        };
-    }
-
-    /// Construct metadata for a writable account that is not a signer.
-    ///
-    /// Equivalent to Rust's `AccountMeta::new(pubkey, false)`
-    pub fn newWritable(pubkey: PublicKey) AccountMeta {
-        return .{
-            .pubkey = pubkey,
-            .is_signer = false,
-            .is_writable = true,
-        };
-    }
-
-    /// Construct metadata for a read-only account that is also a signer.
-    ///
-    /// Equivalent to Rust's `AccountMeta::new_readonly(pubkey, true)`
-    pub fn newReadonlySigner(pubkey: PublicKey) AccountMeta {
-        return .{
-            .pubkey = pubkey,
-            .is_signer = true,
-            .is_writable = false,
-        };
-    }
-
-    /// Construct metadata for a read-only account that is not a signer.
-    ///
-    /// Equivalent to Rust's `AccountMeta::new_readonly(pubkey, false)`
-    pub fn newReadonly(pubkey: PublicKey) AccountMeta {
-        return .{
-            .pubkey = pubkey,
-            .is_signer = false,
-            .is_writable = false,
-        };
-    }
-
-    /// Create AccountMeta with explicit signer and writable flags
-    pub fn init(pubkey: PublicKey, is_signer: bool, is_writable: bool) AccountMeta {
-        return .{
-            .pubkey = pubkey,
-            .is_signer = is_signer,
-            .is_writable = is_writable,
-        };
-    }
-
-    /// Convert to Account.Param for use with Instruction
-    /// Note: Takes pointer to ensure the returned Param.id points to stable memory
-    pub fn toParam(self: *const AccountMeta) Account.Param {
-        return .{
-            .id = &self.pubkey,
-            .is_writable = self.is_writable,
-            .is_signer = self.is_signer,
-        };
-    }
-};
+/// Re-exported from SDK. Use `accountMetaToParam` to convert to Account.Param for CPI.
+pub const AccountMeta = sdk.instruction.AccountMeta;
 
 /// Information about a processed sibling instruction.
-///
-/// Used with `sol_get_processed_sibling_instruction` syscall.
-///
-/// Rust equivalent: `ProcessedSiblingInstruction`
-pub const ProcessedSiblingInstruction = extern struct {
-    /// Length of the instruction data
-    data_len: u64,
-    /// Number of accounts
-    accounts_len: u64,
-};
+pub const ProcessedSiblingInstruction = sdk.instruction.ProcessedSiblingInstruction;
 
-/// A Solana instruction for CPI
+/// A compiled instruction for transactions (SDK version).
+pub const CompiledInstruction = sdk.instruction.CompiledInstruction;
+
+/// Return data type definition.
+pub const ReturnData = sdk.instruction.ReturnData;
+
+/// Helper for type-safe instruction data serialization.
+pub const InstructionData = sdk.instruction.InstructionData;
+
+// ============================================================================
+// Program SDK Additions: CPI Instruction
+// ============================================================================
+
+/// Convert AccountMeta to Account.Param for use with CPI Instruction.
+///
+/// Note: Takes pointer to ensure the returned Param.id points to stable memory.
+pub fn accountMetaToParam(meta: *const AccountMeta) Account.Param {
+    return .{
+        .id = &meta.pubkey,
+        .is_writable = meta.is_writable,
+        .is_signer = meta.is_signer,
+    };
+}
+
+/// A Solana instruction for CPI (Cross-Program Invocation)
+///
+/// This is the on-chain format used for invoking other programs.
+/// For off-chain transaction building, use CompiledInstruction from the SDK.
 ///
 /// Rust equivalent: `solana_instruction::Instruction`
 /// Source: https://github.com/anza-xyz/solana-sdk/blob/master/instruction/src/lib.rs
@@ -163,21 +123,8 @@ pub const Instruction = extern struct {
 };
 
 // ============================================================================
-// Return Data
+// Return Data Syscalls
 // ============================================================================
-
-/// Maximum size of return data from CPI (1024 bytes)
-///
-/// Rust equivalent: `solana_cpi::MAX_RETURN_DATA`
-pub const MAX_RETURN_DATA: usize = 1024;
-
-/// Return data from a CPI call
-pub const ReturnData = struct {
-    /// The program that set the return data
-    program_id: PublicKey,
-    /// The return data itself
-    data: []const u8,
-};
 
 /// Set the return data for this program invocation.
 ///
@@ -255,114 +202,39 @@ pub fn getReturnDataStatic() ?struct {
 }
 
 // ============================================================================
-// Instruction Data Helper
+// Tests (Program SDK specific tests only, SDK tests are in sdk/src/instruction.zig)
 // ============================================================================
 
-/// Helper for no-alloc CPIs. By providing a discriminant and data type, the
-/// dynamic type can be constructed in-place and used for instruction data:
-///
-/// const Discriminant = enum(u32) {
-///     one,
-/// };
-/// const Data = packed struct {
-///     field: u64
-/// };
-/// const data = InstructionData(Discriminant, Data) {
-///     .discriminant = Discriminant.one,
-///     .data = .{ .field = 1 }
-/// };
-/// const instruction = Instruction.from(.{
-///     .program_id = ...,
-///     .accounts = &[_]Account.Param{...},
-///     .data = data.asBytes(),
-/// });
-pub fn InstructionData(comptime Discriminant: type, comptime Data: type) type {
-    comptime {
-        if (@bitSizeOf(Discriminant) % 8 != 0) {
-            @panic("Discriminant bit size is not divisible by 8");
-        }
-        if (@bitSizeOf(Data) % 8 != 0) {
-            @panic("Data bit size is not divisible by 8");
-        }
-    }
-    return packed struct {
-        discriminant: Discriminant,
-        data: Data,
-        const Self = @This();
-        pub fn asBytes(self: *const Self) []const u8 {
-            return std.mem.asBytes(self)[0..((@bitSizeOf(Discriminant) + @bitSizeOf(Data)) / 8)];
-        }
-    };
-}
-
-test "instruction: data transmute" {
-    const Discriminant = enum(u32) {
-        zero,
-        one,
-        two,
-        three,
-    };
-
-    const Data = packed struct {
-        a: u8,
-        b: u16,
-        c: u64,
-    };
-
-    const instruction = InstructionData(Discriminant, Data){ .discriminant = Discriminant.three, .data = Data{ .a = 1, .b = 2, .c = 3 } };
-    try std.testing.expectEqualSlices(u8, instruction.asBytes(), &[_]u8{ 3, 0, 0, 0, 1, 2, 0, 3, 0, 0, 0, 0, 0, 0, 0 });
-}
-
-test "instruction: AccountMeta constructors" {
-    const pubkey = PublicKey.from([_]u8{1} ** 32);
-
-    // Writable signer
-    {
-        const meta = AccountMeta.newWritableSigner(pubkey);
-        try std.testing.expectEqual(pubkey, meta.pubkey);
-        try std.testing.expect(meta.is_signer);
-        try std.testing.expect(meta.is_writable);
-    }
-
-    // Writable non-signer
-    {
-        const meta = AccountMeta.newWritable(pubkey);
-        try std.testing.expectEqual(pubkey, meta.pubkey);
-        try std.testing.expect(!meta.is_signer);
-        try std.testing.expect(meta.is_writable);
-    }
-
-    // Readonly signer
-    {
-        const meta = AccountMeta.newReadonlySigner(pubkey);
-        try std.testing.expectEqual(pubkey, meta.pubkey);
-        try std.testing.expect(meta.is_signer);
-        try std.testing.expect(!meta.is_writable);
-    }
-
-    // Readonly non-signer
-    {
-        const meta = AccountMeta.newReadonly(pubkey);
-        try std.testing.expectEqual(pubkey, meta.pubkey);
-        try std.testing.expect(!meta.is_signer);
-        try std.testing.expect(!meta.is_writable);
-    }
-}
-
-test "instruction: AccountMeta to Param conversion" {
+test "instruction: accountMetaToParam conversion" {
     const pubkey = PublicKey.from([_]u8{42} ** 32);
     const meta = AccountMeta.init(pubkey, true, true);
-    const param = meta.toParam();
+    const param = accountMetaToParam(&meta);
 
     try std.testing.expectEqual(&meta.pubkey, param.id);
     try std.testing.expect(param.is_signer);
     try std.testing.expect(param.is_writable);
 }
 
-test "instruction: TRANSACTION_LEVEL_STACK_HEIGHT" {
-    try std.testing.expectEqual(@as(usize, 1), TRANSACTION_LEVEL_STACK_HEIGHT);
+test "instruction: Instruction.from" {
+    const program_id = PublicKey.from([_]u8{1} ** 32);
+    const data = [_]u8{ 1, 2, 3, 4 };
+
+    const instr = Instruction.from(.{
+        .program_id = &program_id,
+        .accounts = &[_]Account.Param{},
+        .data = &data,
+    });
+
+    try std.testing.expectEqual(&program_id, instr.program_id);
+    try std.testing.expectEqual(@as(usize, 0), instr.accounts_len);
+    try std.testing.expectEqual(@as(usize, 4), instr.data_len);
 }
 
-test "instruction: ProcessedSiblingInstruction size" {
+test "instruction: re-exported constants" {
+    try std.testing.expectEqual(@as(usize, 1), TRANSACTION_LEVEL_STACK_HEIGHT);
+    try std.testing.expectEqual(@as(usize, 1024), MAX_RETURN_DATA);
+}
+
+test "instruction: re-exported ProcessedSiblingInstruction size" {
     try std.testing.expectEqual(@as(usize, 16), @sizeOf(ProcessedSiblingInstruction));
 }

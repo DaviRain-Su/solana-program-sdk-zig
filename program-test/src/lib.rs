@@ -150,6 +150,21 @@ pub struct SystemInstructionTestVector {
     pub owner: Option<[u8; 32]>,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Keccak256TestVector {
+    pub name: String,
+    pub input: Vec<u8>,
+    pub hash: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ComputeBudgetTestVector {
+    pub name: String,
+    pub instruction_type: String,
+    pub encoded: Vec<u8>,
+    pub value: u64,
+}
+
 pub fn generate_pubkey_vectors(output_dir: &Path) {
     let bpf_loader_upgradeable_id =
         Pubkey::from_str_const("BPFLoaderUpgradeab1e11111111111111111111111");
@@ -949,6 +964,122 @@ pub fn generate_system_instruction_vectors(output_dir: &Path) {
     fs::write(output_dir.join("system_instruction_vectors.json"), json).unwrap();
 }
 
+pub fn generate_keccak256_vectors(output_dir: &Path) {
+    use solana_keccak_hasher::hash;
+
+    let mut vectors: Vec<Keccak256TestVector> = Vec::new();
+
+    vectors.push(Keccak256TestVector {
+        name: "empty".to_string(),
+        input: vec![],
+        hash: hash(&[]).to_bytes().to_vec(),
+    });
+
+    vectors.push(Keccak256TestVector {
+        name: "hello".to_string(),
+        input: b"hello".to_vec(),
+        hash: hash(b"hello").to_bytes().to_vec(),
+    });
+
+    vectors.push(Keccak256TestVector {
+        name: "hello_world".to_string(),
+        input: b"hello world".to_vec(),
+        hash: hash(b"hello world").to_bytes().to_vec(),
+    });
+
+    vectors.push(Keccak256TestVector {
+        name: "solana".to_string(),
+        input: b"Solana".to_vec(),
+        hash: hash(b"Solana").to_bytes().to_vec(),
+    });
+
+    vectors.push(Keccak256TestVector {
+        name: "single_byte".to_string(),
+        input: vec![0x42],
+        hash: hash(&[0x42]).to_bytes().to_vec(),
+    });
+
+    vectors.push(Keccak256TestVector {
+        name: "zeros_32".to_string(),
+        input: vec![0u8; 32],
+        hash: hash(&[0u8; 32]).to_bytes().to_vec(),
+    });
+
+    vectors.push(Keccak256TestVector {
+        name: "ones_32".to_string(),
+        input: vec![0xffu8; 32],
+        hash: hash(&[0xffu8; 32]).to_bytes().to_vec(),
+    });
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("keccak256_vectors.json"), json).unwrap();
+}
+
+pub fn generate_compute_budget_vectors(output_dir: &Path) {
+    use solana_compute_budget_interface::ComputeBudgetInstruction;
+
+    let mut vectors: Vec<ComputeBudgetTestVector> = Vec::new();
+
+    let ix = ComputeBudgetInstruction::set_compute_unit_limit(400_000);
+    vectors.push(ComputeBudgetTestVector {
+        name: "set_compute_unit_limit_400k".to_string(),
+        instruction_type: "SetComputeUnitLimit".to_string(),
+        encoded: ix.data.clone(),
+        value: 400_000,
+    });
+
+    let ix = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
+    vectors.push(ComputeBudgetTestVector {
+        name: "set_compute_unit_limit_max".to_string(),
+        instruction_type: "SetComputeUnitLimit".to_string(),
+        encoded: ix.data.clone(),
+        value: 1_400_000,
+    });
+
+    let ix = ComputeBudgetInstruction::set_compute_unit_price(1_000);
+    vectors.push(ComputeBudgetTestVector {
+        name: "set_compute_unit_price_1000".to_string(),
+        instruction_type: "SetComputeUnitPrice".to_string(),
+        encoded: ix.data.clone(),
+        value: 1_000,
+    });
+
+    let ix = ComputeBudgetInstruction::set_compute_unit_price(1_000_000);
+    vectors.push(ComputeBudgetTestVector {
+        name: "set_compute_unit_price_1m".to_string(),
+        instruction_type: "SetComputeUnitPrice".to_string(),
+        encoded: ix.data.clone(),
+        value: 1_000_000,
+    });
+
+    let ix = ComputeBudgetInstruction::request_heap_frame(64 * 1024);
+    vectors.push(ComputeBudgetTestVector {
+        name: "request_heap_frame_64k".to_string(),
+        instruction_type: "RequestHeapFrame".to_string(),
+        encoded: ix.data.clone(),
+        value: 64 * 1024,
+    });
+
+    let ix = ComputeBudgetInstruction::request_heap_frame(256 * 1024);
+    vectors.push(ComputeBudgetTestVector {
+        name: "request_heap_frame_256k".to_string(),
+        instruction_type: "RequestHeapFrame".to_string(),
+        encoded: ix.data.clone(),
+        value: 256 * 1024,
+    });
+
+    let ix = ComputeBudgetInstruction::set_loaded_accounts_data_size_limit(1024 * 1024);
+    vectors.push(ComputeBudgetTestVector {
+        name: "set_loaded_accounts_data_size_1m".to_string(),
+        instruction_type: "SetLoadedAccountsDataSizeLimit".to_string(),
+        encoded: ix.data.clone(),
+        value: 1024 * 1024,
+    });
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("compute_budget_vectors.json"), json).unwrap();
+}
+
 pub fn generate_all_vectors(output_dir: &Path) {
     fs::create_dir_all(output_dir).unwrap();
 
@@ -968,6 +1099,8 @@ pub fn generate_all_vectors(output_dir: &Path) {
     generate_bincode_vectors(output_dir);
     generate_borsh_vectors(output_dir);
     generate_system_instruction_vectors(output_dir);
+    generate_keccak256_vectors(output_dir);
+    generate_compute_budget_vectors(output_dir);
 
     println!("Generated all test vectors in {:?}", output_dir);
 }

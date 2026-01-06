@@ -17,6 +17,8 @@ solana-sdk = "3.0.0"
 solana-nonce = "3.0.0"
 solana-epoch-schedule = "3.0.0"
 solana-system-interface = { version = "2.0.0", features = ["bincode"] }
+solana-keccak-hasher = "3.0.0"
+solana-compute-budget-interface = "3.0.0"
 
 [dev-dependencies]
 num_enum = "0.7"

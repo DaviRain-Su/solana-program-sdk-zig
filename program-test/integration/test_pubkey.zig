@@ -678,3 +678,66 @@ test "system_instruction: encoding compatibility with Rust" {
         }
     }
 }
+
+const Keccak256TestVector = struct {
+    name: []const u8,
+    input: []const u8,
+    hash: [32]u8,
+};
+
+test "keccak256: hash compatibility with Rust" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "keccak256_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const Keccak256TestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        var result: [32]u8 = undefined;
+        std.crypto.hash.sha3.Keccak256.hash(vector.input, &result, .{});
+        try std.testing.expectEqualSlices(u8, &vector.hash, &result);
+    }
+}
+
+const ComputeBudgetTestVector = struct {
+    name: []const u8,
+    instruction_type: []const u8,
+    encoded: []const u8,
+    value: u64,
+};
+
+test "compute_budget: instruction encoding compatibility with Rust" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "compute_budget_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const ComputeBudgetTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        if (std.mem.eql(u8, vector.instruction_type, "SetComputeUnitLimit")) {
+            var buf: [5]u8 = undefined;
+            buf[0] = 2;
+            std.mem.writeInt(u32, buf[1..5], @intCast(vector.value), .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.instruction_type, "SetComputeUnitPrice")) {
+            var buf: [9]u8 = undefined;
+            buf[0] = 3;
+            std.mem.writeInt(u64, buf[1..9], vector.value, .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.instruction_type, "RequestHeapFrame")) {
+            var buf: [5]u8 = undefined;
+            buf[0] = 1;
+            std.mem.writeInt(u32, buf[1..5], @intCast(vector.value), .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        } else if (std.mem.eql(u8, vector.instruction_type, "SetLoadedAccountsDataSizeLimit")) {
+            var buf: [5]u8 = undefined;
+            buf[0] = 4;
+            std.mem.writeInt(u32, buf[1..5], @intCast(vector.value), .little);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &buf);
+        }
+    }
+}

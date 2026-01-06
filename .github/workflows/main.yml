@@ -1,84 +1,161 @@
-name: Main
+name: CI
 
 on:
   push:
-    branches:
-      - 'main'
+    branches: [dev, main]
   pull_request:
-    branches:
-      - 'main'
+    branches: [dev, main]
 
 env:
   SOLANA_ZIG_VERSION: v1.52.0
-  SOLANA_ZIG_DIR: solana-zig
 
 jobs:
-  library:
-    name: Build and test library
+  # Format check - fast, runs first
+  format:
+    name: Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache solana-zig
+        uses: actions/cache@v4
+        with:
+          path: solana-zig
+          key: solana-zig-${{ env.SOLANA_ZIG_VERSION }}-linux
+
+      - name: Install solana-zig
+        run: ./install-solana-zig.sh solana-zig
+
+      - name: Check SDK format
+        run: ./solana-zig/zig fmt --check sdk/src/
+
+      - name: Check Program SDK format
+        run: ./solana-zig/zig fmt --check src/
+
+  # SDK tests - pure Zig, no syscalls
+  sdk-test:
+    name: SDK Tests
+    needs: format
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v4
-      with:
-        submodules: recursive
+      - uses: actions/checkout@v4
 
-    - uses: actions/cache@v4
-      with:
-        path: $SOLANA_ZIG_DIR
-        key: solana-zig-$SOLANA_ZIG_VERSION
+      - name: Cache solana-zig
+        uses: actions/cache@v4
+        with:
+          path: solana-zig
+          key: solana-zig-${{ env.SOLANA_ZIG_VERSION }}-${{ runner.os }}
 
-    - name: Download solana-zig compiler
-      shell: bash
-      run: ./install-solana-zig.sh $SOLANA_ZIG_DIR
+      - name: Install solana-zig
+        shell: bash
+        run: ./install-solana-zig.sh solana-zig
 
-    - name: Test library
-      shell: bash
-      run: |
-        $SOLANA_ZIG_DIR/zig build test --summary all
+      - name: Test SDK
+        shell: bash
+        working-directory: sdk
+        run: ../solana-zig/zig build test --summary all
 
-  programs:
-    name: Build and test programs
+  # Program SDK tests - includes syscall stubs
+  program-test:
+    name: Program SDK Tests
+    needs: format
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v4
-      with:
-        submodules: recursive
+      - uses: actions/checkout@v4
 
-    - uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          $SOLANA_ZIG_DIR
-        key: solana-zig-${{ hashFiles('./program-test/Cargo.lock') }}-$SOLANA_ZIG_VERSION
+      - name: Cache solana-zig
+        uses: actions/cache@v4
+        with:
+          path: solana-zig
+          key: solana-zig-${{ env.SOLANA_ZIG_VERSION }}-${{ runner.os }}
 
-    - name: Download solana-zig compiler
-      shell: bash
-      run: ./install-solana-zig.sh $SOLANA_ZIG_DIR
+      - name: Install solana-zig
+        shell: bash
+        run: ./install-solana-zig.sh solana-zig
 
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: 1.86.0
+      - name: Test Program SDK
+        shell: bash
+        run: ./solana-zig/zig build test --summary all
 
-    # took the workaround from https://github.com/sfackler/rust-openssl/issues/2149
-    - name: Set Perl environment variables
-      if: runner.os == 'Windows'
-      run: |
-        echo "PERL=$((where.exe perl)[0])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-        echo "OPENSSL_SRC_PERL=$((where.exe perl)[0])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+  # Integration tests - build actual programs and test with Rust
+  integration-test:
+    name: Integration Tests
+    needs: [sdk-test, program-test]
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-    - name: Install build deps
-      shell: bash
-      run: ./program-test/install-build-deps.sh
+      - name: Cache solana-zig
+        uses: actions/cache@v4
+        with:
+          path: solana-zig
+          key: solana-zig-${{ env.SOLANA_ZIG_VERSION }}-${{ runner.os }}
 
-    - name: Build and test program
-      shell: bash
-      run: ./program-test/test.sh
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            program-test/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('program-test/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
+      - name: Install solana-zig
+        shell: bash
+        run: ./install-solana-zig.sh solana-zig
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.86.0
+
+      # Windows OpenSSL workaround
+      - name: Set Perl environment variables (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          echo "PERL=$((where.exe perl)[0])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          echo "OPENSSL_SRC_PERL=$((where.exe perl)[0])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Install build deps
+        shell: bash
+        run: ./program-test/install-build-deps.sh
+
+      - name: Build and test programs
+        shell: bash
+        run: ./program-test/test.sh
+
+  # Build check for Solana target
+  build-solana:
+    name: Build for Solana
+    needs: format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache solana-zig
+        uses: actions/cache@v4
+        with:
+          path: solana-zig
+          key: solana-zig-${{ env.SOLANA_ZIG_VERSION }}-linux
+
+      - name: Install solana-zig
+        run: ./install-solana-zig.sh solana-zig
+
+      - name: Build for Solana SBF target
+        run: ./solana-zig/zig build -Dtarget=sbf-solana --summary all

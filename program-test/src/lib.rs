@@ -165,6 +165,33 @@ pub struct ComputeBudgetTestVector {
     pub value: u64,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Ed25519VerifyTestVector {
+    pub name: String,
+    pub pubkey: Vec<u8>,
+    pub message: Vec<u8>,
+    pub signature: Vec<u8>,
+    pub valid: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct MessageHeaderTestVector {
+    pub name: String,
+    pub num_required_signatures: u8,
+    pub num_readonly_signed_accounts: u8,
+    pub num_readonly_unsigned_accounts: u8,
+    pub encoded: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct CompiledInstructionTestVector {
+    pub name: String,
+    pub program_id_index: u8,
+    pub accounts: Vec<u8>,
+    pub data: Vec<u8>,
+    pub encoded: Vec<u8>,
+}
+
 pub fn generate_pubkey_vectors(output_dir: &Path) {
     let bpf_loader_upgradeable_id =
         Pubkey::from_str_const("BPFLoaderUpgradeab1e11111111111111111111111");
@@ -1080,6 +1107,202 @@ pub fn generate_compute_budget_vectors(output_dir: &Path) {
     fs::write(output_dir.join("compute_budget_vectors.json"), json).unwrap();
 }
 
+pub fn generate_ed25519_verify_vectors(output_dir: &Path) {
+    let mut vectors: Vec<Ed25519VerifyTestVector> = Vec::new();
+
+    let keypair = Keypair::new();
+    let message = b"test message for signature verification";
+    let signature = keypair.sign_message(message);
+
+    vectors.push(Ed25519VerifyTestVector {
+        name: "valid_signature".to_string(),
+        pubkey: keypair.pubkey().to_bytes().to_vec(),
+        message: message.to_vec(),
+        signature: <[u8; 64]>::from(signature).to_vec(),
+        valid: true,
+    });
+
+    let wrong_message = b"wrong message";
+    vectors.push(Ed25519VerifyTestVector {
+        name: "wrong_message".to_string(),
+        pubkey: keypair.pubkey().to_bytes().to_vec(),
+        message: wrong_message.to_vec(),
+        signature: <[u8; 64]>::from(signature).to_vec(),
+        valid: false,
+    });
+
+    let other_keypair = Keypair::new();
+    vectors.push(Ed25519VerifyTestVector {
+        name: "wrong_pubkey".to_string(),
+        pubkey: other_keypair.pubkey().to_bytes().to_vec(),
+        message: message.to_vec(),
+        signature: <[u8; 64]>::from(signature).to_vec(),
+        valid: false,
+    });
+
+    let empty_message = b"";
+    let empty_sig = keypair.sign_message(empty_message);
+    vectors.push(Ed25519VerifyTestVector {
+        name: "empty_message".to_string(),
+        pubkey: keypair.pubkey().to_bytes().to_vec(),
+        message: empty_message.to_vec(),
+        signature: <[u8; 64]>::from(empty_sig).to_vec(),
+        valid: true,
+    });
+
+    let long_message = vec![0x42u8; 1000];
+    let long_sig = keypair.sign_message(&long_message);
+    vectors.push(Ed25519VerifyTestVector {
+        name: "long_message".to_string(),
+        pubkey: keypair.pubkey().to_bytes().to_vec(),
+        message: long_message,
+        signature: <[u8; 64]>::from(long_sig).to_vec(),
+        valid: true,
+    });
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("ed25519_verify_vectors.json"), json).unwrap();
+}
+
+pub fn generate_message_header_vectors(output_dir: &Path) {
+    use solana_sdk::message::MessageHeader;
+
+    let mut vectors: Vec<MessageHeaderTestVector> = Vec::new();
+
+    let header = MessageHeader {
+        num_required_signatures: 1,
+        num_readonly_signed_accounts: 0,
+        num_readonly_unsigned_accounts: 1,
+    };
+    vectors.push(MessageHeaderTestVector {
+        name: "simple_transfer".to_string(),
+        num_required_signatures: header.num_required_signatures,
+        num_readonly_signed_accounts: header.num_readonly_signed_accounts,
+        num_readonly_unsigned_accounts: header.num_readonly_unsigned_accounts,
+        encoded: vec![
+            header.num_required_signatures,
+            header.num_readonly_signed_accounts,
+            header.num_readonly_unsigned_accounts,
+        ],
+    });
+
+    let header = MessageHeader {
+        num_required_signatures: 2,
+        num_readonly_signed_accounts: 1,
+        num_readonly_unsigned_accounts: 3,
+    };
+    vectors.push(MessageHeaderTestVector {
+        name: "multi_sig".to_string(),
+        num_required_signatures: header.num_required_signatures,
+        num_readonly_signed_accounts: header.num_readonly_signed_accounts,
+        num_readonly_unsigned_accounts: header.num_readonly_unsigned_accounts,
+        encoded: vec![
+            header.num_required_signatures,
+            header.num_readonly_signed_accounts,
+            header.num_readonly_unsigned_accounts,
+        ],
+    });
+
+    let header = MessageHeader {
+        num_required_signatures: 0,
+        num_readonly_signed_accounts: 0,
+        num_readonly_unsigned_accounts: 0,
+    };
+    vectors.push(MessageHeaderTestVector {
+        name: "empty".to_string(),
+        num_required_signatures: header.num_required_signatures,
+        num_readonly_signed_accounts: header.num_readonly_signed_accounts,
+        num_readonly_unsigned_accounts: header.num_readonly_unsigned_accounts,
+        encoded: vec![0, 0, 0],
+    });
+
+    let header = MessageHeader {
+        num_required_signatures: 255,
+        num_readonly_signed_accounts: 128,
+        num_readonly_unsigned_accounts: 64,
+    };
+    vectors.push(MessageHeaderTestVector {
+        name: "max_values".to_string(),
+        num_required_signatures: header.num_required_signatures,
+        num_readonly_signed_accounts: header.num_readonly_signed_accounts,
+        num_readonly_unsigned_accounts: header.num_readonly_unsigned_accounts,
+        encoded: vec![255, 128, 64],
+    });
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("message_header_vectors.json"), json).unwrap();
+}
+
+pub fn generate_compiled_instruction_vectors(output_dir: &Path) {
+    let mut vectors: Vec<CompiledInstructionTestVector> = Vec::new();
+
+    fn encode_short_u16(val: u16) -> Vec<u8> {
+        if val < 0x80 {
+            vec![val as u8]
+        } else if val < 0x4000 {
+            vec![(val & 0x7f | 0x80) as u8, (val >> 7) as u8]
+        } else {
+            vec![
+                (val & 0x7f | 0x80) as u8,
+                ((val >> 7) & 0x7f | 0x80) as u8,
+                (val >> 14) as u8,
+            ]
+        }
+    }
+
+    let accounts: Vec<u8> = vec![0, 1];
+    let data: Vec<u8> = vec![2, 0, 0, 0, 0, 202, 154, 59, 0, 0, 0, 0];
+    let mut encoded: Vec<u8> = Vec::new();
+    encoded.push(2);
+    encoded.extend(encode_short_u16(accounts.len() as u16));
+    encoded.extend(&accounts);
+    encoded.extend(encode_short_u16(data.len() as u16));
+    encoded.extend(&data);
+
+    vectors.push(CompiledInstructionTestVector {
+        name: "transfer".to_string(),
+        program_id_index: 2,
+        accounts: accounts.clone(),
+        data: data.clone(),
+        encoded,
+    });
+
+    let accounts: Vec<u8> = vec![0];
+    let data: Vec<u8> = vec![3, 232, 3, 0, 0, 0, 0, 0, 0];
+    let mut encoded: Vec<u8> = Vec::new();
+    encoded.push(1);
+    encoded.extend(encode_short_u16(accounts.len() as u16));
+    encoded.extend(&accounts);
+    encoded.extend(encode_short_u16(data.len() as u16));
+    encoded.extend(&data);
+
+    vectors.push(CompiledInstructionTestVector {
+        name: "compute_budget".to_string(),
+        program_id_index: 1,
+        accounts: accounts.clone(),
+        data: data.clone(),
+        encoded,
+    });
+
+    let accounts: Vec<u8> = vec![];
+    let data: Vec<u8> = vec![];
+    let mut encoded: Vec<u8> = Vec::new();
+    encoded.push(0);
+    encoded.extend(encode_short_u16(accounts.len() as u16));
+    encoded.extend(encode_short_u16(data.len() as u16));
+
+    vectors.push(CompiledInstructionTestVector {
+        name: "empty".to_string(),
+        program_id_index: 0,
+        accounts,
+        data,
+        encoded,
+    });
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("compiled_instruction_vectors.json"), json).unwrap();
+}
+
 pub fn generate_all_vectors(output_dir: &Path) {
     fs::create_dir_all(output_dir).unwrap();
 
@@ -1101,6 +1324,9 @@ pub fn generate_all_vectors(output_dir: &Path) {
     generate_system_instruction_vectors(output_dir);
     generate_keccak256_vectors(output_dir);
     generate_compute_budget_vectors(output_dir);
+    generate_ed25519_verify_vectors(output_dir);
+    generate_message_header_vectors(output_dir);
+    generate_compiled_instruction_vectors(output_dir);
 
     println!("Generated all test vectors in {:?}", output_dir);
 }

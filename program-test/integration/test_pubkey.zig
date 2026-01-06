@@ -741,3 +741,109 @@ test "compute_budget: instruction encoding compatibility with Rust" {
         }
     }
 }
+
+const Ed25519VerifyTestVector = struct {
+    name: []const u8,
+    pubkey: [32]u8,
+    message: []const u8,
+    signature: [64]u8,
+    valid: bool,
+};
+
+test "ed25519: signature verification compatibility with Rust" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "ed25519_verify_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const Ed25519VerifyTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    const Ed25519 = std.crypto.sign.Ed25519;
+
+    for (parsed.value) |vector| {
+        const public_key = Ed25519.PublicKey.fromBytes(vector.pubkey) catch {
+            try std.testing.expect(!vector.valid);
+            continue;
+        };
+        const sig = Ed25519.Signature.fromBytes(vector.signature);
+
+        if (vector.valid) {
+            sig.verify(vector.message, public_key) catch {
+                return error.TestUnexpectedResult;
+            };
+        } else {
+            sig.verify(vector.message, public_key) catch {
+                continue;
+            };
+            return error.TestUnexpectedResult;
+        }
+    }
+}
+
+const MessageHeaderTestVector = struct {
+    name: []const u8,
+    num_required_signatures: u8,
+    num_readonly_signed_accounts: u8,
+    num_readonly_unsigned_accounts: u8,
+    encoded: []const u8,
+};
+
+test "message_header: encoding compatibility with Rust" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "message_header_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const MessageHeaderTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        const encoded = [3]u8{
+            vector.num_required_signatures,
+            vector.num_readonly_signed_accounts,
+            vector.num_readonly_unsigned_accounts,
+        };
+        try std.testing.expectEqualSlices(u8, vector.encoded, &encoded);
+    }
+}
+
+const CompiledInstructionTestVector = struct {
+    name: []const u8,
+    program_id_index: u8,
+    accounts: []const u8,
+    data: []const u8,
+    encoded: []const u8,
+};
+
+test "compiled_instruction: encoding compatibility with Rust" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "compiled_instruction_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const CompiledInstructionTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        var buf: [256]u8 = undefined;
+        var pos: usize = 0;
+
+        buf[pos] = vector.program_id_index;
+        pos += 1;
+
+        const accounts_len_bytes = short_vec.encodeU16(@intCast(vector.accounts.len), buf[pos..][0..3]);
+        pos += accounts_len_bytes;
+
+        @memcpy(buf[pos..][0..vector.accounts.len], vector.accounts);
+        pos += vector.accounts.len;
+
+        const data_len_bytes = short_vec.encodeU16(@intCast(vector.data.len), buf[pos..][0..3]);
+        pos += data_len_bytes;
+
+        @memcpy(buf[pos..][0..vector.data.len], vector.data);
+        pos += vector.data.len;
+
+        try std.testing.expectEqualSlices(u8, vector.encoded, buf[0..pos]);
+    }
+}

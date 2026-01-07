@@ -2130,3 +2130,98 @@ test "signer_seeds: PDA vector data is valid" {
         try std.testing.expect(vector.seeds.len <= 16);
     }
 }
+
+const VoteInitTestVector = struct {
+    name: []const u8,
+    node_pubkey: [32]u8,
+    authorized_voter: [32]u8,
+    authorized_withdrawer: [32]u8,
+    commission: u8,
+    serialized: []const u8,
+};
+
+test "vote_init: serialization format compatibility with Rust" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "vote_init_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const VoteInitTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        try std.testing.expectEqual(@as(usize, 97), vector.serialized.len);
+
+        try std.testing.expectEqualSlices(u8, &vector.node_pubkey, vector.serialized[0..32]);
+        try std.testing.expectEqualSlices(u8, &vector.authorized_voter, vector.serialized[32..64]);
+        try std.testing.expectEqualSlices(u8, &vector.authorized_withdrawer, vector.serialized[64..96]);
+        try std.testing.expectEqual(vector.commission, vector.serialized[96]);
+    }
+}
+
+const VoteStateConstantsTestVector = struct {
+    name: []const u8,
+    max_lockout_history: usize,
+    initial_lockout: usize,
+    max_epoch_credits_history: usize,
+    vote_credits_grace_slots: u8,
+    vote_credits_maximum_per_slot: u8,
+};
+
+test "vote_state_constants: constants match Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "vote_state_constants_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const VoteStateConstantsTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        try std.testing.expectEqual(@as(usize, 31), vector.max_lockout_history);
+        try std.testing.expectEqual(@as(usize, 2), vector.initial_lockout);
+        try std.testing.expectEqual(@as(usize, 64), vector.max_epoch_credits_history);
+        try std.testing.expectEqual(@as(u8, 2), vector.vote_credits_grace_slots);
+        try std.testing.expectEqual(@as(u8, 16), vector.vote_credits_maximum_per_slot);
+    }
+}
+
+const LookupTableMetaTestVector = struct {
+    name: []const u8,
+    deactivation_slot: u64,
+    last_extended_slot: u64,
+    last_extended_slot_start_index: u8,
+    authority_option: u8,
+    authority: ?[32]u8,
+    serialized: []const u8,
+};
+
+test "lookup_table_meta: serialization format compatibility with Rust" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "lookup_table_meta_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const LookupTableMetaTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        const deact_slot = std.mem.readInt(u64, vector.serialized[0..8], .little);
+        try std.testing.expectEqual(vector.deactivation_slot, deact_slot);
+
+        const last_ext_slot = std.mem.readInt(u64, vector.serialized[8..16], .little);
+        try std.testing.expectEqual(vector.last_extended_slot, last_ext_slot);
+
+        try std.testing.expectEqual(vector.last_extended_slot_start_index, vector.serialized[16]);
+        try std.testing.expectEqual(vector.authority_option, vector.serialized[17]);
+
+        if (vector.authority_option == 1) {
+            try std.testing.expectEqual(@as(usize, 52), vector.serialized.len);
+            if (vector.authority) |auth| {
+                try std.testing.expectEqualSlices(u8, &auth, vector.serialized[18..50]);
+            }
+        } else {
+            try std.testing.expectEqual(@as(usize, 20), vector.serialized.len);
+        }
+    }
+}

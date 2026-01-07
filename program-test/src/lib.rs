@@ -563,6 +563,37 @@ pub struct SignerSeedsTestVector {
     pub expected_bump: u8,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct VoteInitTestVector {
+    pub name: String,
+    pub node_pubkey: [u8; 32],
+    pub authorized_voter: [u8; 32],
+    pub authorized_withdrawer: [u8; 32],
+    pub commission: u8,
+    pub serialized: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct VoteStateConstantsTestVector {
+    pub name: String,
+    pub max_lockout_history: usize,
+    pub initial_lockout: usize,
+    pub max_epoch_credits_history: usize,
+    pub vote_credits_grace_slots: u8,
+    pub vote_credits_maximum_per_slot: u8,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct LookupTableMetaTestVector {
+    pub name: String,
+    pub deactivation_slot: u64,
+    pub last_extended_slot: u64,
+    pub last_extended_slot_start_index: u8,
+    pub authority_option: u8,
+    pub authority: Option<[u8; 32]>,
+    pub serialized: Vec<u8>,
+}
+
 pub fn generate_pubkey_vectors(output_dir: &Path) {
     let bpf_loader_upgradeable_id =
         Pubkey::from_str_const("BPFLoaderUpgradeab1e11111111111111111111111");
@@ -3799,6 +3830,150 @@ pub fn generate_signer_seeds_vectors(output_dir: &Path) {
     fs::write(output_dir.join("signer_seeds_vectors.json"), json).unwrap();
 }
 
+pub fn generate_vote_init_vectors(output_dir: &Path) {
+    use solana_vote_interface::state::VoteInit;
+
+    let mut vectors: Vec<VoteInitTestVector> = Vec::new();
+
+    let node = Pubkey::from_str_const("4rL4RCWHz3iNCdCaveD8KcHfV9YagGbXgSYq9QWPZ4Zx");
+    let voter = Pubkey::from_str_const("8opHzTAnfzRpPEx21XtnrVTX28YQuCpAjcn1PczScKh");
+    let withdrawer = Pubkey::from_str_const("CiDwVBFgWV9E5MvXWoLgnEgn2hK7rJikbvfWavzAQz3");
+
+    let vote_init = VoteInit {
+        node_pubkey: node,
+        authorized_voter: voter,
+        authorized_withdrawer: withdrawer,
+        commission: 10,
+    };
+    let serialized = bincode::serialize(&vote_init).unwrap();
+    vectors.push(VoteInitTestVector {
+        name: "basic_vote_init".to_string(),
+        node_pubkey: node.to_bytes(),
+        authorized_voter: voter.to_bytes(),
+        authorized_withdrawer: withdrawer.to_bytes(),
+        commission: 10,
+        serialized,
+    });
+
+    let vote_init_zero = VoteInit {
+        node_pubkey: node,
+        authorized_voter: voter,
+        authorized_withdrawer: withdrawer,
+        commission: 0,
+    };
+    let serialized_zero = bincode::serialize(&vote_init_zero).unwrap();
+    vectors.push(VoteInitTestVector {
+        name: "zero_commission".to_string(),
+        node_pubkey: node.to_bytes(),
+        authorized_voter: voter.to_bytes(),
+        authorized_withdrawer: withdrawer.to_bytes(),
+        commission: 0,
+        serialized: serialized_zero,
+    });
+
+    let vote_init_max = VoteInit {
+        node_pubkey: node,
+        authorized_voter: voter,
+        authorized_withdrawer: withdrawer,
+        commission: 100,
+    };
+    let serialized_max = bincode::serialize(&vote_init_max).unwrap();
+    vectors.push(VoteInitTestVector {
+        name: "max_commission".to_string(),
+        node_pubkey: node.to_bytes(),
+        authorized_voter: voter.to_bytes(),
+        authorized_withdrawer: withdrawer.to_bytes(),
+        commission: 100,
+        serialized: serialized_max,
+    });
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("vote_init_vectors.json"), json).unwrap();
+}
+
+pub fn generate_vote_state_constants_vectors(output_dir: &Path) {
+    use solana_vote_interface::state::{
+        INITIAL_LOCKOUT, MAX_EPOCH_CREDITS_HISTORY, MAX_LOCKOUT_HISTORY, VOTE_CREDITS_GRACE_SLOTS,
+        VOTE_CREDITS_MAXIMUM_PER_SLOT,
+    };
+
+    let vectors = vec![VoteStateConstantsTestVector {
+        name: "vote_state_constants".to_string(),
+        max_lockout_history: MAX_LOCKOUT_HISTORY,
+        initial_lockout: INITIAL_LOCKOUT,
+        max_epoch_credits_history: MAX_EPOCH_CREDITS_HISTORY,
+        vote_credits_grace_slots: VOTE_CREDITS_GRACE_SLOTS,
+        vote_credits_maximum_per_slot: VOTE_CREDITS_MAXIMUM_PER_SLOT,
+    }];
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("vote_state_constants_vectors.json"), json).unwrap();
+}
+
+pub fn generate_lookup_table_meta_vectors(output_dir: &Path) {
+    use solana_address_lookup_table_interface::state::LookupTableMeta;
+
+    let mut vectors: Vec<LookupTableMetaTestVector> = Vec::new();
+    let authority = Pubkey::from_str_const("4rL4RCWHz3iNCdCaveD8KcHfV9YagGbXgSYq9QWPZ4Zx");
+
+    let meta_active = LookupTableMeta {
+        deactivation_slot: u64::MAX,
+        last_extended_slot: 100,
+        last_extended_slot_start_index: 5,
+        authority: Some(authority),
+        _padding: 0,
+    };
+    let serialized = bincode::serialize(&meta_active).unwrap();
+    vectors.push(LookupTableMetaTestVector {
+        name: "active_with_authority".to_string(),
+        deactivation_slot: u64::MAX,
+        last_extended_slot: 100,
+        last_extended_slot_start_index: 5,
+        authority_option: 1,
+        authority: Some(authority.to_bytes()),
+        serialized,
+    });
+
+    let meta_deactivated = LookupTableMeta {
+        deactivation_slot: 50,
+        last_extended_slot: 40,
+        last_extended_slot_start_index: 10,
+        authority: Some(authority),
+        _padding: 0,
+    };
+    let serialized_deact = bincode::serialize(&meta_deactivated).unwrap();
+    vectors.push(LookupTableMetaTestVector {
+        name: "deactivated".to_string(),
+        deactivation_slot: 50,
+        last_extended_slot: 40,
+        last_extended_slot_start_index: 10,
+        authority_option: 1,
+        authority: Some(authority.to_bytes()),
+        serialized: serialized_deact,
+    });
+
+    let meta_frozen = LookupTableMeta {
+        deactivation_slot: u64::MAX,
+        last_extended_slot: 200,
+        last_extended_slot_start_index: 0,
+        authority: None,
+        _padding: 0,
+    };
+    let serialized_frozen = bincode::serialize(&meta_frozen).unwrap();
+    vectors.push(LookupTableMetaTestVector {
+        name: "frozen_no_authority".to_string(),
+        deactivation_slot: u64::MAX,
+        last_extended_slot: 200,
+        last_extended_slot_start_index: 0,
+        authority_option: 0,
+        authority: None,
+        serialized: serialized_frozen,
+    });
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("lookup_table_meta_vectors.json"), json).unwrap();
+}
+
 pub fn generate_sysvar_id_vectors(output_dir: &Path) {
     use solana_sdk::sysvar;
 
@@ -3920,6 +4095,9 @@ pub fn generate_all_vectors(output_dir: &Path) {
     generate_rent_exempt_vectors(output_dir);
     generate_bls_constants_vectors(output_dir);
     generate_signer_seeds_vectors(output_dir);
+    generate_vote_init_vectors(output_dir);
+    generate_vote_state_constants_vectors(output_dir);
+    generate_lookup_table_meta_vectors(output_dir);
 
     println!("Generated all test vectors in {:?}", output_dir);
 }

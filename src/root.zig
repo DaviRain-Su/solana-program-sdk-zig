@@ -104,6 +104,9 @@ pub const bls_signatures = @import("bls_signatures.zig");
 pub const loader_v4 = @import("loader_v4.zig");
 pub const secp256r1_program = @import("secp256r1_program.zig");
 
+// Phase 20: v2.0.0 - SPL Programs (re-exported from SDK)
+pub const spl = sdk.spl;
+
 const entrypoint_mod = @import("entrypoint.zig");
 // error_mod defined above from SDK
 

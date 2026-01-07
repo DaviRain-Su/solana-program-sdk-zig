@@ -611,6 +611,44 @@ pub struct NonceConstantsTestVector {
     pub nonced_tx_marker_ix_index: u8,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct AltConstantsTestVector {
+    pub name: String,
+    pub max_addresses: usize,
+    pub meta_size: usize,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BpfLoaderStateSizesTestVector {
+    pub name: String,
+    pub uninitialized_size: usize,
+    pub buffer_size: usize,
+    pub program_size: usize,
+    pub programdata_size: usize,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Ed25519ConstantsTestVector {
+    pub name: String,
+    pub pubkey_size: usize,
+    pub signature_size: usize,
+    pub offsets_size: usize,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct EpochScheduleConstantsTestVector {
+    pub name: String,
+    pub default_slots_per_epoch: u64,
+    pub default_leader_schedule_slot_offset: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct AccountLimitsTestVector {
+    pub name: String,
+    pub max_permitted_data_increase: usize,
+    pub max_accounts: usize,
+}
+
 pub fn generate_pubkey_vectors(output_dir: &Path) {
     let bpf_loader_upgradeable_id =
         Pubkey::from_str_const("BPFLoaderUpgradeab1e11111111111111111111111");
@@ -4020,6 +4058,74 @@ pub fn generate_nonce_constants_vectors(output_dir: &Path) {
     fs::write(output_dir.join("nonce_constants_vectors.json"), json).unwrap();
 }
 
+pub fn generate_alt_constants_vectors(output_dir: &Path) {
+    use solana_address_lookup_table_interface::state::{
+        LOOKUP_TABLE_MAX_ADDRESSES, LOOKUP_TABLE_META_SIZE,
+    };
+
+    let vectors = vec![AltConstantsTestVector {
+        name: "alt_constants".to_string(),
+        max_addresses: LOOKUP_TABLE_MAX_ADDRESSES,
+        meta_size: LOOKUP_TABLE_META_SIZE,
+    }];
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("alt_constants_vectors.json"), json).unwrap();
+}
+
+pub fn generate_bpf_loader_state_sizes_vectors(output_dir: &Path) {
+    let vectors = vec![BpfLoaderStateSizesTestVector {
+        name: "bpf_loader_state_sizes".to_string(),
+        uninitialized_size: 4,
+        buffer_size: 37,
+        program_size: 36,
+        programdata_size: 45,
+    }];
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("bpf_loader_state_sizes_vectors.json"), json).unwrap();
+}
+
+pub fn generate_ed25519_constants_vectors(output_dir: &Path) {
+    let vectors = vec![Ed25519ConstantsTestVector {
+        name: "ed25519_constants".to_string(),
+        pubkey_size: 32,
+        signature_size: 64,
+        offsets_size: 14,
+    }];
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("ed25519_constants_vectors.json"), json).unwrap();
+}
+
+pub fn generate_epoch_schedule_constants_vectors(output_dir: &Path) {
+    let vectors = vec![EpochScheduleConstantsTestVector {
+        name: "epoch_schedule_constants".to_string(),
+        default_slots_per_epoch: 432_000,
+        default_leader_schedule_slot_offset: 432_000,
+    }];
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(
+        output_dir.join("epoch_schedule_constants_vectors.json"),
+        json,
+    )
+    .unwrap();
+}
+
+pub fn generate_account_limits_vectors(output_dir: &Path) {
+    use solana_sdk::account_info::MAX_PERMITTED_DATA_INCREASE;
+
+    let vectors = vec![AccountLimitsTestVector {
+        name: "account_limits".to_string(),
+        max_permitted_data_increase: MAX_PERMITTED_DATA_INCREASE,
+        max_accounts: 64,
+    }];
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("account_limits_vectors.json"), json).unwrap();
+}
+
 pub fn generate_sysvar_id_vectors(output_dir: &Path) {
     use solana_sdk::sysvar;
 
@@ -4146,6 +4252,11 @@ pub fn generate_all_vectors(output_dir: &Path) {
     generate_lookup_table_meta_vectors(output_dir);
     generate_compute_budget_constants_vectors(output_dir);
     generate_nonce_constants_vectors(output_dir);
+    generate_alt_constants_vectors(output_dir);
+    generate_bpf_loader_state_sizes_vectors(output_dir);
+    generate_ed25519_constants_vectors(output_dir);
+    generate_epoch_schedule_constants_vectors(output_dir);
+    generate_account_limits_vectors(output_dir);
 
     println!("Generated all test vectors in {:?}", output_dir);
 }

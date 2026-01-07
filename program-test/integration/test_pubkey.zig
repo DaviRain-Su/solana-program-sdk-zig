@@ -2273,3 +2273,114 @@ test "nonce_constants: constants match Rust SDK" {
         try std.testing.expectEqual(@as(u8, 0), vector.nonced_tx_marker_ix_index);
     }
 }
+
+const AltConstantsTestVector = struct {
+    name: []const u8,
+    max_addresses: usize,
+    meta_size: usize,
+};
+
+test "alt_constants: Address Lookup Table constants match Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "alt_constants_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const AltConstantsTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        try std.testing.expectEqual(@as(usize, 256), vector.max_addresses);
+        try std.testing.expectEqual(@as(usize, 56), vector.meta_size);
+    }
+}
+
+const BpfLoaderStateSizesTestVector = struct {
+    name: []const u8,
+    uninitialized_size: usize,
+    buffer_size: usize,
+    program_size: usize,
+    programdata_size: usize,
+};
+
+test "bpf_loader_state_sizes: state sizes match Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "bpf_loader_state_sizes_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const BpfLoaderStateSizesTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        try std.testing.expectEqual(@as(usize, 4), vector.uninitialized_size);
+        try std.testing.expectEqual(@as(usize, 37), vector.buffer_size);
+        try std.testing.expectEqual(@as(usize, 36), vector.program_size);
+        try std.testing.expectEqual(@as(usize, 45), vector.programdata_size);
+    }
+}
+
+const Ed25519ConstantsTestVector = struct {
+    name: []const u8,
+    pubkey_size: usize,
+    signature_size: usize,
+    offsets_size: usize,
+};
+
+test "ed25519_constants: Ed25519 program constants match Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "ed25519_constants_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const Ed25519ConstantsTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        try std.testing.expectEqual(@as(usize, 32), vector.pubkey_size);
+        try std.testing.expectEqual(@as(usize, 64), vector.signature_size);
+        try std.testing.expectEqual(@as(usize, 14), vector.offsets_size);
+    }
+}
+
+const EpochScheduleConstantsTestVector = struct {
+    name: []const u8,
+    default_slots_per_epoch: u64,
+    default_leader_schedule_slot_offset: u64,
+};
+
+test "epoch_schedule_constants: EpochSchedule defaults match Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "epoch_schedule_constants_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const EpochScheduleConstantsTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        try std.testing.expectEqual(@as(u64, 432_000), vector.default_slots_per_epoch);
+        try std.testing.expectEqual(@as(u64, 432_000), vector.default_leader_schedule_slot_offset);
+    }
+}
+
+const AccountLimitsTestVector = struct {
+    name: []const u8,
+    max_permitted_data_increase: usize,
+    max_accounts: usize,
+};
+
+test "account_limits: account limits match Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "account_limits_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const AccountLimitsTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        try std.testing.expectEqual(@as(usize, 10 * 1024), vector.max_permitted_data_increase);
+        try std.testing.expectEqual(@as(usize, 64), vector.max_accounts);
+    }
+}

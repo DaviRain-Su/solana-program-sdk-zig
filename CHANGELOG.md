@@ -2,6 +2,39 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+## [v2.3.0] - 2026-01-07 - SPL Memo Program
+
+**Goal**: Implement SPL Memo program interface for attaching UTF-8 text to transactions
+
+### Added
+
+#### SPL Memo Program (`sdk/src/spl/memo.zig`)
+- `MEMO_PROGRAM_ID` - Current Memo program ID (v2/v3)
+- `MEMO_V1_PROGRAM_ID` - Legacy Memo program ID (v1)
+- `MemoInstruction` struct - Memo instruction builder
+  - `init()` - Create memo instruction (no validation)
+  - `initValidated()` - Create memo instruction with UTF-8 validation
+  - `getData()` - Get raw UTF-8 instruction data
+  - `getProgramId()` - Get memo program ID
+  - `createSignerAccounts()` - Create AccountMeta array for signers
+- `isValidUtf8()` - Validate UTF-8 data
+- `findInvalidUtf8Position()` - Find position of invalid UTF-8 byte
+
+#### Module Exports
+- Updated `sdk/src/spl/root.zig` to export `memo` module
+- Added `MEMO_PROGRAM_ID` convenience re-export
+
+### Documentation
+- Created `stories/v2.3.0-memo-program.md` - Story file with acceptance criteria
+- Updated `ROADMAP.md` - Marked v2.3.0 as complete
+
+### Tests
+- SDK: 196 tests (11 new memo tests)
+- Program SDK: 294 tests
+- **Total: 620+ tests**
+
+---
+
 ## [v2.0.0] - 2026-01-07 - SPL Token & Associated Token Account
 
 **Goal**: Implement SPL Token program interface for the Zig Client SDK

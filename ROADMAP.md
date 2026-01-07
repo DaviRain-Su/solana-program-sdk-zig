@@ -625,7 +625,7 @@ Implement Solana's core staking program interface.
 
 ---
 
-### ⏳ v2.3.0 - Memo Program
+### ✅ v2.3.0 - Memo Program
 
 Simple utility program for on-chain memos.
 
@@ -635,19 +635,31 @@ Simple utility program for on-chain memos.
 
 | Module | Description | Status |
 |--------|-------------|--------|
-| `spl/memo.zig` | Memo instruction builder | ⏳ |
+| `spl/memo.zig` | Memo instruction builder | ✅ |
 
 **Features**:
-- UTF-8 validation
-- Optional signer verification
-- Token-2022 memo transfer extension integration
+- ✅ UTF-8 validation (`isValidUtf8`, `findInvalidUtf8Position`)
+- ✅ Optional signer verification (`createSignerAccounts`)
+- ✅ MemoInstruction builder with `init` and `initValidated`
+- ✅ Both v1 and v2/v3 program IDs (`MEMO_PROGRAM_ID`, `MEMO_V1_PROGRAM_ID`)
+- ✅ 11 unit tests covering UTF-8 validation, emoji handling, and signer accounts
 
-**Implementation** (simple - good first SPL program):
+**Implementation**:
 ```zig
-pub fn buildMemo(memo: []const u8, signers: []const Pubkey) Instruction {
-    // data = raw UTF-8 bytes (no discriminator)
-    // accounts = signers (all must be signers if provided)
-}
+const memo = sdk.spl.memo;
+
+// Create memo instruction (no UTF-8 validation)
+const memo_ix = memo.MemoInstruction.init("Hello, Solana!");
+
+// Create memo instruction with UTF-8 validation
+const memo_ix = try memo.MemoInstruction.initValidated("🐆");
+
+// Get instruction data (raw UTF-8 bytes)
+const data = memo_ix.getData();
+
+// Create signer account metas
+var buffer: [10]AccountMeta = undefined;
+const accounts = memo.MemoInstruction.createSignerAccounts(&signers, &buffer);
 ```
 
 ---

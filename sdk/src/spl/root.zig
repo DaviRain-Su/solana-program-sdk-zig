@@ -6,14 +6,21 @@
 //! ## Included Programs
 //!
 //! - `token` - SPL Token program types (Mint, Account, Multisig, instructions)
+//! - `memo` - SPL Memo program for attaching UTF-8 text to transactions
 //!
 //! ## Usage
 //!
 //! ```zig
 //! const sdk = @import("solana_sdk");
+//!
+//! // Token
 //! const Mint = sdk.spl.token.Mint;
 //! const Account = sdk.spl.token.Account;
 //! const TokenInstruction = sdk.spl.token.TokenInstruction;
+//!
+//! // Memo
+//! const memo = sdk.spl.memo;
+//! const memo_ix = memo.MemoInstruction.init("Hello!");
 //! ```
 
 const std = @import("std");
@@ -21,8 +28,12 @@ const std = @import("std");
 // SPL Token Program
 pub const token = @import("token/root.zig");
 
+// SPL Memo Program
+pub const memo = @import("memo.zig");
+
 // Convenience re-exports
 pub const TOKEN_PROGRAM_ID = token.TOKEN_PROGRAM_ID;
+pub const MEMO_PROGRAM_ID = memo.MEMO_PROGRAM_ID;
 
 test {
     std.testing.refAllDecls(@This());

@@ -124,25 +124,26 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 
 ---
 
-## 🔮 v1.1.0 - Client SDK (Planned)
+## 🔨 v1.1.0 - Client SDK (In Progress)
 
-The following client-side modules are planned for implementation in `client/`:
+The following client-side modules are implemented in `client/`:
 
-### RPC Methods (52 total)
+### RPC Methods (24/52 implemented)
 
-| Priority | Count | Examples |
-|----------|-------|----------|
-| **P0** | 6 | `getBalance`, `getAccountInfo`, `getLatestBlockhash`, `sendTransaction` |
-| **P1** | 18 | `getMultipleAccounts`, `simulateTransaction`, `requestAirdrop` |
-| **P2** | 28 | Remaining methods |
+| Priority | Count | Status | Examples |
+|----------|-------|--------|----------|
+| **P0** | 6/6 | ✅ Complete | `getBalance`, `getAccountInfo`, `getLatestBlockhash`, `sendTransaction` |
+| **P1** | 18/18 | ✅ Complete | `getMultipleAccounts`, `simulateTransaction`, `requestAirdrop`, `getBlock` |
+| **P2** | 0/28 | ⏳ Planned | Remaining methods |
 
 ### Infrastructure
 | Module | Description | Status |
 |--------|-------------|--------|
-| `client/src/json_rpc.zig` | JSON-RPC 2.0 client | ⏳ Planned |
-| `client/src/error.zig` | RPC error types | ⏳ Planned |
-| `client/src/commitment.zig` | Commitment levels | ⏳ Planned |
-| `client/src/types.zig` | Response types | ⏳ Planned |
+| `client/src/json_rpc.zig` | JSON-RPC 2.0 client | ✅ Complete |
+| `client/src/error.zig` | RPC error types | ✅ Complete |
+| `client/src/commitment.zig` | Commitment levels | ✅ Complete |
+| `client/src/types.zig` | Response types | ✅ Complete |
+| `client/src/rpc_client.zig` | Main RPC client | ✅ Complete (P0+P1) |
 
 ### Transaction Building
 | Module | Description | Status |
@@ -195,7 +196,7 @@ The SDK has been restructured into a two-layer architecture for better separatio
 |-------|------|--------|
 | Phase 1 | Extract shared types to `sdk/` directory | ✅ Complete |
 | Phase 2 | Refactor program-sdk to depend on sdk/ | ✅ Complete |
-| Phase 3 | Create client-sdk with RPC client | ⏳ Planned (v1.1.0) |
+| Phase 3 | Create client-sdk with RPC client | 🔨 In Progress (v1.1.0) |
 
 > **See**: `stories/v1.0.0-sdk-restructure.md` for implementation details.
 

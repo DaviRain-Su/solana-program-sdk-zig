@@ -258,7 +258,7 @@ pub fn initializeMultisig(
     accounts[0] = AccountMeta.newWritable(multisig);
     accounts[1] = AccountMeta.newReadonly(RENT_SYSVAR);
 
-    const num_signers = @min(signers.len, state.MAX_SIGNERS);
+    const num_signers = @min(signers.len, MAX_SIGNERS);
     for (signers[0..num_signers], 0..) |signer, i| {
         accounts[2 + i] = AccountMeta.newReadonly(signer);
     }

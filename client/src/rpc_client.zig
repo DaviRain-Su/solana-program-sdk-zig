@@ -121,12 +121,13 @@ pub const RpcClient = struct {
 
     /// Get the balance with specific commitment
     pub fn getBalanceWithCommitment(self: *RpcClient, pubkey: PublicKey, commitment: Commitment) !Response(u64) {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 2);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 2);
         defer params_arr.deinit();
 
         // Add pubkey
-        const pubkey_str = pubkey.toBase58();
-        params_arr.appendAssumeCapacity(jsonString(&pubkey_str));
+        var pubkey_buf: [PublicKey.max_base58_len]u8 = undefined;
+        const pubkey_str = pubkey.toBase58(&pubkey_buf);
+        params_arr.appendAssumeCapacity(jsonString(pubkey_str));
 
         // Add config object
         var config = jsonObject(self.allocator);
@@ -150,11 +151,12 @@ pub const RpcClient = struct {
 
     /// Get account information with specific commitment
     pub fn getAccountInfoWithCommitment(self: *RpcClient, pubkey: PublicKey, commitment: Commitment) !Response(?AccountInfo) {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 2);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 2);
         defer params_arr.deinit();
 
-        const pubkey_str = pubkey.toBase58();
-        params_arr.appendAssumeCapacity(jsonString(&pubkey_str));
+        var pubkey_buf: [PublicKey.max_base58_len]u8 = undefined;
+        const pubkey_str = pubkey.toBase58(&pubkey_buf);
+        params_arr.appendAssumeCapacity(jsonString(pubkey_str));
 
         var config = jsonObject(self.allocator);
         defer config.deinit();
@@ -178,7 +180,7 @@ pub const RpcClient = struct {
 
     /// Get the latest blockhash with specific commitment
     pub fn getLatestBlockhashWithCommitment(self: *RpcClient, commitment: Commitment) !Response(LatestBlockhash) {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 1);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 1);
         defer params_arr.deinit();
 
         var config = jsonObject(self.allocator);
@@ -196,7 +198,7 @@ pub const RpcClient = struct {
     ///
     /// RPC Method: `getMinimumBalanceForRentExemption`
     pub fn getMinimumBalanceForRentExemption(self: *RpcClient, data_len: usize) !u64 {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 1);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 1);
         defer params_arr.deinit();
 
         params_arr.appendAssumeCapacity(jsonInt(@intCast(data_len)));
@@ -224,7 +226,7 @@ pub const RpcClient = struct {
 
     /// Send transaction with configuration
     pub fn sendTransactionWithConfig(self: *RpcClient, transaction: []const u8, config: SendTransactionConfig) !Signature {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 2);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 2);
         defer params_arr.deinit();
 
         // Base64 encode the transaction
@@ -267,15 +269,16 @@ pub const RpcClient = struct {
     }
 
     fn getSignatureStatusesWithConfig(self: *RpcClient, signatures: []const Signature, search_history: bool) ![]?TransactionStatus {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 2);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 2);
         defer params_arr.deinit();
 
         // Build signatures array
-        var sig_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, signatures.len);
+        var sig_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, signatures.len);
         defer sig_arr.deinit();
         for (signatures) |sig| {
-            const sig_str = sig.toBase58();
-            sig_arr.appendAssumeCapacity(jsonString(&sig_str));
+            var sig_buf: [sdk.signature.MAX_BASE58_LEN]u8 = undefined;
+            const sig_str = sig.toBase58(&sig_buf);
+            sig_arr.appendAssumeCapacity(jsonString(sig_str));
         }
         params_arr.appendAssumeCapacity(.{ .array = sig_arr });
 
@@ -301,15 +304,16 @@ pub const RpcClient = struct {
     ///
     /// RPC Method: `getMultipleAccounts`
     pub fn getMultipleAccounts(self: *RpcClient, pubkeys: []const PublicKey) ![]?AccountInfo {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 2);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 2);
         defer params_arr.deinit();
 
         // Build pubkeys array
-        var pk_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, pubkeys.len);
+        var pk_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, pubkeys.len);
         defer pk_arr.deinit();
         for (pubkeys) |pk| {
-            const pk_str = pk.toBase58();
-            pk_arr.appendAssumeCapacity(jsonString(&pk_str));
+            var pk_buf: [PublicKey.max_base58_len]u8 = undefined;
+            const pk_str = pk.toBase58(&pk_buf);
+            pk_arr.appendAssumeCapacity(jsonString(pk_str));
         }
         params_arr.appendAssumeCapacity(.{ .array = pk_arr });
 
@@ -330,7 +334,7 @@ pub const RpcClient = struct {
     ///
     /// RPC Method: `simulateTransaction`
     pub fn simulateTransaction(self: *RpcClient, transaction: []const u8) !SimulateTransactionResult {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 2);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 2);
         defer params_arr.deinit();
 
         const encoded = try base64Encode(self.allocator, transaction);
@@ -353,11 +357,12 @@ pub const RpcClient = struct {
     ///
     /// RPC Method: `requestAirdrop`
     pub fn requestAirdrop(self: *RpcClient, pubkey: PublicKey, lamports: u64) !Signature {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 2);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 2);
         defer params_arr.deinit();
 
-        const pubkey_str = pubkey.toBase58();
-        params_arr.appendAssumeCapacity(jsonString(&pubkey_str));
+        var pubkey_buf: [PublicKey.max_base58_len]u8 = undefined;
+        const pubkey_str = pubkey.toBase58(&pubkey_buf);
+        params_arr.appendAssumeCapacity(jsonString(pubkey_str));
         params_arr.appendAssumeCapacity(jsonInt(@intCast(lamports)));
 
         const result = try self.json_rpc.call(self.allocator, "requestAirdrop", .{ .array = params_arr });
@@ -370,7 +375,7 @@ pub const RpcClient = struct {
     ///
     /// RPC Method: `getSlot`
     pub fn getSlot(self: *RpcClient) !u64 {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 1);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 1);
         defer params_arr.deinit();
 
         var cfg = jsonObject(self.allocator);
@@ -388,7 +393,7 @@ pub const RpcClient = struct {
     ///
     /// RPC Method: `getBlockHeight`
     pub fn getBlockHeight(self: *RpcClient) !u64 {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 1);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 1);
         defer params_arr.deinit();
 
         var cfg = jsonObject(self.allocator);
@@ -406,7 +411,7 @@ pub const RpcClient = struct {
     ///
     /// RPC Method: `getEpochInfo`
     pub fn getEpochInfo(self: *RpcClient) !sdk.EpochInfo {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 1);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 1);
         defer params_arr.deinit();
 
         var cfg = jsonObject(self.allocator);
@@ -451,11 +456,12 @@ pub const RpcClient = struct {
     ///
     /// RPC Method: `isBlockhashValid`
     pub fn isBlockhashValid(self: *RpcClient, blockhash: Hash) !bool {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 2);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 2);
         defer params_arr.deinit();
 
-        const hash_str = blockhash.toBase58();
-        params_arr.appendAssumeCapacity(jsonString(&hash_str));
+        var hash_buf: [sdk.hash.MAX_BASE58_LEN]u8 = undefined;
+        const hash_str = blockhash.toBase58(&hash_buf);
+        params_arr.appendAssumeCapacity(jsonString(hash_str));
 
         var cfg = jsonObject(self.allocator);
         defer cfg.deinit();
@@ -474,7 +480,7 @@ pub const RpcClient = struct {
     ///
     /// RPC Method: `getFeeForMessage`
     pub fn getFeeForMessage(self: *RpcClient, message: []const u8) !?u64 {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 2);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 2);
         defer params_arr.deinit();
 
         const encoded = try base64Encode(self.allocator, message);
@@ -499,15 +505,16 @@ pub const RpcClient = struct {
     ///
     /// RPC Method: `getRecentPrioritizationFees`
     pub fn getRecentPrioritizationFees(self: *RpcClient, accounts: ?[]const PublicKey) ![]PrioritizationFee {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 1);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 1);
         defer params_arr.deinit();
 
         if (accounts) |accts| {
-            var pk_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, accts.len);
+            var pk_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, accts.len);
             defer pk_arr.deinit();
             for (accts) |pk| {
-                const pk_str = pk.toBase58();
-                pk_arr.appendAssumeCapacity(jsonString(&pk_str));
+                var pk_buf: [PublicKey.max_base58_len]u8 = undefined;
+                const pk_str = pk.toBase58(&pk_buf);
+                pk_arr.appendAssumeCapacity(jsonString(pk_str));
             }
             params_arr.appendAssumeCapacity(.{ .array = pk_arr });
         }
@@ -526,11 +533,12 @@ pub const RpcClient = struct {
     ///
     /// RPC Method: `getTokenAccountBalance`
     pub fn getTokenAccountBalance(self: *RpcClient, pubkey: PublicKey) !TokenBalance {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 2);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 2);
         defer params_arr.deinit();
 
-        const pubkey_str = pubkey.toBase58();
-        params_arr.appendAssumeCapacity(jsonString(&pubkey_str));
+        var pubkey_buf: [PublicKey.max_base58_len]u8 = undefined;
+        const pubkey_str = pubkey.toBase58(&pubkey_buf);
+        params_arr.appendAssumeCapacity(jsonString(pubkey_str));
 
         var cfg = jsonObject(self.allocator);
         defer cfg.deinit();
@@ -577,11 +585,12 @@ pub const RpcClient = struct {
 
     /// Get program accounts with configuration
     pub fn getProgramAccountsWithConfig(self: *RpcClient, program_id: PublicKey, config: GetProgramAccountsConfig) ![]ProgramAccount {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 2);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 2);
         defer params_arr.deinit();
 
-        const program_str = program_id.toBase58();
-        params_arr.appendAssumeCapacity(jsonString(&program_str));
+        var program_buf: [PublicKey.max_base58_len]u8 = undefined;
+        const program_str = program_id.toBase58(&program_buf);
+        params_arr.appendAssumeCapacity(jsonString(program_str));
 
         var cfg = jsonObject(self.allocator);
         defer cfg.deinit();
@@ -637,11 +646,12 @@ pub const RpcClient = struct {
 
     /// Get transaction with configuration
     pub fn getTransactionWithConfig(self: *RpcClient, signature: Signature, config: GetTransactionConfig) !?TransactionWithMeta {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 2);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 2);
         defer params_arr.deinit();
 
-        const sig_str = signature.toBase58();
-        params_arr.appendAssumeCapacity(jsonString(&sig_str));
+        var sig_buf: [sdk.signature.MAX_BASE58_LEN]u8 = undefined;
+        const sig_str = signature.toBase58(&sig_buf);
+        params_arr.appendAssumeCapacity(jsonString(sig_str));
 
         var cfg = jsonObject(self.allocator);
         defer cfg.deinit();
@@ -662,23 +672,26 @@ pub const RpcClient = struct {
     ///
     /// RPC Method: `getTokenAccountsByOwner`
     pub fn getTokenAccountsByOwner(self: *RpcClient, owner: PublicKey, filter: TokenAccountFilter) ![]TokenAccount {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 3);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 3);
         defer params_arr.deinit();
 
-        const owner_str = owner.toBase58();
-        params_arr.appendAssumeCapacity(jsonString(&owner_str));
+        var owner_buf: [PublicKey.max_base58_len]u8 = undefined;
+        const owner_str = owner.toBase58(&owner_buf);
+        params_arr.appendAssumeCapacity(jsonString(owner_str));
 
         // Filter object
         var filter_obj = jsonObject(self.allocator);
         defer filter_obj.deinit();
         switch (filter) {
             .mint => |mint| {
-                const mint_str = mint.toBase58();
-                try filter_obj.put("mint", jsonString(&mint_str));
+                var mint_buf: [PublicKey.max_base58_len]u8 = undefined;
+                const mint_str = mint.toBase58(&mint_buf);
+                try filter_obj.put("mint", jsonString(mint_str));
             },
             .program_id => |program| {
-                const program_str = program.toBase58();
-                try filter_obj.put("programId", jsonString(&program_str));
+                var program_buf2: [PublicKey.max_base58_len]u8 = undefined;
+                const program_str = program.toBase58(&program_buf2);
+                try filter_obj.put("programId", jsonString(program_str));
             },
         }
         params_arr.appendAssumeCapacity(.{ .object = filter_obj });
@@ -718,11 +731,12 @@ pub const RpcClient = struct {
 
     /// Get signatures for address with configuration
     pub fn getSignaturesForAddressWithConfig(self: *RpcClient, address: PublicKey, config: GetSignaturesConfig) ![]SignatureInfo {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 2);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 2);
         defer params_arr.deinit();
 
-        const addr_str = address.toBase58();
-        params_arr.appendAssumeCapacity(jsonString(&addr_str));
+        var addr_buf: [PublicKey.max_base58_len]u8 = undefined;
+        const addr_str = address.toBase58(&addr_buf);
+        params_arr.appendAssumeCapacity(jsonString(addr_str));
 
         var cfg = jsonObject(self.allocator);
         defer cfg.deinit();
@@ -731,12 +745,14 @@ pub const RpcClient = struct {
             try cfg.put("limit", jsonInt(@intCast(limit)));
         }
         if (config.before) |before| {
-            const before_str = before.toBase58();
-            try cfg.put("before", jsonString(&before_str));
+            var before_buf: [sdk.signature.MAX_BASE58_LEN]u8 = undefined;
+            const before_str = before.toBase58(&before_buf);
+            try cfg.put("before", jsonString(before_str));
         }
         if (config.until) |until| {
-            const until_str = until.toBase58();
-            try cfg.put("until", jsonString(&until_str));
+            var until_buf: [sdk.signature.MAX_BASE58_LEN]u8 = undefined;
+            const until_str = until.toBase58(&until_buf);
+            try cfg.put("until", jsonString(until_str));
         }
         params_arr.appendAssumeCapacity(.{ .object = cfg });
 
@@ -750,11 +766,12 @@ pub const RpcClient = struct {
     ///
     /// RPC Method: `getTokenSupply`
     pub fn getTokenSupply(self: *RpcClient, mint: PublicKey) !TokenSupply {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 2);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 2);
         defer params_arr.deinit();
 
-        const mint_str = mint.toBase58();
-        params_arr.appendAssumeCapacity(jsonString(&mint_str));
+        var mint_buf: [PublicKey.max_base58_len]u8 = undefined;
+        const mint_str = mint.toBase58(&mint_buf);
+        params_arr.appendAssumeCapacity(jsonString(mint_str));
 
         var cfg = jsonObject(self.allocator);
         defer cfg.deinit();
@@ -783,7 +800,7 @@ pub const RpcClient = struct {
 
     /// Get block with configuration
     pub fn getBlockWithConfig(self: *RpcClient, slot: u64, config: GetBlockConfig) !?Block {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 2);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 2);
         defer params_arr.deinit();
 
         params_arr.appendAssumeCapacity(jsonInt(@intCast(slot)));
@@ -815,7 +832,7 @@ pub const RpcClient = struct {
     ///
     /// RPC Method: `getBlockCommitment`
     pub fn getBlockCommitment(self: *RpcClient, slot: u64) !BlockCommitment {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 1);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 1);
         defer params_arr.deinit();
 
         params_arr.appendAssumeCapacity(jsonInt(@intCast(slot)));
@@ -833,7 +850,7 @@ pub const RpcClient = struct {
     ///
     /// RPC Method: `getBlocks`
     pub fn getBlocks(self: *RpcClient, start_slot: u64, end_slot: ?u64) ![]u64 {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 3);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 3);
         defer params_arr.deinit();
 
         params_arr.appendAssumeCapacity(jsonInt(@intCast(start_slot)));
@@ -861,7 +878,7 @@ pub const RpcClient = struct {
     ///
     /// RPC Method: `getBlocksWithLimit`
     pub fn getBlocksWithLimit(self: *RpcClient, start_slot: u64, limit: u64) ![]u64 {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 3);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 3);
         defer params_arr.deinit();
 
         params_arr.appendAssumeCapacity(jsonInt(@intCast(start_slot)));
@@ -887,7 +904,7 @@ pub const RpcClient = struct {
     ///
     /// RPC Method: `getBlockTime`
     pub fn getBlockTime(self: *RpcClient, slot: u64) !?i64 {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 1);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 1);
         defer params_arr.deinit();
 
         params_arr.appendAssumeCapacity(jsonInt(@intCast(slot)));
@@ -923,7 +940,7 @@ pub const RpcClient = struct {
 
     /// Get largest accounts with configuration
     pub fn getLargestAccountsWithConfig(self: *RpcClient, config: LargestAccountsConfig) ![]LargeAccount {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 1);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 1);
         defer params_arr.deinit();
 
         var cfg = jsonObject(self.allocator);
@@ -1006,7 +1023,7 @@ pub const RpcClient = struct {
     ///
     /// RPC Method: `getSlotLeader`
     pub fn getSlotLeader(self: *RpcClient) !PublicKey {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 1);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 1);
         defer params_arr.deinit();
 
         var cfg = jsonObject(self.allocator);
@@ -1024,7 +1041,7 @@ pub const RpcClient = struct {
     ///
     /// RPC Method: `getSlotLeaders`
     pub fn getSlotLeaders(self: *RpcClient, start_slot: u64, limit: u64) ![]PublicKey {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 2);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 2);
         defer params_arr.deinit();
 
         params_arr.appendAssumeCapacity(jsonInt(@intCast(start_slot)));
@@ -1045,7 +1062,7 @@ pub const RpcClient = struct {
     ///
     /// RPC Method: `getInflationGovernor`
     pub fn getInflationGovernor(self: *RpcClient) !InflationGovernor {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 1);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 1);
         defer params_arr.deinit();
 
         var cfg = jsonObject(self.allocator);
@@ -1086,15 +1103,16 @@ pub const RpcClient = struct {
     ///
     /// RPC Method: `getInflationReward`
     pub fn getInflationReward(self: *RpcClient, addresses: []const PublicKey, epoch: ?u64) ![]?InflationReward {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 2);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 2);
         defer params_arr.deinit();
 
         // Build addresses array
         var addr_arr = std.json.Array.init(self.allocator);
         defer addr_arr.deinit();
         for (addresses) |addr| {
-            const addr_str = addr.toBase58();
-            try addr_arr.append(jsonString(&addr_str));
+            var addr_buf: [PublicKey.max_base58_len]u8 = undefined;
+            const addr_str = addr.toBase58(&addr_buf);
+            try addr_arr.append(jsonString(addr_str));
         }
         params_arr.appendAssumeCapacity(.{ .array = addr_arr });
 
@@ -1117,7 +1135,7 @@ pub const RpcClient = struct {
     ///
     /// RPC Method: `getSupply`
     pub fn getSupply(self: *RpcClient) !Supply {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 1);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 1);
         defer params_arr.deinit();
 
         var cfg = jsonObject(self.allocator);
@@ -1135,7 +1153,7 @@ pub const RpcClient = struct {
     ///
     /// RPC Method: `getTransactionCount`
     pub fn getTransactionCount(self: *RpcClient) !u64 {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 1);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 1);
         defer params_arr.deinit();
 
         var cfg = jsonObject(self.allocator);
@@ -1153,7 +1171,7 @@ pub const RpcClient = struct {
     ///
     /// RPC Method: `getStakeMinimumDelegation`
     pub fn getStakeMinimumDelegation(self: *RpcClient) !u64 {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 1);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 1);
         defer params_arr.deinit();
 
         var cfg = jsonObject(self.allocator);
@@ -1172,7 +1190,7 @@ pub const RpcClient = struct {
     ///
     /// RPC Method: `getVoteAccounts`
     pub fn getVoteAccounts(self: *RpcClient) !VoteAccounts {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 1);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 1);
         defer params_arr.deinit();
 
         var cfg = jsonObject(self.allocator);
@@ -1190,7 +1208,7 @@ pub const RpcClient = struct {
     ///
     /// RPC Method: `getRecentPerformanceSamples`
     pub fn getRecentPerformanceSamples(self: *RpcClient, limit: ?u64) ![]PerformanceSample {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 1);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 1);
         defer params_arr.deinit();
 
         if (limit) |l| {
@@ -1211,11 +1229,12 @@ pub const RpcClient = struct {
     ///
     /// RPC Method: `getTokenLargestAccounts`
     pub fn getTokenLargestAccounts(self: *RpcClient, mint: PublicKey) ![]TokenLargestAccount {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 2);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 2);
         defer params_arr.deinit();
 
-        const mint_str = mint.toBase58();
-        params_arr.appendAssumeCapacity(jsonString(&mint_str));
+        var mint_buf: [PublicKey.max_base58_len]u8 = undefined;
+        const mint_str = mint.toBase58(&mint_buf);
+        params_arr.appendAssumeCapacity(jsonString(mint_str));
 
         var cfg = jsonObject(self.allocator);
         defer cfg.deinit();
@@ -1232,23 +1251,26 @@ pub const RpcClient = struct {
     ///
     /// RPC Method: `getTokenAccountsByDelegate`
     pub fn getTokenAccountsByDelegate(self: *RpcClient, delegate: PublicKey, filter: TokenAccountFilter) ![]TokenAccount {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 3);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 3);
         defer params_arr.deinit();
 
-        const delegate_str = delegate.toBase58();
-        params_arr.appendAssumeCapacity(jsonString(&delegate_str));
+        var delegate_buf: [PublicKey.max_base58_len]u8 = undefined;
+        const delegate_str = delegate.toBase58(&delegate_buf);
+        params_arr.appendAssumeCapacity(jsonString(delegate_str));
 
         // Filter object
         var filter_obj = jsonObject(self.allocator);
         defer filter_obj.deinit();
         switch (filter) {
             .mint => |mint| {
-                const mint_str = mint.toBase58();
-                try filter_obj.put("mint", jsonString(&mint_str));
+                var mint_buf: [PublicKey.max_base58_len]u8 = undefined;
+                const mint_str = mint.toBase58(&mint_buf);
+                try filter_obj.put("mint", jsonString(mint_str));
             },
             .program_id => |program| {
-                const program_str = program.toBase58();
-                try filter_obj.put("programId", jsonString(&program_str));
+                var program_buf2: [PublicKey.max_base58_len]u8 = undefined;
+                const program_str = program.toBase58(&program_buf2);
+                try filter_obj.put("programId", jsonString(program_str));
             },
         }
         params_arr.appendAssumeCapacity(.{ .object = filter_obj });
@@ -1311,15 +1333,16 @@ pub const RpcClient = struct {
 
     /// Get block production with configuration
     pub fn getBlockProductionWithConfig(self: *RpcClient, config: BlockProductionConfig) !BlockProductionInfo {
-        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 1);
+        var params_arr = try std.array_list.Managed(std.json.Value).initCapacity(self.allocator, 1);
         defer params_arr.deinit();
 
         var cfg = jsonObject(self.allocator);
         defer cfg.deinit();
         try cfg.put("commitment", jsonString(self.commitment.commitment.toJsonString()));
         if (config.identity) |id| {
-            const id_str = id.toBase58();
-            try cfg.put("identity", jsonString(&id_str));
+            var id_buf: [PublicKey.max_base58_len]u8 = undefined;
+            const id_str = id.toBase58(&id_buf);
+            try cfg.put("identity", jsonString(id_str));
         }
         if (config.first_slot) |slot| {
             var range_obj = jsonObject(self.allocator);
@@ -2062,7 +2085,7 @@ fn base64Encode(allocator: Allocator, data: []const u8) ![]u8 {
 }
 
 fn freeJsonValue(allocator: Allocator, value: std.json.Value) void {
-    // Free cloned JSON values (strings that were duplicated in cloneJsonValue)
+    // Free cloned JSON values (strings and keys that were duplicated in cloneJsonValue)
     switch (value) {
         .string => |s| {
             // Only free if it was allocated (cloned)
@@ -2078,9 +2101,11 @@ fn freeJsonValue(allocator: Allocator, value: std.json.Value) void {
         .object => |*obj| {
             var iter = obj.iterator();
             while (iter.next()) |entry| {
+                // Free the duplicated key
+                allocator.free(entry.key_ptr.*);
+                // Free the value
                 freeJsonValue(allocator, entry.value_ptr.*);
             }
-            // Note: object keys are not freed as they come from the original parsed JSON
             @constCast(obj).deinit();
         },
         else => {},
@@ -2682,4 +2707,564 @@ test "rpc_client: base64Encode binary data" {
     const encoded = try base64Encode(allocator, &data);
     defer allocator.free(encoded);
     try std.testing.expectEqualStrings("AAECA/8=", encoded);
+}
+
+// ============================================================================
+// Integration Tests (require local Solana testnet at localhost:8899)
+// ============================================================================
+// Run: solana-test-validator
+// These tests connect to a real RPC endpoint and verify actual responses.
+
+const LOCALNET_RPC = "http://localhost:8899";
+
+/// Check if local RPC is available
+fn isLocalRpcAvailable() bool {
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+    return client.isHealthy();
+}
+
+// ---- P0 Integration Tests ----
+
+test "integration: getHealth" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    try client.getHealth();
+}
+
+test "integration: isHealthy" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    const healthy = client.isHealthy();
+    try std.testing.expect(healthy);
+}
+
+test "integration: getVersion" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    const version = try client.getVersion();
+    // Version string should not be empty
+    try std.testing.expect(version.solana_core.len > 0);
+}
+
+test "integration: getSlot" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    const slot = try client.getSlot();
+    // Slot should be >= 0
+    try std.testing.expect(slot >= 0);
+}
+
+test "integration: getBlockHeight" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    const height = try client.getBlockHeight();
+    // Block height should be >= 0
+    try std.testing.expect(height >= 0);
+}
+
+test "integration: getLatestBlockhash" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    const blockhash = try client.getLatestBlockhash();
+    // Blockhash should not be default (all zeros)
+    try std.testing.expect(!std.mem.eql(u8, &blockhash.blockhash.bytes, &[_]u8{0} ** 32));
+    // Last valid block height should be > 0
+    try std.testing.expect(blockhash.last_valid_block_height > 0);
+}
+
+test "integration: getBalance" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    // Get balance of system program (always exists)
+    const system_program = PublicKey.default(); // 11111111111111111111111111111111
+    const balance = try client.getBalance(system_program);
+    // System program should have 1 lamport
+    try std.testing.expectEqual(@as(u64, 1), balance);
+}
+
+test "integration: getBalanceInSol" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    const system_program = PublicKey.default();
+    const balance_sol = try client.getBalanceInSol(system_program);
+    // Should be 0.000000001 SOL (1 lamport)
+    try std.testing.expect(balance_sol >= 0);
+}
+
+test "integration: getAccountInfo" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    // System program account info
+    const system_program = PublicKey.default();
+    const account_info = try client.getAccountInfo(system_program);
+    try std.testing.expect(account_info != null);
+    try std.testing.expectEqual(@as(u64, 1), account_info.?.lamports);
+    try std.testing.expectEqual(true, account_info.?.executable);
+}
+
+test "integration: getMinimumBalanceForRentExemption" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    const min_balance = try client.getMinimumBalanceForRentExemption(100);
+    // Minimum balance should be > 0
+    try std.testing.expect(min_balance > 0);
+}
+
+// ---- P1 Integration Tests ----
+
+test "integration: getEpochInfo" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    const epoch_info = try client.getEpochInfo();
+    // Slots in epoch should be > 0
+    try std.testing.expect(epoch_info.slots_in_epoch > 0);
+}
+
+test "integration: getCurrentSlot" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    const slot = try client.getCurrentSlot();
+    try std.testing.expect(slot >= 0);
+}
+
+test "integration: isBlockhashValid" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    // Get a recent blockhash and verify it's valid
+    const latest = try client.getLatestBlockhash();
+    const is_valid = try client.isBlockhashValid(latest.blockhash);
+    try std.testing.expect(is_valid);
+}
+
+test "integration: getMultipleAccounts" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    const system_program = PublicKey.default();
+    const accounts = try client.getMultipleAccounts(&.{system_program});
+    defer allocator.free(accounts);
+
+    try std.testing.expectEqual(@as(usize, 1), accounts.len);
+    try std.testing.expect(accounts[0] != null);
+}
+
+test "integration: getRecentPrioritizationFees" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    const fees = try client.getRecentPrioritizationFees(null);
+    defer allocator.free(fees);
+
+    // Should return some fees (may be empty on fresh testnet)
+    // Just verify the call succeeds
+}
+
+// ---- P2 Integration Tests ----
+
+test "integration: getGenesisHash" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    const genesis_hash = try client.getGenesisHash();
+    // Genesis hash should not be all zeros
+    try std.testing.expect(!std.mem.eql(u8, &genesis_hash.bytes, &[_]u8{0} ** 32));
+}
+
+test "integration: getIdentity" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    const identity = try client.getIdentity();
+    // Identity should not be all zeros
+    try std.testing.expect(!std.mem.eql(u8, &identity.bytes, &[_]u8{0} ** 32));
+}
+
+test "integration: getSlotLeader" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    const leader = try client.getSlotLeader();
+    // Leader should not be all zeros
+    try std.testing.expect(!std.mem.eql(u8, &leader.bytes, &[_]u8{0} ** 32));
+}
+
+test "integration: getClusterNodes" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    const nodes = try client.getClusterNodes();
+    defer allocator.free(nodes);
+
+    // Should have at least 1 node (the validator)
+    try std.testing.expect(nodes.len >= 1);
+}
+
+test "integration: getEpochSchedule" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    const schedule = try client.getEpochSchedule();
+    // Slots per epoch should be > 0
+    try std.testing.expect(schedule.slots_per_epoch > 0);
+}
+
+test "integration: getInflationGovernor" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    const governor = try client.getInflationGovernor();
+    // Initial inflation should be >= 0
+    try std.testing.expect(governor.initial >= 0);
+}
+
+test "integration: getInflationRate" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    const rate = try client.getInflationRate();
+    // Total rate should be >= 0
+    try std.testing.expect(rate.total >= 0);
+}
+
+test "integration: getSupply" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    const supply = client.getSupply() catch |err| {
+        // Some validators may not support this
+        if (err == ClientError.RpcError) return;
+        return err;
+    };
+    // Just verify the call succeeded - values may vary on different validators
+
+    if (supply.non_circulating_accounts.len > 0) {
+        allocator.free(supply.non_circulating_accounts);
+    }
+}
+
+test "integration: getTransactionCount" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    const count = try client.getTransactionCount();
+    // Transaction count should be >= 0
+    try std.testing.expect(count >= 0);
+}
+
+test "integration: getVoteAccounts" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    const vote_accounts = try client.getVoteAccounts();
+
+    // Free allocated memory
+    for (vote_accounts.current) |va| {
+        if (va.epoch_credits.len > 0) {
+            allocator.free(va.epoch_credits);
+        }
+    }
+    if (vote_accounts.current.len > 0) {
+        allocator.free(vote_accounts.current);
+    }
+    for (vote_accounts.delinquent) |va| {
+        if (va.epoch_credits.len > 0) {
+            allocator.free(va.epoch_credits);
+        }
+    }
+    if (vote_accounts.delinquent.len > 0) {
+        allocator.free(vote_accounts.delinquent);
+    }
+}
+
+test "integration: getRecentPerformanceSamples" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    const samples = try client.getRecentPerformanceSamples(5);
+    defer allocator.free(samples);
+
+    // May have samples if validator has been running for a while
+}
+
+test "integration: getFirstAvailableBlock" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    const first_block = try client.getFirstAvailableBlock();
+    // First available block should be >= 0
+    try std.testing.expect(first_block >= 0);
+}
+
+test "integration: minimumLedgerSlot" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    const min_slot = try client.minimumLedgerSlot();
+    // Minimum ledger slot should be >= 0
+    try std.testing.expect(min_slot >= 0);
+}
+
+test "integration: getStakeMinimumDelegation" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    const min_delegation = try client.getStakeMinimumDelegation();
+    // Minimum delegation should be >= 0 (may be 0 on some validators)
+    try std.testing.expect(min_delegation >= 0);
+}
+
+test "integration: getBlocks" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    // Get first available block to use as start
+    const first = try client.getFirstAvailableBlock();
+    const current = try client.getSlot();
+
+    if (current > first) {
+        const end_slot = @min(first + 10, current);
+        const blocks = try client.getBlocks(first, end_slot);
+        defer allocator.free(blocks);
+        // Should have some blocks
+    }
+}
+
+test "integration: getBlocksWithLimit" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    const first = try client.getFirstAvailableBlock();
+    const blocks = try client.getBlocksWithLimit(first, 5);
+    defer allocator.free(blocks);
+    // Should have up to 5 blocks
+}
+
+test "integration: getBlock" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    // Get a recent confirmed slot
+    const slot = try client.getSlot();
+    if (slot > 10) {
+        // Try to get a block from a few slots ago (more likely to be available)
+        const block = try client.getBlock(slot - 5);
+        if (block) |b| {
+            // Free allocated memory
+            if (b.transactions) |txs| {
+                allocator.free(txs);
+            }
+            if (b.rewards) |rewards| {
+                allocator.free(rewards);
+            }
+        }
+    }
+}
+
+test "integration: getBlockTime" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    const slot = try client.getSlot();
+    if (slot > 5) {
+        const block_time = client.getBlockTime(slot - 3) catch |err| {
+            // Some slots may not have block time available
+            if (err == ClientError.RpcError) return;
+            return err;
+        };
+        if (block_time) |time| {
+            // Block time should be a reasonable Unix timestamp (or 0 on some validators)
+            try std.testing.expect(time >= 0);
+        }
+    }
+}
+
+test "integration: getBlockCommitment" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    const slot = try client.getSlot();
+    const commitment = client.getBlockCommitment(slot) catch |err| {
+        // Some validators may not support this
+        if (err == ClientError.RpcError) return;
+        return err;
+    };
+    // Total stake should be >= 0
+    try std.testing.expect(commitment.total_stake >= 0);
+}
+
+test "integration: getBlockProduction" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    const production = try client.getBlockProduction();
+
+    // Free allocated memory
+    if (production.by_identity.len > 0) {
+        allocator.free(production.by_identity);
+    }
+
+    // Range should have valid slots
+    try std.testing.expect(production.range.last_slot >= production.range.first_slot);
+}
+
+test "integration: getLargestAccounts" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    const accounts = client.getLargestAccounts() catch |err| {
+        // Some validators may not support this or have rate limits
+        if (err == ClientError.RpcError) return;
+        return err;
+    };
+    defer allocator.free(accounts);
+
+    // Should have some accounts (may be empty on fresh validators)
+    // First account should have the most lamports
+    if (accounts.len > 1) {
+        try std.testing.expect(accounts[0].lamports >= accounts[1].lamports);
+    }
+}
+
+test "integration: getSignatureStatuses with empty" {
+    if (!isLocalRpcAvailable()) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var client = RpcClient.init(allocator, LOCALNET_RPC);
+    defer client.deinit();
+
+    // Use a random signature that doesn't exist
+    const fake_sig = Signature.default();
+    const statuses = client.getSignatureStatuses(&.{fake_sig}) catch |err| {
+        // Some validators may return error for empty/invalid signatures
+        if (err == ClientError.RpcError) return;
+        return err;
+    };
+    defer allocator.free(statuses);
+
+    try std.testing.expectEqual(@as(usize, 1), statuses.len);
+    // Fake signature should not be found
+    try std.testing.expect(statuses[0] == null);
 }

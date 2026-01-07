@@ -484,7 +484,7 @@ pub const BuiltTransaction = struct {
             // Find the position of this pubkey in account_keys
             for (self.message.account_keys[0..num_required], 0..) |account_key, i| {
                 if (std.mem.eql(u8, &pk.bytes, &account_key.bytes)) {
-                    self.signatures.?[i] = kp.sign(message_bytes);
+                    self.signatures.?[i] = kp.sign(message_bytes) catch return error.SigningFailed;
                     break;
                 }
             }

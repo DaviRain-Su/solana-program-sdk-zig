@@ -38,6 +38,8 @@ pub const SignerError = error{
     Protocol,
     /// User cancelled
     UserCancel,
+    /// Signing operation failed (e.g., invalid keypair)
+    SigningFailed,
 };
 
 /// The Signer interface for types that can sign messages.
@@ -107,7 +109,7 @@ fn keypairPubkey(ptr: *anyopaque) PublicKey {
 
 fn keypairSignMessage(ptr: *anyopaque, msg: []const u8) SignerError!Signature {
     const kp: *Keypair = @ptrCast(@alignCast(ptr));
-    return kp.sign(msg);
+    return kp.sign(msg) catch return SignerError.SigningFailed;
 }
 
 fn keypairIsInteractive(_: *anyopaque) bool {

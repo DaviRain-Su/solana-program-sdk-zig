@@ -121,6 +121,33 @@ pub const Signature = extern struct {
         }
         return Signature{ .bytes = buffer };
     }
+
+    // =========================================================================
+    // Rust API compatibility aliases
+    // =========================================================================
+
+    /// Rust compatibility alias for `from`
+    /// Rust equivalent: `Signature::new()`
+    pub const new = from;
+
+    /// Rust compatibility alias for `fromBase58`
+    /// Rust equivalent: `Signature::from_str()` (FromStr trait)
+    pub const fromStr = fromBase58;
+
+    /// Rust compatibility alias for `toBase58`
+    /// Rust equivalent: `Signature::to_string()` (Display trait)
+    /// Note: Returns a slice into the provided buffer
+    pub const toString = toBase58;
+
+    /// Rust compatibility alias for `asBytes`
+    /// Rust equivalent: `AsRef<[u8]>`
+    pub const asRef = asBytes;
+
+    /// Get the signature bytes as an owned array
+    /// Rust equivalent: `Signature::into_bytes()` / `to_bytes()`
+    pub fn toBytes(self: Signature) [SIGNATURE_BYTES]u8 {
+        return self.bytes;
+    }
 };
 
 // Tests
@@ -193,4 +220,30 @@ test "signature: as_array" {
 
     // Verify pointer is the same (no copy)
     try std.testing.expectEqual(@intFromPtr(&signature.bytes), @intFromPtr(signature.asArray()));
+}
+
+// ============================================================================
+// Rust API compatibility alias tests
+// ============================================================================
+
+test "signature: Rust API aliases" {
+    const bytes = [_]u8{1} ** SIGNATURE_BYTES;
+
+    // Test new() alias for from()
+    const sig1 = Signature.from(bytes);
+    const sig2 = Signature.new(bytes);
+    try std.testing.expectEqualSlices(u8, &sig1.bytes, &sig2.bytes);
+
+    // Test asRef() alias for asBytes()
+    try std.testing.expectEqualSlices(u8, sig1.asBytes(), sig1.asRef());
+
+    // Test toBytes()
+    const owned_bytes = sig1.toBytes();
+    try std.testing.expectEqualSlices(u8, &bytes, &owned_bytes);
+
+    // Test fromStr() and toString() aliases
+    var buffer: [MAX_BASE58_LEN]u8 = undefined;
+    const as_base58 = sig1.toString(&buffer);
+    const parsed = try Signature.fromStr(as_base58);
+    try std.testing.expectEqualSlices(u8, &sig1.bytes, &parsed.bytes);
 }

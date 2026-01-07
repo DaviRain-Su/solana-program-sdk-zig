@@ -48,6 +48,8 @@ pub const SignerError = error{
     KeyDerivationFailed,
     /// Memory allocation failed
     OutOfMemory,
+    /// Signing operation failed (e.g., invalid keypair)
+    SigningFailed,
 };
 
 /// A trait-like interface for types that can sign messages.
@@ -94,7 +96,7 @@ pub const Signer = struct {
 
             fn signFn(ctx: *anyopaque, message: []const u8) SignerError!Signature {
                 const keypair: *const Keypair = @ptrCast(@alignCast(ctx));
-                return keypair.sign(message);
+                return keypair.sign(message) catch return SignerError.SigningFailed;
             }
 
             fn isInteractiveFn(_: *anyopaque) bool {
@@ -182,6 +184,7 @@ pub fn partialSignTransaction(
     tx.sign(signers) catch |err| {
         return switch (err) {
             error.OutOfMemory => SignerError.OutOfMemory,
+            error.SigningFailed => SignerError.SigningFailed,
         };
     };
 }
@@ -263,7 +266,7 @@ pub fn signMessage(
     errdefer allocator.free(signatures);
 
     for (signers, 0..) |kp, i| {
-        signatures[i] = kp.sign(message);
+        signatures[i] = kp.sign(message) catch return error.SigningFailed;
     }
 
     return signatures;

@@ -58,23 +58,40 @@ pub const Keypair = struct {
     }
 
     /// Constructs a `Keypair` from 64 bytes (seed + public key format)
-    /// Rust equivalent: `Keypair::try_from(&[u8])`
+    ///
+    /// The 64 bytes are expected in Solana's standard format:
+    /// - bytes[0..32]: seed (private key seed)
+    /// - bytes[32..64]: public key
+    ///
+    /// This function validates that the public key in bytes[32..64] matches
+    /// the public key derived from the seed in bytes[0..32]. This matches
+    /// Rust's ed25519-dalek `Keypair::from_bytes` behavior which returns
+    /// an error if the embedded public key doesn't match.
+    ///
+    /// Rust equivalent: `Keypair::try_from(&[u8])` / `Keypair::from_bytes()`
     pub fn fromBytes(bytes: []const u8) !Keypair {
         if (bytes.len != KEYPAIR_LENGTH) {
             return error.InvalidKeypairLength;
         }
 
-        // Create SecretKey from the 64 bytes
-        var secret_bytes: [Ed25519.SecretKey.encoded_length]u8 = undefined;
-        @memcpy(&secret_bytes, bytes[0..KEYPAIR_LENGTH]);
+        // Extract seed (first 32 bytes) and embedded public key (last 32 bytes)
+        var seed_bytes: [SECRET_KEY_LENGTH]u8 = undefined;
+        @memcpy(&seed_bytes, bytes[0..SECRET_KEY_LENGTH]);
 
-        const secret_key = Ed25519.SecretKey.fromBytes(secret_bytes) catch {
-            return error.InvalidSecretKey;
+        var embedded_pubkey: [32]u8 = undefined;
+        @memcpy(&embedded_pubkey, bytes[SECRET_KEY_LENGTH..KEYPAIR_LENGTH]);
+
+        // Generate keypair from seed
+        const kp = Ed25519.KeyPair.generateDeterministic(seed_bytes) catch {
+            return error.InvalidSeed;
         };
 
-        const kp = Ed25519.KeyPair.fromSecretKey(secret_key) catch {
+        // Validate that the embedded public key matches the derived public key
+        // This is critical for security - matches Rust's ed25519-dalek behavior
+        const derived_pubkey = kp.public_key.toBytes();
+        if (!std.mem.eql(u8, &embedded_pubkey, &derived_pubkey)) {
             return error.PublicKeyMismatch;
-        };
+        }
 
         return .{ .inner = kp };
     }
@@ -98,11 +115,15 @@ pub const Keypair = struct {
     }
 
     /// Signs a message with this keypair
-    /// Rust equivalent: `Keypair::sign_message()`
-    pub fn sign(self: Keypair, message: []const u8) Signature {
+    ///
+    /// Returns a `Signature` on success, or an error if signing fails.
+    /// In practice, signing only fails if the keypair is invalid (which shouldn't
+    /// happen if the keypair was properly constructed).
+    ///
+    /// Rust equivalent: `Keypair::sign_message()` / `Signer::sign_message()`
+    pub fn sign(self: Keypair, message: []const u8) !Signature {
         const sig = self.inner.sign(message, null) catch {
-            // This should not happen with valid keypair, but return zero signature if it does
-            return Signature.default();
+            return error.SigningFailed;
         };
         return Signature.from(sig.toBytes());
     }
@@ -142,6 +163,38 @@ pub const Keypair = struct {
     pub fn zeroize(self: *Keypair) void {
         std.crypto.utils.secureZero(u8, &self.inner.secret_key.bytes);
     }
+
+    // =========================================================================
+    // Rust API compatibility aliases
+    // =========================================================================
+
+    /// Rust compatibility alias for `generate`
+    /// Rust equivalent: `Keypair::new()`
+    pub const new = generate;
+
+    /// Rust compatibility alias for `fromSeed`
+    /// Rust equivalent: `keypair_from_seed()`
+    pub const fromSeedBytes = fromSeed;
+
+    /// Rust compatibility alias for `fromBase58`
+    /// Rust equivalent: `Keypair::from_base58_string()`
+    pub const fromBase58String = fromBase58;
+
+    /// Rust compatibility alias for `toBase58`
+    /// Rust equivalent: `Keypair::to_base58_string()`
+    pub const toBase58String = toBase58;
+
+    /// Alias for secret() that returns the seed portion
+    /// Rust equivalent: `Keypair::secret()` returns reference to secret key
+    pub const secret = seed;
+
+    /// Rust compatibility alias for `sign`
+    /// Rust equivalent: `Keypair::sign_message()` / `Signer::sign_message()`
+    pub const signMessage = sign;
+
+    /// Rust compatibility alias: try_pubkey returns Result in Rust
+    /// In Zig, pubkey() is infallible for valid keypairs
+    pub const tryPubkey = pubkey;
 };
 
 // ============================================================================
@@ -188,14 +241,14 @@ test "keypair: sign and verify" {
     const pubkey = kp.pubkey();
 
     const message = [_]u8{1};
-    const sig = kp.sign(&message);
+    const sig = try kp.sign(&message);
 
     // Signature should be valid
     try sig.verify(&message, &pubkey.bytes);
 
     // Same keypair from same seed should produce same signature
     const kp2 = try Keypair.fromSeed(seed);
-    const sig2 = kp2.sign(&message);
+    const sig2 = try kp2.sign(&message);
     try std.testing.expectEqualSlices(u8, sig.asBytes(), sig2.asBytes());
 }
 
@@ -232,6 +285,51 @@ test "keypair: from bytes with invalid length" {
     try std.testing.expectError(error.InvalidKeypairLength, Keypair.fromBytes(&short_bytes));
 }
 
+// Rust test: Keypair::from_bytes rejects mismatched public key
+// This matches ed25519-dalek behavior where the embedded public key must match
+// the public key derived from the seed
+test "keypair: from bytes rejects mismatched public key" {
+    // Create a valid keypair
+    const valid_kp = Keypair.generate();
+    var bytes = valid_kp.toBytes();
+
+    // Corrupt the public key portion (last 32 bytes)
+    bytes[63] ^= 0xFF;
+    bytes[32] ^= 0x01;
+
+    // Should fail with PublicKeyMismatch
+    try std.testing.expectError(error.PublicKeyMismatch, Keypair.fromBytes(&bytes));
+}
+
+test "keypair: from bytes rejects completely wrong public key" {
+    // Create bytes with valid seed but completely different public key
+    const seed = [_]u8{42} ** 32;
+    const wrong_pubkey = [_]u8{0} ** 32;
+
+    var bytes: [KEYPAIR_LENGTH]u8 = undefined;
+    @memcpy(bytes[0..32], &seed);
+    @memcpy(bytes[32..64], &wrong_pubkey);
+
+    // Should fail with PublicKeyMismatch
+    try std.testing.expectError(error.PublicKeyMismatch, Keypair.fromBytes(&bytes));
+}
+
+test "keypair: fromBase58 rejects mismatched public key" {
+    // Create valid keypair and get its bytes
+    const valid_kp = Keypair.generate();
+    var bytes = valid_kp.toBytes();
+
+    // Corrupt the public key
+    bytes[63] ^= 0xFF;
+
+    // Encode corrupted bytes to base58
+    var encode_buffer: [base58.bitcoin.getEncodedLengthUpperBound(KEYPAIR_LENGTH)]u8 = undefined;
+    const corrupted_base58 = base58.bitcoin.encode(&encode_buffer, &bytes);
+
+    // fromBase58 should fail with PublicKeyMismatch
+    try std.testing.expectError(error.PublicKeyMismatch, Keypair.fromBase58(corrupted_base58));
+}
+
 test "keypair: insecure clone" {
     const original = Keypair.generate();
     const cloned = original.insecureClone();
@@ -246,4 +344,37 @@ test "keypair: seed accessor" {
 
     const retrieved_seed = kp.seed();
     try std.testing.expectEqualSlices(u8, &seed, &retrieved_seed);
+}
+
+// ============================================================================
+// Rust API compatibility alias tests
+// ============================================================================
+
+test "keypair: Rust API aliases" {
+    // Test new() alias for generate()
+    const kp1 = Keypair.new();
+    try std.testing.expect(kp1.pubkey().bytes.len == 32);
+
+    // Test fromSeedBytes() alias
+    const seed = [_]u8{1} ** 32;
+    const kp2 = try Keypair.fromSeedBytes(seed);
+    try std.testing.expectEqualSlices(u8, &seed, &kp2.seed());
+
+    // Test secret() alias for seed()
+    try std.testing.expectEqualSlices(u8, &kp2.seed(), &kp2.secret());
+
+    // Test signMessage() alias for sign()
+    const message = "test message";
+    const sig1 = try kp2.sign(message);
+    const sig2 = try kp2.signMessage(message);
+    try std.testing.expectEqualSlices(u8, &sig1.bytes, &sig2.bytes);
+
+    // Test tryPubkey() alias for pubkey()
+    try std.testing.expect(kp2.pubkey().equals(kp2.tryPubkey()));
+
+    // Test fromBase58String() and toBase58String() aliases
+    var buffer: [base58.bitcoin.getEncodedLengthUpperBound(KEYPAIR_LENGTH)]u8 = undefined;
+    const as_base58 = kp2.toBase58String(&buffer);
+    const parsed = try Keypair.fromBase58String(as_base58);
+    try std.testing.expect(kp2.pubkey().equals(parsed.pubkey()));
 }

@@ -176,7 +176,7 @@ pub const Transaction = struct {
             for (self.message.account_keys, 0..) |account_key, i| {
                 if (std.mem.eql(u8, &pk.bytes, &account_key.bytes)) {
                     if (i < self.signatures.len) {
-                        self.signatures[i] = kp.sign(message_bytes);
+                        self.signatures[i] = kp.sign(message_bytes) catch return error.SigningFailed;
                     }
                     break;
                 }

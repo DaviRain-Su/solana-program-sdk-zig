@@ -223,7 +223,7 @@ test "keypair: signing compatibility with Rust SDK" {
         @memcpy(&seed, vector.seed);
 
         const keypair = try Keypair.fromSeed(seed);
-        const signature = keypair.sign(vector.message);
+        const signature = try keypair.sign(vector.message);
 
         try std.testing.expectEqualSlices(u8, vector.signature, &signature.bytes);
     }

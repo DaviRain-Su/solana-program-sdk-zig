@@ -436,6 +436,34 @@ pub struct VersionedMessageTestVector {
     pub serialized_prefix: Vec<u8>,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct UpgradeableLoaderStateTestVector {
+    pub name: String,
+    pub state_type: String,
+    pub discriminant: u32,
+    pub authority: Option<[u8; 32]>,
+    pub programdata_address: Option<[u8; 32]>,
+    pub slot: Option<u64>,
+    pub serialized: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Bn254ConstantsTestVector {
+    pub name: String,
+    pub field_size: usize,
+    pub g1_point_size: usize,
+    pub g2_point_size: usize,
+    pub g1_add_input_size: usize,
+    pub g1_mul_input_size: usize,
+    pub pairing_element_size: usize,
+    pub pairing_output_size: usize,
+    pub g1_add_be_op: u64,
+    pub g1_sub_be_op: u64,
+    pub g1_mul_be_op: u64,
+    pub pairing_be_op: u64,
+    pub le_flag: u64,
+}
+
 pub fn generate_pubkey_vectors(output_dir: &Path) {
     let bpf_loader_upgradeable_id =
         Pubkey::from_str_const("BPFLoaderUpgradeab1e11111111111111111111111");
@@ -2150,6 +2178,69 @@ pub fn generate_stake_instruction_vectors(output_dir: &Path) {
         lamports: None,
     });
 
+    let ix = StakeInstruction::SetLockup(solana_stake_interface::instruction::LockupArgs {
+        unix_timestamp: Some(1700000000),
+        epoch: Some(500),
+        custodian: Some(Pubkey::from_str_const(
+            "Vote111111111111111111111111111111111111111",
+        )),
+    });
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(StakeInstructionTestVector {
+        name: "set_lockup".to_string(),
+        instruction_type: "SetLockup".to_string(),
+        encoded,
+        lamports: None,
+    });
+
+    let ix = StakeInstruction::GetMinimumDelegation;
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(StakeInstructionTestVector {
+        name: "get_minimum_delegation".to_string(),
+        instruction_type: "GetMinimumDelegation".to_string(),
+        encoded,
+        lamports: None,
+    });
+
+    let ix = StakeInstruction::DeactivateDelinquent;
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(StakeInstructionTestVector {
+        name: "deactivate_delinquent".to_string(),
+        instruction_type: "DeactivateDelinquent".to_string(),
+        encoded,
+        lamports: None,
+    });
+
+    #[allow(deprecated)]
+    let ix = StakeInstruction::Redelegate;
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(StakeInstructionTestVector {
+        name: "redelegate".to_string(),
+        instruction_type: "Redelegate".to_string(),
+        encoded,
+        lamports: None,
+    });
+
+    let lamports = 3_000_000_000u64;
+    let ix = StakeInstruction::MoveStake(lamports);
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(StakeInstructionTestVector {
+        name: "move_stake".to_string(),
+        instruction_type: "MoveStake".to_string(),
+        encoded,
+        lamports: Some(lamports),
+    });
+
+    let lamports = 1_500_000_000u64;
+    let ix = StakeInstruction::MoveLamports(lamports);
+    let encoded = bincode::serialize(&ix).unwrap();
+    vectors.push(StakeInstructionTestVector {
+        name: "move_lamports".to_string(),
+        instruction_type: "MoveLamports".to_string(),
+        encoded,
+        lamports: Some(lamports),
+    });
+
     let json = serde_json::to_string_pretty(&vectors).unwrap();
     fs::write(output_dir.join("stake_instruction_vectors.json"), json).unwrap();
 }
@@ -3202,6 +3293,148 @@ pub fn generate_versioned_message_vectors(output_dir: &Path) {
     fs::write(output_dir.join("versioned_message_vectors.json"), json).unwrap();
 }
 
+pub fn generate_upgradeable_loader_state_vectors(output_dir: &Path) {
+    let authority = Pubkey::from_str_const("11111111111111111111111111111111");
+    let programdata_addr = Pubkey::from_str_const("Vote111111111111111111111111111111111111111");
+
+    let mut vectors: Vec<UpgradeableLoaderStateTestVector> = Vec::new();
+
+    // Uninitialized state - discriminant 0, 4 bytes total
+    vectors.push(UpgradeableLoaderStateTestVector {
+        name: "uninitialized".to_string(),
+        state_type: "Uninitialized".to_string(),
+        discriminant: 0,
+        authority: None,
+        programdata_address: None,
+        slot: None,
+        serialized: 0u32.to_le_bytes().to_vec(),
+    });
+
+    // Buffer state with authority - discriminant 1
+    // Format: discriminant (4) + Some(1) + authority (32) = 37 bytes
+    {
+        let mut serialized = Vec::new();
+        serialized.extend_from_slice(&1u32.to_le_bytes());
+        serialized.push(1); // Some
+        serialized.extend_from_slice(&authority.to_bytes());
+
+        vectors.push(UpgradeableLoaderStateTestVector {
+            name: "buffer_with_authority".to_string(),
+            state_type: "Buffer".to_string(),
+            discriminant: 1,
+            authority: Some(authority.to_bytes()),
+            programdata_address: None,
+            slot: None,
+            serialized,
+        });
+    }
+
+    // Buffer state without authority - discriminant 1
+    // Format: discriminant (4) + None(0) = 5 bytes
+    {
+        let mut serialized = Vec::new();
+        serialized.extend_from_slice(&1u32.to_le_bytes());
+        serialized.push(0); // None
+
+        vectors.push(UpgradeableLoaderStateTestVector {
+            name: "buffer_no_authority".to_string(),
+            state_type: "Buffer".to_string(),
+            discriminant: 1,
+            authority: None,
+            programdata_address: None,
+            slot: None,
+            serialized,
+        });
+    }
+
+    // Program state - discriminant 2
+    // Format: discriminant (4) + programdata_address (32) = 36 bytes
+    {
+        let mut serialized = Vec::new();
+        serialized.extend_from_slice(&2u32.to_le_bytes());
+        serialized.extend_from_slice(&programdata_addr.to_bytes());
+
+        vectors.push(UpgradeableLoaderStateTestVector {
+            name: "program".to_string(),
+            state_type: "Program".to_string(),
+            discriminant: 2,
+            authority: None,
+            programdata_address: Some(programdata_addr.to_bytes()),
+            slot: None,
+            serialized,
+        });
+    }
+
+    // ProgramData with authority - discriminant 3
+    // Format: discriminant (4) + slot (8) + Some(1) + authority (32) = 45 bytes
+    {
+        let slot: u64 = 12345678;
+        let mut serialized = Vec::new();
+        serialized.extend_from_slice(&3u32.to_le_bytes());
+        serialized.extend_from_slice(&slot.to_le_bytes());
+        serialized.push(1); // Some
+        serialized.extend_from_slice(&authority.to_bytes());
+
+        vectors.push(UpgradeableLoaderStateTestVector {
+            name: "program_data_with_authority".to_string(),
+            state_type: "ProgramData".to_string(),
+            discriminant: 3,
+            authority: Some(authority.to_bytes()),
+            programdata_address: None,
+            slot: Some(slot),
+            serialized,
+        });
+    }
+
+    // ProgramData without authority - discriminant 3
+    // Format: discriminant (4) + slot (8) + None(0) = 13 bytes
+    {
+        let slot: u64 = 87654321;
+        let mut serialized = Vec::new();
+        serialized.extend_from_slice(&3u32.to_le_bytes());
+        serialized.extend_from_slice(&slot.to_le_bytes());
+        serialized.push(0); // None
+
+        vectors.push(UpgradeableLoaderStateTestVector {
+            name: "program_data_no_authority".to_string(),
+            state_type: "ProgramData".to_string(),
+            discriminant: 3,
+            authority: None,
+            programdata_address: None,
+            slot: Some(slot),
+            serialized,
+        });
+    }
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(
+        output_dir.join("upgradeable_loader_state_vectors.json"),
+        json,
+    )
+    .unwrap();
+}
+
+pub fn generate_bn254_constants_vectors(output_dir: &Path) {
+    let vectors = vec![Bn254ConstantsTestVector {
+        name: "bn254_constants".to_string(),
+        field_size: 32,
+        g1_point_size: 64,
+        g2_point_size: 128,
+        g1_add_input_size: 128,
+        g1_mul_input_size: 96,
+        pairing_element_size: 192,
+        pairing_output_size: 32,
+        g1_add_be_op: 0,
+        g1_sub_be_op: 1,
+        g1_mul_be_op: 2,
+        pairing_be_op: 3,
+        le_flag: 0x80,
+    }];
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("bn254_constants_vectors.json"), json).unwrap();
+}
+
 pub fn generate_sysvar_id_vectors(output_dir: &Path) {
     use solana_sdk::sysvar;
 
@@ -3312,6 +3545,8 @@ pub fn generate_all_vectors(output_dir: &Path) {
     generate_system_instruction_extended_vectors(output_dir);
     generate_address_lookup_table_state_vectors(output_dir);
     generate_versioned_message_vectors(output_dir);
+    generate_upgradeable_loader_state_vectors(output_dir);
+    generate_bn254_constants_vectors(output_dir);
 
     println!("Generated all test vectors in {:?}", output_dir);
 }

@@ -1757,3 +1757,104 @@ test "versioned_message: v0 message prefix serialization" {
         try std.testing.expectEqualSlices(u8, vector.serialized_prefix, &prefix);
     }
 }
+
+const UpgradeableLoaderStateTestVector = struct {
+    name: []const u8,
+    state_type: []const u8,
+    discriminant: u32,
+    authority: ?[32]u8,
+    programdata_address: ?[32]u8,
+    slot: ?u64,
+    serialized: []const u8,
+};
+
+test "upgradeable_loader_state: all state types serialization" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "upgradeable_loader_state_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const UpgradeableLoaderStateTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        var expected: [45]u8 = undefined;
+        var expected_len: usize = 0;
+
+        std.mem.writeInt(u32, expected[0..4], vector.discriminant, .little);
+        expected_len = 4;
+
+        if (std.mem.eql(u8, vector.state_type, "Uninitialized")) {
+            try std.testing.expectEqual(@as(usize, 4), vector.serialized.len);
+        } else if (std.mem.eql(u8, vector.state_type, "Buffer")) {
+            if (vector.authority) |auth| {
+                expected[4] = 1;
+                @memcpy(expected[5..37], &auth);
+                expected_len = 37;
+            } else {
+                expected[4] = 0;
+                expected_len = 5;
+            }
+        } else if (std.mem.eql(u8, vector.state_type, "Program")) {
+            if (vector.programdata_address) |addr| {
+                @memcpy(expected[4..36], &addr);
+                expected_len = 36;
+            }
+        } else if (std.mem.eql(u8, vector.state_type, "ProgramData")) {
+            if (vector.slot) |slot| {
+                std.mem.writeInt(u64, expected[4..12], slot, .little);
+                if (vector.authority) |auth| {
+                    expected[12] = 1;
+                    @memcpy(expected[13..45], &auth);
+                    expected_len = 45;
+                } else {
+                    expected[12] = 0;
+                    expected_len = 13;
+                }
+            }
+        }
+
+        try std.testing.expectEqualSlices(u8, vector.serialized, expected[0..expected_len]);
+    }
+}
+
+const Bn254ConstantsTestVector = struct {
+    name: []const u8,
+    field_size: usize,
+    g1_point_size: usize,
+    g2_point_size: usize,
+    g1_add_input_size: usize,
+    g1_mul_input_size: usize,
+    pairing_element_size: usize,
+    pairing_output_size: usize,
+    g1_add_be_op: u64,
+    g1_sub_be_op: u64,
+    g1_mul_be_op: u64,
+    pairing_be_op: u64,
+    le_flag: u64,
+};
+
+test "bn254: constants match Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "bn254_constants_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const Bn254ConstantsTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        try std.testing.expectEqual(@as(usize, 32), vector.field_size);
+        try std.testing.expectEqual(@as(usize, 64), vector.g1_point_size);
+        try std.testing.expectEqual(@as(usize, 128), vector.g2_point_size);
+        try std.testing.expectEqual(@as(usize, 128), vector.g1_add_input_size);
+        try std.testing.expectEqual(@as(usize, 96), vector.g1_mul_input_size);
+        try std.testing.expectEqual(@as(usize, 192), vector.pairing_element_size);
+        try std.testing.expectEqual(@as(usize, 32), vector.pairing_output_size);
+        try std.testing.expectEqual(@as(u64, 0), vector.g1_add_be_op);
+        try std.testing.expectEqual(@as(u64, 1), vector.g1_sub_be_op);
+        try std.testing.expectEqual(@as(u64, 2), vector.g1_mul_be_op);
+        try std.testing.expectEqual(@as(u64, 3), vector.pairing_be_op);
+        try std.testing.expectEqual(@as(u64, 0x80), vector.le_flag);
+    }
+}

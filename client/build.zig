@@ -36,6 +36,15 @@ pub fn build(b: *std.Build) void {
     rpc_client_mod.addImport("base58", base58_mod);
     rpc_client_mod.addImport("solana_sdk", solana_sdk_mod);
 
+    // Create transaction module for integration tests
+    const transaction_mod = b.addModule("transaction", .{
+        .root_source_file = b.path("src/transaction/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    transaction_mod.addImport("base58", base58_mod);
+    transaction_mod.addImport("solana_sdk", solana_sdk_mod);
+
     // Unit tests
     const lib_unit_tests = b.addTest(.{
         .root_module = solana_client_mod,
@@ -50,20 +59,46 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_lib_unit_tests.step);
 
     // Integration tests (requires running local validator)
-    const integration_test_mod = b.createModule(.{
+    // RPC integration tests
+    const rpc_integration_test_mod = b.createModule(.{
         .root_source_file = b.path("integration/test_rpc.zig"),
         .target = target,
         .optimize = optimize,
     });
-    integration_test_mod.addImport("rpc_client", rpc_client_mod);
-    integration_test_mod.addImport("solana_sdk", solana_sdk_mod);
+    rpc_integration_test_mod.addImport("rpc_client", rpc_client_mod);
+    rpc_integration_test_mod.addImport("solana_sdk", solana_sdk_mod);
 
-    const integration_tests = b.addTest(.{
-        .root_module = integration_test_mod,
+    const rpc_integration_tests = b.addTest(.{
+        .root_module = rpc_integration_test_mod,
     });
 
-    const run_integration_tests = b.addRunArtifact(integration_tests);
+    const run_rpc_integration_tests = b.addRunArtifact(rpc_integration_tests);
 
-    const integration_test_step = b.step("integration-test", "Run integration tests (requires local validator)");
-    integration_test_step.dependOn(&run_integration_tests.step);
+    // Transaction integration tests
+    const tx_integration_test_mod = b.createModule(.{
+        .root_source_file = b.path("integration/test_transaction.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    tx_integration_test_mod.addImport("rpc_client", rpc_client_mod);
+    tx_integration_test_mod.addImport("solana_sdk", solana_sdk_mod);
+    tx_integration_test_mod.addImport("transaction", transaction_mod);
+
+    const tx_integration_tests = b.addTest(.{
+        .root_module = tx_integration_test_mod,
+    });
+
+    const run_tx_integration_tests = b.addRunArtifact(tx_integration_tests);
+
+    // Combined integration test step
+    const integration_test_step = b.step("integration-test", "Run all integration tests (requires local validator)");
+    integration_test_step.dependOn(&run_rpc_integration_tests.step);
+    integration_test_step.dependOn(&run_tx_integration_tests.step);
+
+    // Separate steps for individual test suites
+    const rpc_test_step = b.step("integration-test-rpc", "Run RPC integration tests");
+    rpc_test_step.dependOn(&run_rpc_integration_tests.step);
+
+    const tx_test_step = b.step("integration-test-tx", "Run transaction integration tests");
+    tx_test_step.dependOn(&run_tx_integration_tests.step);
 }

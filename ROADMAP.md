@@ -451,6 +451,658 @@ These modules are NOT needed for on-chain program development or client developm
 5. **Zero-Copy**: Prefer pointer operations over memory copies
 6. **Stack Safety**: Use heap allocation for large arrays (>1KB)
 
+---
+
+## 🔮 Future Roadmap
+
+The following features are planned for future development. Based on analysis of the [solana-program](https://github.com/solana-program) organization (35 repositories), priorities are assigned as:
+- **P0**: Essential for most smart contract developers
+- **P1**: Important for DeFi/NFT developers
+- **P2**: Nice-to-have utilities
+
+---
+
+### ⏳ v2.0.0 - SPL Token & Associated Token Account
+
+Implement the most critical SPL programs for token operations.
+
+#### SPL Token Program (`TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA`)
+
+**Source**: https://github.com/solana-program/token
+
+| Module | Description | Status |
+|--------|-------------|--------|
+| `spl/token/state.zig` | Mint (82 bytes), Account (165 bytes), Multisig (355 bytes) | ⏳ |
+| `spl/token/instruction.zig` | 25 instructions (InitializeMint, Transfer, MintTo, Burn, etc.) | ⏳ |
+| `spl/token/error.zig` | Token error types | ⏳ |
+
+**Instructions to Implement (25 total)**:
+
+| ID | Instruction | Priority | Description |
+|----|-------------|----------|-------------|
+| 0 | `InitializeMint` | P0 | Initialize token mint |
+| 1 | `InitializeAccount` | P0 | Initialize token account |
+| 3 | `Transfer` | P0 | Transfer tokens |
+| 4 | `Approve` | P0 | Approve delegate |
+| 5 | `Revoke` | P0 | Revoke delegate |
+| 6 | `SetAuthority` | P0 | Change mint/account authority |
+| 7 | `MintTo` | P0 | Mint new tokens |
+| 8 | `Burn` | P0 | Burn tokens |
+| 9 | `CloseAccount` | P0 | Close token account |
+| 10 | `FreezeAccount` | P1 | Freeze account |
+| 11 | `ThawAccount` | P1 | Thaw frozen account |
+| 12-15 | `*Checked` variants | P0 | Safety-enhanced versions with decimal verification |
+| 16-20 | Modern variants | P1 | No rent sysvar required |
+
+#### Associated Token Account (`ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL`)
+
+**Source**: https://github.com/solana-program/associated-token-account
+
+| Module | Description | Status |
+|--------|-------------|--------|
+| `spl/associated_token.zig` | ATA address derivation and instruction builders | ⏳ |
+
+**PDA Derivation Seeds** (order critical):
+```zig
+seeds = [wallet_address, token_program_id, mint_address]
+```
+
+**Instructions**:
+| ID | Instruction | Description |
+|----|-------------|-------------|
+| 0 | `Create` | Create ATA (fails if exists) |
+| 1 | `CreateIdempotent` | Create ATA (succeeds if exists) - **Recommended** |
+| 2 | `RecoverNested` | Recover tokens from nested ATA |
+
+---
+
+### ⏳ v2.1.0 - Token-2022 Extensions
+
+Implement Token-2022 with TLV extension architecture.
+
+**Program ID**: `TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb`
+
+**Source**: https://github.com/solana-program/token-2022
+
+#### TLV Extension System
+
+```
+[Base State] [Padding] [AccountType: 1 byte] [TLV Data]
+                                               ↓
+                        [Type: u16][Length: u16][Value: N bytes]
+```
+
+#### Supported Extensions (20+)
+
+| Extension | Type ID | Level | Description |
+|-----------|---------|-------|-------------|
+| `TransferFeeConfig` | 1 | Mint | Transfer fee configuration |
+| `TransferFeeAmount` | 2 | Account | Withheld transfer fees |
+| `MintCloseAuthority` | 3 | Mint | Authority to close mint |
+| `ConfidentialTransferMint` | 4 | Mint | Confidential transfer config |
+| `ConfidentialTransferAccount` | 5 | Account | Confidential transfer state |
+| `DefaultAccountState` | 6 | Mint | New accounts frozen by default |
+| `ImmutableOwner` | 7 | Account | Prevent owner reassignment |
+| `MemoTransfer` | 8 | Account | Require memo on transfers |
+| `NonTransferable` | 9 | Mint | Soulbound tokens |
+| `InterestBearingConfig` | 10 | Mint | Interest accumulation |
+| `CpiGuard` | 11 | Account | Block CPI privilege escalation |
+| `PermanentDelegate` | 12 | Mint | Permanent delegate authority |
+| `TransferHook` | 14 | Mint | Custom transfer logic |
+| `MetadataPointer` | 18 | Mint | Pointer to metadata account |
+| `GroupPointer` | 21 | Mint | Token group pointer |
+| `GroupMemberPointer` | 22 | Mint | Group member pointer |
+
+#### Implementation Phases
+
+**Phase 1 - Core**:
+- [ ] `ExtensionType` enum (u16)
+- [ ] TLV parser/serializer
+- [ ] `GetAccountDataSize` instruction
+- [ ] Basic extensions: `ImmutableOwner`, `MintCloseAuthority`
+
+**Phase 2 - Common Extensions**:
+- [ ] `TransferFeeConfig` + `TransferFeeAmount`
+- [ ] `MetadataPointer`
+- [ ] `PermanentDelegate`
+- [ ] `NonTransferable`
+
+**Phase 3 - Advanced**:
+- [ ] `ConfidentialTransfer` (requires ZK proofs)
+- [ ] `InterestBearingConfig`
+- [ ] `TransferHook`
+
+---
+
+### ⏳ v2.2.0 - Stake Program Interface
+
+Implement Solana's core staking program interface.
+
+**Program ID**: `Stake11111111111111111111111111111111111111`
+
+**Source**: https://github.com/solana-program/stake
+
+#### Data Structures
+
+| Type | Size | Description |
+|------|------|-------------|
+| `StakeStateV2` | 200 bytes | Main state enum (Uninitialized, Initialized, Stake, RewardsPool) |
+| `Meta` | 120 bytes | Rent reserve + Authorized + Lockup |
+| `Stake` | 72 bytes | Delegation + credits_observed |
+| `Delegation` | 64 bytes | Voter pubkey + stake + epochs |
+
+#### Instructions (17 active)
+
+| ID | Instruction | Priority | Description |
+|----|-------------|----------|-------------|
+| 0 | `Initialize` | P0 | Initialize stake account |
+| 1 | `Authorize` | P0 | Change authorities |
+| 2 | `DelegateStake` | P0 | Delegate to validator |
+| 3 | `Split` | P0 | Split stake account |
+| 4 | `Withdraw` | P0 | Withdraw lamports |
+| 5 | `Deactivate` | P0 | Begin unstaking |
+| 7 | `Merge` | P1 | Merge stake accounts |
+| 13 | `GetMinimumDelegation` | P1 | Query minimum stake |
+| 16 | `MoveStake` | P2 | Move active stake |
+| 17 | `MoveLamports` | P2 | Move inactive lamports |
+
+---
+
+### ⏳ v2.3.0 - Memo Program
+
+Simple utility program for on-chain memos.
+
+**Program ID**: `MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr`
+
+**Source**: https://github.com/solana-program/memo
+
+| Module | Description | Status |
+|--------|-------------|--------|
+| `spl/memo.zig` | Memo instruction builder | ⏳ |
+
+**Features**:
+- UTF-8 validation
+- Optional signer verification
+- Token-2022 memo transfer extension integration
+
+**Implementation** (simple - good first SPL program):
+```zig
+pub fn buildMemo(memo: []const u8, signers: []const Pubkey) Instruction {
+    // data = raw UTF-8 bytes (no discriminator)
+    // accounts = signers (all must be signers if provided)
+}
+```
+
+---
+
+### ⏳ v2.4.0 - Metaplex NFT Programs
+
+Essential programs for NFT development on Solana.
+
+#### Token Metadata Program (`metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s`)
+
+**Source**: https://github.com/metaplex-foundation/mpl-token-metadata
+
+| Module | Description | Status |
+|--------|-------------|--------|
+| `metaplex/token_metadata.zig` | Metadata account creation and management | ⏳ |
+
+**Key Instructions**:
+- `CreateMetadataAccountV3` - Create metadata for token
+- `CreateMasterEditionV3` - Create master edition (NFT proof)
+- `UpdateMetadataAccountV2` - Update metadata
+- `Verify/UnverifyCollection` - Collection verification
+- `Burn` - Burn NFTs
+
+**Data Structures**:
+- `Metadata` - Name, symbol, URI, creators, collection
+- `MasterEdition` - Supply, max_supply
+- `Edition` - Edition number, parent
+
+#### Metaplex Core (`CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d`)
+
+**Source**: https://github.com/metaplex-foundation/mpl-core
+
+Next-generation lightweight NFT standard:
+- Single-account design (82% cheaper than Token Metadata)
+- Plugin system (Freeze, Royalty, Transfer Delegate, etc.)
+- Better CPI composability
+
+#### Bubblegum - Compressed NFTs (`BGUMAp9Gq7iTEuizy4pqaxsTyUCBK68MDfK752saRPUY`)
+
+**Source**: https://github.com/metaplex-foundation/mpl-bubblegum
+
+Compressed NFTs using Merkle trees:
+- Mint millions of NFTs at fraction of cost
+- Requires SPL Account Compression dependency
+
+**Dependencies**:
+- SPL Account Compression: `cmtDvXumGCrqC1Age74AVPhSRVXJMd8PJS91L8KbNCK`
+- SPL Noop: `noopb9bkMVfRPU8AsbpTUg8AQkHtKwMYZiFUjNRtMmV`
+
+---
+
+### ⏳ v2.5.0 - Oracle & Utility Programs
+
+#### Pyth Oracle (`pythWSnswVUd12oZpeFP8e9CVaEqJg25g1Vtc2biRsTC`)
+
+**Source**: https://github.com/pyth-network/pyth-sdk-solana
+
+Real-time price feeds for 500+ assets:
+- Price account parsing
+- Confidence intervals
+- EMA price support
+
+#### Switchboard Oracle (`SW1TCH7qEPTdLsDHRgPuMQjbQxKdH2aBStViMFnt64f`)
+
+**Source**: https://github.com/switchboard-xyz/solana-sdk
+
+Permissionless oracle network:
+- Custom data feeds
+- VRF (Verifiable Random Function)
+
+#### Config Program (`Config1111111111111111111111111111111111111`)
+
+**Source**: https://github.com/solana-program/config
+
+On-chain configuration storage:
+- Validator config
+- Protocol parameters
+
+#### Name Service (`namesLPneVptA9Z5rqUDD9tMTWEJwofgaYwp8cawRkX`)
+
+.sol domain registration and resolution.
+
+---
+
+### ⏳ v2.6.0 - Additional SPL Programs
+
+#### Stake Pool (`SPoo1Ku8WFXoNDMHPsrGSTSG1Y47rzgn41SLUNakuHy`)
+
+**Source**: https://github.com/solana-program/stake-pool
+
+Liquid staking pool implementation for:
+- Stake delegation to multiple validators
+- Pool token minting/burning
+- Fee collection
+
+#### Candy Machine v3 (`CndyV3LdqHUfDLmE5naZjVN8rBZz4tqhdefbAnjHG3JR`)
+
+**Source**: https://github.com/metaplex-foundation/mpl-candy-machine
+
+NFT collection distribution:
+- Configurable guards (allowlist, payment, limits)
+- Fair launch mechanics
+
+---
+
+### ⏳ v2.7.0 - Example Programs
+
+Comprehensive example programs demonstrating SDK usage.
+
+```
+examples/
+├── hello_world/           # Simplest possible program
+│   ├── src/main.zig       # Just logs a message
+│   └── README.md
+├── counter/               # State management example
+│   ├── src/main.zig       # Increment/decrement counter
+│   ├── src/state.zig      # Account state serialization
+│   └── README.md
+├── escrow/                # CPI example
+│   ├── src/main.zig       # Token escrow with CPI
+│   └── README.md
+├── token_transfer/        # SPL Token interaction
+│   ├── src/main.zig       # Transfer SPL tokens via CPI
+│   └── README.md
+└── pda_vault/             # PDA and signer seeds
+    ├── src/main.zig       # Vault using PDAs
+    └── README.md
+```
+
+**Goals:**
+- [ ] Step-by-step tutorials in README
+- [ ] Deployment scripts for each example
+- [ ] Client-side interaction scripts
+- [ ] Test coverage for each program
+
+---
+
+### ⏳ v3.0.0 - Zig Anchor Framework (sol-anchor-zig)
+
+A native Zig framework inspired by Anchor, using comptime metaprogramming instead of Rust proc macros.
+
+#### Design Philosophy
+
+| Anchor (Rust) | sol-anchor-zig (Zig) |
+|---------------|---------------------|
+| `#[program]` proc macro | `comptime` dispatch generation |
+| `#[derive(Accounts)]` | `comptime` struct introspection |
+| `#[account(mut, signer)]` | Struct field constraints |
+| Runtime IDL generation | Comptime IDL embedding |
+
+#### Core Architecture
+
+```zig
+//! Example: Counter Program in sol-anchor-zig
+
+const anchor = @import("sol-anchor-zig");
+const sdk = @import("solana-program-sdk");
+
+// ============================================
+// 1. Account Definitions (like #[account])
+// ============================================
+pub const Counter = anchor.Account(struct {
+    count: u64,
+    authority: sdk.PublicKey,
+    bump: u8,
+}, .{
+    .discriminator = anchor.accountDiscriminator("Counter"),
+    .space = 8 + 8 + 32 + 1, // discriminator + count + authority + bump
+});
+
+// ============================================
+// 2. Instruction Contexts (like #[derive(Accounts)])
+// ============================================
+pub const InitializeAccounts = anchor.Accounts(.{
+    .counter = anchor.Account(Counter, .{
+        .init = true,
+        .payer = "payer",
+        .seeds = &.{ "counter", .{ .field = "authority" } },
+        .bump = true,
+    }),
+    .authority = anchor.Signer(.{}),
+    .payer = anchor.Signer(.{ .mut = true }),
+    .system_program = anchor.Program(sdk.system_program),
+});
+
+pub const IncrementAccounts = anchor.Accounts(.{
+    .counter = anchor.Account(Counter, .{
+        .mut = true,
+        .has_one = "authority",
+    }),
+    .authority = anchor.Signer(.{}),
+});
+
+// ============================================
+// 3. Instruction Handlers
+// ============================================
+pub fn initialize(ctx: anchor.Context(InitializeAccounts)) !void {
+    ctx.accounts.counter.data.count = 0;
+    ctx.accounts.counter.data.authority = ctx.accounts.authority.key.*;
+    ctx.accounts.counter.data.bump = ctx.bumps.counter;
+}
+
+pub fn increment(ctx: anchor.Context(IncrementAccounts)) !void {
+    ctx.accounts.counter.data.count += 1;
+}
+
+// ============================================
+// 4. Program Definition (like #[program])
+// ============================================
+pub const program = anchor.Program(.{
+    .id = sdk.PublicKey.comptimeFromBase58("Counter111111111111111111111111111111111111"),
+    .instructions = .{
+        .initialize = initialize,
+        .increment = increment,
+    },
+});
+
+// Entry point
+comptime {
+    anchor.declareEntrypoint(program);
+}
+```
+
+#### Constraint System
+
+| Constraint | Anchor Rust | sol-anchor-zig | Description |
+|------------|-------------|----------------|-------------|
+| `mut` | `#[account(mut)]` | `.mut = true` | Account is writable |
+| `signer` | `#[account(signer)]` | `anchor.Signer(.{})` | Account must sign |
+| `init` | `#[account(init, payer, space)]` | `.init = true, .payer = "x", .space = n` | Create account |
+| `seeds` | `#[account(seeds = [b"x"])]` | `.seeds = &.{"x"}` | PDA seeds |
+| `bump` | `#[account(bump)]` | `.bump = true` | Store/validate bump |
+| `has_one` | `#[account(has_one = field)]` | `.has_one = "field"` | Field must match |
+| `address` | `#[account(address = X)]` | `.address = X` | Exact pubkey |
+| `owner` | `#[account(owner = X)]` | `.owner = X` | Account owner |
+| `constraint` | `#[account(constraint = expr)]` | `.constraint = fn` | Custom validation |
+| `close` | `#[account(close = dest)]` | `.close = "dest"` | Close account |
+| `realloc` | `#[account(realloc = n)]` | `.realloc = n` | Resize account |
+
+#### Discriminator Generation
+
+```zig
+/// Comptime discriminator generation (8-byte SHA256 prefix)
+pub fn accountDiscriminator(comptime name: []const u8) [8]u8 {
+    return sighash("account", name);
+}
+
+pub fn instructionDiscriminator(comptime name: []const u8) [8]u8 {
+    return sighash("global", name);
+}
+
+fn sighash(comptime namespace: []const u8, comptime name: []const u8) [8]u8 {
+    const preimage = namespace ++ ":" ++ name;
+    var hash: [32]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(preimage, &hash, .{});
+    return hash[0..8].*;
+}
+```
+
+#### Comptime Validation Generation
+
+```zig
+/// Generate validation code at compile time
+pub fn Accounts(comptime spec: anytype) type {
+    return struct {
+        // Fields generated from spec
+        ...
+        
+        pub fn validate(self: @This(), program_id: *const PublicKey) !void {
+            const info = @typeInfo(@TypeOf(spec));
+            inline for (info.Struct.fields) |field| {
+                const constraints = @field(spec, field.name);
+                const account = @field(self, field.name);
+                
+                // Comptime-generated validation checks
+                if (constraints.mut and !account.info.is_writable) {
+                    return error.ConstraintMut;
+                }
+                if (constraints.signer and !account.info.is_signer) {
+                    return error.ConstraintSigner;
+                }
+                if (constraints.has_one) |field_name| {
+                    // Validate has_one constraint
+                }
+                // ... more constraints
+            }
+        }
+    };
+}
+```
+
+#### Error Codes (Anchor Compatible)
+
+```zig
+pub const AnchorError = enum(u32) {
+    // Framework errors (0-99)
+    InstructionMissing = 100,
+    InstructionFallbackNotFound = 101,
+    InstructionDidNotDeserialize = 102,
+    
+    // Constraint errors (2000-2999)
+    ConstraintMut = 2000,
+    ConstraintHasOne = 2001,
+    ConstraintSigner = 2002,
+    ConstraintRaw = 2003,
+    ConstraintOwner = 2004,
+    ConstraintAddress = 2005,
+    ConstraintSeeds = 2006,
+    // ... 
+    
+    // Account errors (3000-3999)
+    AccountDiscriminatorMismatch = 3000,
+    AccountDiscriminatorNotFound = 3001,
+    AccountNotInitialized = 3002,
+    // ...
+};
+
+// Custom errors start at 6000 (like Anchor)
+pub fn CustomError(comptime start: u32) type {
+    return struct {
+        pub fn code(e: anytype) u32 {
+            return start + @intFromEnum(e);
+        }
+    };
+}
+```
+
+#### IDL Generation (Comptime)
+
+```zig
+/// Generate IDL at compile time
+pub fn generateIdl(comptime program: anytype) []const u8 {
+    comptime {
+        var idl = IdlBuilder.init();
+        
+        idl.setAddress(program.id);
+        idl.setName(@typeName(program));
+        
+        // Generate instruction metadata
+        inline for (@typeInfo(program.instructions).Struct.fields) |field| {
+            idl.addInstruction(.{
+                .name = field.name,
+                .discriminator = instructionDiscriminator(field.name),
+                .accounts = extractAccounts(field.type),
+                .args = extractArgs(field.type),
+            });
+        }
+        
+        return idl.toJson();
+    }
+}
+```
+
+#### Implementation Phases
+
+**Phase 1 - Core Framework**:
+- [ ] `anchor.Account` - Account wrapper with discriminator
+- [ ] `anchor.Signer` - Signer account type
+- [ ] `anchor.Program` - Program account type
+- [ ] `anchor.Context` - Instruction context
+- [ ] Discriminator generation (SHA256)
+- [ ] Basic constraints: `mut`, `signer`, `owner`
+
+**Phase 2 - PDA Support**:
+- [ ] `seeds` constraint with comptime seed parsing
+- [ ] `bump` storage and validation
+- [ ] `init` with PDA creation via CPI
+- [ ] Bump seed derivation
+
+**Phase 3 - Advanced Constraints**:
+- [ ] `has_one` field validation
+- [ ] `constraint` custom expressions
+- [ ] `close` account closing
+- [ ] `realloc` account resizing
+- [ ] `address` exact pubkey check
+
+**Phase 4 - Serialization**:
+- [ ] Borsh serialization with discriminator
+- [ ] Auto-derive serialize/deserialize
+- [ ] Zero-copy account access
+- [ ] Instruction argument parsing
+
+**Phase 5 - Developer Experience**:
+- [ ] IDL generation at comptime
+- [ ] Client code generation
+- [ ] Error messages with source location
+- [ ] Testing utilities
+
+#### Advantages Over Anchor
+
+| Aspect | Anchor (Rust) | sol-anchor-zig |
+|--------|---------------|----------------|
+| **Compile Time** | Slow (proc macros) | Fast (native comptime) |
+| **Error Messages** | Opaque macro errors | Clear Zig errors |
+| **Debugging** | Hard to debug macros | Standard Zig debugging |
+| **Binary Size** | ~200KB+ | Target <50KB |
+| **Compute Units** | Higher overhead | Minimal overhead |
+| **Learning Curve** | Rust + macro DSL | Just Zig |
+
+---
+
+### ⏳ v3.1.0 - Advanced Features
+
+| Feature | Description |
+|---------|-------------|
+| Versioned Transactions | Full v0 transaction support with ALT |
+| Priority Fees | Dynamic priority fee estimation |
+| Jito Integration | MEV bundle support |
+| Compute Optimization | Profiling and optimization tools |
+
+---
+
+## 📊 solana-program Organization Coverage
+
+Based on https://github.com/solana-program (35 repositories):
+
+### Already Implemented in SDK ✅
+
+| Program | Program ID | Module | Status |
+|---------|-----------|--------|--------|
+| System | `11111111111111111111111111111111` | `system_program.zig` | ✅ Complete |
+| Compute Budget | `ComputeBudget111111111111111111111111111111` | `compute_budget.zig` | ✅ Complete |
+| Address Lookup Table | `AddressLookupTab1e1111111111111111111111111` | `address_lookup_table.zig` | ✅ Complete |
+| BPF Loader v1 | `BPFLoader1111111111111111111111111111111111` | `bpf_loader.zig` | ✅ Complete |
+| BPF Loader v2 | `BPFLoader2111111111111111111111111111111111` | `bpf_loader.zig` | ✅ Complete |
+| BPF Loader v3 | `BPFLoaderUpgradeab1e11111111111111111111111` | `bpf_loader.zig` | ✅ Complete |
+| BPF Loader v4 | `LoaderV411111111111111111111111111111111111` | `loader_v4.zig` | ✅ Complete |
+| Vote | `Vote111111111111111111111111111111111111111` | `vote_interface.zig` | ✅ Complete |
+| Feature Gate | `Feature111111111111111111111111111111111111` | `feature_gate.zig` | ✅ Complete |
+| Ed25519 | `Ed25519SigVerify111111111111111111111111111` | `ed25519_program.zig` | ✅ Complete |
+| Secp256k1 | `KeccakSecp256k11111111111111111111111111111` | `secp256k1_program.zig` | ✅ Complete |
+| Secp256r1 | `Secp256r11111111111111111111111111111111111` | `secp256r1_program.zig` | ✅ Complete |
+| Native Loader | `NativeLoader1111111111111111111111111111111` | `root.zig` | ✅ Complete |
+| Incinerator | `1nc1nerator11111111111111111111111111111111` | `root.zig` | ✅ Complete |
+
+### Planned for v2.x ⏳
+
+| Program | Program ID | Priority | Version |
+|---------|-----------|----------|---------|
+| SPL Token | `TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA` | P0 | v2.0.0 |
+| Associated Token Account | `ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL` | P0 | v2.0.0 |
+| Token-2022 | `TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb` | P0 | v2.1.0 |
+| Stake | `Stake11111111111111111111111111111111111111` | P0 | v2.2.0 |
+| Memo | `MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr` | P2 | v2.3.0 |
+| Token Metadata | `metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s` | P1 | v2.4.0 |
+| Metaplex Core | `CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d` | P1 | v2.4.0 |
+| Bubblegum (cNFT) | `BGUMAp9Gq7iTEuizy4pqaxsTyUCBK68MDfK752saRPUY` | P1 | v2.4.0 |
+| Pyth Oracle | `pythWSnswVUd12oZpeFP8e9CVaEqJg25g1Vtc2biRsTC` | P1 | v2.5.0 |
+| Config | `Config1111111111111111111111111111111111111` | P2 | v2.5.0 |
+| Stake Pool | `SPoo1Ku8WFXoNDMHPsrGSTSG1Y47rzgn41SLUNakuHy` | P1 | v2.6.0 |
+| Candy Machine v3 | `CndyV3LdqHUfDLmE5naZjVN8rBZz4tqhdefbAnjHG3JR` | P2 | v2.6.0 |
+
+### Third-Party DeFi Programs (Interface Only)
+
+For CPI integration, SDK may provide instruction builders:
+
+| Program | Program ID | Usage |
+|---------|-----------|-------|
+| Jupiter V6 | `JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4` | DEX aggregation (10% of chain activity) |
+| Raydium AMM V4 | `675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8` | AMM swaps (7% of chain activity) |
+| Orca Whirlpool | `whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc` | Concentrated liquidity |
+
+### Out of Scope (for now)
+
+| Program | Reason |
+|---------|--------|
+| ZK ElGamal Proof | Temporarily disabled (security vulnerability June 2025) |
+| Slashing | Validator-specific |
+| Single Pool | Specialized staking |
+
+---
+
 ## 📚 Resources
 
 - [Solana SDK (Rust)](https://github.com/anza-xyz/solana-sdk)

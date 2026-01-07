@@ -169,6 +169,9 @@ pub const ProgramError = enum(u64) {
 
 test "ProgramError values match Rust SDK" {
     // Verify builtin error values match Rust SDK
+    // Rust: pub const CUSTOM_ZERO: u64 = to_builtin!(1);  // 1 << 32
+    // Rust: pub const INVALID_ARGUMENT: u64 = to_builtin!(2);  // 2 << 32
+    // etc.
     try std.testing.expectEqual(@as(u64, 1 << 32), @intFromEnum(ProgramError.CustomZero));
     try std.testing.expectEqual(@as(u64, 2 << 32), @intFromEnum(ProgramError.InvalidArgument));
     try std.testing.expectEqual(@as(u64, 3 << 32), @intFromEnum(ProgramError.InvalidInstructionData));
@@ -176,20 +179,115 @@ test "ProgramError values match Rust SDK" {
     try std.testing.expectEqual(@as(u64, 5 << 32), @intFromEnum(ProgramError.AccountDataTooSmall));
     try std.testing.expectEqual(@as(u64, 6 << 32), @intFromEnum(ProgramError.InsufficientFunds));
     try std.testing.expectEqual(@as(u64, 7 << 32), @intFromEnum(ProgramError.IncorrectProgramId));
+    try std.testing.expectEqual(@as(u64, 8 << 32), @intFromEnum(ProgramError.MissingRequiredSignature));
+    try std.testing.expectEqual(@as(u64, 9 << 32), @intFromEnum(ProgramError.AccountAlreadyInitialized));
+    try std.testing.expectEqual(@as(u64, 10 << 32), @intFromEnum(ProgramError.UninitializedAccount));
+    try std.testing.expectEqual(@as(u64, 11 << 32), @intFromEnum(ProgramError.NotEnoughAccountKeys));
+    try std.testing.expectEqual(@as(u64, 12 << 32), @intFromEnum(ProgramError.AccountBorrowFailed));
+    try std.testing.expectEqual(@as(u64, 13 << 32), @intFromEnum(ProgramError.MaxSeedLengthExceeded));
+    try std.testing.expectEqual(@as(u64, 14 << 32), @intFromEnum(ProgramError.InvalidSeeds));
+    try std.testing.expectEqual(@as(u64, 15 << 32), @intFromEnum(ProgramError.BorshIoError));
+    try std.testing.expectEqual(@as(u64, 16 << 32), @intFromEnum(ProgramError.AccountNotRentExempt));
+    try std.testing.expectEqual(@as(u64, 17 << 32), @intFromEnum(ProgramError.UnsupportedSysvar));
+    try std.testing.expectEqual(@as(u64, 18 << 32), @intFromEnum(ProgramError.IllegalOwner));
+    try std.testing.expectEqual(@as(u64, 19 << 32), @intFromEnum(ProgramError.MaxAccountsDataAllocationsExceeded));
+    try std.testing.expectEqual(@as(u64, 20 << 32), @intFromEnum(ProgramError.InvalidRealloc));
+    try std.testing.expectEqual(@as(u64, 21 << 32), @intFromEnum(ProgramError.MaxInstructionTraceLengthExceeded));
+    try std.testing.expectEqual(@as(u64, 22 << 32), @intFromEnum(ProgramError.BuiltinProgramsMustConsumeComputeUnits));
+    try std.testing.expectEqual(@as(u64, 23 << 32), @intFromEnum(ProgramError.InvalidAccountOwner));
+    try std.testing.expectEqual(@as(u64, 24 << 32), @intFromEnum(ProgramError.ArithmeticOverflow));
+    try std.testing.expectEqual(@as(u64, 25 << 32), @intFromEnum(ProgramError.Immutable));
     try std.testing.expectEqual(@as(u64, 26 << 32), @intFromEnum(ProgramError.IncorrectAuthority));
 }
 
 test "custom errors" {
-    // Custom error with code 0 should map to CustomZero
+    // Custom error with code 0 should map to CustomZero (special case)
+    // Rust: if error == 0 { CUSTOM_ZERO } else { error as u64 }
     const err0 = ProgramError.custom(0);
     try std.testing.expectEqual(ProgramError.CustomZero, err0);
     try std.testing.expectEqual(@as(?u32, 0), err0.getCustomCode());
+    try std.testing.expectEqual(@as(u64, 1 << 32), err0.toU64());
 
-    // Custom error with non-zero code
+    // Custom error with non-zero code uses lower 32 bits directly
+    const err1 = ProgramError.custom(1);
+    try std.testing.expectEqual(@as(u64, 1), err1.toU64());
+    try std.testing.expectEqual(@as(?u32, 1), err1.getCustomCode());
+
     const err42 = ProgramError.custom(42);
     try std.testing.expectEqual(@as(u64, 42), err42.toU64());
     try std.testing.expectEqual(@as(?u32, 42), err42.getCustomCode());
 
+    // Max u32 custom error
+    const err_max = ProgramError.custom(0xFFFFFFFF);
+    try std.testing.expectEqual(@as(u64, 0xFFFFFFFF), err_max.toU64());
+    try std.testing.expectEqual(@as(?u32, 0xFFFFFFFF), err_max.getCustomCode());
+
     // Builtin errors should return null for getCustomCode
     try std.testing.expectEqual(@as(?u32, null), ProgramError.InvalidArgument.getCustomCode());
+    try std.testing.expectEqual(@as(?u32, null), ProgramError.IncorrectAuthority.getCustomCode());
+}
+
+test "ProgramError roundtrip: toU64 -> fromU64" {
+    // Test all builtin errors roundtrip correctly
+    const builtins = [_]ProgramError{
+        .CustomZero,
+        .InvalidArgument,
+        .InvalidInstructionData,
+        .InvalidAccountData,
+        .AccountDataTooSmall,
+        .InsufficientFunds,
+        .IncorrectProgramId,
+        .MissingRequiredSignature,
+        .AccountAlreadyInitialized,
+        .UninitializedAccount,
+        .NotEnoughAccountKeys,
+        .AccountBorrowFailed,
+        .MaxSeedLengthExceeded,
+        .InvalidSeeds,
+        .BorshIoError,
+        .AccountNotRentExempt,
+        .UnsupportedSysvar,
+        .IllegalOwner,
+        .MaxAccountsDataAllocationsExceeded,
+        .InvalidRealloc,
+        .MaxInstructionTraceLengthExceeded,
+        .BuiltinProgramsMustConsumeComputeUnits,
+        .InvalidAccountOwner,
+        .ArithmeticOverflow,
+        .Immutable,
+        .IncorrectAuthority,
+    };
+
+    for (builtins) |err| {
+        const as_u64 = err.toU64();
+        const back = ProgramError.fromU64(as_u64);
+        try std.testing.expectEqual(err, back);
+    }
+
+    // Test custom errors roundtrip
+    for ([_]u32{ 0, 1, 42, 100, 1000, 0xFFFFFFFF }) |code| {
+        const err = ProgramError.custom(code);
+        const as_u64 = err.toU64();
+        const back = ProgramError.fromU64(as_u64);
+
+        // For custom(0), we get CustomZero which has getCustomCode() == 0
+        const back_code = back.getCustomCode();
+        try std.testing.expect(back_code != null);
+        try std.testing.expectEqual(code, back_code.?);
+    }
+}
+
+test "ProgramError isBuiltin" {
+    // Builtin errors
+    try std.testing.expect(ProgramError.InvalidArgument.isBuiltin());
+    try std.testing.expect(ProgramError.IncorrectAuthority.isBuiltin());
+
+    // CustomZero is semantically Custom(0), so it's NOT a builtin error
+    try std.testing.expect(!ProgramError.CustomZero.isBuiltin());
+
+    // Custom errors are not builtin
+    try std.testing.expect(!ProgramError.custom(0).isBuiltin());
+    try std.testing.expect(!ProgramError.custom(1).isBuiltin());
+    try std.testing.expect(!ProgramError.custom(42).isBuiltin());
+    try std.testing.expect(!ProgramError.custom(0xFFFFFFFF).isBuiltin());
 }

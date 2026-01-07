@@ -324,6 +324,68 @@ pub const InstructionError = union(enum) {
             _ => .{ .Custom = @truncate(@intFromEnum(err)) },
         };
     }
+
+    /// Create InstructionError from a u64 value (e.g., from RPC response)
+    ///
+    /// This mirrors Rust's `impl From<T: ToPrimitive> for InstructionError`.
+    /// The encoding follows the same rules as ProgramError:
+    /// - Builtin errors use upper 32 bits (value << 32)
+    /// - Custom errors use lower 32 bits (value 1..0xFFFFFFFF)
+    /// - Custom(0) uses CUSTOM_ZERO (1 << 32)
+    ///
+    /// Returns InvalidError for unrecognized builtin codes.
+    pub fn fromU64(value: u64) InstructionError {
+        const error_mod = @import("error.zig");
+        const BUILTIN_BIT_SHIFT = error_mod.BUILTIN_BIT_SHIFT;
+
+        // Check if it's a builtin error (upper 32 bits set)
+        const builtin_code = value >> BUILTIN_BIT_SHIFT;
+        if (builtin_code != 0) {
+            // It's a builtin error, convert via ProgramError
+            const prog_err = ProgramError.fromU64(value);
+            return switch (prog_err) {
+                .CustomZero => .{ .Custom = 0 },
+                .InvalidArgument => .InvalidArgument,
+                .InvalidInstructionData => .InvalidInstructionData,
+                .InvalidAccountData => .InvalidAccountData,
+                .AccountDataTooSmall => .AccountDataTooSmall,
+                .InsufficientFunds => .InsufficientFunds,
+                .IncorrectProgramId => .IncorrectProgramId,
+                .MissingRequiredSignature => .MissingRequiredSignature,
+                .AccountAlreadyInitialized => .AccountAlreadyInitialized,
+                .UninitializedAccount => .UninitializedAccount,
+                .NotEnoughAccountKeys => .NotEnoughAccountKeys,
+                .AccountBorrowFailed => .AccountBorrowFailed,
+                .MaxSeedLengthExceeded => .MaxSeedLengthExceeded,
+                .InvalidSeeds => .InvalidSeeds,
+                .BorshIoError => .BorshIoError,
+                .AccountNotRentExempt => .AccountNotRentExempt,
+                .UnsupportedSysvar => .UnsupportedSysvar,
+                .IllegalOwner => .IllegalOwner,
+                .MaxAccountsDataAllocationsExceeded => .MaxAccountsDataAllocationsExceeded,
+                .InvalidRealloc => .InvalidRealloc,
+                .MaxInstructionTraceLengthExceeded => .MaxInstructionTraceLengthExceeded,
+                .BuiltinProgramsMustConsumeComputeUnits => .BuiltinProgramsMustConsumeComputeUnits,
+                .InvalidAccountOwner => .InvalidAccountOwner,
+                .ArithmeticOverflow => .ArithmeticOverflow,
+                .Immutable => .Immutable,
+                .IncorrectAuthority => .IncorrectAuthority,
+                _ => .InvalidError, // Unknown builtin code
+            };
+        }
+
+        // It's a custom error (lower 32 bits only)
+        return .{ .Custom = @truncate(value) };
+    }
+
+    /// Convert InstructionError to u64 (for serialization)
+    ///
+    /// Note: Only errors that have a ProgramError equivalent can be converted.
+    /// Runtime-only errors (like UnbalancedInstruction) return null.
+    pub fn toU64(self: InstructionError) ?u64 {
+        const prog_err = self.toProgramError() orelse return null;
+        return prog_err.toU64();
+    }
 };
 
 /// Lamports arithmetic error
@@ -439,4 +501,144 @@ test "lamports_error: toString and conversion" {
         expected,
         overflow.toInstructionError(),
     );
+}
+
+test "instruction_error: fromU64 custom errors" {
+    // Custom error with code 1 (lower 32 bits)
+    const err1 = InstructionError.fromU64(1);
+    switch (err1) {
+        .Custom => |code| try std.testing.expectEqual(@as(u32, 1), code),
+        else => return error.UnexpectedError,
+    }
+
+    // Custom error with code 42
+    const err42 = InstructionError.fromU64(42);
+    switch (err42) {
+        .Custom => |code| try std.testing.expectEqual(@as(u32, 42), code),
+        else => return error.UnexpectedError,
+    }
+
+    // Custom error with max u32
+    const err_max = InstructionError.fromU64(0xFFFFFFFF);
+    switch (err_max) {
+        .Custom => |code| try std.testing.expectEqual(@as(u32, 0xFFFFFFFF), code),
+        else => return error.UnexpectedError,
+    }
+}
+
+test "instruction_error: fromU64 builtin errors" {
+    const error_mod = @import("error.zig");
+
+    // Custom(0) uses CUSTOM_ZERO (1 << 32)
+    const err0 = InstructionError.fromU64(1 << 32);
+    switch (err0) {
+        .Custom => |code| try std.testing.expectEqual(@as(u32, 0), code),
+        else => return error.UnexpectedError,
+    }
+
+    // InvalidArgument (2 << 32)
+    const err_invalid_arg = InstructionError.fromU64(2 << 32);
+    const expected_invalid_arg: InstructionError = .InvalidArgument;
+    try std.testing.expectEqual(expected_invalid_arg, err_invalid_arg);
+
+    // IncorrectAuthority (26 << 32)
+    const err_auth = InstructionError.fromU64(26 << 32);
+    const expected_auth: InstructionError = .IncorrectAuthority;
+    try std.testing.expectEqual(expected_auth, err_auth);
+
+    // Unknown builtin code should return InvalidError
+    const err_unknown = InstructionError.fromU64(100 << 32);
+    const expected_unknown: InstructionError = .InvalidError;
+    try std.testing.expectEqual(expected_unknown, err_unknown);
+
+    _ = error_mod;
+}
+
+test "instruction_error: toU64 roundtrip" {
+    // Test errors that have ProgramError equivalents
+    const convertible_errors = [_]InstructionError{
+        .InvalidArgument,
+        .InvalidInstructionData,
+        .InvalidAccountData,
+        .AccountDataTooSmall,
+        .InsufficientFunds,
+        .IncorrectProgramId,
+        .MissingRequiredSignature,
+        .AccountAlreadyInitialized,
+        .UninitializedAccount,
+        .NotEnoughAccountKeys,
+        .AccountBorrowFailed,
+        .MaxSeedLengthExceeded,
+        .InvalidSeeds,
+        .BorshIoError,
+        .AccountNotRentExempt,
+        .UnsupportedSysvar,
+        .IllegalOwner,
+        .MaxAccountsDataAllocationsExceeded,
+        .InvalidRealloc,
+        .MaxInstructionTraceLengthExceeded,
+        .BuiltinProgramsMustConsumeComputeUnits,
+        .InvalidAccountOwner,
+        .ArithmeticOverflow,
+        .Immutable,
+        .IncorrectAuthority,
+    };
+
+    for (convertible_errors) |err| {
+        const as_u64 = err.toU64();
+        try std.testing.expect(as_u64 != null);
+        const back = InstructionError.fromU64(as_u64.?);
+        try std.testing.expectEqual(err, back);
+    }
+
+    // Custom errors roundtrip
+    for ([_]u32{ 0, 1, 42, 100, 0xFFFFFFFF }) |code| {
+        const err: InstructionError = .{ .Custom = code };
+        const as_u64 = err.toU64();
+        try std.testing.expect(as_u64 != null);
+        const back = InstructionError.fromU64(as_u64.?);
+        switch (back) {
+            .Custom => |back_code| try std.testing.expectEqual(code, back_code),
+            else => return error.UnexpectedError,
+        }
+    }
+}
+
+test "instruction_error: toU64 returns null for runtime-only errors" {
+    // Runtime-only errors cannot be converted to u64
+    // Note: MissingAccount maps to NotEnoughAccountKeys, so it CAN be converted
+    const runtime_errors = [_]InstructionError{
+        .GenericError,
+        .UnbalancedInstruction,
+        .ModifiedProgramId,
+        .ExternalAccountLamportSpend,
+        .ExternalAccountDataModified,
+        .ReadonlyLamportChange,
+        .ReadonlyDataModified,
+        .DuplicateAccountIndex,
+        .ExecutableModified,
+        .RentEpochModified,
+        .AccountDataSizeChanged,
+        .AccountNotExecutable,
+        .AccountBorrowOutstanding,
+        .DuplicateAccountOutOfSync,
+        .InvalidError,
+        .ExecutableDataModified,
+        .ExecutableLamportChange,
+        .ExecutableAccountNotRentExempt,
+        .UnsupportedProgramId,
+        .CallDepth,
+        // .MissingAccount - maps to NotEnoughAccountKeys, so it CAN be converted
+        .ReentrancyNotAllowed,
+        .ComputationalBudgetExceeded,
+        .PrivilegeEscalation,
+        .ProgramEnvironmentSetupFailure,
+        .ProgramFailedToComplete,
+        .ProgramFailedToCompile,
+        .MaxAccountsExceeded,
+    };
+
+    for (runtime_errors) |err| {
+        try std.testing.expect(err.toU64() == null);
+    }
 }

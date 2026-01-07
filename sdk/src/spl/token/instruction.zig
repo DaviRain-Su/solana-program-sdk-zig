@@ -460,6 +460,12 @@ pub const TransferData = struct {
     /// The amount of tokens to transfer
     amount: u64,
 
+    /// Pack Transfer instruction data into bytes
+    pub fn pack(self: TransferData, dest: *[9]u8) void {
+        dest[0] = @intFromEnum(TokenInstruction.Transfer);
+        std.mem.writeInt(u64, dest[1..9], self.amount, .little);
+    }
+
     /// Unpack Transfer instruction data from bytes
     pub fn unpack(data: []const u8) !TransferData {
         if (data.len < 9) return error.InvalidInstructionData;
@@ -474,6 +480,13 @@ pub const TransferCheckedData = struct {
     amount: u64,
     /// Expected number of base 10 digits to the right of the decimal place
     decimals: u8,
+
+    /// Pack TransferChecked instruction data into bytes
+    pub fn pack(self: TransferCheckedData, dest: *[10]u8) void {
+        dest[0] = @intFromEnum(TokenInstruction.TransferChecked);
+        std.mem.writeInt(u64, dest[1..9], self.amount, .little);
+        dest[9] = self.decimals;
+    }
 
     /// Unpack TransferChecked instruction data from bytes
     pub fn unpack(data: []const u8) !TransferCheckedData {
@@ -491,6 +504,12 @@ pub const MintToData = struct {
     /// The amount of new tokens to mint
     amount: u64,
 
+    /// Pack MintTo instruction data into bytes
+    pub fn pack(self: MintToData, dest: *[9]u8) void {
+        dest[0] = @intFromEnum(TokenInstruction.MintTo);
+        std.mem.writeInt(u64, dest[1..9], self.amount, .little);
+    }
+
     /// Unpack MintTo instruction data from bytes
     pub fn unpack(data: []const u8) !MintToData {
         if (data.len < 9) return error.InvalidInstructionData;
@@ -505,6 +524,13 @@ pub const MintToCheckedData = struct {
     amount: u64,
     /// Expected number of base 10 digits to the right of the decimal place
     decimals: u8,
+
+    /// Pack MintToChecked instruction data into bytes
+    pub fn pack(self: MintToCheckedData, dest: *[10]u8) void {
+        dest[0] = @intFromEnum(TokenInstruction.MintToChecked);
+        std.mem.writeInt(u64, dest[1..9], self.amount, .little);
+        dest[9] = self.decimals;
+    }
 
     /// Unpack MintToChecked instruction data from bytes
     pub fn unpack(data: []const u8) !MintToCheckedData {
@@ -522,6 +548,12 @@ pub const BurnData = struct {
     /// The amount of tokens to burn
     amount: u64,
 
+    /// Pack Burn instruction data into bytes
+    pub fn pack(self: BurnData, dest: *[9]u8) void {
+        dest[0] = @intFromEnum(TokenInstruction.Burn);
+        std.mem.writeInt(u64, dest[1..9], self.amount, .little);
+    }
+
     /// Unpack Burn instruction data from bytes
     pub fn unpack(data: []const u8) !BurnData {
         if (data.len < 9) return error.InvalidInstructionData;
@@ -536,6 +568,13 @@ pub const BurnCheckedData = struct {
     amount: u64,
     /// Expected number of base 10 digits to the right of the decimal place
     decimals: u8,
+
+    /// Pack BurnChecked instruction data into bytes
+    pub fn pack(self: BurnCheckedData, dest: *[10]u8) void {
+        dest[0] = @intFromEnum(TokenInstruction.BurnChecked);
+        std.mem.writeInt(u64, dest[1..9], self.amount, .little);
+        dest[9] = self.decimals;
+    }
 
     /// Unpack BurnChecked instruction data from bytes
     pub fn unpack(data: []const u8) !BurnCheckedData {
@@ -553,6 +592,12 @@ pub const ApproveData = struct {
     /// The amount of tokens the delegate is approved for
     amount: u64,
 
+    /// Pack Approve instruction data into bytes
+    pub fn pack(self: ApproveData, dest: *[9]u8) void {
+        dest[0] = @intFromEnum(TokenInstruction.Approve);
+        std.mem.writeInt(u64, dest[1..9], self.amount, .little);
+    }
+
     /// Unpack Approve instruction data from bytes
     pub fn unpack(data: []const u8) !ApproveData {
         if (data.len < 9) return error.InvalidInstructionData;
@@ -567,6 +612,13 @@ pub const ApproveCheckedData = struct {
     amount: u64,
     /// Expected number of base 10 digits to the right of the decimal place
     decimals: u8,
+
+    /// Pack ApproveChecked instruction data into bytes
+    pub fn pack(self: ApproveCheckedData, dest: *[10]u8) void {
+        dest[0] = @intFromEnum(TokenInstruction.ApproveChecked);
+        std.mem.writeInt(u64, dest[1..9], self.amount, .little);
+        dest[9] = self.decimals;
+    }
 
     /// Unpack ApproveChecked instruction data from bytes
     pub fn unpack(data: []const u8) !ApproveCheckedData {
@@ -585,6 +637,26 @@ pub const SetAuthorityData = struct {
     authority_type: AuthorityType,
     /// The new authority (None to remove authority)
     new_authority: ?PublicKey,
+
+    /// Pack SetAuthority instruction data into bytes (with new authority)
+    pub fn packWithAuthority(self: SetAuthorityData, dest: *[35]u8) void {
+        dest[0] = @intFromEnum(TokenInstruction.SetAuthority);
+        dest[1] = @intFromEnum(self.authority_type);
+        if (self.new_authority) |auth| {
+            dest[2] = 1; // Some
+            @memcpy(dest[3..35], &auth.bytes);
+        } else {
+            dest[2] = 0; // None
+            @memset(dest[3..35], 0);
+        }
+    }
+
+    /// Pack SetAuthority instruction data into bytes (without new authority)
+    pub fn packWithoutAuthority(self: SetAuthorityData, dest: *[3]u8) void {
+        dest[0] = @intFromEnum(TokenInstruction.SetAuthority);
+        dest[1] = @intFromEnum(self.authority_type);
+        dest[2] = 0; // None
+    }
 
     /// Unpack SetAuthority instruction data from bytes
     pub fn unpack(data: []const u8) !SetAuthorityData {
@@ -610,6 +682,28 @@ pub const InitializeMintData = struct {
     /// The freeze authority/multisignature of the mint (optional)
     freeze_authority: ?PublicKey,
 
+    /// Pack InitializeMint instruction data into bytes (with freeze authority)
+    pub fn packWithFreeze(self: InitializeMintData, dest: *[67]u8) void {
+        dest[0] = @intFromEnum(TokenInstruction.InitializeMint);
+        dest[1] = self.decimals;
+        @memcpy(dest[2..34], &self.mint_authority.bytes);
+        if (self.freeze_authority) |freeze| {
+            dest[34] = 1; // Some
+            @memcpy(dest[35..67], &freeze.bytes);
+        } else {
+            dest[34] = 0; // None
+            @memset(dest[35..67], 0);
+        }
+    }
+
+    /// Pack InitializeMint instruction data into bytes (without freeze authority)
+    pub fn packWithoutFreeze(self: InitializeMintData, dest: *[35]u8) void {
+        dest[0] = @intFromEnum(TokenInstruction.InitializeMint);
+        dest[1] = self.decimals;
+        @memcpy(dest[2..34], &self.mint_authority.bytes);
+        dest[34] = 0; // None
+    }
+
     /// Unpack InitializeMint instruction data from bytes
     pub fn unpack(data: []const u8) !InitializeMintData {
         if (data.len < 35) return error.InvalidInstructionData;
@@ -634,6 +728,12 @@ pub const InitializeMintData = struct {
 pub const InitializeMultisigData = struct {
     /// The number of signers (M) required to validate this multisignature account
     m: u8,
+
+    /// Pack InitializeMultisig instruction data into bytes
+    pub fn pack(self: InitializeMultisigData, dest: *[2]u8) void {
+        dest[0] = @intFromEnum(TokenInstruction.InitializeMultisig);
+        dest[1] = self.m;
+    }
 
     /// Unpack InitializeMultisig instruction data from bytes
     pub fn unpack(data: []const u8) !InitializeMultisigData {
@@ -723,4 +823,196 @@ test "SetAuthorityData: unpack remove authority" {
     const parsed = try SetAuthorityData.unpack(&data);
     try std.testing.expectEqual(AuthorityType.FreezeAccount, parsed.authority_type);
     try std.testing.expect(parsed.new_authority == null);
+}
+
+// Rust test: test_instruction_packing
+// Source: https://github.com/solana-program/token/blob/master/interface/src/instruction.rs#L1443
+test "instruction packing: Transfer pack and unpack roundtrip" {
+    const original = TransferData{ .amount = 12345678 };
+    var buffer: [9]u8 = undefined;
+    original.pack(&buffer);
+
+    // Verify packed bytes
+    try std.testing.expectEqual(@as(u8, 3), buffer[0]); // Transfer = 3
+
+    const unpacked = try TransferData.unpack(&buffer);
+    try std.testing.expectEqual(original.amount, unpacked.amount);
+}
+
+test "instruction packing: TransferChecked pack and unpack roundtrip" {
+    const original = TransferCheckedData{ .amount = 1, .decimals = 2 };
+    var buffer: [10]u8 = undefined;
+    original.pack(&buffer);
+
+    try std.testing.expectEqual(@as(u8, 12), buffer[0]); // TransferChecked = 12
+
+    const unpacked = try TransferCheckedData.unpack(&buffer);
+    try std.testing.expectEqual(original.amount, unpacked.amount);
+    try std.testing.expectEqual(original.decimals, unpacked.decimals);
+}
+
+test "instruction packing: MintTo pack and unpack roundtrip" {
+    const original = MintToData{ .amount = 1 };
+    var buffer: [9]u8 = undefined;
+    original.pack(&buffer);
+
+    try std.testing.expectEqual(@as(u8, 7), buffer[0]); // MintTo = 7
+
+    const unpacked = try MintToData.unpack(&buffer);
+    try std.testing.expectEqual(original.amount, unpacked.amount);
+}
+
+test "instruction packing: MintToChecked pack and unpack roundtrip" {
+    const original = MintToCheckedData{ .amount = 1, .decimals = 2 };
+    var buffer: [10]u8 = undefined;
+    original.pack(&buffer);
+
+    try std.testing.expectEqual(@as(u8, 14), buffer[0]); // MintToChecked = 14
+
+    const unpacked = try MintToCheckedData.unpack(&buffer);
+    try std.testing.expectEqual(original.amount, unpacked.amount);
+    try std.testing.expectEqual(original.decimals, unpacked.decimals);
+}
+
+test "instruction packing: Burn pack and unpack roundtrip" {
+    const original = BurnData{ .amount = 1 };
+    var buffer: [9]u8 = undefined;
+    original.pack(&buffer);
+
+    try std.testing.expectEqual(@as(u8, 8), buffer[0]); // Burn = 8
+
+    const unpacked = try BurnData.unpack(&buffer);
+    try std.testing.expectEqual(original.amount, unpacked.amount);
+}
+
+test "instruction packing: BurnChecked pack and unpack roundtrip" {
+    const original = BurnCheckedData{ .amount = 1, .decimals = 2 };
+    var buffer: [10]u8 = undefined;
+    original.pack(&buffer);
+
+    try std.testing.expectEqual(@as(u8, 15), buffer[0]); // BurnChecked = 15
+
+    const unpacked = try BurnCheckedData.unpack(&buffer);
+    try std.testing.expectEqual(original.amount, unpacked.amount);
+    try std.testing.expectEqual(original.decimals, unpacked.decimals);
+}
+
+test "instruction packing: Approve pack and unpack roundtrip" {
+    const original = ApproveData{ .amount = 1 };
+    var buffer: [9]u8 = undefined;
+    original.pack(&buffer);
+
+    try std.testing.expectEqual(@as(u8, 4), buffer[0]); // Approve = 4
+
+    const unpacked = try ApproveData.unpack(&buffer);
+    try std.testing.expectEqual(original.amount, unpacked.amount);
+}
+
+test "instruction packing: ApproveChecked pack and unpack roundtrip" {
+    const original = ApproveCheckedData{ .amount = 1, .decimals = 2 };
+    var buffer: [10]u8 = undefined;
+    original.pack(&buffer);
+
+    try std.testing.expectEqual(@as(u8, 13), buffer[0]); // ApproveChecked = 13
+
+    const unpacked = try ApproveCheckedData.unpack(&buffer);
+    try std.testing.expectEqual(original.amount, unpacked.amount);
+    try std.testing.expectEqual(original.decimals, unpacked.decimals);
+}
+
+test "instruction packing: InitializeMultisig pack and unpack roundtrip" {
+    const original = InitializeMultisigData{ .m = 1 };
+    var buffer: [2]u8 = undefined;
+    original.pack(&buffer);
+
+    try std.testing.expectEqual(@as(u8, 2), buffer[0]); // InitializeMultisig = 2
+
+    const unpacked = try InitializeMultisigData.unpack(&buffer);
+    try std.testing.expectEqual(original.m, unpacked.m);
+}
+
+test "instruction packing: SetAuthority with FreezeAccount type" {
+    const pubkey = PublicKey.from([_]u8{0xAB} ** 32);
+    const original = SetAuthorityData{
+        .authority_type = .FreezeAccount,
+        .new_authority = pubkey,
+    };
+    var buffer: [35]u8 = undefined;
+    original.packWithAuthority(&buffer);
+
+    try std.testing.expectEqual(@as(u8, 6), buffer[0]); // SetAuthority = 6
+    try std.testing.expectEqual(@as(u8, 1), buffer[1]); // FreezeAccount = 1
+    try std.testing.expectEqual(@as(u8, 1), buffer[2]); // Some
+
+    const unpacked = try SetAuthorityData.unpack(&buffer);
+    try std.testing.expectEqual(original.authority_type, unpacked.authority_type);
+    try std.testing.expectEqual(pubkey, unpacked.new_authority.?);
+}
+
+test "instruction packing: InitializeMint with freeze authority" {
+    const mint_authority = PublicKey.from([_]u8{0x11} ** 32);
+    const freeze_authority = PublicKey.from([_]u8{0x22} ** 32);
+    const original = InitializeMintData{
+        .decimals = 9,
+        .mint_authority = mint_authority,
+        .freeze_authority = freeze_authority,
+    };
+    var buffer: [67]u8 = undefined;
+    original.packWithFreeze(&buffer);
+
+    try std.testing.expectEqual(@as(u8, 0), buffer[0]); // InitializeMint = 0
+    try std.testing.expectEqual(@as(u8, 9), buffer[1]); // decimals
+    try std.testing.expectEqual(@as(u8, 1), buffer[34]); // Some
+
+    const unpacked = try InitializeMintData.unpack(&buffer);
+    try std.testing.expectEqual(original.decimals, unpacked.decimals);
+    try std.testing.expectEqual(mint_authority, unpacked.mint_authority);
+    try std.testing.expectEqual(freeze_authority, unpacked.freeze_authority.?);
+}
+
+test "instruction packing: InitializeMint without freeze authority" {
+    const mint_authority = PublicKey.from([_]u8{0x11} ** 32);
+    const original = InitializeMintData{
+        .decimals = 6,
+        .mint_authority = mint_authority,
+        .freeze_authority = null,
+    };
+    var buffer: [35]u8 = undefined;
+    original.packWithoutFreeze(&buffer);
+
+    try std.testing.expectEqual(@as(u8, 0), buffer[0]); // InitializeMint = 0
+    try std.testing.expectEqual(@as(u8, 6), buffer[1]); // decimals
+    try std.testing.expectEqual(@as(u8, 0), buffer[34]); // None
+
+    const unpacked = try InitializeMintData.unpack(&buffer);
+    try std.testing.expectEqual(original.decimals, unpacked.decimals);
+    try std.testing.expectEqual(mint_authority, unpacked.mint_authority);
+    try std.testing.expect(unpacked.freeze_authority == null);
+}
+
+// Rust test: test_instruction_unpack_panic
+// Source: https://github.com/solana-program/token/blob/master/interface/src/instruction.rs#L1684
+// Fuzz test to ensure unpack never panics on invalid input
+test "instruction unpacking: never panics on invalid input" {
+    // Test all possible first bytes (instruction tags)
+    var i: u16 = 0;
+    while (i < 256) : (i += 1) {
+        const tag: u8 = @intCast(i);
+
+        // Test with various data lengths (1-10 bytes)
+        var len: usize = 1;
+        while (len <= 10) : (len += 1) {
+            var data: [10]u8 = [_]u8{tag} ++ [_]u8{0} ** 9;
+
+            // These should either succeed or return error, but never panic
+            _ = TransferData.unpack(data[0..len]) catch {};
+            _ = TransferCheckedData.unpack(data[0..len]) catch {};
+            _ = MintToData.unpack(data[0..len]) catch {};
+            _ = BurnData.unpack(data[0..len]) catch {};
+            _ = ApproveData.unpack(data[0..len]) catch {};
+            _ = SetAuthorityData.unpack(data[0..len]) catch {};
+            _ = InitializeMintData.unpack(data[0..len]) catch {};
+            _ = InitializeMultisigData.unpack(data[0..len]) catch {};
+        }
+    }
 }

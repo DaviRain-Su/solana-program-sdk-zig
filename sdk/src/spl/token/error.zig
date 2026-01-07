@@ -189,3 +189,49 @@ test "TokenError: toStr matches Rust ToStr" {
     try std.testing.expectEqualStrings("Error: insufficient funds", TokenError.InsufficientFunds.toStr());
     try std.testing.expectEqualStrings("Error: Account is frozen", TokenError.AccountFrozen.toStr());
 }
+
+// Rust test: test_parse_error_from_primitive_exhaustive
+// Source: https://github.com/solana-program/token/blob/master/interface/src/error.rs#L157
+test "TokenError: exhaustive fromCode/toCode roundtrip" {
+    // All 20 TokenError variants (0-19)
+    const all_errors = [_]TokenError{
+        .NotRentExempt,
+        .InsufficientFunds,
+        .InvalidMint,
+        .MintMismatch,
+        .OwnerMismatch,
+        .FixedSupply,
+        .AlreadyInUse,
+        .InvalidNumberOfProvidedSigners,
+        .InvalidNumberOfRequiredSigners,
+        .UninitializedState,
+        .NativeNotSupported,
+        .NonNativeHasBalance,
+        .InvalidInstruction,
+        .InvalidState,
+        .Overflow,
+        .AuthorityTypeNotSupported,
+        .MintCannotFreeze,
+        .AccountFrozen,
+        .MintDecimalsMismatch,
+        .NonNativeNotSupported,
+    };
+
+    // Verify each variant roundtrips correctly
+    for (all_errors, 0..) |err, expected_code| {
+        const code = err.toCode();
+        try std.testing.expectEqual(@as(u32, @intCast(expected_code)), code);
+
+        const recovered = TokenError.fromCode(code);
+        try std.testing.expect(recovered != null);
+        try std.testing.expectEqual(err, recovered.?);
+    }
+
+    // Verify total count matches
+    try std.testing.expectEqual(@as(usize, 20), all_errors.len);
+
+    // Verify codes outside range return null
+    try std.testing.expect(TokenError.fromCode(20) == null);
+    try std.testing.expect(TokenError.fromCode(100) == null);
+    try std.testing.expect(TokenError.fromCode(0xFFFFFFFF) == null);
+}

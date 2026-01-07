@@ -313,6 +313,46 @@ pub fn isInitializedAccount(account_data: []const u8) bool {
     return account_data[Account.STATE_OFFSET] != @intFromEnum(AccountState.Uninitialized);
 }
 
+/// Unpacks a token account's owner from account data.
+///
+/// Returns null if:
+/// - Data is too short (< Account.SIZE)
+/// - Data is too long (> Account.SIZE) - indicates extensions present
+/// - Account is not initialized
+///
+/// Rust source: https://github.com/solana-program/token/blob/master/interface/src/state.rs#L126
+pub fn unpackAccountOwner(account_data: []const u8) ?*const PublicKey {
+    // Must be exactly Account.SIZE (no extensions)
+    if (account_data.len != Account.SIZE) return null;
+
+    // Check if account is initialized (state != Uninitialized)
+    const state_byte = account_data[Account.STATE_OFFSET];
+    if (state_byte == @intFromEnum(AccountState.Uninitialized)) return null;
+
+    // Owner is at bytes 32..64
+    return @ptrCast(account_data[32..64].ptr);
+}
+
+/// Unpacks a token account's mint from account data.
+///
+/// Returns null if:
+/// - Data is too short (< Account.SIZE)
+/// - Data is too long (> Account.SIZE) - indicates extensions present
+/// - Account is not initialized
+///
+/// Rust source: https://github.com/solana-program/token/blob/master/interface/src/state.rs#L152
+pub fn unpackAccountMint(account_data: []const u8) ?*const PublicKey {
+    // Must be exactly Account.SIZE (no extensions)
+    if (account_data.len != Account.SIZE) return null;
+
+    // Check if account is initialized (state != Uninitialized)
+    const state_byte = account_data[Account.STATE_OFFSET];
+    if (state_byte == @intFromEnum(AccountState.Uninitialized)) return null;
+
+    // Mint is at bytes 0..32
+    return @ptrCast(account_data[0..32].ptr);
+}
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -355,10 +395,64 @@ test "COption<u64>: pack and unpack" {
     try std.testing.expect(unpacked_none.isNone());
 }
 
+// Rust test: test_unpack_coption_key
+// Source: https://github.com/solana-program/token/blob/master/interface/src/state.rs#L405
+test "COption<PublicKey>: invalid tag error" {
+    // Valid case: all zeros -> COption::None
+    var data: [36]u8 = [_]u8{0} ** 36;
+    const none_result = try COption(PublicKey).unpack(&data);
+    try std.testing.expect(none_result.isNone());
+
+    // Invalid case: tag [0, 1, 0, 0] (not 0 or 1 as u32 LE)
+    data[0] = 0;
+    data[1] = 1;
+    data[2] = 0;
+    data[3] = 0;
+    const invalid_result = COption(PublicKey).unpack(&data);
+    try std.testing.expectError(error.InvalidAccountData, invalid_result);
+}
+
+// Rust test: test_unpack_coption_u64
+// Source: https://github.com/solana-program/token/blob/master/interface/src/state.rs#L417
+test "COption<u64>: invalid tag and Some(0)" {
+    // Valid case 1: all zeros -> COption::None
+    var data: [12]u8 = [_]u8{0} ** 12;
+    const none_result = try COption(u64).unpack(&data);
+    try std.testing.expect(none_result.isNone());
+
+    // Valid case 2: tag [1, 0, 0, 0] + zero value -> COption::Some(0)
+    data[0] = 1;
+    data[1] = 0;
+    data[2] = 0;
+    data[3] = 0;
+    // value bytes already 0
+    const some_zero = try COption(u64).unpack(&data);
+    try std.testing.expect(some_zero.isSome());
+    try std.testing.expectEqual(@as(u64, 0), some_zero.unwrap());
+
+    // Invalid case: tag [0, 1, 0, 0]
+    data[0] = 0;
+    data[1] = 1;
+    data[2] = 0;
+    data[3] = 0;
+    const invalid_result = COption(u64).unpack(&data);
+    try std.testing.expectError(error.InvalidAccountData, invalid_result);
+}
+
 test "AccountState: enum values" {
     try std.testing.expectEqual(@as(u8, 0), @intFromEnum(AccountState.Uninitialized));
     try std.testing.expectEqual(@as(u8, 1), @intFromEnum(AccountState.Initialized));
     try std.testing.expectEqual(@as(u8, 2), @intFromEnum(AccountState.Frozen));
+}
+
+// Rust test: test_account_state
+// Source: https://github.com/solana-program/token/blob/master/interface/src/state.rs#L376
+test "AccountState: default is Uninitialized" {
+    // In Zig, enums don't have a default() method, but we verify
+    // that Uninitialized is the zero value (default in Rust)
+    const default_byte: u8 = 0;
+    const state = AccountState.fromByte(default_byte);
+    try std.testing.expectEqual(AccountState.Uninitialized, state.?);
 }
 
 test "Mint: SIZE matches Rust SDK" {
@@ -371,6 +465,16 @@ test "Mint: unpack from zeroed data" {
     try std.testing.expect(!mint.is_initialized);
     try std.testing.expect(mint.mint_authority.isNone());
     try std.testing.expect(mint.freeze_authority.isNone());
+}
+
+// Rust test: test_mint_unpack_from_slice
+// Source: https://github.com/solana-program/token/blob/master/interface/src/state.rs#L364
+test "Mint: unpack invalid is_initialized byte" {
+    var data: [82]u8 = [_]u8{0} ** 82;
+    // Set is_initialized byte to invalid value (2)
+    data[45] = 2;
+    const result = Mint.unpackFromSlice(&data);
+    try std.testing.expectError(error.InvalidAccountData, result);
 }
 
 test "Mint: pack and unpack roundtrip" {
@@ -477,6 +581,16 @@ test "Multisig: unpack with initialized data" {
     try std.testing.expectEqual(@as(u8, 3), multisig.n);
 }
 
+// Rust test: test_multisig_unpack_from_slice
+// Source: https://github.com/solana-program/token/blob/master/interface/src/state.rs#L382
+test "Multisig: unpack invalid is_initialized byte" {
+    var data: [355]u8 = [_]u8{0} ** 355;
+    // Set is_initialized byte to invalid value (2)
+    data[2] = 2;
+    const result = Multisig.unpackFromSlice(&data);
+    try std.testing.expectError(error.InvalidAccountData, result);
+}
+
 test "isInitializedAccount: checks state field" {
     var data: [Account.SIZE]u8 = [_]u8{0} ** Account.SIZE;
 
@@ -490,4 +604,72 @@ test "isInitializedAccount: checks state field" {
     // Frozen
     data[Account.STATE_OFFSET] = @intFromEnum(AccountState.Frozen);
     try std.testing.expect(isInitializedAccount(&data));
+}
+
+// Rust test: test_unpack_token_owner
+// Source: https://github.com/solana-program/token/blob/master/interface/src/state.rs#L434
+test "unpackAccountOwner: extracts owner from account data" {
+    // Test 1: Data too short (12 bytes)
+    var short_data: [12]u8 = [_]u8{0} ** 12;
+    try std.testing.expect(unpackAccountOwner(&short_data) == null);
+
+    // Test 2: Correct size + Initialized state -> Some(Pubkey)
+    var data: [Account.SIZE]u8 = [_]u8{0} ** Account.SIZE;
+    // Set owner at bytes 32..64
+    const owner_bytes = [_]u8{0xAB} ** 32;
+    @memcpy(data[32..64], &owner_bytes);
+    // Set state to Initialized
+    data[Account.STATE_OFFSET] = @intFromEnum(AccountState.Initialized);
+
+    const owner_ptr = unpackAccountOwner(&data);
+    try std.testing.expect(owner_ptr != null);
+    try std.testing.expectEqual(owner_bytes, owner_ptr.?.bytes);
+
+    // Test 3: Correct size + Frozen state -> Some(Pubkey)
+    data[Account.STATE_OFFSET] = @intFromEnum(AccountState.Frozen);
+    const frozen_owner = unpackAccountOwner(&data);
+    try std.testing.expect(frozen_owner != null);
+
+    // Test 4: Correct size + Uninitialized state -> None
+    data[Account.STATE_OFFSET] = @intFromEnum(AccountState.Uninitialized);
+    try std.testing.expect(unpackAccountOwner(&data) == null);
+
+    // Test 5: Data too long (Account.SIZE + 5) -> None (indicates extensions)
+    var long_data: [Account.SIZE + 5]u8 = [_]u8{0} ** (Account.SIZE + 5);
+    long_data[Account.STATE_OFFSET] = @intFromEnum(AccountState.Initialized);
+    try std.testing.expect(unpackAccountOwner(&long_data) == null);
+}
+
+// Rust test: test_unpack_token_mint
+// Source: https://github.com/solana-program/token/blob/master/interface/src/state.rs#L463
+test "unpackAccountMint: extracts mint from account data" {
+    // Test 1: Data too short (12 bytes)
+    var short_data: [12]u8 = [_]u8{0} ** 12;
+    try std.testing.expect(unpackAccountMint(&short_data) == null);
+
+    // Test 2: Correct size + Initialized state -> Some(Pubkey)
+    var data: [Account.SIZE]u8 = [_]u8{0} ** Account.SIZE;
+    // Set mint at bytes 0..32
+    const mint_bytes = [_]u8{0xCD} ** 32;
+    @memcpy(data[0..32], &mint_bytes);
+    // Set state to Initialized
+    data[Account.STATE_OFFSET] = @intFromEnum(AccountState.Initialized);
+
+    const mint_ptr = unpackAccountMint(&data);
+    try std.testing.expect(mint_ptr != null);
+    try std.testing.expectEqual(mint_bytes, mint_ptr.?.bytes);
+
+    // Test 3: Correct size + Frozen state -> Some(Pubkey)
+    data[Account.STATE_OFFSET] = @intFromEnum(AccountState.Frozen);
+    const frozen_mint = unpackAccountMint(&data);
+    try std.testing.expect(frozen_mint != null);
+
+    // Test 4: Correct size + Uninitialized state -> None
+    data[Account.STATE_OFFSET] = @intFromEnum(AccountState.Uninitialized);
+    try std.testing.expect(unpackAccountMint(&data) == null);
+
+    // Test 5: Data too long (Account.SIZE + 5) -> None (indicates extensions)
+    var long_data: [Account.SIZE + 5]u8 = [_]u8{0} ** (Account.SIZE + 5);
+    long_data[Account.STATE_OFFSET] = @intFromEnum(AccountState.Initialized);
+    try std.testing.expect(unpackAccountMint(&long_data) == null);
 }

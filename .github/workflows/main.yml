@@ -32,6 +32,9 @@ jobs:
       - name: Check Program SDK format
         run: ./solana-zig/zig fmt --check src/
 
+      - name: Check Client SDK format
+        run: ./solana-zig/zig fmt --check client/src/
+
   # SDK tests - pure Zig, no syscalls
   sdk-test:
     name: SDK Tests
@@ -58,6 +61,78 @@ jobs:
         shell: bash
         working-directory: sdk
         run: ../solana-zig/zig build test --summary all
+
+  # Client SDK unit tests
+  client-test:
+    name: Client SDK Tests
+    needs: format
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache solana-zig
+        uses: actions/cache@v4
+        with:
+          path: solana-zig
+          key: solana-zig-${{ env.SOLANA_ZIG_VERSION }}-${{ runner.os }}
+
+      - name: Install solana-zig
+        shell: bash
+        run: ./install-solana-zig.sh solana-zig
+
+      - name: Test Client SDK
+        shell: bash
+        working-directory: client
+        run: ../solana-zig/zig build test --summary all
+
+  # Client SDK RPC integration tests (requires local validator)
+  client-integration-test:
+    name: Client RPC Integration Tests
+    needs: [sdk-test, client-test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache solana-zig
+        uses: actions/cache@v4
+        with:
+          path: solana-zig
+          key: solana-zig-${{ env.SOLANA_ZIG_VERSION }}-linux
+
+      - name: Cache Surfpool
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/bin/surfpool
+          key: surfpool-latest
+
+      - name: Install solana-zig
+        run: ./install-solana-zig.sh solana-zig
+
+      - name: Install Surfpool
+        run: |
+          curl -sL https://run.surfpool.run/ | bash
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Start Surfpool
+        run: |
+          surfpool start --no-tui &
+          # Wait for surfpool to be ready
+          for i in {1..30}; do
+            if curl -s http://127.0.0.1:8899/health > /dev/null 2>&1; then
+              echo "Surfpool is ready"
+              break
+            fi
+            echo "Waiting for Surfpool... ($i/30)"
+            sleep 2
+          done
+
+      - name: Run Client Integration Tests
+        working-directory: client
+        run: ../solana-zig/zig build integration-test --summary all
 
   # Program SDK tests - includes syscall stubs
   program-test:

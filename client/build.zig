@@ -27,6 +27,15 @@ pub fn build(b: *std.Build) void {
     solana_client_mod.addImport("base58", base58_mod);
     solana_client_mod.addImport("solana_sdk", solana_sdk_mod);
 
+    // Create rpc_client module for integration tests
+    const rpc_client_mod = b.addModule("rpc_client", .{
+        .root_source_file = b.path("src/rpc_client.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    rpc_client_mod.addImport("base58", base58_mod);
+    rpc_client_mod.addImport("solana_sdk", solana_sdk_mod);
+
     // Unit tests
     const lib_unit_tests = b.addTest(.{
         .root_module = solana_client_mod,
@@ -39,4 +48,22 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
+
+    // Integration tests (requires running local validator)
+    const integration_test_mod = b.createModule(.{
+        .root_source_file = b.path("integration/test_rpc.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    integration_test_mod.addImport("rpc_client", rpc_client_mod);
+    integration_test_mod.addImport("solana_sdk", solana_sdk_mod);
+
+    const integration_tests = b.addTest(.{
+        .root_module = integration_test_mod,
+    });
+
+    const run_integration_tests = b.addRunArtifact(integration_tests);
+
+    const integration_test_step = b.step("integration-test", "Run integration tests (requires local validator)");
+    integration_test_step.dependOn(&run_integration_tests.step);
 }

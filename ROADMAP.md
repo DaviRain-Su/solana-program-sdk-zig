@@ -124,7 +124,7 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 
 ---
 
-## 🔨 v1.1.0 - Client SDK (In Progress)
+## ✅ v1.1.0 - Client SDK (Complete)
 
 The following client-side modules are implemented in `client/`:
 
@@ -187,13 +187,13 @@ The SDK has been restructured into a two-layer architecture for better separatio
         ┌───────────┴───────────┐ ┌────────┴────────────┐
         │                       │ │                     │
 ┌───────▼───────────────┐  ┌────▼────────────────────┐
-│ src/ (Program SDK)    │  │ client/ (Planned)       │
-│ (300 tests)           │  │                         │
+│ src/ (Program SDK)    │  │ client/ (Client SDK)    │
+│ (300 tests)           │  │ (108 tests)             │
 │ ┌───────────────────┐ │  │ ┌────────────────────┐  │
-│ │ syscalls          │ │  │ │ RPC Client         │  │
-│ │ entrypoint        │ │  │ │ Connection API     │  │
-│ │ CPI (invokeSigned)│ │  │ │ Transaction Signer │  │
-│ │ sysvars           │ │  │ │ Wallet Integration │  │
+│ │ syscalls          │ │  │ │ RPC Client (52)    │  │
+│ │ entrypoint        │ │  │ │ JSON-RPC 2.0       │  │
+│ │ CPI (invokeSigned)│ │  │ │ Response Types     │  │
+│ │ sysvars           │ │  │ │ Commitment Config  │  │
 │ │ native programs   │ │  │ └────────────────────┘  │
 │ │ crypto (syscall)  │ │  │                         │
 │ └───────────────────┘ │  │                         │
@@ -206,7 +206,7 @@ The SDK has been restructured into a two-layer architecture for better separatio
 |-------|------|--------|
 | Phase 1 | Extract shared types to `sdk/` directory | ✅ Complete |
 | Phase 2 | Refactor program-sdk to depend on sdk/ | ✅ Complete |
-| Phase 3 | Create client-sdk with RPC client | 🔨 In Progress (v1.1.0) |
+| Phase 3 | Create client-sdk with RPC client | ✅ Complete (v1.1.0) |
 
 > **See**: `stories/v1.0.0-sdk-restructure.md` for implementation details.
 

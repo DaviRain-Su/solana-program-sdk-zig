@@ -2,6 +2,48 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+## Session 2026-01-07-001
+
+**Date**: 2026-01-07
+**Goal**: Complete v1.1.0 Client SDK + CI Integration Tests with Surfpool
+
+#### Completed Work
+1. **Completed v1.1.0 Client SDK**:
+   - All 52 RPC methods implemented
+   - 6 convenience methods (sendAndConfirmTransaction, confirmTransaction, etc.)
+   - All response parsers fully implemented (no TODOs)
+
+2. **Separated Integration Tests**:
+   - Created `client/integration/test_rpc.zig` with 37 RPC integration tests
+   - Updated `client/build.zig` with `integration-test` build step
+   - Removed integration tests from `rpc_client.zig` (now unit tests only)
+
+3. **Added CI Integration with Surfpool**:
+   - Added `client-test` job for Client SDK unit tests
+   - Added `client-integration-test` job with Surfpool for RPC tests
+   - Added format check for `client/src/`
+
+4. **Documentation Updates**:
+   - Updated `stories/v1.1.0-client-sdk.md` - marked as ✅ complete
+   - Updated `ROADMAP.md` - marked v1.1.0 as complete
+
+#### Test Results
+- Client unit tests: 71/71 passed
+- Client integration tests: 37/37 passed (with local validator)
+- Main project: 300/300 tests passed
+
+#### CI Commands
+```bash
+# Client unit tests
+cd client && ../solana-zig/zig build test
+
+# Client integration tests (requires surfpool or solana-test-validator)
+surfpool start --no-tui &
+cd client && ../solana-zig/zig build integration-test
+```
+
+---
+
 ## Session 2026-01-06-002
 
 **日期**: 2026-01-06

@@ -15,11 +15,12 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 | Native Token | 1 | 1 | 100% |
 | Crypto (Advanced) | 3 | 3 | 100% |
 | Error Types | 3 | 3 | 100% |
-| Other (epoch_info) | 1 | 1 | 100% |
-| **Total (On-chain)** | **59** | **59** | **100%** |
+| Other (epoch_info, c_option) | 2 | 2 | 100% |
+| SPL Programs | 2 | 2 | 100% |
+| **Total (On-chain)** | **62** | **62** | **100%** |
 
 > Note: Client/RPC and Validator-only modules are excluded.
-> v0.29.0 complete: Added loader-v3 instructions, instruction_error, transaction_error, epoch_info.
+> v2.0.0 complete: Added SPL Token types, Associated Token Account, COption generic type.
 
 ---
 
@@ -203,13 +204,14 @@ The SDK has been restructured into a two-layer architecture for better separatio
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│              sdk/ (共享核心类型 - 132 tests)                  │
+│              sdk/ (共享核心类型 - 164 tests)                  │
 │  ┌─────────────────────────────────────────────────────┐   │
 │  │  PublicKey, Hash, Signature, Keypair                │   │
 │  │  Instruction, AccountMeta (types only)              │   │
 │  │  bincode, borsh, short_vec, error, native_token     │   │
 │  │  nonce, instruction_error, transaction_error        │   │
-│  │  epoch_info (pure types via SHA256)                 │   │
+│  │  epoch_info, c_option (COption<T>)                  │   │
+│  │  spl/token (Mint, Account, Multisig, TokenError)    │   │
 │  └─────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
                     ▲                       ▲
@@ -218,14 +220,14 @@ The SDK has been restructured into a two-layer architecture for better separatio
         │                       │ │                     │
 ┌───────▼───────────────┐  ┌────▼────────────────────┐
 │ src/ (Program SDK)    │  │ client/ (Client SDK)    │
-│ (300 tests)           │  │ (108 tests)             │
+│ (294 tests)           │  │ (130 tests)             │
 │ ┌───────────────────┐ │  │ ┌────────────────────┐  │
 │ │ syscalls          │ │  │ │ RPC Client (52)    │  │
 │ │ entrypoint        │ │  │ │ JSON-RPC 2.0       │  │
-│ │ CPI (invokeSigned)│ │  │ │ Response Types     │  │
-│ │ sysvars           │ │  │ │ Commitment Config  │  │
-│ │ native programs   │ │  │ └────────────────────┘  │
-│ │ crypto (syscall)  │ │  │                         │
+│ │ CPI (invokeSigned)│ │  │ │ SPL Token builders │  │
+│ │ sysvars           │ │  │ │ Associated Token   │  │
+│ │ native programs   │ │  │ │ WebSocket PubSub   │  │
+│ │ crypto (syscall)  │ │  │ └────────────────────┘  │
 │ └───────────────────┘ │  │                         │
 └───────────────────────┘  └─────────────────────────┘
 ```
@@ -401,6 +403,15 @@ These modules are NOT needed for on-chain program development or client developm
 - BlsError enum with 7 error types
 - Base64 encoding for display formatting
 
+### v2.0.0 - SPL Token & Associated Token Account ✅
+- ✅ SPL Token types in SDK layer: Mint (82B), Account (165B), Multisig (355B)
+- ✅ TokenInstruction enum with all 25 variants and Rust-style documentation
+- ✅ TokenError enum with message()/toStr() methods
+- ✅ COption<T> generic type with correct 4-byte tag layout
+- ✅ Associated Token Account: PDA derivation, Create, CreateIdempotent, RecoverNested
+- ✅ Client instruction builders: transfer, mintTo, burn, approve, etc.
+- ✅ Tests: SDK 164, Program 294, Client 130 (total 588)
+
 ### v1.2.0 - WebSocket PubSub Client ✅
 - ✅ WebSocket connection management with karlseguin/websocket.zig
 - ✅ 9 subscription methods (account, block, logs, program, root, signature, slot, slotsUpdates, vote)
@@ -462,9 +473,9 @@ The following features are planned for future development. Based on analysis of 
 
 ---
 
-### ⏳ v2.0.0 - SPL Token & Associated Token Account
+### ✅ v2.0.0 - SPL Token & Associated Token Account (Complete)
 
-Implement the most critical SPL programs for token operations.
+Implementation of the most critical SPL programs for token operations.
 
 #### SPL Token Program (`TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA`)
 
@@ -472,27 +483,31 @@ Implement the most critical SPL programs for token operations.
 
 | Module | Description | Status |
 |--------|-------------|--------|
-| `spl/token/state.zig` | Mint (82 bytes), Account (165 bytes), Multisig (355 bytes) | ⏳ |
-| `spl/token/instruction.zig` | 25 instructions (InitializeMint, Transfer, MintTo, Burn, etc.) | ⏳ |
-| `spl/token/error.zig` | Token error types | ⏳ |
+| `sdk/src/spl/token/state.zig` | Mint (82 bytes), Account (165 bytes), Multisig (355 bytes) | ✅ |
+| `sdk/src/spl/token/instruction.zig` | 25 instructions with full Rust-style documentation | ✅ |
+| `sdk/src/spl/token/error.zig` | TokenError enum with message()/toStr() methods | ✅ |
+| `sdk/src/c_option.zig` | COption<T> with correct 4-byte tag layout | ✅ |
+| `client/src/spl/token/instruction.zig` | Instruction builders (transfer, mintTo, etc.) | ✅ |
 
-**Instructions to Implement (25 total)**:
+**All 25 Instructions Implemented**:
 
-| ID | Instruction | Priority | Description |
-|----|-------------|----------|-------------|
-| 0 | `InitializeMint` | P0 | Initialize token mint |
-| 1 | `InitializeAccount` | P0 | Initialize token account |
-| 3 | `Transfer` | P0 | Transfer tokens |
-| 4 | `Approve` | P0 | Approve delegate |
-| 5 | `Revoke` | P0 | Revoke delegate |
-| 6 | `SetAuthority` | P0 | Change mint/account authority |
-| 7 | `MintTo` | P0 | Mint new tokens |
-| 8 | `Burn` | P0 | Burn tokens |
-| 9 | `CloseAccount` | P0 | Close token account |
-| 10 | `FreezeAccount` | P1 | Freeze account |
-| 11 | `ThawAccount` | P1 | Thaw frozen account |
-| 12-15 | `*Checked` variants | P0 | Safety-enhanced versions with decimal verification |
-| 16-20 | Modern variants | P1 | No rent sysvar required |
+| ID | Instruction | Status | Description |
+|----|-------------|--------|-------------|
+| 0 | `InitializeMint` | ✅ | Initialize token mint |
+| 1 | `InitializeAccount` | ✅ | Initialize token account |
+| 2 | `InitializeMultisig` | ✅ | Initialize multisig |
+| 3 | `Transfer` | ✅ | Transfer tokens |
+| 4 | `Approve` | ✅ | Approve delegate |
+| 5 | `Revoke` | ✅ | Revoke delegate |
+| 6 | `SetAuthority` | ✅ | Change mint/account authority |
+| 7 | `MintTo` | ✅ | Mint new tokens |
+| 8 | `Burn` | ✅ | Burn tokens |
+| 9 | `CloseAccount` | ✅ | Close token account |
+| 10 | `FreezeAccount` | ✅ | Freeze account |
+| 11 | `ThawAccount` | ✅ | Thaw frozen account |
+| 12-15 | `*Checked` variants | ✅ | Safety-enhanced versions |
+| 16-20 | Modern variants | ✅ | No rent sysvar required |
+| 21-24 | Utility instructions | ✅ | GetAccountDataSize, etc. |
 
 #### Associated Token Account (`ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL`)
 
@@ -500,7 +515,7 @@ Implement the most critical SPL programs for token operations.
 
 | Module | Description | Status |
 |--------|-------------|--------|
-| `spl/associated_token.zig` | ATA address derivation and instruction builders | ⏳ |
+| `client/src/spl/associated_token.zig` | ATA address derivation and instruction builders | ✅ |
 
 **PDA Derivation Seeds** (order critical):
 ```zig
@@ -508,11 +523,13 @@ seeds = [wallet_address, token_program_id, mint_address]
 ```
 
 **Instructions**:
-| ID | Instruction | Description |
-|----|-------------|-------------|
-| 0 | `Create` | Create ATA (fails if exists) |
-| 1 | `CreateIdempotent` | Create ATA (succeeds if exists) - **Recommended** |
-| 2 | `RecoverNested` | Recover tokens from nested ATA |
+| ID | Instruction | Status | Description |
+|----|-------------|--------|-------------|
+| 0 | `Create` | ✅ | Create ATA (fails if exists) |
+| 1 | `CreateIdempotent` | ✅ | Create ATA (succeeds if exists) - **Recommended** |
+| 2 | `RecoverNested` | ✅ | Recover tokens from nested ATA |
+
+> **See**: `stories/v2.0.0-spl-token.md` for implementation details.
 
 ---
 

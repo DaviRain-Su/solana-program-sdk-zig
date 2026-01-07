@@ -418,6 +418,156 @@ pub const ParsedTokenAccount = struct {
 };
 
 // ============================================================================
+// P2 Response Types
+// ============================================================================
+
+/// Block commitment information
+pub const BlockCommitment = struct {
+    commitment: ?[]const u64 = null,
+    total_stake: u64,
+};
+
+/// Block production information
+pub const BlockProductionInfo = struct {
+    by_identity: []const IdentityBlockProduction,
+    range: SlotRange,
+};
+
+/// Identity block production entry
+pub const IdentityBlockProduction = struct {
+    identity: []const u8,
+    leader_slots: u64,
+    blocks_produced: u64,
+};
+
+/// Cluster node information
+pub const ClusterNode = struct {
+    pubkey: []const u8,
+    gossip: ?[]const u8 = null,
+    tpu: ?[]const u8 = null,
+    tpu_quic: ?[]const u8 = null,
+    rpc: ?[]const u8 = null,
+    pubsub: ?[]const u8 = null,
+    version: ?[]const u8 = null,
+    feature_set: ?u32 = null,
+    shred_version: ?u16 = null,
+};
+
+/// Epoch schedule information (from RPC, different from sysvar)
+pub const RpcEpochSchedule = struct {
+    slots_per_epoch: u64,
+    leader_schedule_slot_offset: u64,
+    warmup: bool,
+    first_normal_epoch: u64,
+    first_normal_slot: u64,
+};
+
+/// Highest snapshot slot information
+pub const HighestSnapshotSlot = struct {
+    full: u64,
+    incremental: ?u64 = null,
+};
+
+/// Identity information
+pub const Identity = struct {
+    identity: []const u8,
+};
+
+/// Inflation governor information
+pub const InflationGovernor = struct {
+    initial: f64,
+    terminal: f64,
+    taper: f64,
+    foundation: f64,
+    foundation_term: f64,
+};
+
+/// Inflation rate information
+pub const InflationRate = struct {
+    total: f64,
+    validator: f64,
+    foundation: f64,
+    epoch: u64,
+};
+
+/// Inflation reward information
+pub const InflationReward = struct {
+    epoch: u64,
+    effective_slot: u64,
+    amount: u64,
+    post_balance: u64,
+    commission: ?u8 = null,
+};
+
+/// Supply information
+pub const Supply = struct {
+    total: u64,
+    circulating: u64,
+    non_circulating: u64,
+    non_circulating_accounts: []const []const u8,
+};
+
+/// Large account information
+pub const LargeAccount = struct {
+    lamports: u64,
+    address: []const u8,
+};
+
+/// Vote account information
+pub const VoteAccountInfo = struct {
+    vote_pubkey: []const u8,
+    node_pubkey: []const u8,
+    activated_stake: u64,
+    epoch_vote_account: bool,
+    commission: u8,
+    last_vote: u64,
+    epoch_credits: []const EpochCredit,
+    root_slot: ?u64 = null,
+};
+
+/// Epoch credit entry
+pub const EpochCredit = struct {
+    epoch: u64,
+    credits: u64,
+    previous_credits: u64,
+};
+
+/// Vote accounts response
+pub const VoteAccounts = struct {
+    current: []const VoteAccountInfo,
+    delinquent: []const VoteAccountInfo,
+};
+
+/// Leader schedule entry
+pub const LeaderScheduleEntry = struct {
+    pubkey: []const u8,
+    slots: []const u64,
+};
+
+/// Performance sample
+pub const PerformanceSample = struct {
+    slot: u64,
+    num_transactions: u64,
+    num_slots: u64,
+    sample_period_secs: u16,
+    num_non_vote_transactions: ?u64 = null,
+};
+
+/// Token largest account
+pub const TokenLargestAccount = struct {
+    address: []const u8,
+    amount: []const u8,
+    decimals: u8,
+    ui_amount: ?f64 = null,
+    ui_amount_string: ?[]const u8 = null,
+};
+
+/// Stake minimum delegation
+pub const StakeMinimumDelegation = struct {
+    value: u64,
+};
+
+// ============================================================================
 // Tests
 // ============================================================================
 

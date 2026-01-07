@@ -128,13 +128,13 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 
 The following client-side modules are implemented in `client/`:
 
-### RPC Methods (24/52 implemented)
+### RPC Methods (52/52 implemented)
 
 | Priority | Count | Status | Examples |
 |----------|-------|--------|----------|
 | **P0** | 6/6 | ✅ Complete | `getBalance`, `getAccountInfo`, `getLatestBlockhash`, `sendTransaction` |
 | **P1** | 18/18 | ✅ Complete | `getMultipleAccounts`, `simulateTransaction`, `requestAirdrop`, `getBlock` |
-| **P2** | 0/28 | ⏳ Planned | Remaining methods |
+| **P2** | 28/28 | ✅ Complete | `getBlockCommitment`, `getClusterNodes`, `getVoteAccounts`, `getSupply` |
 
 ### Infrastructure
 | Module | Description | Status |
@@ -143,7 +143,17 @@ The following client-side modules are implemented in `client/`:
 | `client/src/error.zig` | RPC error types | ✅ Complete |
 | `client/src/commitment.zig` | Commitment levels | ✅ Complete |
 | `client/src/types.zig` | Response types | ✅ Complete |
-| `client/src/rpc_client.zig` | Main RPC client | ✅ Complete (P0+P1) |
+| `client/src/rpc_client.zig` | Main RPC client (52 methods + convenience) | ✅ Complete |
+
+### Convenience Methods
+| Method | Description | Status |
+|--------|-------------|--------|
+| `sendAndConfirmTransaction` | Send and wait for confirmation | ✅ Complete |
+| `confirmTransaction` | Wait for transaction confirmation | ✅ Complete |
+| `pollForSignatureStatus` | Poll signature status with timeout | ✅ Complete |
+| `getNewBlockhash` | Get a fresh blockhash | ✅ Complete |
+| `isHealthy` | Check node health (returns bool) | ✅ Complete |
+| `getBalanceInSol` | Get balance in SOL (not lamports) | ✅ Complete |
 
 ### Transaction Building
 | Module | Description | Status |

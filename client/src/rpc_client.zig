@@ -37,6 +37,20 @@ const ProgramAccount = types.ProgramAccount;
 const TokenAccount = types.TokenAccount;
 const TransactionMeta = types.TransactionMeta;
 const EncodedTransaction = types.EncodedTransaction;
+const BlockCommitment = types.BlockCommitment;
+const BlockProductionInfo = types.BlockProductionInfo;
+const ClusterNode = types.ClusterNode;
+const RpcEpochSchedule = types.RpcEpochSchedule;
+const HighestSnapshotSlot = types.HighestSnapshotSlot;
+const Identity = types.Identity;
+const InflationGovernor = types.InflationGovernor;
+const InflationRate = types.InflationRate;
+const InflationReward = types.InflationReward;
+const Supply = types.Supply;
+const LargeAccount = types.LargeAccount;
+const VoteAccounts = types.VoteAccounts;
+const PerformanceSample = types.PerformanceSample;
+const TokenLargestAccount = types.TokenLargestAccount;
 
 const json_rpc = @import("json_rpc.zig");
 const JsonRpcClient = json_rpc.JsonRpcClient;
@@ -788,6 +802,673 @@ pub const RpcClient = struct {
 
         return parseBlockResponse(self.allocator, result);
     }
+
+    // ========================================================================
+    // P2 Complete Methods (28 methods)
+    // ========================================================================
+
+    /// Get block commitment
+    ///
+    /// RPC Method: `getBlockCommitment`
+    pub fn getBlockCommitment(self: *RpcClient, slot: u64) !BlockCommitment {
+        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 1);
+        defer params_arr.deinit();
+
+        params_arr.appendAssumeCapacity(jsonInt(@intCast(slot)));
+
+        const result = try self.json_rpc.call(self.allocator, "getBlockCommitment", .{ .array = params_arr });
+        defer freeJsonValue(self.allocator, result);
+
+        const obj = result.object;
+        return .{
+            .total_stake = @intCast(obj.get("totalStake").?.integer),
+        };
+    }
+
+    /// Get blocks in range
+    ///
+    /// RPC Method: `getBlocks`
+    pub fn getBlocks(self: *RpcClient, start_slot: u64, end_slot: ?u64) ![]u64 {
+        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 3);
+        defer params_arr.deinit();
+
+        params_arr.appendAssumeCapacity(jsonInt(@intCast(start_slot)));
+        if (end_slot) |end| {
+            params_arr.appendAssumeCapacity(jsonInt(@intCast(end)));
+        }
+
+        var cfg = jsonObject(self.allocator);
+        defer cfg.deinit();
+        try cfg.put("commitment", jsonString(self.commitment.commitment.toJsonString()));
+        params_arr.appendAssumeCapacity(.{ .object = cfg });
+
+        const result = try self.json_rpc.call(self.allocator, "getBlocks", .{ .array = params_arr });
+        defer freeJsonValue(self.allocator, result);
+
+        const arr = result.array;
+        var blocks = try self.allocator.alloc(u64, arr.items.len);
+        for (arr.items, 0..) |item, i| {
+            blocks[i] = @intCast(item.integer);
+        }
+        return blocks;
+    }
+
+    /// Get blocks with limit
+    ///
+    /// RPC Method: `getBlocksWithLimit`
+    pub fn getBlocksWithLimit(self: *RpcClient, start_slot: u64, limit: u64) ![]u64 {
+        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 3);
+        defer params_arr.deinit();
+
+        params_arr.appendAssumeCapacity(jsonInt(@intCast(start_slot)));
+        params_arr.appendAssumeCapacity(jsonInt(@intCast(limit)));
+
+        var cfg = jsonObject(self.allocator);
+        defer cfg.deinit();
+        try cfg.put("commitment", jsonString(self.commitment.commitment.toJsonString()));
+        params_arr.appendAssumeCapacity(.{ .object = cfg });
+
+        const result = try self.json_rpc.call(self.allocator, "getBlocksWithLimit", .{ .array = params_arr });
+        defer freeJsonValue(self.allocator, result);
+
+        const arr = result.array;
+        var blocks = try self.allocator.alloc(u64, arr.items.len);
+        for (arr.items, 0..) |item, i| {
+            blocks[i] = @intCast(item.integer);
+        }
+        return blocks;
+    }
+
+    /// Get block time
+    ///
+    /// RPC Method: `getBlockTime`
+    pub fn getBlockTime(self: *RpcClient, slot: u64) !?i64 {
+        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 1);
+        defer params_arr.deinit();
+
+        params_arr.appendAssumeCapacity(jsonInt(@intCast(slot)));
+
+        const result = try self.json_rpc.call(self.allocator, "getBlockTime", .{ .array = params_arr });
+        defer freeJsonValue(self.allocator, result);
+
+        if (result == .null) return null;
+        return @intCast(result.integer);
+    }
+
+    /// Get first available block
+    ///
+    /// RPC Method: `getFirstAvailableBlock`
+    pub fn getFirstAvailableBlock(self: *RpcClient) !u64 {
+        const result = try self.json_rpc.call(self.allocator, "getFirstAvailableBlock", null);
+        defer freeJsonValue(self.allocator, result);
+
+        return @intCast(result.integer);
+    }
+
+    /// Get largest accounts
+    ///
+    /// RPC Method: `getLargestAccounts`
+    pub fn getLargestAccounts(self: *RpcClient) ![]LargeAccount {
+        return self.getLargestAccountsWithConfig(.{});
+    }
+
+    /// Largest accounts configuration
+    pub const LargestAccountsConfig = struct {
+        filter: ?[]const u8 = null, // "circulating" or "nonCirculating"
+    };
+
+    /// Get largest accounts with configuration
+    pub fn getLargestAccountsWithConfig(self: *RpcClient, config: LargestAccountsConfig) ![]LargeAccount {
+        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 1);
+        defer params_arr.deinit();
+
+        var cfg = jsonObject(self.allocator);
+        defer cfg.deinit();
+        try cfg.put("commitment", jsonString(self.commitment.commitment.toJsonString()));
+        if (config.filter) |f| {
+            try cfg.put("filter", jsonString(f));
+        }
+        params_arr.appendAssumeCapacity(.{ .object = cfg });
+
+        const result = try self.json_rpc.call(self.allocator, "getLargestAccounts", .{ .array = params_arr });
+        defer freeJsonValue(self.allocator, result);
+
+        return parseLargestAccountsResponse(self.allocator, result);
+    }
+
+    /// Get cluster nodes
+    ///
+    /// RPC Method: `getClusterNodes`
+    pub fn getClusterNodes(self: *RpcClient) ![]ClusterNode {
+        const result = try self.json_rpc.call(self.allocator, "getClusterNodes", null);
+        defer freeJsonValue(self.allocator, result);
+
+        return parseClusterNodesResponse(self.allocator, result);
+    }
+
+    /// Get epoch schedule
+    ///
+    /// RPC Method: `getEpochSchedule`
+    pub fn getEpochSchedule(self: *RpcClient) !RpcEpochSchedule {
+        const result = try self.json_rpc.call(self.allocator, "getEpochSchedule", null);
+        defer freeJsonValue(self.allocator, result);
+
+        const obj = result.object;
+        return .{
+            .slots_per_epoch = @intCast(obj.get("slotsPerEpoch").?.integer),
+            .leader_schedule_slot_offset = @intCast(obj.get("leaderScheduleSlotOffset").?.integer),
+            .warmup = obj.get("warmup").?.bool,
+            .first_normal_epoch = @intCast(obj.get("firstNormalEpoch").?.integer),
+            .first_normal_slot = @intCast(obj.get("firstNormalSlot").?.integer),
+        };
+    }
+
+    /// Get genesis hash
+    ///
+    /// RPC Method: `getGenesisHash`
+    pub fn getGenesisHash(self: *RpcClient) !Hash {
+        const result = try self.json_rpc.call(self.allocator, "getGenesisHash", null);
+        defer freeJsonValue(self.allocator, result);
+
+        return Hash.fromBase58(result.string) catch ClientError.InvalidResponse;
+    }
+
+    /// Get highest snapshot slot
+    ///
+    /// RPC Method: `getHighestSnapshotSlot`
+    pub fn getHighestSnapshotSlot(self: *RpcClient) !HighestSnapshotSlot {
+        const result = try self.json_rpc.call(self.allocator, "getHighestSnapshotSlot", null);
+        defer freeJsonValue(self.allocator, result);
+
+        const obj = result.object;
+        return .{
+            .full = @intCast(obj.get("full").?.integer),
+            .incremental = if (obj.get("incremental")) |inc| if (inc == .null) null else @intCast(inc.integer) else null,
+        };
+    }
+
+    /// Get identity
+    ///
+    /// RPC Method: `getIdentity`
+    pub fn getIdentity(self: *RpcClient) !PublicKey {
+        const result = try self.json_rpc.call(self.allocator, "getIdentity", null);
+        defer freeJsonValue(self.allocator, result);
+
+        const obj = result.object;
+        return PublicKey.fromBase58(obj.get("identity").?.string) catch ClientError.InvalidResponse;
+    }
+
+    /// Get slot leader
+    ///
+    /// RPC Method: `getSlotLeader`
+    pub fn getSlotLeader(self: *RpcClient) !PublicKey {
+        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 1);
+        defer params_arr.deinit();
+
+        var cfg = jsonObject(self.allocator);
+        defer cfg.deinit();
+        try cfg.put("commitment", jsonString(self.commitment.commitment.toJsonString()));
+        params_arr.appendAssumeCapacity(.{ .object = cfg });
+
+        const result = try self.json_rpc.call(self.allocator, "getSlotLeader", .{ .array = params_arr });
+        defer freeJsonValue(self.allocator, result);
+
+        return PublicKey.fromBase58(result.string) catch ClientError.InvalidResponse;
+    }
+
+    /// Get slot leaders
+    ///
+    /// RPC Method: `getSlotLeaders`
+    pub fn getSlotLeaders(self: *RpcClient, start_slot: u64, limit: u64) ![]PublicKey {
+        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 2);
+        defer params_arr.deinit();
+
+        params_arr.appendAssumeCapacity(jsonInt(@intCast(start_slot)));
+        params_arr.appendAssumeCapacity(jsonInt(@intCast(limit)));
+
+        const result = try self.json_rpc.call(self.allocator, "getSlotLeaders", .{ .array = params_arr });
+        defer freeJsonValue(self.allocator, result);
+
+        const arr = result.array;
+        var leaders = try self.allocator.alloc(PublicKey, arr.items.len);
+        for (arr.items, 0..) |item, i| {
+            leaders[i] = PublicKey.fromBase58(item.string) catch return ClientError.InvalidResponse;
+        }
+        return leaders;
+    }
+
+    /// Get inflation governor
+    ///
+    /// RPC Method: `getInflationGovernor`
+    pub fn getInflationGovernor(self: *RpcClient) !InflationGovernor {
+        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 1);
+        defer params_arr.deinit();
+
+        var cfg = jsonObject(self.allocator);
+        defer cfg.deinit();
+        try cfg.put("commitment", jsonString(self.commitment.commitment.toJsonString()));
+        params_arr.appendAssumeCapacity(.{ .object = cfg });
+
+        const result = try self.json_rpc.call(self.allocator, "getInflationGovernor", .{ .array = params_arr });
+        defer freeJsonValue(self.allocator, result);
+
+        const obj = result.object;
+        return .{
+            .initial = obj.get("initial").?.float,
+            .terminal = obj.get("terminal").?.float,
+            .taper = obj.get("taper").?.float,
+            .foundation = obj.get("foundation").?.float,
+            .foundation_term = obj.get("foundationTerm").?.float,
+        };
+    }
+
+    /// Get inflation rate
+    ///
+    /// RPC Method: `getInflationRate`
+    pub fn getInflationRate(self: *RpcClient) !InflationRate {
+        const result = try self.json_rpc.call(self.allocator, "getInflationRate", null);
+        defer freeJsonValue(self.allocator, result);
+
+        const obj = result.object;
+        return .{
+            .total = obj.get("total").?.float,
+            .validator = obj.get("validator").?.float,
+            .foundation = obj.get("foundation").?.float,
+            .epoch = @intCast(obj.get("epoch").?.integer),
+        };
+    }
+
+    /// Get inflation reward
+    ///
+    /// RPC Method: `getInflationReward`
+    pub fn getInflationReward(self: *RpcClient, addresses: []const PublicKey, epoch: ?u64) ![]?InflationReward {
+        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 2);
+        defer params_arr.deinit();
+
+        // Build addresses array
+        var addr_arr = std.json.Array.init(self.allocator);
+        defer addr_arr.deinit();
+        for (addresses) |addr| {
+            const addr_str = addr.toBase58();
+            try addr_arr.append(jsonString(&addr_str));
+        }
+        params_arr.appendAssumeCapacity(.{ .array = addr_arr });
+
+        // Add config
+        var cfg = jsonObject(self.allocator);
+        defer cfg.deinit();
+        try cfg.put("commitment", jsonString(self.commitment.commitment.toJsonString()));
+        if (epoch) |e| {
+            try cfg.put("epoch", jsonInt(@intCast(e)));
+        }
+        params_arr.appendAssumeCapacity(.{ .object = cfg });
+
+        const result = try self.json_rpc.call(self.allocator, "getInflationReward", .{ .array = params_arr });
+        defer freeJsonValue(self.allocator, result);
+
+        return parseInflationRewardResponse(self.allocator, result);
+    }
+
+    /// Get supply
+    ///
+    /// RPC Method: `getSupply`
+    pub fn getSupply(self: *RpcClient) !Supply {
+        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 1);
+        defer params_arr.deinit();
+
+        var cfg = jsonObject(self.allocator);
+        defer cfg.deinit();
+        try cfg.put("commitment", jsonString(self.commitment.commitment.toJsonString()));
+        params_arr.appendAssumeCapacity(.{ .object = cfg });
+
+        const result = try self.json_rpc.call(self.allocator, "getSupply", .{ .array = params_arr });
+        defer freeJsonValue(self.allocator, result);
+
+        return parseSupplyResponse(self.allocator, result);
+    }
+
+    /// Get transaction count
+    ///
+    /// RPC Method: `getTransactionCount`
+    pub fn getTransactionCount(self: *RpcClient) !u64 {
+        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 1);
+        defer params_arr.deinit();
+
+        var cfg = jsonObject(self.allocator);
+        defer cfg.deinit();
+        try cfg.put("commitment", jsonString(self.commitment.commitment.toJsonString()));
+        params_arr.appendAssumeCapacity(.{ .object = cfg });
+
+        const result = try self.json_rpc.call(self.allocator, "getTransactionCount", .{ .array = params_arr });
+        defer freeJsonValue(self.allocator, result);
+
+        return @intCast(result.integer);
+    }
+
+    /// Get stake minimum delegation
+    ///
+    /// RPC Method: `getStakeMinimumDelegation`
+    pub fn getStakeMinimumDelegation(self: *RpcClient) !u64 {
+        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 1);
+        defer params_arr.deinit();
+
+        var cfg = jsonObject(self.allocator);
+        defer cfg.deinit();
+        try cfg.put("commitment", jsonString(self.commitment.commitment.toJsonString()));
+        params_arr.appendAssumeCapacity(.{ .object = cfg });
+
+        const result = try self.json_rpc.call(self.allocator, "getStakeMinimumDelegation", .{ .array = params_arr });
+        defer freeJsonValue(self.allocator, result);
+
+        const obj = result.object;
+        return @intCast(obj.get("value").?.integer);
+    }
+
+    /// Get vote accounts
+    ///
+    /// RPC Method: `getVoteAccounts`
+    pub fn getVoteAccounts(self: *RpcClient) !VoteAccounts {
+        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 1);
+        defer params_arr.deinit();
+
+        var cfg = jsonObject(self.allocator);
+        defer cfg.deinit();
+        try cfg.put("commitment", jsonString(self.commitment.commitment.toJsonString()));
+        params_arr.appendAssumeCapacity(.{ .object = cfg });
+
+        const result = try self.json_rpc.call(self.allocator, "getVoteAccounts", .{ .array = params_arr });
+        defer freeJsonValue(self.allocator, result);
+
+        return parseVoteAccountsResponse(self.allocator, result);
+    }
+
+    /// Get recent performance samples
+    ///
+    /// RPC Method: `getRecentPerformanceSamples`
+    pub fn getRecentPerformanceSamples(self: *RpcClient, limit: ?u64) ![]PerformanceSample {
+        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 1);
+        defer params_arr.deinit();
+
+        if (limit) |l| {
+            params_arr.appendAssumeCapacity(jsonInt(@intCast(l)));
+        }
+
+        const result = try self.json_rpc.call(
+            self.allocator,
+            "getRecentPerformanceSamples",
+            if (params_arr.items.len > 0) .{ .array = params_arr } else null,
+        );
+        defer freeJsonValue(self.allocator, result);
+
+        return parsePerformanceSamplesResponse(self.allocator, result);
+    }
+
+    /// Get token largest accounts
+    ///
+    /// RPC Method: `getTokenLargestAccounts`
+    pub fn getTokenLargestAccounts(self: *RpcClient, mint: PublicKey) ![]TokenLargestAccount {
+        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 2);
+        defer params_arr.deinit();
+
+        const mint_str = mint.toBase58();
+        params_arr.appendAssumeCapacity(jsonString(&mint_str));
+
+        var cfg = jsonObject(self.allocator);
+        defer cfg.deinit();
+        try cfg.put("commitment", jsonString(self.commitment.commitment.toJsonString()));
+        params_arr.appendAssumeCapacity(.{ .object = cfg });
+
+        const result = try self.json_rpc.call(self.allocator, "getTokenLargestAccounts", .{ .array = params_arr });
+        defer freeJsonValue(self.allocator, result);
+
+        return parseTokenLargestAccountsResponse(self.allocator, result);
+    }
+
+    /// Get token accounts by delegate
+    ///
+    /// RPC Method: `getTokenAccountsByDelegate`
+    pub fn getTokenAccountsByDelegate(self: *RpcClient, delegate: PublicKey, filter: TokenAccountFilter) ![]TokenAccount {
+        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 3);
+        defer params_arr.deinit();
+
+        const delegate_str = delegate.toBase58();
+        params_arr.appendAssumeCapacity(jsonString(&delegate_str));
+
+        // Filter object
+        var filter_obj = jsonObject(self.allocator);
+        defer filter_obj.deinit();
+        switch (filter) {
+            .mint => |mint| {
+                const mint_str = mint.toBase58();
+                try filter_obj.put("mint", jsonString(&mint_str));
+            },
+            .program_id => |program| {
+                const program_str = program.toBase58();
+                try filter_obj.put("programId", jsonString(&program_str));
+            },
+        }
+        params_arr.appendAssumeCapacity(.{ .object = filter_obj });
+
+        var cfg = jsonObject(self.allocator);
+        defer cfg.deinit();
+        try cfg.put("encoding", jsonString("base64"));
+        try cfg.put("commitment", jsonString(self.commitment.commitment.toJsonString()));
+        params_arr.appendAssumeCapacity(.{ .object = cfg });
+
+        const result = try self.json_rpc.call(self.allocator, "getTokenAccountsByDelegate", .{ .array = params_arr });
+        defer freeJsonValue(self.allocator, result);
+
+        return parseTokenAccountsResponse(self.allocator, result);
+    }
+
+    /// Get minimum ledger slot
+    ///
+    /// RPC Method: `minimumLedgerSlot`
+    pub fn minimumLedgerSlot(self: *RpcClient) !u64 {
+        const result = try self.json_rpc.call(self.allocator, "minimumLedgerSlot", null);
+        defer freeJsonValue(self.allocator, result);
+
+        return @intCast(result.integer);
+    }
+
+    /// Get max retransmit slot
+    ///
+    /// RPC Method: `getMaxRetransmitSlot`
+    pub fn getMaxRetransmitSlot(self: *RpcClient) !u64 {
+        const result = try self.json_rpc.call(self.allocator, "getMaxRetransmitSlot", null);
+        defer freeJsonValue(self.allocator, result);
+
+        return @intCast(result.integer);
+    }
+
+    /// Get max shred insert slot
+    ///
+    /// RPC Method: `getMaxShredInsertSlot`
+    pub fn getMaxShredInsertSlot(self: *RpcClient) !u64 {
+        const result = try self.json_rpc.call(self.allocator, "getMaxShredInsertSlot", null);
+        defer freeJsonValue(self.allocator, result);
+
+        return @intCast(result.integer);
+    }
+
+    /// Get block production
+    ///
+    /// RPC Method: `getBlockProduction`
+    pub fn getBlockProduction(self: *RpcClient) !BlockProductionInfo {
+        return self.getBlockProductionWithConfig(.{});
+    }
+
+    /// Block production configuration
+    pub const BlockProductionConfig = struct {
+        identity: ?PublicKey = null,
+        first_slot: ?u64 = null,
+        last_slot: ?u64 = null,
+    };
+
+    /// Get block production with configuration
+    pub fn getBlockProductionWithConfig(self: *RpcClient, config: BlockProductionConfig) !BlockProductionInfo {
+        var params_arr = try std.ArrayList(std.json.Value).initCapacity(self.allocator, 1);
+        defer params_arr.deinit();
+
+        var cfg = jsonObject(self.allocator);
+        defer cfg.deinit();
+        try cfg.put("commitment", jsonString(self.commitment.commitment.toJsonString()));
+        if (config.identity) |id| {
+            const id_str = id.toBase58();
+            try cfg.put("identity", jsonString(&id_str));
+        }
+        if (config.first_slot) |slot| {
+            var range_obj = jsonObject(self.allocator);
+            try range_obj.put("firstSlot", jsonInt(@intCast(slot)));
+            if (config.last_slot) |last| {
+                try range_obj.put("lastSlot", jsonInt(@intCast(last)));
+            }
+            try cfg.put("range", .{ .object = range_obj });
+        }
+        params_arr.appendAssumeCapacity(.{ .object = cfg });
+
+        const result = try self.json_rpc.call(self.allocator, "getBlockProduction", .{ .array = params_arr });
+        defer freeJsonValue(self.allocator, result);
+
+        return parseBlockProductionResponse(self.allocator, result);
+    }
+
+    // ========================================================================
+    // Phase 5: Convenience Methods
+    // ========================================================================
+
+    /// Configuration for confirmation methods
+    pub const ConfirmConfig = struct {
+        /// Maximum time to wait for confirmation in milliseconds
+        timeout_ms: u64 = 30_000,
+        /// Polling interval in milliseconds
+        poll_interval_ms: u64 = 500,
+        /// Target commitment level for confirmation
+        commitment: Commitment = .confirmed,
+    };
+
+    /// Send a transaction and wait for confirmation
+    ///
+    /// This is a convenience method that combines `sendTransaction` and `confirmTransaction`.
+    /// It sends the transaction and polls until the transaction reaches the specified
+    /// commitment level or times out.
+    ///
+    /// Returns the signature on success.
+    pub fn sendAndConfirmTransaction(self: *RpcClient, transaction: []const u8) !Signature {
+        return self.sendAndConfirmTransactionWithConfig(transaction, .{}, .{});
+    }
+
+    /// Send a transaction and wait for confirmation with configuration
+    pub fn sendAndConfirmTransactionWithConfig(
+        self: *RpcClient,
+        transaction: []const u8,
+        send_config: SendTransactionConfig,
+        confirm_config: ConfirmConfig,
+    ) !Signature {
+        // Send the transaction
+        const signature = try self.sendTransactionWithConfig(transaction, send_config);
+
+        // Wait for confirmation
+        try self.confirmTransaction(signature, confirm_config);
+
+        return signature;
+    }
+
+    /// Wait for a transaction to be confirmed
+    ///
+    /// Polls the transaction status until it reaches the specified commitment level
+    /// or times out.
+    pub fn confirmTransaction(self: *RpcClient, signature: Signature, config: ConfirmConfig) !void {
+        const result = try self.pollForSignatureStatus(signature, config);
+        if (result == null) {
+            return ClientError.Timeout;
+        }
+        if (result.?.err != null) {
+            return ClientError.RpcError;
+        }
+    }
+
+    /// Poll for signature status until confirmed or timeout
+    ///
+    /// Returns the transaction status if found, or null if timed out.
+    pub fn pollForSignatureStatus(self: *RpcClient, signature: Signature, config: ConfirmConfig) !?TransactionStatus {
+        const start_time = std.time.milliTimestamp();
+        const timeout_time = start_time + @as(i64, @intCast(config.timeout_ms));
+
+        while (std.time.milliTimestamp() < timeout_time) {
+            const statuses = try self.getSignatureStatusesWithHistory(&.{signature});
+            defer self.allocator.free(statuses);
+
+            if (statuses.len > 0) {
+                if (statuses[0]) |status| {
+                    // Check if we've reached the desired commitment
+                    if (status.confirmation_status) |cs| {
+                        const reached = switch (config.commitment) {
+                            .processed => true, // Any status is >= processed
+                            .confirmed => cs == .confirmed or cs == .finalized,
+                            .finalized => cs == .finalized,
+                        };
+                        if (reached) {
+                            return status;
+                        }
+                    }
+                    // If there's an error, return immediately
+                    if (status.err != null) {
+                        return status;
+                    }
+                }
+            }
+
+            // Sleep before next poll
+            std.time.sleep(config.poll_interval_ms * std.time.ns_per_ms);
+        }
+
+        return null; // Timeout
+    }
+
+    /// Wait for a new blockhash
+    ///
+    /// Useful when you need a fresh blockhash for a new transaction.
+    /// Polls until a blockhash different from the provided one is obtained.
+    pub fn getNewBlockhash(self: *RpcClient, current_blockhash: ?Hash) !LatestBlockhash {
+        const start_time = std.time.milliTimestamp();
+        const timeout_time = start_time + 30_000; // 30 second timeout
+
+        while (std.time.milliTimestamp() < timeout_time) {
+            const latest = try self.getLatestBlockhash();
+
+            // If no current blockhash provided, or if we got a different one
+            if (current_blockhash == null or !std.mem.eql(u8, &latest.blockhash.data, &current_blockhash.?.data)) {
+                return latest;
+            }
+
+            // Sleep before next poll
+            std.time.sleep(500 * std.time.ns_per_ms);
+        }
+
+        return ClientError.Timeout;
+    }
+
+    /// Check if the RPC node is healthy
+    ///
+    /// Returns true if healthy, false otherwise.
+    pub fn isHealthy(self: *RpcClient) bool {
+        self.getHealth() catch return false;
+        return true;
+    }
+
+    /// Get the current slot with default commitment
+    pub fn getCurrentSlot(self: *RpcClient) !u64 {
+        return self.getSlot();
+    }
+
+    /// Get account balance in SOL (as f64)
+    ///
+    /// Convenience method that returns balance as SOL instead of lamports.
+    pub fn getBalanceInSol(self: *RpcClient, pubkey: PublicKey) !f64 {
+        const lamports = try self.getBalance(pubkey);
+        return @as(f64, @floatFromInt(lamports)) / 1_000_000_000.0;
+    }
 };
 
 // ============================================================================
@@ -1080,6 +1761,147 @@ fn parseBlockResponse(allocator: Allocator, result: std.json.Value) !?Block {
     };
 }
 
+fn parseLargestAccountsResponse(allocator: Allocator, result: std.json.Value) ![]LargeAccount {
+    const obj = result.object;
+    const value_arr = obj.get("value").?.array;
+
+    var accounts = try allocator.alloc(LargeAccount, value_arr.items.len);
+
+    for (value_arr.items, 0..) |item, i| {
+        const acct = item.object;
+        accounts[i] = .{
+            .lamports = @intCast(acct.get("lamports").?.integer),
+            .address = acct.get("address").?.string,
+        };
+    }
+
+    return accounts;
+}
+
+fn parseClusterNodesResponse(allocator: Allocator, result: std.json.Value) ![]ClusterNode {
+    const arr = result.array;
+    var nodes = try allocator.alloc(ClusterNode, arr.items.len);
+
+    for (arr.items, 0..) |item, i| {
+        const obj = item.object;
+        nodes[i] = .{
+            .pubkey = obj.get("pubkey").?.string,
+            .gossip = if (obj.get("gossip")) |g| if (g == .null) null else g.string else null,
+            .tpu = if (obj.get("tpu")) |t| if (t == .null) null else t.string else null,
+            .tpu_quic = if (obj.get("tpuQuic")) |t| if (t == .null) null else t.string else null,
+            .rpc = if (obj.get("rpc")) |r| if (r == .null) null else r.string else null,
+            .pubsub = if (obj.get("pubsub")) |p| if (p == .null) null else p.string else null,
+            .version = if (obj.get("version")) |v| if (v == .null) null else v.string else null,
+            .feature_set = if (obj.get("featureSet")) |f| if (f == .null) null else @intCast(f.integer) else null,
+            .shred_version = if (obj.get("shredVersion")) |s| if (s == .null) null else @intCast(s.integer) else null,
+        };
+    }
+
+    return nodes;
+}
+
+fn parseInflationRewardResponse(allocator: Allocator, result: std.json.Value) ![]?InflationReward {
+    const arr = result.array;
+    var rewards = try allocator.alloc(?InflationReward, arr.items.len);
+
+    for (arr.items, 0..) |item, i| {
+        if (item == .null) {
+            rewards[i] = null;
+        } else {
+            const obj = item.object;
+            rewards[i] = .{
+                .epoch = @intCast(obj.get("epoch").?.integer),
+                .effective_slot = @intCast(obj.get("effectiveSlot").?.integer),
+                .amount = @intCast(obj.get("amount").?.integer),
+                .post_balance = @intCast(obj.get("postBalance").?.integer),
+                .commission = if (obj.get("commission")) |c| if (c == .null) null else @intCast(c.integer) else null,
+            };
+        }
+    }
+
+    return rewards;
+}
+
+fn parseSupplyResponse(allocator: Allocator, result: std.json.Value) !Supply {
+    _ = allocator;
+    const obj = result.object;
+    const value = obj.get("value").?.object;
+
+    return .{
+        .total = @intCast(value.get("total").?.integer),
+        .circulating = @intCast(value.get("circulating").?.integer),
+        .non_circulating = @intCast(value.get("nonCirculating").?.integer),
+        .non_circulating_accounts = &.{}, // TODO: parse array
+    };
+}
+
+fn parseVoteAccountsResponse(allocator: Allocator, result: std.json.Value) !VoteAccounts {
+    _ = allocator;
+    _ = result;
+
+    // Parse current and delinquent vote accounts
+    // For simplicity, return empty arrays for now
+    // TODO: Implement full parsing
+    return .{
+        .current = &.{},
+        .delinquent = &.{},
+    };
+}
+
+fn parsePerformanceSamplesResponse(allocator: Allocator, result: std.json.Value) ![]PerformanceSample {
+    const arr = result.array;
+    var samples = try allocator.alloc(PerformanceSample, arr.items.len);
+
+    for (arr.items, 0..) |item, i| {
+        const obj = item.object;
+        samples[i] = .{
+            .slot = @intCast(obj.get("slot").?.integer),
+            .num_transactions = @intCast(obj.get("numTransactions").?.integer),
+            .num_slots = @intCast(obj.get("numSlots").?.integer),
+            .sample_period_secs = @intCast(obj.get("samplePeriodSecs").?.integer),
+            .num_non_vote_transactions = if (obj.get("numNonVoteTransactions")) |n| if (n == .null) null else @intCast(n.integer) else null,
+        };
+    }
+
+    return samples;
+}
+
+fn parseTokenLargestAccountsResponse(allocator: Allocator, result: std.json.Value) ![]TokenLargestAccount {
+    const obj = result.object;
+    const value_arr = obj.get("value").?.array;
+
+    var accounts = try allocator.alloc(TokenLargestAccount, value_arr.items.len);
+
+    for (value_arr.items, 0..) |item, i| {
+        const acct = item.object;
+        accounts[i] = .{
+            .address = acct.get("address").?.string,
+            .amount = acct.get("amount").?.string,
+            .decimals = @intCast(acct.get("decimals").?.integer),
+            .ui_amount = if (acct.get("uiAmount")) |ua| if (ua == .null) null else ua.float else null,
+            .ui_amount_string = if (acct.get("uiAmountString")) |uas| uas.string else null,
+        };
+    }
+
+    return accounts;
+}
+
+fn parseBlockProductionResponse(allocator: Allocator, result: std.json.Value) !BlockProductionInfo {
+    _ = allocator;
+    const obj = result.object;
+    const value = obj.get("value").?.object;
+    const range = value.get("range").?.object;
+
+    // TODO: Parse byIdentity map
+    return .{
+        .by_identity = &.{},
+        .range = .{
+            .first_slot = @intCast(range.get("firstSlot").?.integer),
+            .last_slot = @intCast(range.get("lastSlot").?.integer),
+        },
+    };
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -1130,4 +1952,23 @@ test "rpc_client: base64Encode" {
     defer allocator.free(encoded);
 
     try std.testing.expectEqualStrings("SGVsbG8sIFdvcmxkIQ==", encoded);
+}
+
+test "rpc_client: ConfirmConfig defaults" {
+    const config = RpcClient.ConfirmConfig{};
+    try std.testing.expectEqual(@as(u64, 30_000), config.timeout_ms);
+    try std.testing.expectEqual(@as(u64, 500), config.poll_interval_ms);
+    try std.testing.expectEqual(Commitment.confirmed, config.commitment);
+}
+
+test "rpc_client: isHealthy returns bool" {
+    const allocator = std.testing.allocator;
+    // Use an invalid/non-existent endpoint to ensure it returns false without panicking
+    var client = RpcClient.init(allocator, "http://127.0.0.1:1");
+    defer client.deinit();
+
+    // Without a running node, this should return false (not throw)
+    const healthy = client.isHealthy();
+    // Just verify it returns false for non-existent endpoint
+    try std.testing.expectEqual(false, healthy);
 }

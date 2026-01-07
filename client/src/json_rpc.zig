@@ -208,36 +208,47 @@ pub const JsonRpcClient = struct {
         return ClientError.InvalidResponse;
     }
 
-    /// Send HTTP POST request using fetch API
+    /// Send HTTP POST request using Zig 0.15 request/response API
     fn sendHttpRequest(self: *JsonRpcClient, allocator: Allocator, body: []const u8) ![]u8 {
         var client = std.http.Client{ .allocator = allocator };
         defer client.deinit();
 
-        // Use arena for temporary allocations
-        var arena = std.heap.ArenaAllocator.init(allocator);
-        defer arena.deinit();
-        const arena_alloc = arena.allocator();
+        // Parse the URI
+        const uri = std.Uri.parse(self.endpoint) catch return ClientError.InvalidResponse;
 
-        // Create response writer
-        var response_body = std.ArrayList(u8).init(allocator);
-        errdefer response_body.deinit(allocator);
-
-        const fetch_result = client.fetch(.{
-            .location = .{ .url = self.endpoint },
-            .method = .POST,
-            .payload = body,
+        // Create the request
+        var req = client.request(.POST, uri, .{
             .extra_headers = &.{
                 .{ .name = "Content-Type", .value = "application/json" },
             },
-            .response_storage = .{ .dynamic = &response_body },
-        }) catch {
-            return ClientError.ConnectionFailed;
-        };
+        }) catch return ClientError.ConnectionFailed;
+        defer req.deinit();
 
-        _ = arena_alloc;
+        // Allocate buffer for body writing
+        var body_buffer: [8192]u8 = undefined;
+
+        // Copy body to mutable buffer
+        var mutable_body: []u8 = undefined;
+        if (body.len <= body_buffer.len) {
+            @memcpy(body_buffer[0..body.len], body);
+            mutable_body = body_buffer[0..body.len];
+        } else {
+            // For larger bodies, allocate
+            const alloc_body = allocator.alloc(u8, body.len) catch return ClientError.ConnectionFailed;
+            defer allocator.free(alloc_body);
+            @memcpy(alloc_body, body);
+            mutable_body = alloc_body;
+        }
+
+        // Send the request with body
+        req.sendBodyComplete(mutable_body) catch return ClientError.ConnectionFailed;
+
+        // Receive response head
+        var redirect_buf: [4096]u8 = undefined;
+        var response = req.receiveHead(&redirect_buf) catch return ClientError.ConnectionFailed;
 
         // Check status
-        const status = @intFromEnum(fetch_result.status);
+        const status = @intFromEnum(response.head.status);
         if (status < 200 or status >= 300) {
             if (status == 429) {
                 return ClientError.RateLimited;
@@ -245,7 +256,11 @@ pub const JsonRpcClient = struct {
             return ClientError.UnexpectedStatus;
         }
 
-        return response_body.toOwnedSlice(allocator);
+        // Read the response body
+        var body_reader = response.reader(&redirect_buf);
+        const response_body = body_reader.allocRemaining(allocator, std.Io.Limit.limited(10 * 1024 * 1024)) catch return ClientError.InvalidResponse;
+
+        return response_body;
     }
 };
 

@@ -16,11 +16,11 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 | Crypto (Advanced) | 3 | 3 | 100% |
 | Error Types | 3 | 3 | 100% |
 | Other (epoch_info, c_option) | 2 | 2 | 100% |
-| SPL Programs | 2 | 2 | 100% |
-| **Total (On-chain)** | **62** | **62** | **100%** |
+| SPL Programs | 3 | 3 | 100% |
+| **Total (On-chain)** | **63** | **63** | **100%** |
 
 > Note: Client/RPC and Validator-only modules are excluded.
-> v2.0.0 complete: Added SPL Token types, Associated Token Account, COption generic type.
+> v2.2.0 complete: Added Stake program interface with full StakeStateV2 support.
 
 ---
 
@@ -591,7 +591,7 @@ Implement Token-2022 with TLV extension architecture.
 
 ---
 
-### ⏳ v2.2.0 - Stake Program Interface
+### ✅ v2.2.0 - Stake Program Interface
 
 Implement Solana's core staking program interface.
 
@@ -599,29 +599,39 @@ Implement Solana's core staking program interface.
 
 **Source**: https://github.com/solana-program/stake
 
-#### Data Structures
+| Module | Description | Status |
+|--------|-------------|--------|
+| `spl/stake/state.zig` | StakeStateV2, Meta, Stake, Delegation, StakeFlags | ✅ |
+| `spl/stake/instruction.zig` | 18 StakeInstruction variants | ✅ |
+| `spl/stake/error.zig` | 17 StakeError variants | ✅ |
+| `spl/stake/root.zig` | Module exports | ✅ |
 
-| Type | Size | Description |
-|------|------|-------------|
-| `StakeStateV2` | 200 bytes | Main state enum (Uninitialized, Initialized, Stake, RewardsPool) |
-| `Meta` | 120 bytes | Rent reserve + Authorized + Lockup |
-| `Stake` | 72 bytes | Delegation + credits_observed |
-| `Delegation` | 64 bytes | Voter pubkey + stake + epochs |
+**Features**:
+- ✅ Complete StakeStateV2 state machine (Uninitialized, Initialized, Stake, RewardsPool)
+- ✅ All 18 instruction variants with builders
+- ✅ 17 error types with message() and toStr() methods
+- ✅ StakeFlags bitfield with deprecated MUST_FULLY_ACTIVATE flag
+- ✅ Pack/unpack serialization (Borsh compatible)
+- ✅ 53 unit tests covering state, instructions, and errors
 
-#### Instructions (17 active)
+**Usage**:
+```zig
+const stake = sdk.spl.stake;
 
-| ID | Instruction | Priority | Description |
-|----|-------------|----------|-------------|
-| 0 | `Initialize` | P0 | Initialize stake account |
-| 1 | `Authorize` | P0 | Change authorities |
-| 2 | `DelegateStake` | P0 | Delegate to validator |
-| 3 | `Split` | P0 | Split stake account |
-| 4 | `Withdraw` | P0 | Withdraw lamports |
-| 5 | `Deactivate` | P0 | Begin unstaking |
-| 7 | `Merge` | P1 | Merge stake accounts |
-| 13 | `GetMinimumDelegation` | P1 | Query minimum stake |
-| 16 | `MoveStake` | P2 | Move active stake |
-| 17 | `MoveLamports` | P2 | Move inactive lamports |
+// Parse stake account state
+const state = try stake.StakeStateV2.unpack(account_data);
+if (state.stake()) |s| {
+    const voter = s.delegation.voter_pubkey;
+    const amount = s.delegation.stake;
+}
+
+// Create instructions
+const ix = stake.instruction.initialize(
+    stake_pubkey,
+    stake.Authorized.auto(authority),
+    stake.Lockup.DEFAULT,
+);
+```
 
 ---
 

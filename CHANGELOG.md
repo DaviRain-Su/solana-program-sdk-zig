@@ -2,6 +2,81 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+## [v2.2.0] - 2026-01-07 - Stake Program Interface
+
+**Goal**: Implement Solana Stake program interface for staking operations and validator delegation
+
+### Added
+
+#### Stake Program State Types (`sdk/src/spl/stake/state.zig`)
+- `STAKE_PROGRAM_ID` - Stake program ID
+- `STAKE_CONFIG_PROGRAM_ID` - Stake config program ID (deprecated)
+- `StakeStateV2` enum - Main stake account state (Uninitialized, Initialized, Stake, RewardsPool)
+- `Meta` struct (120 bytes) - Stake account metadata (rent_exempt_reserve, authorized, lockup)
+- `Authorized` struct (64 bytes) - Staker and withdrawer authorities
+- `Lockup` struct (48 bytes) - Lockup configuration (unix_timestamp, epoch, custodian)
+- `Stake` struct (72 bytes) - Active stake information (delegation, credits_observed)
+- `Delegation` struct (64 bytes) - Delegation details (voter_pubkey, stake, activation/deactivation epochs)
+- `StakeFlags` packed struct - Bitflags for stake state
+- `StakeAuthorize` enum - Staker (0), Withdrawer (1)
+- `LockupArgs` and `LockupCheckedArgs` - Lockup modification arguments
+- Pack/unpack methods for all types
+- Constants: `DEFAULT_WARMUP_COOLDOWN_RATE`, `NEW_WARMUP_COOLDOWN_RATE`, `DEFAULT_SLASH_PENALTY`, `MINIMUM_DELINQUENT_EPOCHS_FOR_DEACTIVATION`
+- Functions: `warmupCooldownRate()` - Get rate based on epoch/feature activation
+- `Delegation` methods: `isBootstrap()`, `getStake()`, `stakeActivatingAndDeactivating()`
+- `Stake` methods: `getStake()`, `split()`
+
+#### Stake History (`sdk/src/spl/stake/stake_history.zig`) - NEW
+- `MAX_ENTRIES` constant (512)
+- `StakeHistoryEntry` struct (24 bytes) - effective, activating, deactivating amounts
+- `StakeHistory` struct - Collection of history entries with epoch lookup
+- `StakeHistoryGetEntry` trait - Interface for history lookup
+- Constructor methods: `withEffective()`, `withEffectiveAndActivating()`, `withDeactivating()`
+- 10 unit tests
+
+#### Stake Tools (`sdk/src/spl/stake/tools.zig`) - NEW
+- `EpochCredits` struct - Epoch credits tuple (epoch, credits, prev_credits)
+- `acceptableReferenceEpochCredits()` - Check if vote account is acceptable reference for deactivate_delinquent
+- `eligibleForDeactivateDelinquent()` - Check if vote account is eligible for deactivation
+- 5 unit tests
+
+#### Stake Program Instructions (`sdk/src/spl/stake/instruction.zig`)
+- `StakeInstruction` enum - All 18 instruction variants (0-17)
+- `AuthorizeWithSeedArgs` struct
+- `AuthorizeCheckedWithSeedArgs` struct
+- Instruction builders: `initialize()`, `authorize()`, `delegateStake()`, `split()`, `withdraw()`, `deactivate()`, `setLockup()`, `merge()`, `getMinimumDelegation()`, `deactivateDelinquent()`, `moveStake()`, `moveLamports()`
+- 14 unit tests
+
+#### Stake Program Errors (`sdk/src/spl/stake/error.zig`)
+- `StakeError` enum - All 17 error variants (0-16)
+- `fromCode()` and `toCode()` conversion methods
+- `message()` and `toStr()` for error descriptions
+- 5 unit tests
+
+#### Stake Client Instructions (`client/src/spl/stake/instruction.zig`) - NEW
+- Full instruction builders for all 18 instructions
+- Proper account meta setup for each instruction
+- Integration with client Instruction type
+
+#### Module Exports
+- Created `sdk/src/spl/stake/root.zig` - Module exports
+- Updated `sdk/src/spl/root.zig` to export `stake` module
+- Created `client/src/spl/stake/root.zig` - Client module exports
+- Updated `client/src/spl/root.zig` to export `stake` module
+- Added `STAKE_PROGRAM_ID` convenience re-export
+
+### Documentation
+- Updated `stories/v2.2.0-stake-program.md` - Story file marked complete
+- Updated `ROADMAP.md` - Marked v2.2.0 as complete
+
+### Tests
+- SDK: 253 tests
+- Program SDK: 294 tests  
+- Client: 148 tests
+- **Total: 695 tests**
+
+---
+
 ## [v2.3.0] - 2026-01-07 - SPL Memo Program
 
 **Goal**: Implement SPL Memo program interface for attaching UTF-8 text to transactions

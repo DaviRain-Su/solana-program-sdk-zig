@@ -33,6 +33,18 @@ pub const TOKEN_PROGRAM_ID = sdk_token.TOKEN_PROGRAM_ID;
 pub const MAX_SIGNERS = sdk_token.MAX_SIGNERS;
 
 // ============================================================================
+// Error Types
+// ============================================================================
+
+/// Errors for multisig instruction builders
+pub const MultisigError = error{
+    /// m is 0 or greater than MAX_SIGNERS (11)
+    InvalidNumberOfRequiredSigners,
+    /// signers.len < m or signers.len > MAX_SIGNERS (11)
+    InvalidNumberOfProvidedSigners,
+};
+
+// ============================================================================
 // Instruction Building Types
 // ============================================================================
 
@@ -249,23 +261,31 @@ pub fn initializeAccount3(
 /// 0. `[writable]` The multisig account
 /// 1. `[]` Rent sysvar
 /// 2..2+N `[]` The signer accounts
+///
+/// Errors:
+/// - InvalidNumberOfRequiredSigners: m is 0 or greater than MAX_SIGNERS
+/// - InvalidNumberOfProvidedSigners: signers.len < m or signers.len > MAX_SIGNERS
 pub fn initializeMultisig(
     multisig: PublicKey,
     signers: []const PublicKey,
     m: u8,
-) struct { accounts: [13]AccountMeta, num_accounts: usize, data: [2]u8 } {
+) MultisigError!struct { accounts: [13]AccountMeta, num_accounts: usize, data: [2]u8 } {
+    // Validate m is in valid range (1 <= m <= MAX_SIGNERS)
+    if (m == 0 or m > MAX_SIGNERS) return error.InvalidNumberOfRequiredSigners;
+    // Validate enough signers provided and not too many
+    if (signers.len < m or signers.len > MAX_SIGNERS) return error.InvalidNumberOfProvidedSigners;
+
     var accounts: [13]AccountMeta = undefined; // 2 + MAX_SIGNERS
     accounts[0] = AccountMeta.newWritable(multisig);
     accounts[1] = AccountMeta.newReadonly(RENT_SYSVAR);
 
-    const num_signers = @min(signers.len, MAX_SIGNERS);
-    for (signers[0..num_signers], 0..) |signer, i| {
+    for (signers, 0..) |signer, i| {
         accounts[2 + i] = AccountMeta.newReadonly(signer);
     }
 
     return .{
         .accounts = accounts,
-        .num_accounts = 2 + num_signers,
+        .num_accounts = 2 + signers.len,
         .data = .{
             @intFromEnum(TokenInstruction.InitializeMultisig),
             m,
@@ -278,22 +298,30 @@ pub fn initializeMultisig(
 /// Accounts:
 /// 0. `[writable]` The multisig account
 /// 1..1+N `[]` The signer accounts
+///
+/// Errors:
+/// - InvalidNumberOfRequiredSigners: m is 0 or greater than MAX_SIGNERS
+/// - InvalidNumberOfProvidedSigners: signers.len < m or signers.len > MAX_SIGNERS
 pub fn initializeMultisig2(
     multisig: PublicKey,
     signers: []const PublicKey,
     m: u8,
-) struct { accounts: [12]AccountMeta, num_accounts: usize, data: [2]u8 } {
+) MultisigError!struct { accounts: [12]AccountMeta, num_accounts: usize, data: [2]u8 } {
+    // Validate m is in valid range (1 <= m <= MAX_SIGNERS)
+    if (m == 0 or m > MAX_SIGNERS) return error.InvalidNumberOfRequiredSigners;
+    // Validate enough signers provided and not too many
+    if (signers.len < m or signers.len > MAX_SIGNERS) return error.InvalidNumberOfProvidedSigners;
+
     var accounts: [12]AccountMeta = undefined; // 1 + MAX_SIGNERS
     accounts[0] = AccountMeta.newWritable(multisig);
 
-    const num_signers = @min(signers.len, MAX_SIGNERS);
-    for (signers[0..num_signers], 0..) |signer, i| {
+    for (signers, 0..) |signer, i| {
         accounts[1 + i] = AccountMeta.newReadonly(signer);
     }
 
     return .{
         .accounts = accounts,
-        .num_accounts = 1 + num_signers,
+        .num_accounts = 1 + signers.len,
         .data = .{
             @intFromEnum(TokenInstruction.InitializeMultisig2),
             m,
@@ -338,20 +366,25 @@ pub fn transfer(
 /// 1. `[writable]` Destination account
 /// 2. `[]` Source account owner (multisig)
 /// 3..3+M `[signer]` Signers
+///
+/// Errors:
+/// - InvalidNumberOfProvidedSigners: signers.len is 0 or greater than MAX_SIGNERS
 pub fn transferMultisig(
     source: PublicKey,
     destination: PublicKey,
     owner: PublicKey,
     signers: []const PublicKey,
     amount: u64,
-) struct { accounts: [14]AccountMeta, num_accounts: usize, data: [9]u8 } {
+) MultisigError!struct { accounts: [14]AccountMeta, num_accounts: usize, data: [9]u8 } {
+    // Validate signers count (must have at least 1 and at most MAX_SIGNERS)
+    if (signers.len == 0 or signers.len > MAX_SIGNERS) return error.InvalidNumberOfProvidedSigners;
+
     var accounts: [14]AccountMeta = undefined;
     accounts[0] = AccountMeta.newWritable(source);
     accounts[1] = AccountMeta.newWritable(destination);
     accounts[2] = AccountMeta.newReadonly(owner);
 
-    const num_signers = @min(signers.len, MAX_SIGNERS);
-    for (signers[0..num_signers], 0..) |signer, i| {
+    for (signers, 0..) |signer, i| {
         accounts[3 + i] = AccountMeta.newReadonlySigner(signer);
     }
 
@@ -361,7 +394,7 @@ pub fn transferMultisig(
 
     return .{
         .accounts = accounts,
-        .num_accounts = 3 + num_signers,
+        .num_accounts = 3 + signers.len,
         .data = data,
     };
 }
@@ -1086,4 +1119,136 @@ test "initializeAccount3: instruction format" {
     try std.testing.expectEqual(@as(u8, 18), ix.data[0]);
     try std.testing.expectEqualSlices(u8, &owner.bytes, ix.data[1..33]);
     try std.testing.expectEqual(@as(usize, 2), ix.accounts.len);
+}
+
+// ============================================================================
+// Multisig Validation Tests
+// ============================================================================
+
+test "initializeMultisig: valid parameters" {
+    const multisig = PublicKey.from([_]u8{1} ** 32);
+    const signers = [_]PublicKey{
+        PublicKey.from([_]u8{2} ** 32),
+        PublicKey.from([_]u8{3} ** 32),
+        PublicKey.from([_]u8{4} ** 32),
+    };
+
+    // m=2 with 3 signers should succeed
+    const ix = try initializeMultisig(multisig, &signers, 2);
+    try std.testing.expectEqual(@as(u8, 2), ix.data[0]); // InitializeMultisig
+    try std.testing.expectEqual(@as(u8, 2), ix.data[1]); // m
+    try std.testing.expectEqual(@as(usize, 5), ix.num_accounts); // 2 + 3 signers
+}
+
+test "initializeMultisig: rejects m=0" {
+    const multisig = PublicKey.from([_]u8{1} ** 32);
+    const signers = [_]PublicKey{
+        PublicKey.from([_]u8{2} ** 32),
+    };
+
+    const result = initializeMultisig(multisig, &signers, 0);
+    try std.testing.expectError(error.InvalidNumberOfRequiredSigners, result);
+}
+
+test "initializeMultisig: rejects m > MAX_SIGNERS" {
+    const multisig = PublicKey.from([_]u8{1} ** 32);
+    const signers = [_]PublicKey{
+        PublicKey.from([_]u8{2} ** 32),
+    };
+
+    const result = initializeMultisig(multisig, &signers, MAX_SIGNERS + 1);
+    try std.testing.expectError(error.InvalidNumberOfRequiredSigners, result);
+}
+
+test "initializeMultisig: rejects signers.len < m" {
+    const multisig = PublicKey.from([_]u8{1} ** 32);
+    const signers = [_]PublicKey{
+        PublicKey.from([_]u8{2} ** 32),
+        PublicKey.from([_]u8{3} ** 32),
+    };
+
+    // Only 2 signers but m=3
+    const result = initializeMultisig(multisig, &signers, 3);
+    try std.testing.expectError(error.InvalidNumberOfProvidedSigners, result);
+}
+
+test "initializeMultisig: rejects signers.len > MAX_SIGNERS" {
+    const multisig = PublicKey.from([_]u8{1} ** 32);
+
+    // Create 12 signers (MAX_SIGNERS is 11)
+    var signers: [12]PublicKey = undefined;
+    for (&signers, 0..) |*s, i| {
+        s.* = PublicKey.from([_]u8{@intCast(i + 2)} ** 32);
+    }
+
+    const result = initializeMultisig(multisig, &signers, 5);
+    try std.testing.expectError(error.InvalidNumberOfProvidedSigners, result);
+}
+
+test "initializeMultisig2: valid parameters" {
+    const multisig = PublicKey.from([_]u8{1} ** 32);
+    const signers = [_]PublicKey{
+        PublicKey.from([_]u8{2} ** 32),
+        PublicKey.from([_]u8{3} ** 32),
+    };
+
+    const ix = try initializeMultisig2(multisig, &signers, 2);
+    try std.testing.expectEqual(@as(u8, 19), ix.data[0]); // InitializeMultisig2
+    try std.testing.expectEqual(@as(u8, 2), ix.data[1]); // m
+    try std.testing.expectEqual(@as(usize, 3), ix.num_accounts); // 1 + 2 signers
+}
+
+test "initializeMultisig2: rejects m=0" {
+    const multisig = PublicKey.from([_]u8{1} ** 32);
+    const signers = [_]PublicKey{PublicKey.from([_]u8{2} ** 32)};
+
+    const result = initializeMultisig2(multisig, &signers, 0);
+    try std.testing.expectError(error.InvalidNumberOfRequiredSigners, result);
+}
+
+test "initializeMultisig2: rejects signers.len < m" {
+    const multisig = PublicKey.from([_]u8{1} ** 32);
+    const signers = [_]PublicKey{PublicKey.from([_]u8{2} ** 32)};
+
+    const result = initializeMultisig2(multisig, &signers, 2);
+    try std.testing.expectError(error.InvalidNumberOfProvidedSigners, result);
+}
+
+test "transferMultisig: valid parameters" {
+    const source = PublicKey.from([_]u8{1} ** 32);
+    const dest = PublicKey.from([_]u8{2} ** 32);
+    const owner = PublicKey.from([_]u8{3} ** 32);
+    const signers = [_]PublicKey{
+        PublicKey.from([_]u8{4} ** 32),
+        PublicKey.from([_]u8{5} ** 32),
+    };
+
+    const ix = try transferMultisig(source, dest, owner, &signers, 1000);
+    try std.testing.expectEqual(@as(u8, 3), ix.data[0]); // Transfer
+    try std.testing.expectEqual(@as(usize, 5), ix.num_accounts); // 3 + 2 signers
+}
+
+test "transferMultisig: rejects empty signers" {
+    const source = PublicKey.from([_]u8{1} ** 32);
+    const dest = PublicKey.from([_]u8{2} ** 32);
+    const owner = PublicKey.from([_]u8{3} ** 32);
+    const signers: []const PublicKey = &.{};
+
+    const result = transferMultisig(source, dest, owner, signers, 1000);
+    try std.testing.expectError(error.InvalidNumberOfProvidedSigners, result);
+}
+
+test "transferMultisig: rejects too many signers" {
+    const source = PublicKey.from([_]u8{1} ** 32);
+    const dest = PublicKey.from([_]u8{2} ** 32);
+    const owner = PublicKey.from([_]u8{3} ** 32);
+
+    // Create 12 signers (MAX_SIGNERS is 11)
+    var signers: [12]PublicKey = undefined;
+    for (&signers, 0..) |*s, i| {
+        s.* = PublicKey.from([_]u8{@intCast(i + 4)} ** 32);
+    }
+
+    const result = transferMultisig(source, dest, owner, &signers, 1000);
+    try std.testing.expectError(error.InvalidNumberOfProvidedSigners, result);
 }

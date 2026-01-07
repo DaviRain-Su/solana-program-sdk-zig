@@ -92,7 +92,37 @@ pub const Mint = struct {
     pub const SIZE: usize = 82;
 
     /// Unpack Mint from slice
+    ///
+    /// Requires exactly SIZE bytes. Returns error for:
+    /// - len < SIZE: insufficient data
+    /// - len > SIZE: possible token-2022 extension account (use unpackUnchecked for those)
+    ///
+    /// Rust source: https://github.com/solana-program/token/blob/master/interface/src/state.rs
     pub fn unpackFromSlice(data: []const u8) !Mint {
+        if (data.len != SIZE) return error.InvalidAccountData;
+
+        const mint_authority = try COption(PublicKey).unpack(data[0..36]);
+        const supply = std.mem.readInt(u64, data[36..44], .little);
+        const decimals = data[44];
+        const is_initialized = data[45] == 1;
+        const freeze_authority = try COption(PublicKey).unpack(data[46..82]);
+
+        // Validate is_initialized byte
+        if (data[45] != 0 and data[45] != 1) return error.InvalidAccountData;
+
+        return Mint{
+            .mint_authority = mint_authority,
+            .supply = supply,
+            .decimals = decimals,
+            .is_initialized = is_initialized,
+            .freeze_authority = freeze_authority,
+        };
+    }
+
+    /// Unpack Mint from slice without strict length check
+    ///
+    /// Allows len >= SIZE. Use this for token-2022 accounts with extensions.
+    pub fn unpackUnchecked(data: []const u8) !Mint {
         if (data.len < SIZE) return error.InvalidAccountData;
 
         const mint_authority = try COption(PublicKey).unpack(data[0..36]);
@@ -114,8 +144,10 @@ pub const Mint = struct {
     }
 
     /// Pack Mint into slice
-    pub fn packIntoSlice(self: Mint, dest: []u8) void {
-        if (dest.len < SIZE) return;
+    ///
+    /// Requires exactly SIZE bytes. Returns error if buffer is wrong size.
+    pub fn packIntoSlice(self: Mint, dest: []u8) !void {
+        if (dest.len != SIZE) return error.InvalidAccountData;
 
         self.mint_authority.pack(dest[0..36]);
         std.mem.writeInt(u64, dest[36..44], self.supply, .little);
@@ -176,7 +208,40 @@ pub const Account = struct {
     pub const STATE_OFFSET: usize = 108;
 
     /// Unpack Account from slice
+    ///
+    /// Requires exactly SIZE bytes. Returns error for:
+    /// - len < SIZE: insufficient data
+    /// - len > SIZE: possible token-2022 extension account (use unpackUnchecked for those)
+    ///
+    /// Rust source: https://github.com/solana-program/token/blob/master/interface/src/state.rs
     pub fn unpackFromSlice(data: []const u8) !Account {
+        if (data.len != SIZE) return error.InvalidAccountData;
+
+        const mint = PublicKey.from(data[0..32].*);
+        const owner = PublicKey.from(data[32..64].*);
+        const amount = std.mem.readInt(u64, data[64..72], .little);
+        const delegate = try COption(PublicKey).unpack(data[72..108]);
+        const state = AccountState.fromByte(data[108]) orelse return error.InvalidAccountData;
+        const is_native = try COption(u64).unpack(data[109..121]);
+        const delegated_amount = std.mem.readInt(u64, data[121..129], .little);
+        const close_authority = try COption(PublicKey).unpack(data[129..165]);
+
+        return Account{
+            .mint = mint,
+            .owner = owner,
+            .amount = amount,
+            .delegate = delegate,
+            .state = state,
+            .is_native = is_native,
+            .delegated_amount = delegated_amount,
+            .close_authority = close_authority,
+        };
+    }
+
+    /// Unpack Account from slice without strict length check
+    ///
+    /// Allows len >= SIZE. Use this for token-2022 accounts with extensions.
+    pub fn unpackUnchecked(data: []const u8) !Account {
         if (data.len < SIZE) return error.InvalidAccountData;
 
         const mint = PublicKey.from(data[0..32].*);
@@ -201,8 +266,10 @@ pub const Account = struct {
     }
 
     /// Pack Account into slice
-    pub fn packIntoSlice(self: Account, dest: []u8) void {
-        if (dest.len < SIZE) return;
+    ///
+    /// Requires exactly SIZE bytes. Returns error if buffer is wrong size.
+    pub fn packIntoSlice(self: Account, dest: []u8) !void {
+        if (dest.len != SIZE) return error.InvalidAccountData;
 
         @memcpy(dest[0..32], &self.mint.bytes);
         @memcpy(dest[32..64], &self.owner.bytes);
@@ -257,7 +324,39 @@ pub const Multisig = struct {
     pub const SIZE: usize = 355;
 
     /// Unpack Multisig from slice
+    ///
+    /// Requires exactly SIZE bytes. Returns error for incorrect length.
+    ///
+    /// Rust source: https://github.com/solana-program/token/blob/master/interface/src/state.rs
     pub fn unpackFromSlice(data: []const u8) !Multisig {
+        if (data.len != SIZE) return error.InvalidAccountData;
+
+        const m = data[0];
+        const n = data[1];
+        const is_initialized = switch (data[2]) {
+            0 => false,
+            1 => true,
+            else => return error.InvalidAccountData,
+        };
+
+        var signers: [MAX_SIGNERS]PublicKey = undefined;
+        for (0..MAX_SIGNERS) |i| {
+            const start = 3 + i * 32;
+            signers[i] = PublicKey.from(data[start..][0..32].*);
+        }
+
+        return Multisig{
+            .m = m,
+            .n = n,
+            .is_initialized = is_initialized,
+            .signers = signers,
+        };
+    }
+
+    /// Unpack Multisig from slice without strict length check
+    ///
+    /// Allows len >= SIZE.
+    pub fn unpackUnchecked(data: []const u8) !Multisig {
         if (data.len < SIZE) return error.InvalidAccountData;
 
         const m = data[0];
@@ -283,8 +382,10 @@ pub const Multisig = struct {
     }
 
     /// Pack Multisig into slice
-    pub fn packIntoSlice(self: Multisig, dest: []u8) void {
-        if (dest.len < SIZE) return;
+    ///
+    /// Requires exactly SIZE bytes. Returns error if buffer is wrong size.
+    pub fn packIntoSlice(self: Multisig, dest: []u8) !void {
+        if (dest.len != SIZE) return error.InvalidAccountData;
 
         dest[0] = self.m;
         dest[1] = self.n;
@@ -490,7 +591,7 @@ test "Mint: pack and unpack roundtrip" {
     };
 
     var buffer: [Mint.SIZE]u8 = undefined;
-    mint.packIntoSlice(&buffer);
+    try mint.packIntoSlice(&buffer);
 
     const unpacked = try Mint.unpackFromSlice(&buffer);
     try std.testing.expect(unpacked.is_initialized);
@@ -520,7 +621,7 @@ test "Account: unpack and pack roundtrip" {
     };
 
     var buffer: [Account.SIZE]u8 = undefined;
-    account.packIntoSlice(&buffer);
+    try account.packIntoSlice(&buffer);
 
     const unpacked = try Account.unpackFromSlice(&buffer);
     try std.testing.expectEqual(mint, unpacked.mint);
@@ -672,4 +773,139 @@ test "unpackAccountMint: extracts mint from account data" {
     var long_data: [Account.SIZE + 5]u8 = [_]u8{0} ** (Account.SIZE + 5);
     long_data[Account.STATE_OFFSET] = @intFromEnum(AccountState.Initialized);
     try std.testing.expect(unpackAccountMint(&long_data) == null);
+}
+
+// Tests for strict length checking
+test "Mint: unpackFromSlice rejects wrong length" {
+    // Too short
+    {
+        var short_data: [Mint.SIZE - 1]u8 = [_]u8{0} ** (Mint.SIZE - 1);
+        try std.testing.expectError(error.InvalidAccountData, Mint.unpackFromSlice(&short_data));
+    }
+    // Too long (possible extension account)
+    {
+        var long_data: [Mint.SIZE + 1]u8 = [_]u8{0} ** (Mint.SIZE + 1);
+        try std.testing.expectError(error.InvalidAccountData, Mint.unpackFromSlice(&long_data));
+    }
+    // Exact length should work
+    {
+        var exact_data: [Mint.SIZE]u8 = [_]u8{0} ** Mint.SIZE;
+        _ = try Mint.unpackFromSlice(&exact_data);
+    }
+}
+
+test "Account: unpackFromSlice rejects wrong length" {
+    // Too short
+    {
+        var short_data: [Account.SIZE - 1]u8 = [_]u8{0} ** (Account.SIZE - 1);
+        try std.testing.expectError(error.InvalidAccountData, Account.unpackFromSlice(&short_data));
+    }
+    // Too long (possible extension account)
+    {
+        var long_data: [Account.SIZE + 1]u8 = [_]u8{0} ** (Account.SIZE + 1);
+        try std.testing.expectError(error.InvalidAccountData, Account.unpackFromSlice(&long_data));
+    }
+    // Exact length should work
+    {
+        var exact_data: [Account.SIZE]u8 = [_]u8{0} ** Account.SIZE;
+        _ = try Account.unpackFromSlice(&exact_data);
+    }
+}
+
+test "Multisig: unpackFromSlice rejects wrong length" {
+    // Too short
+    {
+        var short_data: [Multisig.SIZE - 1]u8 = [_]u8{0} ** (Multisig.SIZE - 1);
+        try std.testing.expectError(error.InvalidAccountData, Multisig.unpackFromSlice(&short_data));
+    }
+    // Too long
+    {
+        var long_data: [Multisig.SIZE + 1]u8 = [_]u8{0} ** (Multisig.SIZE + 1);
+        try std.testing.expectError(error.InvalidAccountData, Multisig.unpackFromSlice(&long_data));
+    }
+    // Exact length should work
+    {
+        var exact_data: [Multisig.SIZE]u8 = [_]u8{0} ** Multisig.SIZE;
+        _ = try Multisig.unpackFromSlice(&exact_data);
+    }
+}
+
+test "Mint: packIntoSlice rejects wrong buffer size" {
+    const mint = Mint{
+        .mint_authority = COption(PublicKey).none(),
+        .supply = 0,
+        .decimals = 0,
+        .is_initialized = false,
+        .freeze_authority = COption(PublicKey).none(),
+    };
+
+    // Too short
+    {
+        var short_buffer: [Mint.SIZE - 1]u8 = undefined;
+        try std.testing.expectError(error.InvalidAccountData, mint.packIntoSlice(&short_buffer));
+    }
+    // Too long
+    {
+        var long_buffer: [Mint.SIZE + 1]u8 = undefined;
+        try std.testing.expectError(error.InvalidAccountData, mint.packIntoSlice(&long_buffer));
+    }
+    // Exact length should work
+    {
+        var exact_buffer: [Mint.SIZE]u8 = undefined;
+        try mint.packIntoSlice(&exact_buffer);
+    }
+}
+
+test "Account: packIntoSlice rejects wrong buffer size" {
+    const account = Account{
+        .mint = PublicKey.default(),
+        .owner = PublicKey.default(),
+        .amount = 0,
+        .delegate = COption(PublicKey).none(),
+        .state = .Uninitialized,
+        .is_native = COption(u64).none(),
+        .delegated_amount = 0,
+        .close_authority = COption(PublicKey).none(),
+    };
+
+    // Too short
+    {
+        var short_buffer: [Account.SIZE - 1]u8 = undefined;
+        try std.testing.expectError(error.InvalidAccountData, account.packIntoSlice(&short_buffer));
+    }
+    // Too long
+    {
+        var long_buffer: [Account.SIZE + 1]u8 = undefined;
+        try std.testing.expectError(error.InvalidAccountData, account.packIntoSlice(&long_buffer));
+    }
+    // Exact length should work
+    {
+        var exact_buffer: [Account.SIZE]u8 = undefined;
+        try account.packIntoSlice(&exact_buffer);
+    }
+}
+
+test "Multisig: packIntoSlice rejects wrong buffer size" {
+    const multisig = Multisig{
+        .m = 0,
+        .n = 0,
+        .is_initialized = false,
+        .signers = [_]PublicKey{PublicKey.default()} ** MAX_SIGNERS,
+    };
+
+    // Too short
+    {
+        var short_buffer: [Multisig.SIZE - 1]u8 = undefined;
+        try std.testing.expectError(error.InvalidAccountData, multisig.packIntoSlice(&short_buffer));
+    }
+    // Too long
+    {
+        var long_buffer: [Multisig.SIZE + 1]u8 = undefined;
+        try std.testing.expectError(error.InvalidAccountData, multisig.packIntoSlice(&long_buffer));
+    }
+    // Exact length should work
+    {
+        var exact_buffer: [Multisig.SIZE]u8 = undefined;
+        try multisig.packIntoSlice(&exact_buffer);
+    }
 }

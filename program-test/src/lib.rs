@@ -691,6 +691,21 @@ pub struct HashSizesTestVector {
     pub solana_hash_size: usize,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SpecialAddressesTestVector {
+    pub name: String,
+    pub incinerator: [u8; 32],
+    pub incinerator_base58: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct PubkeySizesTestVector {
+    pub name: String,
+    pub pubkey_size: usize,
+    pub max_seed_len: usize,
+    pub max_seeds: usize,
+}
+
 pub fn generate_pubkey_vectors(output_dir: &Path) {
     let bpf_loader_upgradeable_id =
         Pubkey::from_str_const("BPFLoaderUpgradeab1e11111111111111111111111");
@@ -4247,6 +4262,33 @@ pub fn generate_hash_sizes_vectors(output_dir: &Path) {
     fs::write(output_dir.join("hash_sizes_vectors.json"), json).unwrap();
 }
 
+pub fn generate_special_addresses_vectors(output_dir: &Path) {
+    let incinerator = Pubkey::from_str_const("1nc1nerator11111111111111111111111111111111");
+
+    let vectors = vec![SpecialAddressesTestVector {
+        name: "special_addresses".to_string(),
+        incinerator: incinerator.to_bytes(),
+        incinerator_base58: incinerator.to_string(),
+    }];
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("special_addresses_vectors.json"), json).unwrap();
+}
+
+pub fn generate_pubkey_sizes_vectors(output_dir: &Path) {
+    use solana_sdk::pubkey::{MAX_SEEDS, MAX_SEED_LEN, PUBKEY_BYTES};
+
+    let vectors = vec![PubkeySizesTestVector {
+        name: "pubkey_sizes".to_string(),
+        pubkey_size: PUBKEY_BYTES,
+        max_seed_len: MAX_SEED_LEN,
+        max_seeds: MAX_SEEDS,
+    }];
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("pubkey_sizes_vectors.json"), json).unwrap();
+}
+
 pub fn generate_sysvar_id_vectors(output_dir: &Path) {
     use solana_sdk::sysvar;
 
@@ -4383,6 +4425,8 @@ pub fn generate_all_vectors(output_dir: &Path) {
     generate_secp256k1_constants_vectors(output_dir);
     generate_signature_sizes_vectors(output_dir);
     generate_hash_sizes_vectors(output_dir);
+    generate_special_addresses_vectors(output_dir);
+    generate_pubkey_sizes_vectors(output_dir);
 
     println!("Generated all test vectors in {:?}", output_dir);
 }

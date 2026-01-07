@@ -2503,3 +2503,47 @@ test "hash_sizes: hash output sizes match Rust SDK" {
         try std.testing.expectEqual(@as(usize, 32), vector.solana_hash_size);
     }
 }
+
+const SpecialAddressesTestVector = struct {
+    name: []const u8,
+    incinerator: [32]u8,
+    incinerator_base58: []const u8,
+};
+
+test "special_addresses: incinerator address matches Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "special_addresses_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const SpecialAddressesTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        try std.testing.expectEqualStrings("1nc1nerator11111111111111111111111111111111", vector.incinerator_base58);
+        try std.testing.expectEqual(@as(usize, 32), vector.incinerator.len);
+    }
+}
+
+const PubkeySizesTestVector = struct {
+    name: []const u8,
+    pubkey_size: usize,
+    max_seed_len: usize,
+    max_seeds: usize,
+};
+
+test "pubkey_sizes: pubkey constants match Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "pubkey_sizes_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const PubkeySizesTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        try std.testing.expectEqual(@as(usize, 32), vector.pubkey_size);
+        try std.testing.expectEqual(@as(usize, 32), vector.max_seed_len);
+        try std.testing.expectEqual(@as(usize, 16), vector.max_seeds);
+    }
+}

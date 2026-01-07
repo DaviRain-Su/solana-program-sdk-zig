@@ -482,6 +482,117 @@ zig test src/root.zig
 zig build run-example_name
 ```
 
+### 测试分层规范（强制）
+
+**核心原则**: 集成测试验证跨语言序列化兼容性，单元测试验证功能正确性。
+
+#### 测试职责分工
+
+| 测试类型 | 位置 | 职责 | 验证内容 |
+|----------|------|------|----------|
+| **集成测试** | `program-test/integration/` | 二进制序列化兼容性 | Rust SDK bytes == Zig SDK bytes |
+| **单元测试** | `sdk/src/*.zig`, `src/*.zig` | 功能正确性 | 参照 Rust SDK 的 `#[test]` 用例 |
+
+#### 集成测试规范（序列化兼容性验证）
+
+**目的**: 验证 Zig SDK 的序列化输出与 Rust SDK 完全一致（二进制级别）。
+
+```
+Rust SDK                          Zig SDK
+   │                                 │
+   ▼                                 ▼
+bincode::serialize(&struct)    sdk.bincode.serialize(struct)
+   │                                 │
+   ▼                                 ▼
+  bytes ═══════════════════════════ bytes
+              必须完全相等
+```
+
+**正确的集成测试模式**:
+
+```zig
+test "xxx_serialization: Zig SDK serialization matches Rust SDK" {
+    // 1. 从 JSON 测试向量读取输入数据和 Rust 序列化结果
+    const vector = loadTestVector("xxx_vectors.json");
+    
+    // 2. 使用输入数据构造 Zig 结构体
+    const zig_struct = MyStruct{
+        .field1 = vector.field1,
+        .field2 = vector.field2,
+    };
+    
+    // 3. 使用 Zig SDK 序列化
+    var zig_buffer: [SIZE]u8 = undefined;
+    const bytes_written = try sdk.bincode.serialize(MyStruct, zig_struct, &zig_buffer);
+    
+    // 4. 与 Rust 序列化结果逐字节比较
+    try std.testing.expectEqualSlices(u8, vector.rust_encoded, zig_buffer[0..bytes_written]);
+}
+```
+
+**错误的集成测试模式（仅验证常量）**:
+
+```zig
+// ❌ 错误 - 只验证常量值，不验证序列化兼容性
+test "xxx_constants: check values" {
+    try std.testing.expectEqual(@as(usize, 32), vector.pubkey_size);
+}
+```
+
+**集成测试向量要求**:
+
+| 字段 | 说明 |
+|------|------|
+| `name` | 测试用例名称 |
+| 输入字段 | 构造结构体所需的原始数据 |
+| `encoded`/`serialized` | Rust SDK 序列化的字节数组 |
+
+#### 单元测试规范（功能正确性验证）
+
+**目的**: 验证 Zig SDK 的 API 行为与 Rust SDK 一致。
+
+**要求**:
+1. **完全覆盖**: 每个 Rust `#[test]` 必须有对应的 Zig `test` 块
+2. **逻辑一致**: 测试输入、断言、边界条件必须与 Rust 版本一致
+3. **可以扩展**: 允许添加 Zig 特有测试（如内存安全测试）
+
+**单元测试位置**:
+- `sdk/src/*.zig` - 共享 SDK 类型的单元测试
+- `src/*.zig` - Program SDK 的单元测试
+
+**单元测试模式**:
+
+```zig
+/// Rust test: test_function_name
+/// Source: https://github.com/anza-xyz/solana-sdk/blob/master/xxx/src/lib.rs#L100
+test "module: function behavior" {
+    // 测试逻辑与 Rust 版本一致
+    const input = ...;
+    const result = sdk.module.function(input);
+    try std.testing.expectEqual(expected, result);
+}
+```
+
+#### 测试分层检查清单
+
+**集成测试**:
+- [ ] 每个序列化类型都有对应的 `*_serialization` 测试
+- [ ] 测试使用 JSON 向量中的 `encoded`/`serialized` 字段
+- [ ] 测试调用 Zig SDK 的序列化函数并比较字节
+- [ ] 不存在仅验证常量的"假"集成测试
+
+**单元测试**:
+- [ ] Rust 源码中每个 `#[test]` 都有对应的 Zig 测试
+- [ ] 测试逻辑与 Rust 版本一致
+- [ ] 测试覆盖正常路径和错误路径
+
+#### 禁止行为
+
+- ❌ **禁止**: 集成测试中只验证常量而不验证序列化
+- ❌ **禁止**: 遗漏 Rust 源码中的任何 `#[test]`
+- ❌ **禁止**: 修改测试预期值使其"通过"
+- ❌ **禁止**: 在单元测试中重复集成测试的序列化验证
+
 ### 测试质量要求（强制）
 
 **核心原则**: 所有测试必须通过，且无内存泄漏和段错误。

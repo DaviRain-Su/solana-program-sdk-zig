@@ -2547,3 +2547,266 @@ test "pubkey_sizes: pubkey constants match Rust SDK" {
         try std.testing.expectEqual(@as(usize, 16), vector.max_seeds);
     }
 }
+
+// =============================================================================
+// TRUE SERIALIZATION COMPATIBILITY TESTS
+// =============================================================================
+// These tests verify that Zig SDK serialization produces byte-identical output
+// to the Rust SDK. This is the gold standard for compatibility verification.
+// Pattern: Construct struct from input -> Serialize with Zig -> Compare with Rust bytes
+// =============================================================================
+
+const ShortVecSerTestVector = struct {
+    name: []const u8,
+    value: u16,
+    encoded: []const u8,
+};
+
+test "short_vec_serialization: Zig SDK ShortU16 encoding matches Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "short_vec_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const ShortVecSerTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        // Encode using Zig SDK
+        var zig_buffer: [sdk.short_vec.MAX_ENCODING_LENGTH]u8 = undefined;
+        const bytes_written = sdk.short_vec.encodeU16(vector.value, &zig_buffer);
+
+        // Compare with Rust encoded bytes
+        try std.testing.expectEqual(vector.encoded.len, bytes_written);
+        try std.testing.expectEqualSlices(u8, vector.encoded, zig_buffer[0..bytes_written]);
+    }
+}
+
+const LockupSerTestVector = struct {
+    name: []const u8,
+    unix_timestamp: i64,
+    epoch: u64,
+    custodian: [32]u8,
+    serialized: []const u8,
+};
+
+test "lockup_serialization: Zig SDK Lockup struct serialization matches Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "lockup_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const LockupSerTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    // Lockup struct layout: i64 + u64 + [32]u8 = 48 bytes
+    const Lockup = extern struct {
+        unix_timestamp: i64,
+        epoch: u64,
+        custodian: [32]u8,
+    };
+
+    for (parsed.value) |vector| {
+        const lockup = Lockup{
+            .unix_timestamp = vector.unix_timestamp,
+            .epoch = vector.epoch,
+            .custodian = vector.custodian,
+        };
+
+        // Serialize using Zig SDK's bincode
+        var zig_buffer: [48]u8 = undefined;
+        const bytes_written = try sdk.bincode.serialize(Lockup, lockup, &zig_buffer);
+
+        // Compare with Rust serialized bytes
+        try std.testing.expectEqual(vector.serialized.len, bytes_written);
+        try std.testing.expectEqualSlices(u8, vector.serialized, zig_buffer[0..bytes_written]);
+    }
+}
+
+const VoteInitSerTestVector = struct {
+    name: []const u8,
+    node_pubkey: [32]u8,
+    authorized_voter: [32]u8,
+    authorized_withdrawer: [32]u8,
+    commission: u8,
+    serialized: []const u8,
+};
+
+test "vote_init_serialization: Zig SDK VoteInit struct serialization matches Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "vote_init_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const VoteInitSerTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    // VoteInit struct layout: [32]u8 + [32]u8 + [32]u8 + u8 = 97 bytes
+    const VoteInit = extern struct {
+        node_pubkey: [32]u8,
+        authorized_voter: [32]u8,
+        authorized_withdrawer: [32]u8,
+        commission: u8,
+    };
+
+    for (parsed.value) |vector| {
+        const vote_init = VoteInit{
+            .node_pubkey = vector.node_pubkey,
+            .authorized_voter = vector.authorized_voter,
+            .authorized_withdrawer = vector.authorized_withdrawer,
+            .commission = vector.commission,
+        };
+
+        // Serialize using Zig SDK's bincode
+        var zig_buffer: [97]u8 = undefined;
+        const bytes_written = try sdk.bincode.serialize(VoteInit, vote_init, &zig_buffer);
+
+        // Compare with Rust serialized bytes
+        try std.testing.expectEqual(vector.serialized.len, bytes_written);
+        try std.testing.expectEqualSlices(u8, vector.serialized, zig_buffer[0..bytes_written]);
+    }
+}
+
+const SlotHashSerTestVector = struct {
+    name: []const u8,
+    slot: u64,
+    hash: [32]u8,
+    serialized: []const u8,
+};
+
+test "slot_hash_serialization: Zig SDK SlotHash struct serialization matches Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "slot_hash_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const SlotHashSerTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    // SlotHash struct layout: u64 + [32]u8 = 40 bytes
+    const SlotHash = extern struct {
+        slot: u64,
+        hash: [32]u8,
+    };
+
+    for (parsed.value) |vector| {
+        const slot_hash = SlotHash{
+            .slot = vector.slot,
+            .hash = vector.hash,
+        };
+
+        // Serialize using Zig SDK's bincode
+        var zig_buffer: [40]u8 = undefined;
+        const bytes_written = try sdk.bincode.serialize(SlotHash, slot_hash, &zig_buffer);
+
+        // Compare with Rust serialized bytes
+        try std.testing.expectEqual(vector.serialized.len, bytes_written);
+        try std.testing.expectEqualSlices(u8, vector.serialized, zig_buffer[0..bytes_written]);
+    }
+}
+
+const LastRestartSlotSerTestVector = struct {
+    name: []const u8,
+    last_restart_slot: u64,
+    serialized: []const u8,
+};
+
+test "last_restart_slot_serialization: Zig SDK u64 serialization matches Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "last_restart_slot_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const LastRestartSlotSerTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        // Serialize using Zig SDK's bincode
+        var zig_buffer: [8]u8 = undefined;
+        const bytes_written = try sdk.bincode.serialize(u64, vector.last_restart_slot, &zig_buffer);
+
+        // Compare with Rust serialized bytes
+        try std.testing.expectEqual(vector.serialized.len, bytes_written);
+        try std.testing.expectEqualSlices(u8, vector.serialized, zig_buffer[0..bytes_written]);
+    }
+}
+
+const AuthorizedSerTestVector = struct {
+    name: []const u8,
+    staker: [32]u8,
+    withdrawer: [32]u8,
+    serialized: []const u8,
+};
+
+test "authorized_serialization: Zig SDK Authorized struct serialization matches Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "authorize_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const AuthorizedSerTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    // Authorized struct layout: [32]u8 staker + [32]u8 withdrawer = 64 bytes
+    const Authorized = extern struct {
+        staker: [32]u8,
+        withdrawer: [32]u8,
+    };
+
+    for (parsed.value) |vector| {
+        const authorized = Authorized{
+            .staker = vector.staker,
+            .withdrawer = vector.withdrawer,
+        };
+
+        // Serialize using Zig SDK's bincode
+        var zig_buffer: [64]u8 = undefined;
+        const bytes_written = try sdk.bincode.serialize(Authorized, authorized, &zig_buffer);
+
+        // Compare with Rust serialized bytes
+        try std.testing.expectEqual(vector.serialized.len, bytes_written);
+        try std.testing.expectEqualSlices(u8, vector.serialized, zig_buffer[0..bytes_written]);
+    }
+}
+
+const NonceVersionsSerTestVector = struct {
+    name: []const u8,
+    authority: []const u8,
+    durable_nonce: []const u8,
+    lamports_per_signature: u64,
+    encoded: []const u8,
+};
+
+test "nonce_versions_serialization: Zig SDK serialization matches Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "nonce_versions_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const NonceVersionsSerTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        var zig_buffer: [80]u8 = undefined;
+
+        if (vector.authority.len == 0) {
+            const versions = sdk.nonce.Versions{ .current = .uninitialized };
+            try sdk.nonce.serialize(versions, &zig_buffer);
+            try std.testing.expectEqualSlices(u8, vector.encoded, zig_buffer[0..vector.encoded.len]);
+        } else {
+            var authority_bytes: [32]u8 = undefined;
+            @memcpy(&authority_bytes, vector.authority);
+            const authority = sdk.PublicKey{ .bytes = authority_bytes };
+
+            var nonce_bytes: [32]u8 = undefined;
+            @memcpy(&nonce_bytes, vector.durable_nonce);
+            const durable_nonce = sdk.nonce.DurableNonce{ .hash = sdk.Hash{ .bytes = nonce_bytes } };
+
+            const data = sdk.nonce.Data.init(authority, durable_nonce, vector.lamports_per_signature);
+            const versions = sdk.nonce.Versions{ .current = .{ .initialized = data } };
+
+            try sdk.nonce.serialize(versions, &zig_buffer);
+            try std.testing.expectEqualSlices(u8, vector.encoded, &zig_buffer);
+        }
+    }
+}

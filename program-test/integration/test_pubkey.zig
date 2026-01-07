@@ -1858,3 +1858,164 @@ test "bn254: constants match Rust SDK" {
         try std.testing.expectEqual(@as(u64, 0x80), vector.le_flag);
     }
 }
+
+const SlotHistoryConstantsTestVector = struct {
+    name: []const u8,
+    max_entries: u64,
+    bitvec_words: usize,
+    sysvar_id: [32]u8,
+    sysvar_id_base58: []const u8,
+};
+
+test "slot_history: constants match Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "slot_history_constants_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const SlotHistoryConstantsTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        try std.testing.expectEqual(@as(u64, 1024 * 1024), vector.max_entries);
+        try std.testing.expectEqual(@as(usize, 1024 * 1024 / 64), vector.bitvec_words);
+        try std.testing.expectEqualStrings("SysvarS1otHistory11111111111111111111111111", vector.sysvar_id_base58);
+    }
+}
+
+const BigModExpTestVector = struct {
+    name: []const u8,
+    base: []const u8,
+    exponent: []const u8,
+    modulus: []const u8,
+    expected_result: []const u8,
+};
+
+test "big_mod_exp: test vectors match expected results" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "big_mod_exp_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const BigModExpTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        if (std.mem.eql(u8, vector.name, "simple_2_3_mod_5")) {
+            try std.testing.expectEqual(@as(u8, 3), vector.expected_result[0]);
+        } else if (std.mem.eql(u8, vector.name, "2_10_mod_1000")) {
+            try std.testing.expectEqual(@as(u8, 24), vector.expected_result[0]);
+        } else if (std.mem.eql(u8, vector.name, "any_pow_0_mod_m")) {
+            try std.testing.expectEqual(@as(u8, 1), vector.expected_result[0]);
+        } else if (std.mem.eql(u8, vector.name, "base_pow_exp_mod_1")) {
+            try std.testing.expectEqual(@as(u8, 0), vector.expected_result[0]);
+        } else if (std.mem.eql(u8, vector.name, "7_pow_13_mod_123")) {
+            try std.testing.expectEqual(@as(u8, 94), vector.expected_result[0]);
+        }
+    }
+}
+
+const AuthorizeTestVector = struct {
+    name: []const u8,
+    staker: [32]u8,
+    withdrawer: [32]u8,
+    serialized: []const u8,
+};
+
+test "authorize: stake Authorized serialization" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "authorize_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const AuthorizeTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        try std.testing.expectEqual(@as(usize, 64), vector.serialized.len);
+        try std.testing.expectEqualSlices(u8, &vector.staker, vector.serialized[0..32]);
+        try std.testing.expectEqualSlices(u8, &vector.withdrawer, vector.serialized[32..64]);
+    }
+}
+
+const AccountLayoutTestVector = struct {
+    name: []const u8,
+    data_header_size: usize,
+    account_data_padding: usize,
+    duplicate_index_offset: usize,
+    is_signer_offset: usize,
+    is_writable_offset: usize,
+    is_executable_offset: usize,
+    original_data_len_offset: usize,
+    id_offset: usize,
+    owner_id_offset: usize,
+    lamports_offset: usize,
+    data_len_offset: usize,
+};
+
+test "account: data layout offsets match Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "account_layout_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const AccountLayoutTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        try std.testing.expectEqual(@as(usize, 88), vector.data_header_size);
+        try std.testing.expectEqual(@as(usize, 10 * 1024), vector.account_data_padding);
+        try std.testing.expectEqual(@as(usize, 0), vector.duplicate_index_offset);
+        try std.testing.expectEqual(@as(usize, 1), vector.is_signer_offset);
+        try std.testing.expectEqual(@as(usize, 2), vector.is_writable_offset);
+        try std.testing.expectEqual(@as(usize, 3), vector.is_executable_offset);
+        try std.testing.expectEqual(@as(usize, 4), vector.original_data_len_offset);
+        try std.testing.expectEqual(@as(usize, 8), vector.id_offset);
+        try std.testing.expectEqual(@as(usize, 40), vector.owner_id_offset);
+        try std.testing.expectEqual(@as(usize, 72), vector.lamports_offset);
+        try std.testing.expectEqual(@as(usize, 80), vector.data_len_offset);
+    }
+}
+
+const PrimitiveTypeSizesTestVector = struct {
+    name: []const u8,
+    u8_size: usize,
+    u16_size: usize,
+    u32_size: usize,
+    u64_size: usize,
+    u128_size: usize,
+    i8_size: usize,
+    i16_size: usize,
+    i32_size: usize,
+    i64_size: usize,
+    i128_size: usize,
+    pubkey_size: usize,
+    hash_size: usize,
+    signature_size: usize,
+};
+
+test "stable_layout: primitive type sizes match Rust" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "primitive_type_sizes_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const PrimitiveTypeSizesTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        try std.testing.expectEqual(@as(usize, 1), vector.u8_size);
+        try std.testing.expectEqual(@as(usize, 2), vector.u16_size);
+        try std.testing.expectEqual(@as(usize, 4), vector.u32_size);
+        try std.testing.expectEqual(@as(usize, 8), vector.u64_size);
+        try std.testing.expectEqual(@as(usize, 16), vector.u128_size);
+        try std.testing.expectEqual(@as(usize, 1), vector.i8_size);
+        try std.testing.expectEqual(@as(usize, 2), vector.i16_size);
+        try std.testing.expectEqual(@as(usize, 4), vector.i32_size);
+        try std.testing.expectEqual(@as(usize, 8), vector.i64_size);
+        try std.testing.expectEqual(@as(usize, 16), vector.i128_size);
+        try std.testing.expectEqual(@as(usize, 32), vector.pubkey_size);
+        try std.testing.expectEqual(@as(usize, 32), vector.hash_size);
+        try std.testing.expectEqual(@as(usize, 64), vector.signature_size);
+    }
+}

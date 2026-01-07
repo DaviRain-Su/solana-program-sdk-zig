@@ -464,6 +464,66 @@ pub struct Bn254ConstantsTestVector {
     pub le_flag: u64,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SlotHistoryConstantsTestVector {
+    pub name: String,
+    pub max_entries: u64,
+    pub bitvec_words: usize,
+    pub sysvar_id: [u8; 32],
+    pub sysvar_id_base58: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BigModExpTestVector {
+    pub name: String,
+    pub base: Vec<u8>,
+    pub exponent: Vec<u8>,
+    pub modulus: Vec<u8>,
+    pub expected_result: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct AuthorizeTestVector {
+    pub name: String,
+    pub staker: [u8; 32],
+    pub withdrawer: [u8; 32],
+    pub serialized: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct AccountLayoutTestVector {
+    pub name: String,
+    pub data_header_size: usize,
+    pub account_data_padding: usize,
+    pub duplicate_index_offset: usize,
+    pub is_signer_offset: usize,
+    pub is_writable_offset: usize,
+    pub is_executable_offset: usize,
+    pub original_data_len_offset: usize,
+    pub id_offset: usize,
+    pub owner_id_offset: usize,
+    pub lamports_offset: usize,
+    pub data_len_offset: usize,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct PrimitiveTypeSizesTestVector {
+    pub name: String,
+    pub u8_size: usize,
+    pub u16_size: usize,
+    pub u32_size: usize,
+    pub u64_size: usize,
+    pub u128_size: usize,
+    pub i8_size: usize,
+    pub i16_size: usize,
+    pub i32_size: usize,
+    pub i64_size: usize,
+    pub i128_size: usize,
+    pub pubkey_size: usize,
+    pub hash_size: usize,
+    pub signature_size: usize,
+}
+
 pub fn generate_pubkey_vectors(output_dir: &Path) {
     let bpf_loader_upgradeable_id =
         Pubkey::from_str_const("BPFLoaderUpgradeab1e11111111111111111111111");
@@ -3435,6 +3495,145 @@ pub fn generate_bn254_constants_vectors(output_dir: &Path) {
     fs::write(output_dir.join("bn254_constants_vectors.json"), json).unwrap();
 }
 
+pub fn generate_slot_history_constants_vectors(output_dir: &Path) {
+    const MAX_ENTRIES: u64 = 1024 * 1024;
+
+    let vectors = vec![SlotHistoryConstantsTestVector {
+        name: "slot_history_constants".to_string(),
+        max_entries: MAX_ENTRIES,
+        bitvec_words: (MAX_ENTRIES / 64) as usize,
+        sysvar_id: solana_sdk::sysvar::slot_history::ID.to_bytes(),
+        sysvar_id_base58: solana_sdk::sysvar::slot_history::ID.to_string(),
+    }];
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("slot_history_constants_vectors.json"), json).unwrap();
+}
+
+pub fn generate_big_mod_exp_vectors(output_dir: &Path) {
+    let mut vectors: Vec<BigModExpTestVector> = Vec::new();
+
+    vectors.push(BigModExpTestVector {
+        name: "simple_2_3_mod_5".to_string(),
+        base: vec![2],
+        exponent: vec![3],
+        modulus: vec![5],
+        expected_result: vec![3],
+    });
+
+    vectors.push(BigModExpTestVector {
+        name: "2_10_mod_1000".to_string(),
+        base: vec![2, 0, 0, 0, 0, 0, 0, 0],
+        exponent: vec![10, 0, 0, 0, 0, 0, 0, 0],
+        modulus: vec![0xE8, 0x03, 0, 0, 0, 0, 0, 0],
+        expected_result: vec![24, 0, 0, 0, 0, 0, 0, 0],
+    });
+
+    vectors.push(BigModExpTestVector {
+        name: "any_pow_0_mod_m".to_string(),
+        base: vec![42],
+        exponent: vec![0],
+        modulus: vec![17],
+        expected_result: vec![1],
+    });
+
+    vectors.push(BigModExpTestVector {
+        name: "base_pow_exp_mod_1".to_string(),
+        base: vec![42],
+        exponent: vec![10],
+        modulus: vec![1],
+        expected_result: vec![0],
+    });
+
+    vectors.push(BigModExpTestVector {
+        name: "7_pow_13_mod_123".to_string(),
+        base: vec![7, 0, 0, 0, 0, 0, 0, 0],
+        exponent: vec![13, 0, 0, 0, 0, 0, 0, 0],
+        modulus: vec![123, 0, 0, 0, 0, 0, 0, 0],
+        expected_result: vec![94, 0, 0, 0, 0, 0, 0, 0],
+    });
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("big_mod_exp_vectors.json"), json).unwrap();
+}
+
+pub fn generate_authorize_vectors(output_dir: &Path) {
+    use solana_stake_interface::state::Authorized;
+
+    let mut vectors: Vec<AuthorizeTestVector> = Vec::new();
+
+    let staker = Pubkey::from_str_const("11111111111111111111111111111111");
+    let withdrawer = Pubkey::from_str_const("Vote111111111111111111111111111111111111111");
+
+    let auth = Authorized { staker, withdrawer };
+    let serialized = bincode::serialize(&auth).unwrap();
+
+    vectors.push(AuthorizeTestVector {
+        name: "basic_authorized".to_string(),
+        staker: staker.to_bytes(),
+        withdrawer: withdrawer.to_bytes(),
+        serialized,
+    });
+
+    let auth2 = Authorized {
+        staker: Pubkey::default(),
+        withdrawer: Pubkey::default(),
+    };
+    let serialized2 = bincode::serialize(&auth2).unwrap();
+
+    vectors.push(AuthorizeTestVector {
+        name: "default_authorized".to_string(),
+        staker: Pubkey::default().to_bytes(),
+        withdrawer: Pubkey::default().to_bytes(),
+        serialized: serialized2,
+    });
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("authorize_vectors.json"), json).unwrap();
+}
+
+pub fn generate_account_layout_vectors(output_dir: &Path) {
+    let vectors = vec![AccountLayoutTestVector {
+        name: "account_data_layout".to_string(),
+        data_header_size: 88,
+        account_data_padding: 10 * 1024,
+        duplicate_index_offset: 0,
+        is_signer_offset: 1,
+        is_writable_offset: 2,
+        is_executable_offset: 3,
+        original_data_len_offset: 4,
+        id_offset: 8,
+        owner_id_offset: 40,
+        lamports_offset: 72,
+        data_len_offset: 80,
+    }];
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("account_layout_vectors.json"), json).unwrap();
+}
+
+pub fn generate_primitive_type_sizes_vectors(output_dir: &Path) {
+    let vectors = vec![PrimitiveTypeSizesTestVector {
+        name: "primitive_type_sizes".to_string(),
+        u8_size: std::mem::size_of::<u8>(),
+        u16_size: std::mem::size_of::<u16>(),
+        u32_size: std::mem::size_of::<u32>(),
+        u64_size: std::mem::size_of::<u64>(),
+        u128_size: std::mem::size_of::<u128>(),
+        i8_size: std::mem::size_of::<i8>(),
+        i16_size: std::mem::size_of::<i16>(),
+        i32_size: std::mem::size_of::<i32>(),
+        i64_size: std::mem::size_of::<i64>(),
+        i128_size: std::mem::size_of::<i128>(),
+        pubkey_size: std::mem::size_of::<Pubkey>(),
+        hash_size: std::mem::size_of::<Hash>(),
+        signature_size: std::mem::size_of::<Signature>(),
+    }];
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("primitive_type_sizes_vectors.json"), json).unwrap();
+}
+
 pub fn generate_sysvar_id_vectors(output_dir: &Path) {
     use solana_sdk::sysvar;
 
@@ -3547,6 +3746,11 @@ pub fn generate_all_vectors(output_dir: &Path) {
     generate_versioned_message_vectors(output_dir);
     generate_upgradeable_loader_state_vectors(output_dir);
     generate_bn254_constants_vectors(output_dir);
+    generate_slot_history_constants_vectors(output_dir);
+    generate_big_mod_exp_vectors(output_dir);
+    generate_authorize_vectors(output_dir);
+    generate_account_layout_vectors(output_dir);
+    generate_primitive_type_sizes_vectors(output_dir);
 
     println!("Generated all test vectors in {:?}", output_dir);
 }

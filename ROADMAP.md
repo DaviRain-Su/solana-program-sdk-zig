@@ -204,7 +204,7 @@ The SDK has been restructured into a two-layer architecture for better separatio
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│              sdk/ (共享核心类型 - 164 tests)                  │
+│              sdk/ (共享核心类型 - 185 tests)                  │
 │  ┌─────────────────────────────────────────────────────┐   │
 │  │  PublicKey, Hash, Signature, Keypair                │   │
 │  │  Instruction, AccountMeta (types only)              │   │
@@ -410,7 +410,7 @@ These modules are NOT needed for on-chain program development or client developm
 - ✅ COption<T> generic type with correct 4-byte tag layout
 - ✅ Associated Token Account: PDA derivation, Create, CreateIdempotent, RecoverNested
 - ✅ Client instruction builders: transfer, mintTo, burn, approve, etc.
-- ✅ Tests: SDK 164, Program 294, Client 130 (total 588)
+- ✅ Tests: SDK 185, Program 294, Client 130 (total 609)
 
 ### v1.2.0 - WebSocket PubSub Client ✅
 - ✅ WebSocket connection management with karlseguin/websocket.zig

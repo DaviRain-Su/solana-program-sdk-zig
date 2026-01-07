@@ -64,9 +64,17 @@ All notable changes to the Solana SDK Zig implementation will be documented in t
 - Created `stories/v2.0.0-spl-token.md` - Story file with acceptance criteria
 
 ### Tests
-- All 102+ client tests passing
-- All 285+ program SDK tests passing
-- All 105+ SDK tests passing
+- SDK: 185 tests (including Rust SDK test coverage port)
+- Program SDK: 294 tests
+- Client SDK: 130 tests
+- **Total: 609 tests**
+
+### Test Coverage Enhancement
+- Ported all Rust SPL Token `#[test]` functions to Zig
+- Added `pack()` methods to all instruction Data types for roundtrip testing
+- Added `unpackAccountOwner()` and `unpackAccountMint()` helper functions
+- Added fuzz test: 256 instruction tags × 10 data lengths
+- Added exhaustive `TokenError` roundtrip test (all 20 error codes)
 
 ---
 

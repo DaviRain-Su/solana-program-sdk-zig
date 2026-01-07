@@ -238,8 +238,8 @@ test "integration: send memo transaction to localnet" {
     // Request airdrop for fees
     _ = requestAirdropAndConfirm(&client, pubkey, 1_000_000_000) catch |err| {
         // Airdrop may not be available on all validators
-        if (err == error.AirdropTimeout or err == ClientError.RpcError) {
-            std.debug.print("Skipping test: airdrop not available\n", .{});
+        const err_name = @errorName(err);
+        if (std.mem.eql(u8, err_name, "AirdropTimeout") or std.mem.eql(u8, err_name, "RpcError")) {
             return error.SkipZigTest;
         }
         return err;
@@ -309,8 +309,8 @@ test "integration: send SOL transfer to localnet" {
 
     // Request airdrop to sender
     _ = requestAirdropAndConfirm(&client, sender_pubkey, 2_000_000_000) catch |err| {
-        if (err == error.AirdropTimeout or err == ClientError.RpcError) {
-            std.debug.print("Skipping test: airdrop not available\n", .{});
+        const err_name = @errorName(err);
+        if (std.mem.eql(u8, err_name, "AirdropTimeout") or std.mem.eql(u8, err_name, "RpcError")) {
             return error.SkipZigTest;
         }
         return err;
@@ -377,8 +377,8 @@ test "integration: multi-instruction transaction" {
 
     // Request airdrop
     _ = requestAirdropAndConfirm(&client, pubkey, 1_000_000_000) catch |err| {
-        if (err == error.AirdropTimeout or err == ClientError.RpcError) {
-            std.debug.print("Skipping test: airdrop not available\n", .{});
+        const err_name = @errorName(err);
+        if (std.mem.eql(u8, err_name, "AirdropTimeout") or std.mem.eql(u8, err_name, "RpcError")) {
             return error.SkipZigTest;
         }
         return err;

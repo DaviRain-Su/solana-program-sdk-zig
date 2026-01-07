@@ -1,8 +1,9 @@
-//! Zig implementation of SPL Token instructions
+//! SPL Token instruction builders (Client)
 //!
 //! Rust source: https://github.com/solana-program/token/blob/master/interface/src/instruction.rs
 //!
 //! This module provides instruction builders for the SPL Token program (25 instructions).
+//! Types (TokenInstruction, AuthorityType) are imported from the SDK.
 //!
 //! ## Instructions
 //! - InitializeMint, InitializeMint2 - Create new token mints
@@ -24,223 +25,12 @@ const sdk = @import("solana_sdk");
 const PublicKey = sdk.PublicKey;
 const AccountMeta = sdk.AccountMeta;
 
-const state = @import("state.zig");
-const TOKEN_PROGRAM_ID = state.TOKEN_PROGRAM_ID;
-
-// ============================================================================
-// Token Instruction Enum
-// ============================================================================
-
-/// Token program instruction types.
-///
-/// Rust source: https://github.com/solana-program/token/blob/master/interface/src/instruction.rs#L54
-pub const TokenInstruction = enum(u8) {
-    /// Initializes a new mint and optionally deposits all the newly minted
-    /// tokens in an account.
-    ///
-    /// Accounts expected:
-    /// 0. `[writable]` The mint to initialize.
-    /// 1. `[]` Rent sysvar
-    InitializeMint = 0,
-
-    /// Initializes a new account to hold tokens.
-    ///
-    /// Accounts expected:
-    /// 0. `[writable]` The account to initialize.
-    /// 1. `[]` The mint this account will be associated with.
-    /// 2. `[]` The new account's owner/multisignature.
-    /// 3. `[]` Rent sysvar
-    InitializeAccount = 1,
-
-    /// Initializes a multisignature account with N provided signers.
-    ///
-    /// Accounts expected:
-    /// 0. `[writable]` The multisignature account to initialize.
-    /// 1. `[]` Rent sysvar
-    /// 2. ..2+N `[]` The signer accounts.
-    InitializeMultisig = 2,
-
-    /// Transfers tokens from one account to another.
-    ///
-    /// Accounts expected:
-    /// 0. `[writable]` The source account.
-    /// 1. `[writable]` The destination account.
-    /// 2. `[signer]` The source account's owner/delegate.
-    Transfer = 3,
-
-    /// Approves a delegate.
-    ///
-    /// Accounts expected:
-    /// 0. `[writable]` The source account.
-    /// 1. `[]` The delegate.
-    /// 2. `[signer]` The source account owner.
-    Approve = 4,
-
-    /// Revokes the delegate's authority.
-    ///
-    /// Accounts expected:
-    /// 0. `[writable]` The source account.
-    /// 1. `[signer]` The source account owner.
-    Revoke = 5,
-
-    /// Sets a new authority of a mint or account.
-    ///
-    /// Accounts expected:
-    /// 0. `[writable]` The mint or account to change the authority of.
-    /// 1. `[signer]` The current authority.
-    SetAuthority = 6,
-
-    /// Mints new tokens to an account.
-    ///
-    /// Accounts expected:
-    /// 0. `[writable]` The mint.
-    /// 1. `[writable]` The account to mint tokens to.
-    /// 2. `[signer]` The mint's minting authority.
-    MintTo = 7,
-
-    /// Burns tokens by removing them from an account.
-    ///
-    /// Accounts expected:
-    /// 0. `[writable]` The account to burn from.
-    /// 1. `[writable]` The token mint.
-    /// 2. `[signer]` The account's owner/delegate.
-    Burn = 8,
-
-    /// Close an account by transferring all its SOL to the destination account.
-    ///
-    /// Accounts expected:
-    /// 0. `[writable]` The account to close.
-    /// 1. `[writable]` The destination account.
-    /// 2. `[signer]` The account's owner.
-    CloseAccount = 9,
-
-    /// Freeze an Initialized account using the mint's freeze_authority.
-    ///
-    /// Accounts expected:
-    /// 0. `[writable]` The account to freeze.
-    /// 1. `[]` The token mint.
-    /// 2. `[signer]` The mint freeze authority.
-    FreezeAccount = 10,
-
-    /// Thaw a Frozen account using the mint's freeze_authority.
-    ///
-    /// Accounts expected:
-    /// 0. `[writable]` The account to thaw.
-    /// 1. `[]` The token mint.
-    /// 2. `[signer]` The mint freeze authority.
-    ThawAccount = 11,
-
-    /// Transfers tokens from one account to another, asserting the token mint and decimals.
-    ///
-    /// Accounts expected:
-    /// 0. `[writable]` The source account.
-    /// 1. `[]` The token mint.
-    /// 2. `[writable]` The destination account.
-    /// 3. `[signer]` The source account's owner/delegate.
-    TransferChecked = 12,
-
-    /// Approves a delegate, asserting the token mint and decimals.
-    ///
-    /// Accounts expected:
-    /// 0. `[writable]` The source account.
-    /// 1. `[]` The token mint.
-    /// 2. `[]` The delegate.
-    /// 3. `[signer]` The source account owner.
-    ApproveChecked = 13,
-
-    /// Mints new tokens to an account, asserting the token mint and decimals.
-    ///
-    /// Accounts expected:
-    /// 0. `[writable]` The mint.
-    /// 1. `[writable]` The account to mint tokens to.
-    /// 2. `[signer]` The mint's minting authority.
-    MintToChecked = 14,
-
-    /// Burns tokens, asserting the token mint and decimals.
-    ///
-    /// Accounts expected:
-    /// 0. `[writable]` The account to burn from.
-    /// 1. `[writable]` The token mint.
-    /// 2. `[signer]` The account's owner/delegate.
-    BurnChecked = 15,
-
-    /// Like InitializeAccount, but the owner pubkey is passed via instruction data.
-    ///
-    /// Accounts expected:
-    /// 0. `[writable]` The account to initialize.
-    /// 1. `[]` The mint this account will be associated with.
-    /// 2. `[]` Rent sysvar
-    InitializeAccount2 = 16,
-
-    /// Given a wrapped / native token account, updates its amount field based on
-    /// the account's underlying `lamports`.
-    ///
-    /// Accounts expected:
-    /// 0. `[writable]` The native token account to sync.
-    SyncNative = 17,
-
-    /// Like InitializeAccount2, but does not require the Rent sysvar.
-    ///
-    /// Accounts expected:
-    /// 0. `[writable]` The account to initialize.
-    /// 1. `[]` The mint this account will be associated with.
-    InitializeAccount3 = 18,
-
-    /// Like InitializeMultisig, but does not require the Rent sysvar.
-    ///
-    /// Accounts expected:
-    /// 0. `[writable]` The multisignature account to initialize.
-    /// 2. ..2+N `[]` The signer accounts.
-    InitializeMultisig2 = 19,
-
-    /// Like InitializeMint, but does not require the Rent sysvar.
-    ///
-    /// Accounts expected:
-    /// 0. `[writable]` The mint to initialize.
-    InitializeMint2 = 20,
-
-    /// Gets the required size of an account for the given mint as a little-endian u64.
-    ///
-    /// Accounts expected:
-    /// 0. `[]` The mint to calculate for.
-    GetAccountDataSize = 21,
-
-    /// Initialize the Immutable Owner extension for the given token account.
-    ///
-    /// Accounts expected:
-    /// 0. `[writable]` The account to initialize.
-    InitializeImmutableOwner = 22,
-
-    /// Convert an Amount of tokens to a UiAmount string.
-    ///
-    /// Accounts expected:
-    /// 0. `[]` The mint to calculate for.
-    AmountToUiAmount = 23,
-
-    /// Convert a UiAmount of tokens to a little-endian u64 raw Amount.
-    ///
-    /// Accounts expected:
-    /// 0. `[]` The mint to calculate for.
-    UiAmountToAmount = 24,
-};
-
-// ============================================================================
-// Authority Type Enum
-// ============================================================================
-
-/// Types of authority that can be set on a mint or account.
-///
-/// Rust source: https://github.com/solana-program/token/blob/master/interface/src/instruction.rs#L281
-pub const AuthorityType = enum(u8) {
-    /// Authority to mint new tokens
-    MintTokens = 0,
-    /// Authority to freeze any account associated with the mint
-    FreezeAccount = 1,
-    /// Owner of a given token account
-    AccountOwner = 2,
-    /// Authority to close a token account
-    CloseAccount = 3,
-};
+// Re-export types from SDK
+const sdk_token = sdk.spl.token;
+pub const TokenInstruction = sdk_token.TokenInstruction;
+pub const AuthorityType = sdk_token.AuthorityType;
+pub const TOKEN_PROGRAM_ID = sdk_token.TOKEN_PROGRAM_ID;
+pub const MAX_SIGNERS = sdk_token.MAX_SIGNERS;
 
 // ============================================================================
 // Instruction Building Types
@@ -496,7 +286,7 @@ pub fn initializeMultisig2(
     var accounts: [12]AccountMeta = undefined; // 1 + MAX_SIGNERS
     accounts[0] = AccountMeta.newWritable(multisig);
 
-    const num_signers = @min(signers.len, state.MAX_SIGNERS);
+    const num_signers = @min(signers.len, MAX_SIGNERS);
     for (signers[0..num_signers], 0..) |signer, i| {
         accounts[1 + i] = AccountMeta.newReadonly(signer);
     }
@@ -560,7 +350,7 @@ pub fn transferMultisig(
     accounts[1] = AccountMeta.newWritable(destination);
     accounts[2] = AccountMeta.newReadonly(owner);
 
-    const num_signers = @min(signers.len, state.MAX_SIGNERS);
+    const num_signers = @min(signers.len, MAX_SIGNERS);
     for (signers[0..num_signers], 0..) |signer, i| {
         accounts[3 + i] = AccountMeta.newReadonlySigner(signer);
     }

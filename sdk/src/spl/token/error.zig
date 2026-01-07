@@ -1,46 +1,102 @@
-//! Zig implementation of SPL Token errors
+//! Zig implementation of SPL Token error types
 //!
 //! Rust source: https://github.com/solana-program/token/blob/master/interface/src/error.rs
+//!
+//! This module provides error types for the SPL Token program.
 
 const std = @import("std");
 
+// ============================================================================
+// TokenError Enum
+// ============================================================================
+
 /// Errors that may be returned by the Token program.
+///
+/// Rust source: https://github.com/solana-program/token/blob/master/interface/src/error.rs#L10
 pub const TokenError = enum(u32) {
+    // 0
+    /// Lamport balance below rent-exempt threshold.
     NotRentExempt = 0,
+
+    /// Insufficient funds for the operation requested.
     InsufficientFunds = 1,
+
+    /// Invalid Mint.
     InvalidMint = 2,
+
+    /// Account not associated with this Mint.
     MintMismatch = 3,
+
+    /// Owner does not match.
     OwnerMismatch = 4,
+
+    // 5
+    /// This token's supply is fixed and new tokens cannot be minted.
     FixedSupply = 5,
+
+    /// The account cannot be initialized because it is already being used.
     AlreadyInUse = 6,
+
+    /// Invalid number of provided signers.
     InvalidNumberOfProvidedSigners = 7,
+
+    /// Invalid number of required signers.
     InvalidNumberOfRequiredSigners = 8,
+
+    /// State is uninitialized.
     UninitializedState = 9,
+
+    // 10
+    /// Instruction does not support native tokens.
     NativeNotSupported = 10,
+
+    /// Non-native account can only be closed if its balance is zero.
     NonNativeHasBalance = 11,
+
+    /// Invalid instruction.
     InvalidInstruction = 12,
+
+    /// State is invalid for requested operation.
     InvalidState = 13,
+
+    /// Operation overflowed.
     Overflow = 14,
+
+    // 15
+    /// Account does not support specified authority type.
     AuthorityTypeNotSupported = 15,
+
+    /// This token mint cannot freeze accounts.
     MintCannotFreeze = 16,
+
+    /// Account is frozen; all account operations will fail.
     AccountFrozen = 17,
+
+    /// Mint decimals mismatch between the client and mint.
     MintDecimalsMismatch = 18,
+
+    /// Instruction does not support non-native tokens.
     NonNativeNotSupported = 19,
 
+    /// Convert from u32 error code
     pub fn fromCode(code: u32) ?TokenError {
         return std.meta.intToEnum(TokenError, code) catch null;
     }
 
+    /// Convert to u32 error code
     pub fn toCode(self: TokenError) u32 {
         return @intFromEnum(self);
     }
 
+    /// Get human-readable error message
+    ///
+    /// Rust source: https://github.com/solana-program/token/blob/master/interface/src/error.rs#L68
     pub fn message(self: TokenError) []const u8 {
         return switch (self) {
             .NotRentExempt => "Lamport balance below rent-exempt threshold",
             .InsufficientFunds => "Insufficient funds",
-            .InvalidMint => "Invalid mint",
-            .MintMismatch => "Account not associated with this mint",
+            .InvalidMint => "Invalid Mint",
+            .MintMismatch => "Account not associated with this Mint",
             .OwnerMismatch => "Owner does not match",
             .FixedSupply => "Fixed supply",
             .AlreadyInUse => "Already in use",
@@ -55,18 +111,81 @@ pub const TokenError = enum(u32) {
             .AuthorityTypeNotSupported => "Account does not support specified authority type",
             .MintCannotFreeze => "This token mint cannot freeze accounts",
             .AccountFrozen => "Account is frozen",
-            .MintDecimalsMismatch => "Mint decimals mismatch",
+            .MintDecimalsMismatch => "The provided decimals value different from the Mint decimals",
             .NonNativeNotSupported => "Instruction does not support non-native tokens",
+        };
+    }
+
+    /// Get the error string with "Error: " prefix (matches Rust ToStr implementation)
+    pub fn toStr(self: TokenError) []const u8 {
+        return switch (self) {
+            .NotRentExempt => "Error: Lamport balance below rent-exempt threshold",
+            .InsufficientFunds => "Error: insufficient funds",
+            .InvalidMint => "Error: Invalid Mint",
+            .MintMismatch => "Error: Account not associated with this Mint",
+            .OwnerMismatch => "Error: owner does not match",
+            .FixedSupply => "Error: the total supply of this token is fixed",
+            .AlreadyInUse => "Error: account or token already in use",
+            .InvalidNumberOfProvidedSigners => "Error: Invalid number of provided signers",
+            .InvalidNumberOfRequiredSigners => "Error: Invalid number of required signers",
+            .UninitializedState => "Error: State is uninitialized",
+            .NativeNotSupported => "Error: Instruction does not support native tokens",
+            .NonNativeHasBalance => "Error: Non-native account can only be closed if its balance is zero",
+            .InvalidInstruction => "Error: Invalid instruction",
+            .InvalidState => "Error: Invalid account state for operation",
+            .Overflow => "Error: Operation overflowed",
+            .AuthorityTypeNotSupported => "Error: Account does not support specified authority type",
+            .MintCannotFreeze => "Error: This token mint cannot freeze accounts",
+            .AccountFrozen => "Error: Account is frozen",
+            .MintDecimalsMismatch => "Error: decimals different from the Mint decimals",
+            .NonNativeNotSupported => "Error: Instruction does not support non-native tokens",
         };
     }
 };
 
-test "TokenError: enum values" {
+// ============================================================================
+// Tests
+// ============================================================================
+
+test "TokenError: enum values match Rust SDK" {
     try std.testing.expectEqual(@as(u32, 0), TokenError.NotRentExempt.toCode());
+    try std.testing.expectEqual(@as(u32, 1), TokenError.InsufficientFunds.toCode());
+    try std.testing.expectEqual(@as(u32, 2), TokenError.InvalidMint.toCode());
+    try std.testing.expectEqual(@as(u32, 3), TokenError.MintMismatch.toCode());
+    try std.testing.expectEqual(@as(u32, 4), TokenError.OwnerMismatch.toCode());
+    try std.testing.expectEqual(@as(u32, 5), TokenError.FixedSupply.toCode());
+    try std.testing.expectEqual(@as(u32, 6), TokenError.AlreadyInUse.toCode());
+    try std.testing.expectEqual(@as(u32, 7), TokenError.InvalidNumberOfProvidedSigners.toCode());
+    try std.testing.expectEqual(@as(u32, 8), TokenError.InvalidNumberOfRequiredSigners.toCode());
+    try std.testing.expectEqual(@as(u32, 9), TokenError.UninitializedState.toCode());
+    try std.testing.expectEqual(@as(u32, 10), TokenError.NativeNotSupported.toCode());
+    try std.testing.expectEqual(@as(u32, 11), TokenError.NonNativeHasBalance.toCode());
+    try std.testing.expectEqual(@as(u32, 12), TokenError.InvalidInstruction.toCode());
+    try std.testing.expectEqual(@as(u32, 13), TokenError.InvalidState.toCode());
+    try std.testing.expectEqual(@as(u32, 14), TokenError.Overflow.toCode());
+    try std.testing.expectEqual(@as(u32, 15), TokenError.AuthorityTypeNotSupported.toCode());
+    try std.testing.expectEqual(@as(u32, 16), TokenError.MintCannotFreeze.toCode());
+    try std.testing.expectEqual(@as(u32, 17), TokenError.AccountFrozen.toCode());
+    try std.testing.expectEqual(@as(u32, 18), TokenError.MintDecimalsMismatch.toCode());
     try std.testing.expectEqual(@as(u32, 19), TokenError.NonNativeNotSupported.toCode());
 }
 
 test "TokenError: fromCode" {
     try std.testing.expectEqual(TokenError.NotRentExempt, TokenError.fromCode(0).?);
+    try std.testing.expectEqual(TokenError.InsufficientFunds, TokenError.fromCode(1).?);
+    try std.testing.expectEqual(TokenError.NonNativeNotSupported, TokenError.fromCode(19).?);
+
+    // Invalid code should return null
     try std.testing.expect(TokenError.fromCode(100) == null);
+    try std.testing.expect(TokenError.fromCode(20) == null);
+}
+
+test "TokenError: message" {
+    try std.testing.expectEqualStrings("Insufficient funds", TokenError.InsufficientFunds.message());
+    try std.testing.expectEqualStrings("Account is frozen", TokenError.AccountFrozen.message());
+}
+
+test "TokenError: toStr matches Rust ToStr" {
+    try std.testing.expectEqualStrings("Error: insufficient funds", TokenError.InsufficientFunds.toStr());
+    try std.testing.expectEqualStrings("Error: Account is frozen", TokenError.AccountFrozen.toStr());
 }

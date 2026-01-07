@@ -1,17 +1,33 @@
-//! Solana Client SDK - RPC Client Implementation
+//! Solana Client SDK - RPC Client and Transaction Building
 //!
 //! Rust source: https://github.com/anza-xyz/agave/tree/master/rpc-client
 //!
-//! This module provides a complete RPC client for interacting with Solana nodes.
-//! It implements all 52 HTTP RPC methods from the Solana JSON-RPC API.
+//! This module provides a complete client SDK for interacting with Solana:
+//! - RPC client with all 52 HTTP RPC methods
+//! - Transaction building with fluent API
+//! - Transaction signing utilities
 //!
-//! ## Usage
+//! ## RPC Client Usage
 //!
 //! ```zig
 //! const client = try RpcClient.init(allocator, "https://api.mainnet-beta.solana.com");
 //! defer client.deinit();
 //!
 //! const balance = try client.getBalance(pubkey);
+//! ```
+//!
+//! ## Transaction Building Usage
+//!
+//! ```zig
+//! var builder = transaction.TransactionBuilder.init(allocator);
+//! defer builder.deinit();
+//!
+//! _ = builder.setFeePayer(payer_pubkey);
+//! _ = builder.setRecentBlockhash(blockhash);
+//! _ = try builder.addInstruction(instruction);
+//!
+//! var tx = try builder.buildSigned(&[_]*const Keypair{&payer_kp});
+//! defer tx.deinit();
 //! ```
 
 const std = @import("std");
@@ -22,6 +38,7 @@ pub const PublicKey = sdk.PublicKey;
 pub const Hash = sdk.Hash;
 pub const Signature = sdk.Signature;
 pub const Keypair = sdk.Keypair;
+pub const AccountMeta = sdk.AccountMeta;
 
 // ============================================================================
 // Client Modules
@@ -49,6 +66,31 @@ pub const JsonRpcClient = json_rpc.JsonRpcClient;
 
 pub const rpc_client = @import("rpc_client.zig");
 pub const RpcClient = rpc_client.RpcClient;
+
+// ============================================================================
+// Transaction Building Modules
+// ============================================================================
+
+pub const transaction = @import("transaction/root.zig");
+pub const TransactionBuilder = transaction.TransactionBuilder;
+pub const BuiltTransaction = transaction.BuiltTransaction;
+pub const Message = transaction.Message;
+pub const MessageHeader = transaction.MessageHeader;
+pub const CompiledInstruction = transaction.CompiledInstruction;
+pub const InstructionInput = transaction.InstructionInput;
+pub const BuilderError = transaction.BuilderError;
+
+// Signer utilities
+pub const Signer = transaction.Signer;
+pub const SignerError = transaction.SignerError;
+pub const Presigner = transaction.Presigner;
+pub const NullSigner = transaction.NullSigner;
+pub const signTransaction = transaction.signTransaction;
+pub const partialSignTransaction = transaction.partialSignTransaction;
+pub const verifyTransaction = transaction.verifyTransaction;
+
+// Convenience functions
+pub const createTransfer = transaction.createTransfer;
 
 // ============================================================================
 // Tests

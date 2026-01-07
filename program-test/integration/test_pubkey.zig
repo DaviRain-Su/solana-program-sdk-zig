@@ -2810,3 +2810,45 @@ test "nonce_versions_serialization: Zig SDK serialization matches Rust SDK" {
         }
     }
 }
+
+// ============================================================================
+// AccountMeta Serialization Test (True Serialization)
+// ============================================================================
+
+/// Test vector for AccountMeta bincode serialization
+const AccountMetaSerTestVector = struct {
+    name: []const u8,
+    pubkey: [32]u8,
+    is_signer: bool,
+    is_writable: bool,
+    encoded: []const u8,
+};
+
+test "account_meta_serialization: Zig SDK bincode.serialize matches Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "account_meta_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const AccountMetaSerTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        // Construct AccountMeta from test vector
+        const account_meta = sdk.AccountMeta{
+            .pubkey = sdk.PublicKey{ .bytes = vector.pubkey },
+            .is_signer = vector.is_signer,
+            .is_writable = vector.is_writable,
+        };
+
+        // Serialize using SDK's bincode.serialize
+        var zig_buffer: [34]u8 = undefined;
+        const bytes_written = try sdk.bincode.serialize(sdk.AccountMeta, account_meta, &zig_buffer);
+
+        // Verify serialized size
+        try std.testing.expectEqual(@as(usize, 34), bytes_written);
+
+        // Compare byte-for-byte with Rust bincode output
+        try std.testing.expectEqualSlices(u8, vector.encoded, zig_buffer[0..bytes_written]);
+    }
+}

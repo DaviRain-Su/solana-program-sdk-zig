@@ -1,0 +1,75 @@
+//! SPL Token Program Module
+//!
+//! Rust source: https://github.com/solana-program/token/tree/master/interface/src
+//!
+//! This module provides types and instruction builders for the SPL Token program.
+//!
+//! ## Features
+//! - Token account state types (Mint, Account, Multisig)
+//! - Token instruction builders (25 instructions)
+//! - Token error types
+//!
+//! ## Usage
+//!
+//! ```zig
+//! const spl = @import("solana_client").spl;
+//!
+//! // Parse a mint account
+//! const mint = try spl.token.Mint.unpackFromSlice(account_data);
+//!
+//! // Create a transfer instruction
+//! const ix = spl.token.transfer(source, dest, owner, amount);
+//! ```
+
+const std = @import("std");
+
+// Re-export state types
+pub const state = @import("state.zig");
+pub const COption = state.COption;
+pub const AccountState = state.AccountState;
+pub const Mint = state.Mint;
+pub const Account = state.Account;
+pub const Multisig = state.Multisig;
+pub const MAX_SIGNERS = state.MAX_SIGNERS;
+pub const TOKEN_PROGRAM_ID = state.TOKEN_PROGRAM_ID;
+
+// Re-export instruction types
+pub const instruction = @import("instruction.zig");
+pub const TokenInstruction = instruction.TokenInstruction;
+pub const AuthorityType = instruction.AuthorityType;
+
+// Instruction builders
+pub const initializeMint = instruction.initializeMint;
+pub const initializeMint2 = instruction.initializeMint2;
+pub const initializeAccount = instruction.initializeAccount;
+pub const initializeAccount2 = instruction.initializeAccount2;
+pub const initializeAccount3 = instruction.initializeAccount3;
+pub const initializeMultisig = instruction.initializeMultisig;
+pub const initializeMultisig2 = instruction.initializeMultisig2;
+pub const transfer = instruction.transfer;
+pub const transferMultisig = instruction.transferMultisig;
+pub const transferChecked = instruction.transferChecked;
+pub const approve = instruction.approve;
+pub const approveChecked = instruction.approveChecked;
+pub const revoke = instruction.revoke;
+pub const setAuthority = instruction.setAuthority;
+pub const mintTo = instruction.mintTo;
+pub const mintToChecked = instruction.mintToChecked;
+pub const burn = instruction.burn;
+pub const burnChecked = instruction.burnChecked;
+pub const closeAccount = instruction.closeAccount;
+pub const freezeAccount = instruction.freezeAccount;
+pub const thawAccount = instruction.thawAccount;
+pub const syncNative = instruction.syncNative;
+pub const getAccountDataSize = instruction.getAccountDataSize;
+pub const initializeImmutableOwner = instruction.initializeImmutableOwner;
+pub const amountToUiAmount = instruction.amountToUiAmount;
+pub const uiAmountToAmount = instruction.uiAmountToAmount;
+
+// Re-export error types
+pub const errors = @import("error.zig");
+pub const TokenError = errors.TokenError;
+
+test {
+    std.testing.refAllDecls(@This());
+}

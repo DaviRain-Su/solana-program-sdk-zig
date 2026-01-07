@@ -2062,10 +2062,29 @@ fn base64Encode(allocator: Allocator, data: []const u8) ![]u8 {
 }
 
 fn freeJsonValue(allocator: Allocator, value: std.json.Value) void {
-    _ = allocator;
-    _ = value;
-    // JSON values from parseFromSlice are managed by the parsed struct
-    // They get freed when parsed.deinit() is called
+    // Free cloned JSON values (strings that were duplicated in cloneJsonValue)
+    switch (value) {
+        .string => |s| {
+            // Only free if it was allocated (cloned)
+            // This is safe because cloneJsonValue always dupes strings
+            allocator.free(s);
+        },
+        .array => |arr| {
+            for (arr.items) |item| {
+                freeJsonValue(allocator, item);
+            }
+            arr.deinit();
+        },
+        .object => |*obj| {
+            var iter = obj.iterator();
+            while (iter.next()) |entry| {
+                freeJsonValue(allocator, entry.value_ptr.*);
+            }
+            // Note: object keys are not freed as they come from the original parsed JSON
+            @constCast(obj).deinit();
+        },
+        else => {},
+    }
 }
 
 // ============================================================================
@@ -2108,14 +2127,559 @@ test "rpc_client: ConfirmConfig defaults" {
     try std.testing.expectEqual(Commitment.confirmed, config.commitment);
 }
 
-test "rpc_client: isHealthy returns bool" {
+test "rpc_client: isHealthy returns bool type" {
     const allocator = std.testing.allocator;
-    // Use an invalid/non-existent endpoint to ensure it returns false without panicking
+    // Use an invalid port that definitely has no RPC server
     var client = RpcClient.init(allocator, "http://127.0.0.1:1");
     defer client.deinit();
 
-    // Without a running node, this should return false (not throw)
+    // isHealthy should return a bool (false for unreachable endpoint)
     const healthy = client.isHealthy();
-    // Just verify it returns false for non-existent endpoint
+    // Verify it returns false for unreachable endpoint
     try std.testing.expectEqual(false, healthy);
+}
+
+// ============================================================================
+// Response Parser Tests
+// ============================================================================
+
+test "rpc_client: parseBalanceResponse" {
+    const json_str =
+        \\{"context":{"slot":12345},"value":1000000000}
+    ;
+    const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, json_str, .{});
+    defer parsed.deinit();
+
+    const response = try parseBalanceResponse(parsed.value);
+    try std.testing.expectEqual(@as(u64, 12345), response.context.slot);
+    try std.testing.expectEqual(@as(u64, 1000000000), response.value);
+}
+
+test "rpc_client: parseAccountInfoResponse with data" {
+    const json_str =
+        \\{"context":{"slot":100},"value":{"lamports":5000000,"owner":"11111111111111111111111111111111","data":["SGVsbG8=","base64"],"executable":false,"rentEpoch":0}}
+    ;
+    const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, json_str, .{});
+    defer parsed.deinit();
+
+    const response = try parseAccountInfoResponse(parsed.value);
+    try std.testing.expectEqual(@as(u64, 100), response.context.slot);
+    try std.testing.expect(response.value != null);
+    const account = response.value.?;
+    try std.testing.expectEqual(@as(u64, 5000000), account.lamports);
+    try std.testing.expectEqual(false, account.executable);
+    try std.testing.expectEqualStrings("SGVsbG8=", account.data);
+}
+
+test "rpc_client: parseAccountInfoResponse with null value" {
+    const json_str =
+        \\{"context":{"slot":100},"value":null}
+    ;
+    const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, json_str, .{});
+    defer parsed.deinit();
+
+    const response = try parseAccountInfoResponse(parsed.value);
+    try std.testing.expectEqual(@as(u64, 100), response.context.slot);
+    try std.testing.expect(response.value == null);
+}
+
+test "rpc_client: parseLatestBlockhashResponse" {
+    const allocator = std.testing.allocator;
+    const json_str =
+        \\{"context":{"slot":200},"value":{"blockhash":"4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZAMdL4VZHirAn","lastValidBlockHeight":12345}}
+    ;
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_str, .{});
+    defer parsed.deinit();
+
+    const response = try parseLatestBlockhashResponse(allocator, parsed.value);
+    try std.testing.expectEqual(@as(u64, 200), response.context.slot);
+    try std.testing.expectEqual(@as(u64, 12345), response.value.last_valid_block_height);
+}
+
+test "rpc_client: parseSignatureStatusesResponse" {
+    const allocator = std.testing.allocator;
+    const json_str =
+        \\{"context":{"slot":100},"value":[{"slot":50,"confirmations":10,"err":null,"confirmationStatus":"confirmed"},null,{"slot":60,"confirmations":null,"err":{"InstructionError":[0,"Custom"]},"confirmationStatus":"finalized"}]}
+    ;
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_str, .{});
+    defer parsed.deinit();
+
+    const statuses = try parseSignatureStatusesResponse(allocator, parsed.value);
+    defer allocator.free(statuses);
+
+    try std.testing.expectEqual(@as(usize, 3), statuses.len);
+    // First status: confirmed
+    try std.testing.expect(statuses[0] != null);
+    try std.testing.expectEqual(@as(u64, 50), statuses[0].?.slot);
+    try std.testing.expectEqual(@as(?u64, 10), statuses[0].?.confirmations);
+    try std.testing.expect(statuses[0].?.err == null);
+    try std.testing.expectEqual(types.ConfirmationStatus.confirmed, statuses[0].?.confirmation_status.?);
+    // Second status: null
+    try std.testing.expect(statuses[1] == null);
+    // Third status: finalized with error
+    try std.testing.expect(statuses[2] != null);
+    try std.testing.expectEqual(@as(u64, 60), statuses[2].?.slot);
+    try std.testing.expect(statuses[2].?.confirmations == null);
+    try std.testing.expect(statuses[2].?.err != null);
+    try std.testing.expectEqual(types.ConfirmationStatus.finalized, statuses[2].?.confirmation_status.?);
+}
+
+test "rpc_client: parseMultipleAccountsResponse" {
+    const allocator = std.testing.allocator;
+    const json_str =
+        \\{"context":{"slot":100},"value":[{"lamports":1000,"owner":"11111111111111111111111111111111","data":["","base64"],"executable":false,"rentEpoch":0},null]}
+    ;
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_str, .{});
+    defer parsed.deinit();
+
+    const accounts = try parseMultipleAccountsResponse(allocator, parsed.value);
+    defer allocator.free(accounts);
+
+    try std.testing.expectEqual(@as(usize, 2), accounts.len);
+    try std.testing.expect(accounts[0] != null);
+    try std.testing.expectEqual(@as(u64, 1000), accounts[0].?.lamports);
+    try std.testing.expect(accounts[1] == null);
+}
+
+test "rpc_client: parseSimulateTransactionResponse" {
+    const allocator = std.testing.allocator;
+    const json_str =
+        \\{"context":{"slot":100},"value":{"err":null,"logs":["Program log: Hello","Program log: World"],"unitsConsumed":5000}}
+    ;
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_str, .{});
+    defer parsed.deinit();
+
+    const result = try parseSimulateTransactionResponse(allocator, parsed.value);
+
+    try std.testing.expect(result.err == null);
+    try std.testing.expect(result.logs != null);
+    try std.testing.expectEqual(@as(usize, 2), result.logs.?.len);
+    try std.testing.expectEqualStrings("Program log: Hello", result.logs.?[0]);
+    try std.testing.expectEqualStrings("Program log: World", result.logs.?[1]);
+    try std.testing.expectEqual(@as(?u64, 5000), result.units_consumed);
+
+    if (result.logs) |logs| {
+        allocator.free(logs);
+    }
+}
+
+test "rpc_client: parseSimulateTransactionResponse with error" {
+    const allocator = std.testing.allocator;
+    const json_str =
+        \\{"context":{"slot":100},"value":{"err":{"InstructionError":[0,"Custom"]},"logs":null,"unitsConsumed":1000}}
+    ;
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_str, .{});
+    defer parsed.deinit();
+
+    const result = try parseSimulateTransactionResponse(allocator, parsed.value);
+
+    try std.testing.expect(result.err != null);
+    try std.testing.expect(result.logs == null);
+    try std.testing.expectEqual(@as(?u64, 1000), result.units_consumed);
+}
+
+test "rpc_client: parseEpochInfoResponse" {
+    const json_str =
+        \\{"epoch":100,"slotIndex":500,"slotsInEpoch":432000,"absoluteSlot":43200500,"blockHeight":12345678,"transactionCount":1000000}
+    ;
+    const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, json_str, .{});
+    defer parsed.deinit();
+
+    const epoch_info = try parseEpochInfoResponse(parsed.value);
+    try std.testing.expectEqual(@as(u64, 100), epoch_info.epoch);
+    try std.testing.expectEqual(@as(u64, 500), epoch_info.slot_index);
+    try std.testing.expectEqual(@as(u64, 432000), epoch_info.slots_in_epoch);
+    try std.testing.expectEqual(@as(u64, 43200500), epoch_info.absolute_slot);
+    try std.testing.expectEqual(@as(u64, 12345678), epoch_info.block_height);
+    try std.testing.expectEqual(@as(?u64, 1000000), epoch_info.transaction_count);
+}
+
+test "rpc_client: parsePrioritizationFeesResponse" {
+    const allocator = std.testing.allocator;
+    const json_str =
+        \\[{"slot":100,"prioritizationFee":5000},{"slot":101,"prioritizationFee":6000}]
+    ;
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_str, .{});
+    defer parsed.deinit();
+
+    const fees = try parsePrioritizationFeesResponse(allocator, parsed.value);
+    defer allocator.free(fees);
+
+    try std.testing.expectEqual(@as(usize, 2), fees.len);
+    try std.testing.expectEqual(@as(u64, 100), fees[0].slot);
+    try std.testing.expectEqual(@as(u64, 5000), fees[0].prioritization_fee);
+    try std.testing.expectEqual(@as(u64, 101), fees[1].slot);
+    try std.testing.expectEqual(@as(u64, 6000), fees[1].prioritization_fee);
+}
+
+test "rpc_client: parseTokenBalanceResponse" {
+    const json_str =
+        \\{"context":{"slot":100},"value":{"amount":"1000000000","decimals":9,"uiAmount":1.0,"uiAmountString":"1"}}
+    ;
+    const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, json_str, .{});
+    defer parsed.deinit();
+
+    const balance = try parseTokenBalanceResponse(parsed.value);
+    try std.testing.expectEqualStrings("1000000000", balance.amount);
+    try std.testing.expectEqual(@as(u8, 9), balance.decimals);
+    try std.testing.expectEqual(@as(?f64, 1.0), balance.ui_amount);
+    try std.testing.expectEqualStrings("1", balance.ui_amount_string.?);
+}
+
+test "rpc_client: parseProgramAccountsResponse" {
+    const allocator = std.testing.allocator;
+    const json_str =
+        \\[{"pubkey":"11111111111111111111111111111111","account":{"lamports":5000,"owner":"11111111111111111111111111111111","data":["","base64"],"executable":false,"rentEpoch":0}}]
+    ;
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_str, .{});
+    defer parsed.deinit();
+
+    const accounts = try parseProgramAccountsResponse(allocator, parsed.value);
+    defer allocator.free(accounts);
+
+    try std.testing.expectEqual(@as(usize, 1), accounts.len);
+    try std.testing.expectEqual(@as(u64, 5000), accounts[0].account.lamports);
+}
+
+test "rpc_client: parseTransactionResponse with data" {
+    const allocator = std.testing.allocator;
+    const json_str =
+        \\{"slot":100,"transaction":["SGVsbG8=","base64"],"meta":{"err":null,"fee":5000,"preBalances":[100,200],"postBalances":[95,205]},"blockTime":1234567890}
+    ;
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_str, .{});
+    defer parsed.deinit();
+
+    const tx = try parseTransactionResponse(allocator, parsed.value);
+    try std.testing.expect(tx != null);
+    try std.testing.expectEqual(@as(u64, 100), tx.?.slot);
+    try std.testing.expectEqualStrings("SGVsbG8=", tx.?.transaction.data);
+    try std.testing.expect(tx.?.meta != null);
+    try std.testing.expectEqual(@as(u64, 5000), tx.?.meta.?.fee);
+    try std.testing.expectEqual(@as(?i64, 1234567890), tx.?.block_time);
+}
+
+test "rpc_client: parseTransactionResponse null" {
+    const allocator = std.testing.allocator;
+    const json_str = "null";
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_str, .{});
+    defer parsed.deinit();
+
+    const tx = try parseTransactionResponse(allocator, parsed.value);
+    try std.testing.expect(tx == null);
+}
+
+test "rpc_client: parseSignaturesForAddressResponse" {
+    const allocator = std.testing.allocator;
+    const json_str =
+        \\[{"signature":"5VERv8NMvzbJMEkV8xnrLkEaWRtSz9CosKDYjCJjBRnbJLgp8uirBgmQpjKhoR4tjF3ZpRzrFmBV6UjKdiSZkQUW","slot":100,"blockTime":1234567890,"err":null,"memo":null,"confirmationStatus":"finalized"}]
+    ;
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_str, .{});
+    defer parsed.deinit();
+
+    const sigs = try parseSignaturesForAddressResponse(allocator, parsed.value);
+    defer allocator.free(sigs);
+
+    try std.testing.expectEqual(@as(usize, 1), sigs.len);
+    try std.testing.expectEqual(@as(u64, 100), sigs[0].slot);
+    try std.testing.expectEqual(@as(?i64, 1234567890), sigs[0].block_time);
+    try std.testing.expect(sigs[0].err == null);
+    try std.testing.expectEqual(types.ConfirmationStatus.finalized, sigs[0].confirmation_status.?);
+}
+
+test "rpc_client: parseTokenSupplyResponse" {
+    const json_str =
+        \\{"context":{"slot":100},"value":{"amount":"1000000000000","decimals":6,"uiAmount":1000000.0,"uiAmountString":"1000000"}}
+    ;
+    const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, json_str, .{});
+    defer parsed.deinit();
+
+    const supply = try parseTokenSupplyResponse(parsed.value);
+    try std.testing.expectEqualStrings("1000000000000", supply.amount);
+    try std.testing.expectEqual(@as(u8, 6), supply.decimals);
+}
+
+test "rpc_client: parseBlockResponse with transactions and rewards" {
+    const allocator = std.testing.allocator;
+    const json_str =
+        \\{"blockhash":"4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZAMdL4VZHirAn","previousBlockhash":"4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZAMdL4VZHirAn","parentSlot":99,"blockTime":1234567890,"blockHeight":12345,"transactions":[{"transaction":["SGVsbG8=","base64"],"meta":{"err":null,"fee":5000}}],"rewards":[{"pubkey":"11111111111111111111111111111111","lamports":1000,"postBalance":5000,"rewardType":"voting","commission":null}]}
+    ;
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_str, .{});
+    defer parsed.deinit();
+
+    const block = try parseBlockResponse(allocator, parsed.value);
+    try std.testing.expect(block != null);
+    try std.testing.expectEqual(@as(u64, 99), block.?.parent_slot);
+    try std.testing.expectEqual(@as(?i64, 1234567890), block.?.block_time);
+    try std.testing.expectEqual(@as(?u64, 12345), block.?.block_height);
+
+    // Check transactions
+    try std.testing.expect(block.?.transactions != null);
+    try std.testing.expectEqual(@as(usize, 1), block.?.transactions.?.len);
+
+    // Check rewards
+    try std.testing.expect(block.?.rewards != null);
+    try std.testing.expectEqual(@as(usize, 1), block.?.rewards.?.len);
+    try std.testing.expectEqual(@as(i64, 1000), block.?.rewards.?[0].lamports);
+
+    // Free allocated memory
+    if (block.?.transactions) |txs| {
+        allocator.free(txs);
+    }
+    if (block.?.rewards) |rewards| {
+        allocator.free(rewards);
+    }
+}
+
+test "rpc_client: parseBlockResponse null" {
+    const allocator = std.testing.allocator;
+    const json_str = "null";
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_str, .{});
+    defer parsed.deinit();
+
+    const block = try parseBlockResponse(allocator, parsed.value);
+    try std.testing.expect(block == null);
+}
+
+test "rpc_client: parseLargestAccountsResponse" {
+    const allocator = std.testing.allocator;
+    const json_str =
+        \\{"context":{"slot":100},"value":[{"lamports":1000000000000,"address":"11111111111111111111111111111111"},{"lamports":500000000000,"address":"22222222222222222222222222222222"}]}
+    ;
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_str, .{});
+    defer parsed.deinit();
+
+    const accounts = try parseLargestAccountsResponse(allocator, parsed.value);
+    defer allocator.free(accounts);
+
+    try std.testing.expectEqual(@as(usize, 2), accounts.len);
+    try std.testing.expectEqual(@as(u64, 1000000000000), accounts[0].lamports);
+    try std.testing.expectEqualStrings("11111111111111111111111111111111", accounts[0].address);
+}
+
+test "rpc_client: parseClusterNodesResponse" {
+    const allocator = std.testing.allocator;
+    const json_str =
+        \\[{"pubkey":"11111111111111111111111111111111","gossip":"127.0.0.1:8001","tpu":"127.0.0.1:8002","tpuQuic":"127.0.0.1:8003","rpc":"http://127.0.0.1:8899","version":"1.14.0","featureSet":12345,"shredVersion":100}]
+    ;
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_str, .{});
+    defer parsed.deinit();
+
+    const nodes = try parseClusterNodesResponse(allocator, parsed.value);
+    defer allocator.free(nodes);
+
+    try std.testing.expectEqual(@as(usize, 1), nodes.len);
+    try std.testing.expectEqualStrings("11111111111111111111111111111111", nodes[0].pubkey);
+    try std.testing.expectEqualStrings("127.0.0.1:8001", nodes[0].gossip.?);
+    try std.testing.expectEqualStrings("1.14.0", nodes[0].version.?);
+}
+
+test "rpc_client: parseInflationRewardResponse" {
+    const allocator = std.testing.allocator;
+    const json_str =
+        \\[{"epoch":100,"effectiveSlot":43200000,"amount":5000000,"postBalance":1000000000,"commission":5},null]
+    ;
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_str, .{});
+    defer parsed.deinit();
+
+    const rewards = try parseInflationRewardResponse(allocator, parsed.value);
+    defer allocator.free(rewards);
+
+    try std.testing.expectEqual(@as(usize, 2), rewards.len);
+    try std.testing.expect(rewards[0] != null);
+    try std.testing.expectEqual(@as(u64, 100), rewards[0].?.epoch);
+    try std.testing.expectEqual(@as(u64, 5000000), rewards[0].?.amount);
+    try std.testing.expectEqual(@as(?u8, 5), rewards[0].?.commission);
+    try std.testing.expect(rewards[1] == null);
+}
+
+test "rpc_client: parseSupplyResponse" {
+    const allocator = std.testing.allocator;
+    const json_str =
+        \\{"context":{"slot":100},"value":{"total":1000000000000000,"circulating":800000000000000,"nonCirculating":200000000000000,"nonCirculatingAccounts":["11111111111111111111111111111111","22222222222222222222222222222222"]}}
+    ;
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_str, .{});
+    defer parsed.deinit();
+
+    const supply = try parseSupplyResponse(allocator, parsed.value);
+
+    try std.testing.expectEqual(@as(u64, 1000000000000000), supply.total);
+    try std.testing.expectEqual(@as(u64, 800000000000000), supply.circulating);
+    try std.testing.expectEqual(@as(u64, 200000000000000), supply.non_circulating);
+    try std.testing.expectEqual(@as(usize, 2), supply.non_circulating_accounts.len);
+    try std.testing.expectEqualStrings("11111111111111111111111111111111", supply.non_circulating_accounts[0]);
+
+    allocator.free(supply.non_circulating_accounts);
+}
+
+test "rpc_client: parseVoteAccountsResponse" {
+    const allocator = std.testing.allocator;
+    const json_str =
+        \\{"current":[{"votePubkey":"Vote111111111111111111111111111111111111111","nodePubkey":"Node111111111111111111111111111111111111111","activatedStake":1000000000,"epochVoteAccount":true,"commission":10,"lastVote":12345,"epochCredits":[[100,1000,900],[101,1100,1000]],"rootSlot":12340}],"delinquent":[]}
+    ;
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_str, .{});
+    defer parsed.deinit();
+
+    const vote_accounts = try parseVoteAccountsResponse(allocator, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), vote_accounts.current.len);
+    try std.testing.expectEqual(@as(usize, 0), vote_accounts.delinquent.len);
+
+    const va = vote_accounts.current[0];
+    try std.testing.expectEqualStrings("Vote111111111111111111111111111111111111111", va.vote_pubkey);
+    try std.testing.expectEqual(@as(u64, 1000000000), va.activated_stake);
+    try std.testing.expectEqual(true, va.epoch_vote_account);
+    try std.testing.expectEqual(@as(u8, 10), va.commission);
+    try std.testing.expectEqual(@as(u64, 12345), va.last_vote);
+    try std.testing.expectEqual(@as(?u64, 12340), va.root_slot);
+
+    // Check epoch credits
+    try std.testing.expectEqual(@as(usize, 2), va.epoch_credits.len);
+    try std.testing.expectEqual(@as(u64, 100), va.epoch_credits[0].epoch);
+    try std.testing.expectEqual(@as(u64, 1000), va.epoch_credits[0].credits);
+    try std.testing.expectEqual(@as(u64, 900), va.epoch_credits[0].previous_credits);
+
+    // Free allocated memory
+    allocator.free(va.epoch_credits);
+    allocator.free(vote_accounts.current);
+}
+
+test "rpc_client: parsePerformanceSamplesResponse" {
+    const allocator = std.testing.allocator;
+    const json_str =
+        \\[{"slot":100,"numTransactions":5000,"numSlots":60,"samplePeriodSecs":60,"numNonVoteTransactions":3000}]
+    ;
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_str, .{});
+    defer parsed.deinit();
+
+    const samples = try parsePerformanceSamplesResponse(allocator, parsed.value);
+    defer allocator.free(samples);
+
+    try std.testing.expectEqual(@as(usize, 1), samples.len);
+    try std.testing.expectEqual(@as(u64, 100), samples[0].slot);
+    try std.testing.expectEqual(@as(u64, 5000), samples[0].num_transactions);
+    try std.testing.expectEqual(@as(u64, 60), samples[0].num_slots);
+    try std.testing.expectEqual(@as(u16, 60), samples[0].sample_period_secs);
+    try std.testing.expectEqual(@as(?u64, 3000), samples[0].num_non_vote_transactions);
+}
+
+test "rpc_client: parseTokenLargestAccountsResponse" {
+    const allocator = std.testing.allocator;
+    const json_str =
+        \\{"context":{"slot":100},"value":[{"address":"11111111111111111111111111111111","amount":"1000000000","decimals":9,"uiAmount":1.0,"uiAmountString":"1"}]}
+    ;
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_str, .{});
+    defer parsed.deinit();
+
+    const accounts = try parseTokenLargestAccountsResponse(allocator, parsed.value);
+    defer allocator.free(accounts);
+
+    try std.testing.expectEqual(@as(usize, 1), accounts.len);
+    try std.testing.expectEqualStrings("11111111111111111111111111111111", accounts[0].address);
+    try std.testing.expectEqualStrings("1000000000", accounts[0].amount);
+    try std.testing.expectEqual(@as(u8, 9), accounts[0].decimals);
+}
+
+test "rpc_client: parseBlockProductionResponse" {
+    const allocator = std.testing.allocator;
+    const json_str =
+        \\{"context":{"slot":100},"value":{"byIdentity":{"Validator1111111111111111111111111111111111":[100,95],"Validator2222222222222222222222222222222222":[50,48]},"range":{"firstSlot":0,"lastSlot":100}}}
+    ;
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_str, .{});
+    defer parsed.deinit();
+
+    const production = try parseBlockProductionResponse(allocator, parsed.value);
+
+    try std.testing.expectEqual(@as(u64, 0), production.range.first_slot);
+    try std.testing.expectEqual(@as(u64, 100), production.range.last_slot);
+    try std.testing.expectEqual(@as(usize, 2), production.by_identity.len);
+
+    allocator.free(production.by_identity);
+}
+
+// ============================================================================
+// Configuration Tests
+// ============================================================================
+
+test "rpc_client: SendTransactionConfig defaults" {
+    const config = RpcClient.SendTransactionConfig{};
+    try std.testing.expectEqual(false, config.skip_preflight);
+    try std.testing.expect(config.preflight_commitment == null);
+    try std.testing.expect(config.max_retries == null);
+    try std.testing.expect(config.min_context_slot == null);
+}
+
+test "rpc_client: GetProgramAccountsConfig defaults" {
+    const config = RpcClient.GetProgramAccountsConfig{};
+    try std.testing.expect(config.filters == null);
+    try std.testing.expectEqual(false, config.with_context);
+}
+
+test "rpc_client: GetTransactionConfig defaults" {
+    const config = RpcClient.GetTransactionConfig{};
+    try std.testing.expectEqual(@as(?u8, 0), config.max_supported_transaction_version);
+}
+
+test "rpc_client: GetSignaturesConfig defaults" {
+    const config = RpcClient.GetSignaturesConfig{};
+    try std.testing.expect(config.limit == null);
+    try std.testing.expect(config.before == null);
+    try std.testing.expect(config.until == null);
+}
+
+test "rpc_client: GetBlockConfig defaults" {
+    const config = RpcClient.GetBlockConfig{};
+    try std.testing.expectEqualStrings("full", config.transaction_details.?);
+    try std.testing.expectEqual(true, config.rewards);
+    try std.testing.expectEqual(@as(?u8, 0), config.max_supported_transaction_version);
+}
+
+test "rpc_client: LargestAccountsConfig defaults" {
+    const config = RpcClient.LargestAccountsConfig{};
+    try std.testing.expect(config.filter == null);
+}
+
+test "rpc_client: BlockProductionConfig defaults" {
+    const config = RpcClient.BlockProductionConfig{};
+    try std.testing.expect(config.identity == null);
+    try std.testing.expect(config.first_slot == null);
+    try std.testing.expect(config.last_slot == null);
+}
+
+test "rpc_client: TokenAccountFilter mint variant" {
+    const mint = PublicKey.default();
+    const filter = RpcClient.TokenAccountFilter{ .mint = mint };
+    // Check active variant is mint
+    switch (filter) {
+        .mint => |m| try std.testing.expectEqual(mint, m),
+        .program_id => unreachable,
+    }
+}
+
+test "rpc_client: TokenAccountFilter programId variant" {
+    const program_id = PublicKey.default();
+    const filter = RpcClient.TokenAccountFilter{ .program_id = program_id };
+    // Check active variant is program_id
+    switch (filter) {
+        .mint => unreachable,
+        .program_id => |p| try std.testing.expectEqual(program_id, p),
+    }
+}
+
+// ============================================================================
+// Helper Function Tests
+// ============================================================================
+
+test "rpc_client: base64Encode empty" {
+    const allocator = std.testing.allocator;
+    const encoded = try base64Encode(allocator, "");
+    defer allocator.free(encoded);
+    try std.testing.expectEqualStrings("", encoded);
+}
+
+test "rpc_client: base64Encode binary data" {
+    const allocator = std.testing.allocator;
+    const data = [_]u8{ 0x00, 0x01, 0x02, 0x03, 0xFF };
+    const encoded = try base64Encode(allocator, &data);
+    defer allocator.free(encoded);
+    try std.testing.expectEqualStrings("AAECA/8=", encoded);
 }

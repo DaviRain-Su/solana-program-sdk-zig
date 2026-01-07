@@ -649,6 +649,14 @@ pub struct AccountLimitsTestVector {
     pub max_accounts: usize,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SysvarSizesTestVector {
+    pub name: String,
+    pub clock_size: usize,
+    pub rent_size: usize,
+    pub epoch_schedule_size: usize,
+}
+
 pub fn generate_pubkey_vectors(output_dir: &Path) {
     let bpf_loader_upgradeable_id =
         Pubkey::from_str_const("BPFLoaderUpgradeab1e11111111111111111111111");
@@ -2862,6 +2870,9 @@ pub fn generate_native_program_id_vectors(output_dir: &Path) {
         Pubkey::from_str_const("AddressLookupTab1e1111111111111111111111111");
     let loader_v4_program_id =
         Pubkey::from_str_const("LoaderV411111111111111111111111111111111111");
+    let secp256r1_program_id =
+        Pubkey::from_str_const("Secp256r11111111111111111111111111111111111");
+    let feature_program_id = Pubkey::from_str_const("Feature111111111111111111111111111111111111");
 
     let vectors = vec![
         SysvarIdTestVector {
@@ -2923,6 +2934,16 @@ pub fn generate_native_program_id_vectors(output_dir: &Path) {
             name: "loader_v4_program".to_string(),
             pubkey: loader_v4_program_id.to_bytes(),
             base58: loader_v4_program_id.to_string(),
+        },
+        SysvarIdTestVector {
+            name: "secp256r1_program".to_string(),
+            pubkey: secp256r1_program_id.to_bytes(),
+            base58: secp256r1_program_id.to_string(),
+        },
+        SysvarIdTestVector {
+            name: "feature_program".to_string(),
+            pubkey: feature_program_id.to_bytes(),
+            base58: feature_program_id.to_string(),
         },
     ];
 
@@ -4126,6 +4147,22 @@ pub fn generate_account_limits_vectors(output_dir: &Path) {
     fs::write(output_dir.join("account_limits_vectors.json"), json).unwrap();
 }
 
+pub fn generate_sysvar_sizes_vectors(output_dir: &Path) {
+    use solana_epoch_schedule::EpochSchedule;
+    use solana_sdk::clock::Clock;
+    use solana_sdk::rent::Rent;
+
+    let vectors = vec![SysvarSizesTestVector {
+        name: "sysvar_sizes".to_string(),
+        clock_size: std::mem::size_of::<Clock>(),
+        rent_size: std::mem::size_of::<Rent>(),
+        epoch_schedule_size: std::mem::size_of::<EpochSchedule>(),
+    }];
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("sysvar_sizes_vectors.json"), json).unwrap();
+}
+
 pub fn generate_sysvar_id_vectors(output_dir: &Path) {
     use solana_sdk::sysvar;
 
@@ -4257,6 +4294,7 @@ pub fn generate_all_vectors(output_dir: &Path) {
     generate_ed25519_constants_vectors(output_dir);
     generate_epoch_schedule_constants_vectors(output_dir);
     generate_account_limits_vectors(output_dir);
+    generate_sysvar_sizes_vectors(output_dir);
 
     println!("Generated all test vectors in {:?}", output_dir);
 }

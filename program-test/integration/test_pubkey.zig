@@ -2384,3 +2384,26 @@ test "account_limits: account limits match Rust SDK" {
         try std.testing.expectEqual(@as(usize, 64), vector.max_accounts);
     }
 }
+
+const SysvarSizesTestVector = struct {
+    name: []const u8,
+    clock_size: usize,
+    rent_size: usize,
+    epoch_schedule_size: usize,
+};
+
+test "sysvar_sizes: sysvar struct sizes match Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "sysvar_sizes_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const SysvarSizesTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        try std.testing.expectEqual(@as(usize, 40), vector.clock_size);
+        try std.testing.expectEqual(@as(usize, 24), vector.rent_size);
+        try std.testing.expectEqual(@as(usize, 40), vector.epoch_schedule_size);
+    }
+}

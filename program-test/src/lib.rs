@@ -594,6 +594,23 @@ pub struct LookupTableMetaTestVector {
     pub serialized: Vec<u8>,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ComputeBudgetConstantsTestVector {
+    pub name: String,
+    pub max_compute_unit_limit: u32,
+    pub default_instruction_compute_unit_limit: u32,
+    pub max_heap_frame_bytes: u32,
+    pub min_heap_frame_bytes: u32,
+    pub max_loaded_accounts_data_size_bytes: u32,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct NonceConstantsTestVector {
+    pub name: String,
+    pub nonce_account_length: usize,
+    pub nonced_tx_marker_ix_index: u8,
+}
+
 pub fn generate_pubkey_vectors(output_dir: &Path) {
     let bpf_loader_upgradeable_id =
         Pubkey::from_str_const("BPFLoaderUpgradeab1e11111111111111111111111");
@@ -3974,6 +3991,35 @@ pub fn generate_lookup_table_meta_vectors(output_dir: &Path) {
     fs::write(output_dir.join("lookup_table_meta_vectors.json"), json).unwrap();
 }
 
+pub fn generate_compute_budget_constants_vectors(output_dir: &Path) {
+    let vectors = vec![ComputeBudgetConstantsTestVector {
+        name: "compute_budget_constants".to_string(),
+        max_compute_unit_limit: 1_400_000,
+        default_instruction_compute_unit_limit: 200_000,
+        max_heap_frame_bytes: 256 * 1024,
+        min_heap_frame_bytes: 32 * 1024,
+        max_loaded_accounts_data_size_bytes: 64 * 1024 * 1024,
+    }];
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(
+        output_dir.join("compute_budget_constants_vectors.json"),
+        json,
+    )
+    .unwrap();
+}
+
+pub fn generate_nonce_constants_vectors(output_dir: &Path) {
+    let vectors = vec![NonceConstantsTestVector {
+        name: "nonce_constants".to_string(),
+        nonce_account_length: 80,
+        nonced_tx_marker_ix_index: 0,
+    }];
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("nonce_constants_vectors.json"), json).unwrap();
+}
+
 pub fn generate_sysvar_id_vectors(output_dir: &Path) {
     use solana_sdk::sysvar;
 
@@ -4098,6 +4144,8 @@ pub fn generate_all_vectors(output_dir: &Path) {
     generate_vote_init_vectors(output_dir);
     generate_vote_state_constants_vectors(output_dir);
     generate_lookup_table_meta_vectors(output_dir);
+    generate_compute_budget_constants_vectors(output_dir);
+    generate_nonce_constants_vectors(output_dir);
 
     println!("Generated all test vectors in {:?}", output_dir);
 }

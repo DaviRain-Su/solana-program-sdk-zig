@@ -2225,3 +2225,51 @@ test "lookup_table_meta: serialization format compatibility with Rust" {
         }
     }
 }
+
+const ComputeBudgetConstantsTestVector = struct {
+    name: []const u8,
+    max_compute_unit_limit: u32,
+    default_instruction_compute_unit_limit: u32,
+    max_heap_frame_bytes: u32,
+    min_heap_frame_bytes: u32,
+    max_loaded_accounts_data_size_bytes: u32,
+};
+
+test "compute_budget_constants: constants match Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "compute_budget_constants_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const ComputeBudgetConstantsTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        try std.testing.expectEqual(@as(u32, 1_400_000), vector.max_compute_unit_limit);
+        try std.testing.expectEqual(@as(u32, 200_000), vector.default_instruction_compute_unit_limit);
+        try std.testing.expectEqual(@as(u32, 256 * 1024), vector.max_heap_frame_bytes);
+        try std.testing.expectEqual(@as(u32, 32 * 1024), vector.min_heap_frame_bytes);
+        try std.testing.expectEqual(@as(u32, 64 * 1024 * 1024), vector.max_loaded_accounts_data_size_bytes);
+    }
+}
+
+const NonceConstantsTestVector = struct {
+    name: []const u8,
+    nonce_account_length: usize,
+    nonced_tx_marker_ix_index: u8,
+};
+
+test "nonce_constants: constants match Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "nonce_constants_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const NonceConstantsTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        try std.testing.expectEqual(@as(usize, 80), vector.nonce_account_length);
+        try std.testing.expectEqual(@as(u8, 0), vector.nonced_tx_marker_ix_index);
+    }
+}

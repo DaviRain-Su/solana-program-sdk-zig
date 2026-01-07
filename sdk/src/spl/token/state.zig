@@ -7,7 +7,6 @@
 //! - Account: Token account holding tokens
 //! - Multisig: Multi-signature account
 //! - AccountState: Account state enum
-//! - COption: C-compatible optional type
 
 const std = @import("std");
 const PublicKey = @import("../../public_key.zig").PublicKey;
@@ -20,13 +19,12 @@ pub const TOKEN_PROGRAM_ID = instruction.TOKEN_PROGRAM_ID;
 pub const MAX_SIGNERS = instruction.MAX_SIGNERS;
 
 // ============================================================================
-// COption - C-compatible Option Type
+// COption - Re-export from SDK
 // ============================================================================
 
 /// A C-compatible `Option<T>` type for Solana account state.
 ///
-/// This is the Zig equivalent of `solana_program_option::COption<T>`.
-/// It uses a 4-byte tag (little-endian u32) followed by the value.
+/// Re-exported from `sdk.c_option.COption`. See that module for full documentation.
 ///
 /// Layout for COption<Pubkey> (36 bytes):
 /// - bytes[0..4]: tag (0 = None, 1 = Some)
@@ -35,91 +33,7 @@ pub const MAX_SIGNERS = instruction.MAX_SIGNERS;
 /// Layout for COption<u64> (12 bytes):
 /// - bytes[0..4]: tag (0 = None, 1 = Some)
 /// - bytes[4..12]: value (8 bytes for u64, or zeros if None)
-pub fn COption(comptime T: type) type {
-    return struct {
-        const Self = @This();
-        value: ?T,
-
-        /// Size of this COption in bytes
-        pub const SIZE: usize = switch (T) {
-            PublicKey => 36, // 4 byte tag + 32 byte pubkey
-            u64 => 12, // 4 byte tag + 8 byte u64
-            else => @compileError("COption only supports PublicKey and u64"),
-        };
-
-        /// Create a COption with Some value
-        pub fn some(val: T) Self {
-            return .{ .value = val };
-        }
-
-        /// Create a COption with None
-        pub fn none() Self {
-            return .{ .value = null };
-        }
-
-        /// Check if this is Some
-        pub fn isSome(self: Self) bool {
-            return self.value != null;
-        }
-
-        /// Check if this is None
-        pub fn isNone(self: Self) bool {
-            return self.value == null;
-        }
-
-        /// Unwrap the value, panics if None
-        pub fn unwrap(self: Self) T {
-            return self.value.?;
-        }
-
-        /// Pack into bytes
-        pub fn pack(self: Self, dest: []u8) void {
-            if (T == PublicKey) {
-                if (self.value) |v| {
-                    dest[0] = 1;
-                    dest[1] = 0;
-                    dest[2] = 0;
-                    dest[3] = 0;
-                    @memcpy(dest[4..36], &v.bytes);
-                } else {
-                    @memset(dest[0..36], 0);
-                }
-            } else if (T == u64) {
-                if (self.value) |v| {
-                    dest[0] = 1;
-                    dest[1] = 0;
-                    dest[2] = 0;
-                    dest[3] = 0;
-                    std.mem.writeInt(u64, dest[4..12], v, .little);
-                } else {
-                    @memset(dest[0..12], 0);
-                }
-            }
-        }
-
-        /// Unpack from bytes
-        pub fn unpack(src: []const u8) !Self {
-            if (T == PublicKey) {
-                if (src.len < 36) return error.InvalidAccountData;
-                const tag = std.mem.readInt(u32, src[0..4], .little);
-                return switch (tag) {
-                    0 => Self.none(),
-                    1 => Self.some(PublicKey.from(src[4..36].*)),
-                    else => error.InvalidAccountData,
-                };
-            } else if (T == u64) {
-                if (src.len < 12) return error.InvalidAccountData;
-                const tag = std.mem.readInt(u32, src[0..4], .little);
-                return switch (tag) {
-                    0 => Self.none(),
-                    1 => Self.some(std.mem.readInt(u64, src[4..12], .little)),
-                    else => error.InvalidAccountData,
-                };
-            }
-            unreachable;
-        }
-    };
-}
+pub const COption = @import("../../c_option.zig").COption;
 
 // ============================================================================
 // AccountState Enum

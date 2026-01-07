@@ -136,15 +136,41 @@ pub const PublicKey = extern struct {
 
     /// Create a program address using pure SHA256 computation.
     /// This version works both at comptime and runtime without syscalls.
+    ///
+    /// Seeds can be `[]const u8` slices or `PublicKey` values - PublicKey seeds
+    /// are automatically converted to their byte representation.
+    ///
+    /// Example:
+    /// ```zig
+    /// // Both of these work:
+    /// const pda1 = try PublicKey.createProgramAddress(.{ &base_key.bytes, "seed" }, program_id);
+    /// const pda2 = try PublicKey.createProgramAddress(.{ base_key, "seed" }, program_id);  // auto-converts
+    /// ```
     pub fn createProgramAddress(seeds: anytype, program_id: PublicKey) !PublicKey {
         if (seeds.len > PublicKey.max_num_seeds) {
             return error.MaxSeedLengthExceeded;
         }
 
+        // Storage for PublicKey bytes that need to be converted to slices
+        // We need to store them separately because comptime values can't have
+        // their addresses taken at runtime
+        var pubkey_storage: [seeds.len][32]u8 = undefined;
+
+        // Convert all seeds to []const u8 slices, validating lengths
+        var seed_slices: [seeds.len][]const u8 = undefined;
         comptime var seeds_index = 0;
         inline while (seeds_index < seeds.len) : (seeds_index += 1) {
-            if (@as([]const u8, seeds[seeds_index]).len > PublicKey.max_seed_length) {
-                return error.MaxSeedLengthExceeded;
+            const Seed = @TypeOf(seeds[seeds_index]);
+            if (comptime Seed == PublicKey) {
+                // Copy PublicKey bytes to storage and create slice from it
+                pubkey_storage[seeds_index] = seeds[seeds_index].bytes;
+                seed_slices[seeds_index] = &pubkey_storage[seeds_index];
+            } else {
+                const slice: []const u8 = seeds[seeds_index];
+                if (slice.len > PublicKey.max_seed_length) {
+                    return error.MaxSeedLengthExceeded;
+                }
+                seed_slices[seeds_index] = slice;
             }
         }
 
@@ -153,9 +179,8 @@ pub const PublicKey = extern struct {
         @setEvalBranchQuota(100_000_000);
 
         var hasher = std.crypto.hash.sha2.Sha256.init(.{});
-        comptime var i = 0;
-        inline while (i < seeds.len) : (i += 1) {
-            hasher.update(seeds[i]);
+        for (seed_slices) |seed| {
+            hasher.update(seed);
         }
         hasher.update(&program_id.bytes);
         hasher.update("ProgramDerivedAddress");
@@ -277,6 +302,87 @@ pub const PublicKey = extern struct {
         var buffer: [base58.bitcoin.getEncodedLengthUpperBound(PublicKey.length)]u8 = undefined;
         try writer.print("{s}", .{base58.bitcoin.encode(&buffer, &self.bytes)});
     }
+
+    // ========================================================================
+    // Rust API Compatibility Aliases
+    // ========================================================================
+
+    /// Alias for `from` - matches Rust `Address::new_from_array`
+    /// Rust source: https://github.com/anza-xyz/solana-sdk/blob/master/address/src/lib.rs
+    pub const newFromArray = from;
+
+    /// Get the bytes as a fixed-size array - matches Rust `Address::to_bytes`
+    /// Rust source: https://github.com/anza-xyz/solana-sdk/blob/master/address/src/lib.rs
+    pub fn toBytes(self: PublicKey) [32]u8 {
+        return self.bytes;
+    }
+
+    /// Alias for `from` - alternative name matching common Rust pattern
+    pub const fromBytes = from;
+
+    /// Alias for `asBytes` - matches Rust `AsRef<[u8]>` trait implementation
+    pub const asRef = asBytes;
+
+    // ========================================================================
+    // CreateWithSeed
+    // ========================================================================
+
+    /// PDA marker used to detect illegal owner in createWithSeed
+    const PDA_MARKER: []const u8 = "ProgramDerivedAddress";
+
+    /// Create a derived address from a base address, seed string, and owner program.
+    ///
+    /// This is used by SystemProgram::CreateAccountWithSeed instruction.
+    ///
+    /// Rust equivalent: `Address::create_with_seed(base, seed, owner)`
+    /// Source: https://github.com/anza-xyz/solana-sdk/blob/master/address/src/lib.rs
+    ///
+    /// # Arguments
+    /// * `base` - The base address (usually the funding account)
+    /// * `seed` - A string seed (max 32 bytes)
+    /// * `owner` - The program that will own the derived account
+    ///
+    /// # Returns
+    /// The derived address, or error if:
+    /// - seed exceeds MAX_SEED_LEN (32 bytes)
+    /// - owner ends with PDA_MARKER (illegal owner)
+    pub fn createWithSeed(base: PublicKey, seed: []const u8, owner: PublicKey) !PublicKey {
+        // Check seed length
+        if (seed.len > max_seed_length) {
+            return error.MaxSeedLengthExceeded;
+        }
+
+        // Check for illegal owner (owner ending with PDA_MARKER)
+        // This prevents using a PDA as owner, which would be confusing
+        const owner_bytes = &owner.bytes;
+        if (owner_bytes.len >= PDA_MARKER.len) {
+            const suffix = owner_bytes[owner_bytes.len - PDA_MARKER.len ..];
+            if (mem.eql(u8, suffix, PDA_MARKER)) {
+                return error.IllegalOwner;
+            }
+        }
+
+        // Hash: base + seed + owner
+        var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+        hasher.update(&base.bytes);
+        hasher.update(seed);
+        hasher.update(&owner.bytes);
+
+        var result: PublicKey = undefined;
+        hasher.final(&result.bytes);
+        return result;
+    }
+
+    /// Comptime version of createWithSeed
+    /// Note: Requires @setEvalBranchQuota for SHA256 computation at comptime.
+    pub fn comptimeCreateWithSeed(comptime base: PublicKey, comptime seed: []const u8, comptime owner: PublicKey) PublicKey {
+        @setEvalBranchQuota(100_000);
+        comptime {
+            return createWithSeed(base, seed, owner) catch |err| {
+                @compileError("Failed to create address with seed: " ++ @errorName(err));
+            };
+        }
+    }
 };
 
 test "public_key: comptime create program address" {
@@ -390,4 +496,169 @@ test "public_key: create program address with various seeds" {
 
     const addr5 = try PublicKey.createProgramAddress(.{"Talking"}, program_id);
     try testing.expect(!addr3.equals(addr5));
+}
+
+test "public_key: createProgramAddress with PublicKey seed auto-conversion" {
+    // Test that PublicKey seeds are automatically converted to bytes
+    const program_id = comptime PublicKey.comptimeFromBase58("BPFLoaderUpgradeab1e11111111111111111111111");
+    const seed_key = comptime PublicKey.comptimeFromBase58("SeedPubey1111111111111111111111111111111111");
+
+    // Method 1: Manual conversion (old way)
+    const addr_manual = try PublicKey.createProgramAddress(.{ &seed_key.bytes, &.{1} }, program_id);
+
+    // Method 2: Auto conversion (new way - PublicKey directly)
+    const addr_auto = try PublicKey.createProgramAddress(.{ seed_key, &.{1} }, program_id);
+
+    // Both should produce the same result
+    try testing.expect(addr_manual.equals(addr_auto));
+    try testing.expectFmt("976ymqVnfE32QFe6NfGDctSvVa36LWnvYxhU6G2232YL", "{f}", .{addr_auto});
+}
+
+test "public_key: createProgramAddress with mixed seed types" {
+    // Test mixing PublicKey and []const u8 seeds
+    const program_id = comptime PublicKey.comptimeFromBase58("BPFLoaderUpgradeab1e11111111111111111111111");
+    const seed_key = comptime PublicKey.comptimeFromBase58("SeedPubey1111111111111111111111111111111111");
+
+    // Mixed seeds: PublicKey + string + bump byte
+    // Using bump=254 which produces a valid off-curve address
+    const addr = try PublicKey.createProgramAddress(.{ seed_key, "Talking", &.{254} }, program_id);
+
+    // Verify it matches manual conversion
+    const addr_manual = try PublicKey.createProgramAddress(.{ &seed_key.bytes, "Talking", &.{254} }, program_id);
+    try testing.expect(addr.equals(addr_manual));
+}
+
+test "public_key: createProgramAddress with multiple PublicKey seeds" {
+    const program_id = comptime PublicKey.comptimeFromBase58("BPFLoaderUpgradeab1e11111111111111111111111");
+    const key1 = comptime PublicKey.comptimeFromBase58("SeedPubey1111111111111111111111111111111111");
+    const key2 = comptime PublicKey.comptimeFromBase58("11111111111111111111111111111112");
+
+    // Two PublicKey seeds
+    const addr = try PublicKey.createProgramAddress(.{ key1, key2 }, program_id);
+
+    // Verify it matches manual conversion
+    const addr_manual = try PublicKey.createProgramAddress(.{ &key1.bytes, &key2.bytes }, program_id);
+    try testing.expect(addr.equals(addr_manual));
+}
+
+// ============================================================================
+// CreateWithSeed Tests
+// ============================================================================
+
+test "public_key: createWithSeed basic" {
+    // Test case from Rust: create_with_seed(&Address::default(), "limber chicken: 4/45", &Address::default())
+    // Expected: "9h1HyLCW5dZnBVap8C5egQ9Z6pHyjsh5MNy83iPqqRuq"
+    const base = PublicKey.default();
+    const owner = PublicKey.default();
+    const seed = "limber chicken: 4/45";
+
+    const result = try PublicKey.createWithSeed(base, seed, owner);
+    try testing.expectFmt("9h1HyLCW5dZnBVap8C5egQ9Z6pHyjsh5MNy83iPqqRuq", "{f}", .{result});
+}
+
+test "public_key: createWithSeed empty seed" {
+    const base = PublicKey.newUnique();
+    const owner = PublicKey.newUnique();
+
+    // Empty seed should work
+    const result = PublicKey.createWithSeed(base, "", owner);
+    try testing.expect(result != error.MaxSeedLengthExceeded);
+}
+
+test "public_key: createWithSeed max length seed" {
+    const base = PublicKey.newUnique();
+    const owner = PublicKey.newUnique();
+
+    // Max length seed (32 bytes) should work
+    const max_seed = [_]u8{0} ** PublicKey.max_seed_length;
+    const result = PublicKey.createWithSeed(base, &max_seed, owner);
+    try testing.expect(result != error.MaxSeedLengthExceeded);
+}
+
+test "public_key: createWithSeed rejects seed too long" {
+    const base = PublicKey.newUnique();
+    const owner = PublicKey.newUnique();
+
+    // Seed exceeding 32 bytes should fail
+    const long_seed = [_]u8{127} ** (PublicKey.max_seed_length + 1);
+    try testing.expectError(error.MaxSeedLengthExceeded, PublicKey.createWithSeed(base, &long_seed, owner));
+}
+
+test "public_key: createWithSeed unicode seed" {
+    const base = PublicKey.newUnique();
+    const owner = PublicKey.newUnique();
+
+    // Unicode seed should work (as long as byte length <= 32)
+    const result = PublicKey.createWithSeed(base, "☉", owner);
+    try testing.expect(result != error.MaxSeedLengthExceeded);
+}
+
+test "public_key: createWithSeed rejects illegal owner (PDA marker)" {
+    const base = PublicKey.newUnique();
+
+    // Create an owner that ends with PDA_MARKER - this should be rejected
+    // PDA_MARKER is "ProgramDerivedAddress" (21 bytes)
+    // We need to create a 32-byte pubkey that ends with this marker
+    var illegal_owner_bytes: [32]u8 = undefined;
+    @memset(&illegal_owner_bytes, 0);
+    const marker = "ProgramDerivedAddress";
+    @memcpy(illegal_owner_bytes[32 - marker.len ..], marker);
+    const illegal_owner = PublicKey.from(illegal_owner_bytes);
+
+    try testing.expectError(error.IllegalOwner, PublicKey.createWithSeed(base, "test", illegal_owner));
+}
+
+test "public_key: createWithSeed accepts owner not ending with PDA marker" {
+    const base = PublicKey.newUnique();
+
+    // Owner that doesn't end with PDA marker should work
+    // Use a partial marker suffix - should be accepted
+    var owner_bytes: [32]u8 = undefined;
+    @memset(&owner_bytes, 0);
+    const partial_marker = "rogramDerivedAddress"; // Missing first char
+    @memcpy(owner_bytes[32 - partial_marker.len ..], partial_marker);
+    const owner = PublicKey.from(owner_bytes);
+
+    const result = PublicKey.createWithSeed(base, "test", owner);
+    try testing.expect(result != error.IllegalOwner);
+}
+
+test "public_key: comptimeCreateWithSeed" {
+    const base = comptime PublicKey.default();
+    const owner = comptime PublicKey.default();
+    const result = comptime PublicKey.comptimeCreateWithSeed(base, "limber chicken: 4/45", owner);
+    try testing.expectFmt("9h1HyLCW5dZnBVap8C5egQ9Z6pHyjsh5MNy83iPqqRuq", "{f}", .{result});
+}
+
+// ============================================================================
+// API Alias Tests
+// ============================================================================
+
+test "public_key: toBytes returns copy of bytes" {
+    const bytes = [_]u8{42} ** PublicKey.length;
+    const key = PublicKey.from(bytes);
+    const result = key.toBytes();
+    try testing.expectEqualSlices(u8, &bytes, &result);
+}
+
+test "public_key: newFromArray alias works" {
+    const bytes = [_]u8{123} ** PublicKey.length;
+    const key1 = PublicKey.from(bytes);
+    const key2 = PublicKey.newFromArray(bytes);
+    try testing.expect(key1.equals(key2));
+}
+
+test "public_key: fromBytes alias works" {
+    const bytes = [_]u8{99} ** PublicKey.length;
+    const key1 = PublicKey.from(bytes);
+    const key2 = PublicKey.fromBytes(bytes);
+    try testing.expect(key1.equals(key2));
+}
+
+test "public_key: asRef alias works" {
+    const bytes = [_]u8{77} ** PublicKey.length;
+    const key = PublicKey.from(bytes);
+    const slice1 = key.asBytes();
+    const slice2 = key.asRef();
+    try testing.expectEqualSlices(u8, slice1, slice2);
 }

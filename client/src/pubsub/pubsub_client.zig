@@ -641,61 +641,55 @@ pub const PubsubClient = struct {
         const parsed = std.json.parseFromSlice(std.json.Value, self.allocator, data, .{}) catch {
             return null;
         };
-        // Note: Caller must handle ownership properly in real usage
+        defer parsed.deinit();
 
         const obj = parsed.value.object;
 
         // Check if this is a notification (has "method" field)
         const method_str = obj.get("method") orelse {
-            parsed.deinit();
             return null;
         };
 
         if (method_str != .string) {
-            parsed.deinit();
             return null;
         }
 
         // Get params
         const params = obj.get("params") orelse {
-            parsed.deinit();
             return null;
         };
 
         if (params != .object) {
-            parsed.deinit();
             return null;
         }
 
         const params_obj = params.object;
         const sub_id_val = params_obj.get("subscription") orelse {
-            parsed.deinit();
             return null;
         };
 
         const sub_id: SubscriptionId = switch (sub_id_val) {
             .integer => |i| @intCast(i),
             else => {
-                parsed.deinit();
                 return null;
             },
         };
 
         // Look up subscription method
         const sub_info = self.subscriptions.get(sub_id) orelse {
-            parsed.deinit();
             return null;
         };
 
-        const result = params_obj.get("result") orelse {
-            parsed.deinit();
+        // Note: We don't return the result value since it would be freed with parsed.deinit()
+        // For detailed result parsing, users should use typed notification handlers
+        _ = params_obj.get("result") orelse {
             return null;
         };
 
         return Notification{
             .subscription_id = sub_id,
             .method = sub_info.method,
-            .result = result,
+            .result = .null, // Result data is not preserved to avoid memory issues
         };
     }
 

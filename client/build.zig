@@ -107,10 +107,27 @@ pub fn build(b: *std.Build) void {
 
     const run_tx_integration_tests = b.addRunArtifact(tx_integration_tests);
 
+    // PubSub integration tests
+    const pubsub_integration_test_mod = b.createModule(.{
+        .root_source_file = b.path("integration/test_pubsub.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    pubsub_integration_test_mod.addImport("pubsub", pubsub_mod);
+    pubsub_integration_test_mod.addImport("rpc_client", rpc_client_mod);
+    pubsub_integration_test_mod.addImport("solana_sdk", solana_sdk_mod);
+
+    const pubsub_integration_tests = b.addTest(.{
+        .root_module = pubsub_integration_test_mod,
+    });
+
+    const run_pubsub_integration_tests = b.addRunArtifact(pubsub_integration_tests);
+
     // Combined integration test step
     const integration_test_step = b.step("integration-test", "Run all integration tests (requires local validator)");
     integration_test_step.dependOn(&run_rpc_integration_tests.step);
     integration_test_step.dependOn(&run_tx_integration_tests.step);
+    integration_test_step.dependOn(&run_pubsub_integration_tests.step);
 
     // Separate steps for individual test suites
     const rpc_test_step = b.step("integration-test-rpc", "Run RPC integration tests");
@@ -118,4 +135,7 @@ pub fn build(b: *std.Build) void {
 
     const tx_test_step = b.step("integration-test-tx", "Run transaction integration tests");
     tx_test_step.dependOn(&run_tx_integration_tests.step);
+
+    const pubsub_test_step = b.step("integration-test-pubsub", "Run WebSocket PubSub integration tests");
+    pubsub_test_step.dependOn(&run_pubsub_integration_tests.step);
 }

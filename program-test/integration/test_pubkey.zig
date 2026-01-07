@@ -2852,3 +2852,152 @@ test "account_meta_serialization: Zig SDK bincode.serialize matches Rust SDK" {
         try std.testing.expectEqualSlices(u8, vector.encoded, zig_buffer[0..bytes_written]);
     }
 }
+
+// ============================================================================
+// Bincode Roundtrip Serialization Tests (True Serialization)
+// ============================================================================
+
+test "bincode_roundtrip: Zig SDK serialize/deserialize produces identical results" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "account_meta_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const AccountMetaSerTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        // 1. Deserialize from Rust-serialized bytes
+        const deserialized = try sdk.bincode.deserializeExact(sdk.AccountMeta, vector.encoded);
+
+        // 2. Verify deserialized fields match input
+        try std.testing.expectEqualSlices(u8, &vector.pubkey, &deserialized.pubkey.bytes);
+        try std.testing.expectEqual(vector.is_signer, deserialized.is_signer);
+        try std.testing.expectEqual(vector.is_writable, deserialized.is_writable);
+
+        // 3. Re-serialize using Zig SDK
+        var zig_buffer: [34]u8 = undefined;
+        const bytes_written = try sdk.bincode.serialize(sdk.AccountMeta, deserialized, &zig_buffer);
+
+        // 4. Verify roundtrip produces identical bytes
+        try std.testing.expectEqual(vector.encoded.len, bytes_written);
+        try std.testing.expectEqualSlices(u8, vector.encoded, zig_buffer[0..bytes_written]);
+    }
+}
+
+// ============================================================================
+// Nonce Deserialize Test (True Deserialization)
+// ============================================================================
+
+test "nonce_deserialize: Zig SDK deserialize matches Rust SDK serialization" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "nonce_versions_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const NonceVersionsSerTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        // Skip vectors that don't have full nonce account data (80 bytes)
+        // The deserialize function requires the full account buffer
+        if (vector.encoded.len != 80) {
+            continue;
+        }
+
+        // Deserialize from Rust-serialized bytes
+        const versions = try sdk.nonce.deserialize(vector.encoded);
+
+        // Re-serialize using Zig SDK
+        var zig_buffer: [80]u8 = undefined;
+        try sdk.nonce.serialize(versions, &zig_buffer);
+
+        // Verify roundtrip produces identical bytes
+        try std.testing.expectEqualSlices(u8, vector.encoded, &zig_buffer);
+
+        // Verify deserialized content matches input data
+        if (vector.authority.len == 0) {
+            switch (versions.current) {
+                .uninitialized => {},
+                .initialized => return error.UnexpectedInitialized,
+            }
+        } else {
+            switch (versions.current) {
+                .uninitialized => return error.UnexpectedUninitialized,
+                .initialized => |data| {
+                    try std.testing.expectEqualSlices(u8, vector.authority, &data.authority.bytes);
+                    try std.testing.expectEqualSlices(u8, vector.durable_nonce, &data.durable_nonce.hash.bytes);
+                    try std.testing.expectEqual(vector.lamports_per_signature, data.fee_calculator.lamports_per_signature);
+                },
+            }
+        }
+    }
+}
+
+// ============================================================================
+// Short Vec Decode Test (True Deserialization)
+// ============================================================================
+
+test "short_vec_decode: Zig SDK decode matches Rust SDK encoding" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "short_vec_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const ShortVecSerTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        // Decode from Rust-encoded bytes using SDK
+        const decoded = try sdk.short_vec.decodeU16Len(vector.encoded);
+
+        // Verify decoded value matches expected
+        try std.testing.expectEqual(@as(usize, vector.value), decoded.value);
+        try std.testing.expectEqual(vector.encoded.len, decoded.bytes_read);
+
+        // Roundtrip: re-encode and compare
+        var zig_buffer: [sdk.short_vec.MAX_ENCODING_LENGTH]u8 = undefined;
+        const bytes_written = sdk.short_vec.encodeU16(vector.value, &zig_buffer);
+
+        try std.testing.expectEqual(vector.encoded.len, bytes_written);
+        try std.testing.expectEqualSlices(u8, vector.encoded, zig_buffer[0..bytes_written]);
+    }
+}
+
+// ============================================================================
+// Lockup Roundtrip Test (True Serialization)
+// ============================================================================
+
+test "lockup_roundtrip: Zig SDK bincode serialize/deserialize roundtrip" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "lockup_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const LockupSerTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    const Lockup = extern struct {
+        unix_timestamp: i64,
+        epoch: u64,
+        custodian: [32]u8,
+    };
+
+    for (parsed.value) |vector| {
+        // 1. Deserialize from Rust-serialized bytes
+        const deserialized = try sdk.bincode.deserializeExact(Lockup, vector.serialized);
+
+        // 2. Verify deserialized fields match input
+        try std.testing.expectEqual(vector.unix_timestamp, deserialized.unix_timestamp);
+        try std.testing.expectEqual(vector.epoch, deserialized.epoch);
+        try std.testing.expectEqualSlices(u8, &vector.custodian, &deserialized.custodian);
+
+        // 3. Re-serialize using Zig SDK
+        var zig_buffer: [48]u8 = undefined;
+        const bytes_written = try sdk.bincode.serialize(Lockup, deserialized, &zig_buffer);
+
+        // 4. Verify roundtrip produces identical bytes
+        try std.testing.expectEqual(vector.serialized.len, bytes_written);
+        try std.testing.expectEqualSlices(u8, vector.serialized, zig_buffer[0..bytes_written]);
+    }
+}

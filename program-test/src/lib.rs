@@ -657,6 +657,40 @@ pub struct SysvarSizesTestVector {
     pub epoch_schedule_size: usize,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct NativeTokenConstantsTestVector {
+    pub name: String,
+    pub lamports_per_sol: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Secp256k1ConstantsTestVector {
+    pub name: String,
+    pub pubkey_size: usize,
+    pub private_key_size: usize,
+    pub hashed_pubkey_size: usize,
+    pub signature_size: usize,
+    pub offsets_size: usize,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SignatureSizesTestVector {
+    pub name: String,
+    pub ed25519_signature_size: usize,
+    pub ed25519_pubkey_size: usize,
+    pub secp256k1_signature_size: usize,
+    pub secp256r1_signature_size: usize,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct HashSizesTestVector {
+    pub name: String,
+    pub sha256_size: usize,
+    pub keccak256_size: usize,
+    pub blake3_size: usize,
+    pub solana_hash_size: usize,
+}
+
 pub fn generate_pubkey_vectors(output_dir: &Path) {
     let bpf_loader_upgradeable_id =
         Pubkey::from_str_const("BPFLoaderUpgradeab1e11111111111111111111111");
@@ -4163,6 +4197,56 @@ pub fn generate_sysvar_sizes_vectors(output_dir: &Path) {
     fs::write(output_dir.join("sysvar_sizes_vectors.json"), json).unwrap();
 }
 
+pub fn generate_native_token_constants_vectors(output_dir: &Path) {
+    let vectors = vec![NativeTokenConstantsTestVector {
+        name: "native_token_constants".to_string(),
+        lamports_per_sol: 1_000_000_000,
+    }];
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("native_token_constants_vectors.json"), json).unwrap();
+}
+
+pub fn generate_secp256k1_constants_vectors(output_dir: &Path) {
+    let vectors = vec![Secp256k1ConstantsTestVector {
+        name: "secp256k1_constants".to_string(),
+        pubkey_size: 64,
+        private_key_size: 32,
+        hashed_pubkey_size: 20,
+        signature_size: 64,
+        offsets_size: 11,
+    }];
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("secp256k1_constants_vectors.json"), json).unwrap();
+}
+
+pub fn generate_signature_sizes_vectors(output_dir: &Path) {
+    let vectors = vec![SignatureSizesTestVector {
+        name: "signature_sizes".to_string(),
+        ed25519_signature_size: 64,
+        ed25519_pubkey_size: 32,
+        secp256k1_signature_size: 64,
+        secp256r1_signature_size: 64,
+    }];
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("signature_sizes_vectors.json"), json).unwrap();
+}
+
+pub fn generate_hash_sizes_vectors(output_dir: &Path) {
+    let vectors = vec![HashSizesTestVector {
+        name: "hash_sizes".to_string(),
+        sha256_size: 32,
+        keccak256_size: 32,
+        blake3_size: 32,
+        solana_hash_size: 32,
+    }];
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("hash_sizes_vectors.json"), json).unwrap();
+}
+
 pub fn generate_sysvar_id_vectors(output_dir: &Path) {
     use solana_sdk::sysvar;
 
@@ -4295,6 +4379,10 @@ pub fn generate_all_vectors(output_dir: &Path) {
     generate_epoch_schedule_constants_vectors(output_dir);
     generate_account_limits_vectors(output_dir);
     generate_sysvar_sizes_vectors(output_dir);
+    generate_native_token_constants_vectors(output_dir);
+    generate_secp256k1_constants_vectors(output_dir);
+    generate_signature_sizes_vectors(output_dir);
+    generate_hash_sizes_vectors(output_dir);
 
     println!("Generated all test vectors in {:?}", output_dir);
 }

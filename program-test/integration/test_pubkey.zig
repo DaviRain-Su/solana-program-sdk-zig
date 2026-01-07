@@ -2407,3 +2407,99 @@ test "sysvar_sizes: sysvar struct sizes match Rust SDK" {
         try std.testing.expectEqual(@as(usize, 40), vector.epoch_schedule_size);
     }
 }
+
+const NativeTokenConstantsTestVector = struct {
+    name: []const u8,
+    lamports_per_sol: u64,
+};
+
+test "native_token_constants: LAMPORTS_PER_SOL matches Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "native_token_constants_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const NativeTokenConstantsTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        try std.testing.expectEqual(@as(u64, 1_000_000_000), vector.lamports_per_sol);
+    }
+}
+
+const Secp256k1ConstantsTestVector = struct {
+    name: []const u8,
+    pubkey_size: usize,
+    private_key_size: usize,
+    hashed_pubkey_size: usize,
+    signature_size: usize,
+    offsets_size: usize,
+};
+
+test "secp256k1_constants: Secp256k1 program constants match Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "secp256k1_constants_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const Secp256k1ConstantsTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        try std.testing.expectEqual(@as(usize, 64), vector.pubkey_size);
+        try std.testing.expectEqual(@as(usize, 32), vector.private_key_size);
+        try std.testing.expectEqual(@as(usize, 20), vector.hashed_pubkey_size);
+        try std.testing.expectEqual(@as(usize, 64), vector.signature_size);
+        try std.testing.expectEqual(@as(usize, 11), vector.offsets_size);
+    }
+}
+
+const SignatureSizesTestVector = struct {
+    name: []const u8,
+    ed25519_signature_size: usize,
+    ed25519_pubkey_size: usize,
+    secp256k1_signature_size: usize,
+    secp256r1_signature_size: usize,
+};
+
+test "signature_sizes: signature sizes match Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "signature_sizes_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const SignatureSizesTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        try std.testing.expectEqual(@as(usize, 64), vector.ed25519_signature_size);
+        try std.testing.expectEqual(@as(usize, 32), vector.ed25519_pubkey_size);
+        try std.testing.expectEqual(@as(usize, 64), vector.secp256k1_signature_size);
+        try std.testing.expectEqual(@as(usize, 64), vector.secp256r1_signature_size);
+    }
+}
+
+const HashSizesTestVector = struct {
+    name: []const u8,
+    sha256_size: usize,
+    keccak256_size: usize,
+    blake3_size: usize,
+    solana_hash_size: usize,
+};
+
+test "hash_sizes: hash output sizes match Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "hash_sizes_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const HashSizesTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        try std.testing.expectEqual(@as(usize, 32), vector.sha256_size);
+        try std.testing.expectEqual(@as(usize, 32), vector.keccak256_size);
+        try std.testing.expectEqual(@as(usize, 32), vector.blake3_size);
+        try std.testing.expectEqual(@as(usize, 32), vector.solana_hash_size);
+    }
+}

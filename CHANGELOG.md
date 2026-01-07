@@ -2,6 +2,48 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+## Session 2026-01-07-002
+
+**Date**: 2026-01-07
+**Goal**: Implement v1.2.0 WebSocket PubSub Client
+
+#### Completed Work
+1. **Implemented WebSocket PubSub Client**:
+   - Created `client/src/pubsub/types.zig` - Notification types (SlotInfo, UiAccount, RpcLogsResponse, etc.)
+   - Created `client/src/pubsub/pubsub_client.zig` - Core WebSocket client with 9 subscription methods
+   - Created `client/src/pubsub/root.zig` - Module exports
+
+2. **9 Subscription Methods Implemented**:
+   - `accountSubscribe` / `accountUnsubscribe` - Account change notifications
+   - `blockSubscribe` / `blockUnsubscribe` - New block notifications
+   - `logsSubscribe` / `logsUnsubscribe` - Transaction log notifications
+   - `programSubscribe` / `programUnsubscribe` - Program account changes
+   - `rootSubscribe` / `rootUnsubscribe` - Root slot changes
+   - `signatureSubscribe` / `signatureUnsubscribe` - Signature confirmation
+   - `slotSubscribe` / `slotUnsubscribe` - Slot updates
+   - `slotsUpdatesSubscribe` / `slotsUpdatesUnsubscribe` - Detailed slot updates
+   - `voteSubscribe` / `voteUnsubscribe` - Vote notifications
+
+3. **Build System Updates**:
+   - Added websocket.zig dependency to `client/build.zig.zon`
+   - Updated `client/build.zig` with websocket module import
+   - Exported pubsub module from `client/src/root.zig`
+
+4. **Documentation Updates**:
+   - Created `stories/v1.2.0-websocket-pubsub.md`
+   - Updated `ROADMAP.md` with v1.2.0 section
+
+#### Test Results
+- Client SDK tests: 102 passed (was 91, added 11 PubSub tests)
+- Program SDK tests: 300 passed
+
+#### Technical Details
+- WebSocket library: karlseguin/websocket.zig (TLS 1.3 only)
+- Protocol: JSON-RPC 2.0 over WebSocket
+- Default Solana WebSocket port: 8900
+
+---
+
 ## Session 2026-01-07-001
 
 **Date**: 2026-01-07

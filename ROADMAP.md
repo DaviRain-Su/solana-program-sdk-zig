@@ -124,6 +124,36 @@ This roadmap outlines the implementation of the [Solana SDK](https://github.com/
 
 ---
 
+## ✅ v1.2.0 - WebSocket PubSub Client (Complete)
+
+Real-time subscription client for Solana events via WebSocket.
+
+### Subscription Methods (9/9 implemented)
+
+| Method | Description | Status |
+|--------|-------------|--------|
+| `accountSubscribe` | Subscribe to account changes | ✅ |
+| `blockSubscribe` | Subscribe to new blocks | ✅ |
+| `logsSubscribe` | Subscribe to transaction logs | ✅ |
+| `programSubscribe` | Subscribe to program account changes | ✅ |
+| `rootSubscribe` | Subscribe to root slot changes | ✅ |
+| `signatureSubscribe` | Subscribe to signature confirmation | ✅ |
+| `slotSubscribe` | Subscribe to slot updates | ✅ |
+| `slotsUpdatesSubscribe` | Subscribe to detailed slot updates | ✅ |
+| `voteSubscribe` | Subscribe to vote notifications | ✅ |
+
+### Infrastructure
+
+| Module | Description | Status |
+|--------|-------------|--------|
+| `client/src/pubsub/types.zig` | Notification types (SlotInfo, UiAccount, etc.) | ✅ |
+| `client/src/pubsub/pubsub_client.zig` | WebSocket PubSub client | ✅ |
+| `client/src/pubsub/root.zig` | Module exports | ✅ |
+
+> **See**: `stories/v1.2.0-websocket-pubsub.md` for implementation details.
+
+---
+
 ## ✅ v1.1.0 - Client SDK (Complete)
 
 The following client-side modules are implemented in `client/`:
@@ -158,8 +188,8 @@ The following client-side modules are implemented in `client/`:
 ### Transaction Building
 | Module | Description | Status |
 |--------|-------------|--------|
-| `transaction/builder.zig` | Transaction builder | ⏳ Planned |
-| `transaction/signer.zig` | Transaction signing | ⏳ Planned |
+| `transaction/builder.zig` | Transaction builder | ✅ Complete |
+| `transaction/signer.zig` | Transaction signing | ✅ Complete |
 
 > **See**: `stories/v1.1.0-client-sdk.md` for detailed 52-method implementation plan.
 
@@ -370,6 +400,20 @@ These modules are NOT needed for on-chain program development or client developm
 - ProofOfPossession types for rogue key attack prevention
 - BlsError enum with 7 error types
 - Base64 encoding for display formatting
+
+### v1.2.0 - WebSocket PubSub Client ✅
+- ✅ WebSocket connection management with karlseguin/websocket.zig
+- ✅ 9 subscription methods (account, block, logs, program, root, signature, slot, slotsUpdates, vote)
+- ✅ JSON-RPC 2.0 over WebSocket protocol
+- ✅ Notification types: SlotInfo, UiAccount, RpcLogsResponse, etc.
+- ✅ 11 new PubSub tests (Client SDK total: 102 tests)
+
+### v1.1.0 - Client SDK ✅
+- ✅ 52 RPC methods with full response parsing
+- ✅ 6 convenience methods (sendAndConfirmTransaction, confirmTransaction, etc.)
+- ✅ Transaction builder and signer
+- ✅ JSON-RPC 2.0 HTTP client
+- ✅ 71 unit tests + 37 integration tests
 
 ### v1.0.0 - SDK Architecture Restructure ✅
 - ✅ Two-layer architecture: `sdk/` (shared) + `src/` (program)

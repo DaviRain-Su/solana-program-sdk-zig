@@ -17,6 +17,12 @@ pub fn build(b: *std.Build) void {
     });
     const solana_sdk_mod = solana_sdk_dep.module("solana_sdk");
 
+    const websocket_dep = b.dependency("websocket", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const websocket_mod = websocket_dep.module("websocket");
+
     // Export self as a module
     const solana_client_mod = b.addModule("solana_client", .{
         .root_source_file = b.path("src/root.zig"),
@@ -26,6 +32,7 @@ pub fn build(b: *std.Build) void {
 
     solana_client_mod.addImport("base58", base58_mod);
     solana_client_mod.addImport("solana_sdk", solana_sdk_mod);
+    solana_client_mod.addImport("websocket", websocket_mod);
 
     // Create rpc_client module for integration tests
     const rpc_client_mod = b.addModule("rpc_client", .{
@@ -45,6 +52,15 @@ pub fn build(b: *std.Build) void {
     transaction_mod.addImport("base58", base58_mod);
     transaction_mod.addImport("solana_sdk", solana_sdk_mod);
 
+    // Create pubsub module
+    const pubsub_mod = b.addModule("pubsub", .{
+        .root_source_file = b.path("src/pubsub/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    pubsub_mod.addImport("solana_sdk", solana_sdk_mod);
+    pubsub_mod.addImport("websocket", websocket_mod);
+
     // Unit tests
     const lib_unit_tests = b.addTest(.{
         .root_module = solana_client_mod,
@@ -52,6 +68,7 @@ pub fn build(b: *std.Build) void {
 
     lib_unit_tests.root_module.addImport("base58", base58_mod);
     lib_unit_tests.root_module.addImport("solana_sdk", solana_sdk_mod);
+    lib_unit_tests.root_module.addImport("websocket", websocket_mod);
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 

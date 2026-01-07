@@ -93,6 +93,15 @@ pub const verifyTransaction = transaction.verifyTransaction;
 pub const createTransfer = transaction.createTransfer;
 
 // ============================================================================
+// PubSub Module (WebSocket Subscriptions)
+// ============================================================================
+
+pub const pubsub = @import("pubsub/root.zig");
+pub const PubsubClient = pubsub.PubsubClient;
+pub const PubsubError = pubsub.PubsubError;
+pub const SubscriptionId = pubsub.SubscriptionId;
+
+// ============================================================================
 // Tests
 // ============================================================================
 

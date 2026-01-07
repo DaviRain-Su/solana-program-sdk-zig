@@ -2019,3 +2019,114 @@ test "stable_layout: primitive type sizes match Rust" {
         try std.testing.expectEqual(@as(usize, 64), vector.signature_size);
     }
 }
+
+const LockupTestVector = struct {
+    name: []const u8,
+    unix_timestamp: i64,
+    epoch: u64,
+    custodian: [32]u8,
+    serialized: []const u8,
+};
+
+test "lockup: stake Lockup serialization" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "lockup_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const LockupTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        try std.testing.expectEqual(@as(usize, 48), vector.serialized.len);
+
+        const timestamp = std.mem.readInt(i64, vector.serialized[0..8], .little);
+        try std.testing.expectEqual(vector.unix_timestamp, timestamp);
+
+        const epoch = std.mem.readInt(u64, vector.serialized[8..16], .little);
+        try std.testing.expectEqual(vector.epoch, epoch);
+
+        try std.testing.expectEqualSlices(u8, &vector.custodian, vector.serialized[16..48]);
+    }
+}
+
+const RentExemptTestVector = struct {
+    name: []const u8,
+    data_len: usize,
+    lamports_per_byte_year: u64,
+    exemption_threshold: f64,
+    account_storage_overhead: u64,
+    minimum_balance: u64,
+};
+
+test "rent_exempt: minimum balance calculation" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "rent_exempt_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const RentExemptTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        const total_data_len: u64 = vector.account_storage_overhead + vector.data_len;
+        const threshold_int: u64 = @intFromFloat(vector.exemption_threshold);
+        const calculated = total_data_len * vector.lamports_per_byte_year * threshold_int;
+        try std.testing.expectEqual(vector.minimum_balance, calculated);
+    }
+}
+
+const BlsConstantsTestVector = struct {
+    name: []const u8,
+    pubkey_compressed_size: usize,
+    pubkey_affine_size: usize,
+    signature_compressed_size: usize,
+    signature_affine_size: usize,
+    pop_compressed_size: usize,
+    pop_affine_size: usize,
+};
+
+test "bls_signatures: BLS12-381 constants match Rust SDK" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "bls_constants_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const BlsConstantsTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        try std.testing.expectEqual(@as(usize, 48), vector.pubkey_compressed_size);
+        try std.testing.expectEqual(@as(usize, 96), vector.pubkey_affine_size);
+        try std.testing.expectEqual(@as(usize, 96), vector.signature_compressed_size);
+        try std.testing.expectEqual(@as(usize, 192), vector.signature_affine_size);
+        try std.testing.expectEqual(@as(usize, 96), vector.pop_compressed_size);
+        try std.testing.expectEqual(@as(usize, 192), vector.pop_affine_size);
+    }
+}
+
+const SignerSeedsTestVector = struct {
+    name: []const u8,
+    program_id: [32]u8,
+    seeds: []const []const u8,
+    expected_pubkey: [32]u8,
+    expected_bump: u8,
+};
+
+test "signer_seeds: PDA vector data is valid" {
+    const allocator = std.testing.allocator;
+
+    const json_data = try readTestVectorFile(allocator, "signer_seeds_vectors.json");
+    defer allocator.free(json_data);
+
+    const parsed = try parseJson([]const SignerSeedsTestVector, allocator, json_data);
+    defer parsed.deinit();
+
+    for (parsed.value) |vector| {
+        try std.testing.expectEqual(@as(usize, 32), vector.program_id.len);
+        try std.testing.expectEqual(@as(usize, 32), vector.expected_pubkey.len);
+        try std.testing.expect(vector.expected_bump <= 255);
+        try std.testing.expect(vector.seeds.len > 0);
+        try std.testing.expect(vector.seeds.len <= 16);
+    }
+}

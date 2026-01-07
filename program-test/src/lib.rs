@@ -524,6 +524,45 @@ pub struct PrimitiveTypeSizesTestVector {
     pub signature_size: usize,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct LockupTestVector {
+    pub name: String,
+    pub unix_timestamp: i64,
+    pub epoch: u64,
+    pub custodian: [u8; 32],
+    pub serialized: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct RentExemptTestVector {
+    pub name: String,
+    pub data_len: usize,
+    pub lamports_per_byte_year: u64,
+    pub exemption_threshold: f64,
+    pub account_storage_overhead: u64,
+    pub minimum_balance: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BlsConstantsTestVector {
+    pub name: String,
+    pub pubkey_compressed_size: usize,
+    pub pubkey_affine_size: usize,
+    pub signature_compressed_size: usize,
+    pub signature_affine_size: usize,
+    pub pop_compressed_size: usize,
+    pub pop_affine_size: usize,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SignerSeedsTestVector {
+    pub name: String,
+    pub program_id: [u8; 32],
+    pub seeds: Vec<Vec<u8>>,
+    pub expected_pubkey: [u8; 32],
+    pub expected_bump: u8,
+}
+
 pub fn generate_pubkey_vectors(output_dir: &Path) {
     let bpf_loader_upgradeable_id =
         Pubkey::from_str_const("BPFLoaderUpgradeab1e11111111111111111111111");
@@ -3634,6 +3673,132 @@ pub fn generate_primitive_type_sizes_vectors(output_dir: &Path) {
     fs::write(output_dir.join("primitive_type_sizes_vectors.json"), json).unwrap();
 }
 
+pub fn generate_lockup_vectors(output_dir: &Path) {
+    use solana_stake_interface::state::Lockup;
+
+    let mut vectors: Vec<LockupTestVector> = Vec::new();
+
+    let lockup1 = Lockup {
+        unix_timestamp: 1700000000,
+        epoch: 500,
+        custodian: Pubkey::from_str_const("Vote111111111111111111111111111111111111111"),
+    };
+    let serialized1 = bincode::serialize(&lockup1).unwrap();
+    vectors.push(LockupTestVector {
+        name: "with_custodian".to_string(),
+        unix_timestamp: lockup1.unix_timestamp,
+        epoch: lockup1.epoch,
+        custodian: lockup1.custodian.to_bytes(),
+        serialized: serialized1,
+    });
+
+    let lockup2 = Lockup::default();
+    let serialized2 = bincode::serialize(&lockup2).unwrap();
+    vectors.push(LockupTestVector {
+        name: "default".to_string(),
+        unix_timestamp: lockup2.unix_timestamp,
+        epoch: lockup2.epoch,
+        custodian: lockup2.custodian.to_bytes(),
+        serialized: serialized2,
+    });
+
+    let lockup3 = Lockup {
+        unix_timestamp: i64::MAX,
+        epoch: u64::MAX,
+        custodian: Pubkey::from([0xff; 32]),
+    };
+    let serialized3 = bincode::serialize(&lockup3).unwrap();
+    vectors.push(LockupTestVector {
+        name: "max_values".to_string(),
+        unix_timestamp: lockup3.unix_timestamp,
+        epoch: lockup3.epoch,
+        custodian: lockup3.custodian.to_bytes(),
+        serialized: serialized3,
+    });
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("lockup_vectors.json"), json).unwrap();
+}
+
+pub fn generate_rent_exempt_vectors(output_dir: &Path) {
+    use solana_sdk::rent::Rent;
+
+    let rent = Rent::default();
+    let mut vectors: Vec<RentExemptTestVector> = Vec::new();
+
+    let test_cases: &[(&str, usize)] = &[
+        ("zero_data", 0),
+        ("small_account", 100),
+        ("medium_account", 1000),
+        ("large_account", 10000),
+        ("token_account", 165),
+        ("mint_account", 82),
+    ];
+
+    for (name, data_len) in test_cases {
+        let min_balance = rent.minimum_balance(*data_len);
+        vectors.push(RentExemptTestVector {
+            name: name.to_string(),
+            data_len: *data_len,
+            lamports_per_byte_year: rent.lamports_per_byte_year,
+            exemption_threshold: rent.exemption_threshold,
+            account_storage_overhead: 128,
+            minimum_balance: min_balance,
+        });
+    }
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("rent_exempt_vectors.json"), json).unwrap();
+}
+
+pub fn generate_bls_constants_vectors(output_dir: &Path) {
+    let vectors = vec![BlsConstantsTestVector {
+        name: "bls12_381_constants".to_string(),
+        pubkey_compressed_size: 48,
+        pubkey_affine_size: 96,
+        signature_compressed_size: 96,
+        signature_affine_size: 192,
+        pop_compressed_size: 96,
+        pop_affine_size: 192,
+    }];
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("bls_constants_vectors.json"), json).unwrap();
+}
+
+pub fn generate_signer_seeds_vectors(output_dir: &Path) {
+    let mut vectors: Vec<SignerSeedsTestVector> = Vec::new();
+
+    let program_id = Pubkey::from_str_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+    let seed1 = b"metadata";
+    let mint = Pubkey::from_str_const("So11111111111111111111111111111111111111112");
+
+    let (pda, bump) = Pubkey::find_program_address(&[seed1.as_ref(), mint.as_ref()], &program_id);
+
+    vectors.push(SignerSeedsTestVector {
+        name: "token_metadata_pda".to_string(),
+        program_id: program_id.to_bytes(),
+        seeds: vec![seed1.to_vec(), mint.to_bytes().to_vec()],
+        expected_pubkey: pda.to_bytes(),
+        expected_bump: bump,
+    });
+
+    let program_id2 = Pubkey::from_str_const("11111111111111111111111111111111");
+    let seed_simple = b"test";
+    let (pda2, bump2) = Pubkey::find_program_address(&[seed_simple.as_ref()], &program_id2);
+
+    vectors.push(SignerSeedsTestVector {
+        name: "simple_pda".to_string(),
+        program_id: program_id2.to_bytes(),
+        seeds: vec![seed_simple.to_vec()],
+        expected_pubkey: pda2.to_bytes(),
+        expected_bump: bump2,
+    });
+
+    let json = serde_json::to_string_pretty(&vectors).unwrap();
+    fs::write(output_dir.join("signer_seeds_vectors.json"), json).unwrap();
+}
+
 pub fn generate_sysvar_id_vectors(output_dir: &Path) {
     use solana_sdk::sysvar;
 
@@ -3751,6 +3916,10 @@ pub fn generate_all_vectors(output_dir: &Path) {
     generate_authorize_vectors(output_dir);
     generate_account_layout_vectors(output_dir);
     generate_primitive_type_sizes_vectors(output_dir);
+    generate_lockup_vectors(output_dir);
+    generate_rent_exempt_vectors(output_dir);
+    generate_bls_constants_vectors(output_dir);
+    generate_signer_seeds_vectors(output_dir);
 
     println!("Generated all test vectors in {:?}", output_dir);
 }

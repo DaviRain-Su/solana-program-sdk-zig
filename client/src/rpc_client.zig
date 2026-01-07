@@ -51,6 +51,10 @@ const LargeAccount = types.LargeAccount;
 const VoteAccounts = types.VoteAccounts;
 const PerformanceSample = types.PerformanceSample;
 const TokenLargestAccount = types.TokenLargestAccount;
+const Reward = types.Reward;
+const VoteAccountInfo = types.VoteAccountInfo;
+const EpochCredit = types.EpochCredit;
+const IdentityBlockProduction = types.IdentityBlockProduction;
 
 const json_rpc = @import("json_rpc.zig");
 const JsonRpcClient = json_rpc.JsonRpcClient;
@@ -1584,13 +1588,26 @@ fn parseMultipleAccountsResponse(allocator: Allocator, result: std.json.Value) !
     return accounts;
 }
 
-fn parseSimulateTransactionResponse(result: std.json.Value) !SimulateTransactionResult {
+fn parseSimulateTransactionResponse(allocator: Allocator, result: std.json.Value) !SimulateTransactionResult {
     const obj = result.object;
     const value = obj.get("value").?.object;
 
+    // Parse logs array
+    var logs: ?[]const []const u8 = null;
+    if (value.get("logs")) |logs_val| {
+        if (logs_val != .null) {
+            const logs_arr = logs_val.array;
+            var parsed_logs = try allocator.alloc([]const u8, logs_arr.items.len);
+            for (logs_arr.items, 0..) |log_item, i| {
+                parsed_logs[i] = log_item.string;
+            }
+            logs = parsed_logs;
+        }
+    }
+
     return .{
         .err = if (value.get("err")) |e| if (e == .null) null else .{ .err_type = "Error" } else null,
-        .logs = null, // TODO: parse logs array
+        .logs = logs,
         .units_consumed = if (value.get("unitsConsumed")) |u| @intCast(u.integer) else null,
     };
 }
@@ -1744,11 +1761,69 @@ fn parseTokenSupplyResponse(result: std.json.Value) !TokenSupply {
 }
 
 fn parseBlockResponse(allocator: Allocator, result: std.json.Value) !?Block {
-    _ = allocator;
-
     if (result == .null) return null;
 
     const obj = result.object;
+
+    // Parse transactions array
+    var transactions: ?[]const TransactionWithMeta = null;
+    if (obj.get("transactions")) |txs_val| {
+        if (txs_val != .null) {
+            const txs_arr = txs_val.array;
+            var parsed_txs = try allocator.alloc(TransactionWithMeta, txs_arr.items.len);
+            for (txs_arr.items, 0..) |tx_item, i| {
+                const tx_obj = tx_item.object;
+                const meta = tx_obj.get("meta");
+
+                parsed_txs[i] = .{
+                    .slot = 0, // Block transactions don't have individual slot
+                    .transaction = .{
+                        .data = if (tx_obj.get("transaction")) |tx| blk: {
+                            if (tx == .array) {
+                                break :blk tx.array.items[0].string;
+                            } else if (tx == .string) {
+                                break :blk tx.string;
+                            } else {
+                                break :blk "";
+                            }
+                        } else "",
+                        .encoding = "base64",
+                    },
+                    .meta = if (meta != null and meta.? != .null) blk: {
+                        const meta_obj = meta.?.object;
+                        break :blk .{
+                            .err = if (meta_obj.get("err")) |e| if (e == .null) null else .{ .err_type = "Error" } else null,
+                            .fee = if (meta_obj.get("fee")) |f| @intCast(f.integer) else 0,
+                            .pre_balances = &.{},
+                            .post_balances = &.{},
+                        };
+                    } else null,
+                    .block_time = null,
+                };
+            }
+            transactions = parsed_txs;
+        }
+    }
+
+    // Parse rewards array
+    var rewards: ?[]const Reward = null;
+    if (obj.get("rewards")) |rewards_val| {
+        if (rewards_val != .null) {
+            const rewards_arr = rewards_val.array;
+            var parsed_rewards = try allocator.alloc(Reward, rewards_arr.items.len);
+            for (rewards_arr.items, 0..) |reward_item, i| {
+                const reward_obj = reward_item.object;
+                parsed_rewards[i] = .{
+                    .pubkey = reward_obj.get("pubkey").?.string,
+                    .lamports = reward_obj.get("lamports").?.integer,
+                    .post_balance = @intCast(reward_obj.get("postBalance").?.integer),
+                    .reward_type = if (reward_obj.get("rewardType")) |rt| if (rt == .null) null else rt.string else null,
+                    .commission = if (reward_obj.get("commission")) |c| if (c == .null) null else @intCast(c.integer) else null,
+                };
+            }
+            rewards = parsed_rewards;
+        }
+    }
 
     return .{
         .blockhash = Hash.fromBase58(obj.get("blockhash").?.string) catch return ClientError.InvalidResponse,
@@ -1756,8 +1831,8 @@ fn parseBlockResponse(allocator: Allocator, result: std.json.Value) !?Block {
         .parent_slot = @intCast(obj.get("parentSlot").?.integer),
         .block_time = if (obj.get("blockTime")) |bt| if (bt == .null) null else @intCast(bt.integer) else null,
         .block_height = if (obj.get("blockHeight")) |bh| if (bh == .null) null else @intCast(bh.integer) else null,
-        .transactions = null, // TODO: parse transactions array
-        .rewards = null, // TODO: parse rewards array
+        .transactions = transactions,
+        .rewards = rewards,
     };
 }
 
@@ -1823,28 +1898,80 @@ fn parseInflationRewardResponse(allocator: Allocator, result: std.json.Value) ![
 }
 
 fn parseSupplyResponse(allocator: Allocator, result: std.json.Value) !Supply {
-    _ = allocator;
     const obj = result.object;
     const value = obj.get("value").?.object;
+
+    // Parse non_circulating_accounts array
+    var non_circulating_accounts: []const []const u8 = &.{};
+    if (value.get("nonCirculatingAccounts")) |nca_val| {
+        if (nca_val != .null) {
+            const nca_arr = nca_val.array;
+            var parsed_accounts = try allocator.alloc([]const u8, nca_arr.items.len);
+            for (nca_arr.items, 0..) |account_item, i| {
+                parsed_accounts[i] = account_item.string;
+            }
+            non_circulating_accounts = parsed_accounts;
+        }
+    }
 
     return .{
         .total = @intCast(value.get("total").?.integer),
         .circulating = @intCast(value.get("circulating").?.integer),
         .non_circulating = @intCast(value.get("nonCirculating").?.integer),
-        .non_circulating_accounts = &.{}, // TODO: parse array
+        .non_circulating_accounts = non_circulating_accounts,
     };
 }
 
 fn parseVoteAccountsResponse(allocator: Allocator, result: std.json.Value) !VoteAccounts {
-    _ = allocator;
-    _ = result;
+    const obj = result.object;
 
-    // Parse current and delinquent vote accounts
-    // For simplicity, return empty arrays for now
-    // TODO: Implement full parsing
+    // Helper function to parse vote account array
+    const parseVoteAccountArray = struct {
+        fn parse(alloc: Allocator, arr_val: ?std.json.Value) ![]const VoteAccountInfo {
+            if (arr_val == null or arr_val.? == .null) return &.{};
+
+            const arr = arr_val.?.array;
+            var vote_accounts = try alloc.alloc(VoteAccountInfo, arr.items.len);
+
+            for (arr.items, 0..) |item, i| {
+                const va_obj = item.object;
+
+                // Parse epoch_credits array: [[epoch, credits, previous_credits], ...]
+                var epoch_credits: []const EpochCredit = &.{};
+                if (va_obj.get("epochCredits")) |ec_val| {
+                    if (ec_val != .null) {
+                        const ec_arr = ec_val.array;
+                        var parsed_credits = try alloc.alloc(EpochCredit, ec_arr.items.len);
+                        for (ec_arr.items, 0..) |ec_item, j| {
+                            const ec_tuple = ec_item.array;
+                            parsed_credits[j] = .{
+                                .epoch = @intCast(ec_tuple.items[0].integer),
+                                .credits = @intCast(ec_tuple.items[1].integer),
+                                .previous_credits = @intCast(ec_tuple.items[2].integer),
+                            };
+                        }
+                        epoch_credits = parsed_credits;
+                    }
+                }
+
+                vote_accounts[i] = .{
+                    .vote_pubkey = va_obj.get("votePubkey").?.string,
+                    .node_pubkey = va_obj.get("nodePubkey").?.string,
+                    .activated_stake = @intCast(va_obj.get("activatedStake").?.integer),
+                    .epoch_vote_account = va_obj.get("epochVoteAccount").?.bool,
+                    .commission = @intCast(va_obj.get("commission").?.integer),
+                    .last_vote = @intCast(va_obj.get("lastVote").?.integer),
+                    .epoch_credits = epoch_credits,
+                    .root_slot = if (va_obj.get("rootSlot")) |rs| if (rs == .null) null else @intCast(rs.integer) else null,
+                };
+            }
+            return vote_accounts;
+        }
+    }.parse;
+
     return .{
-        .current = &.{},
-        .delinquent = &.{},
+        .current = try parseVoteAccountArray(allocator, obj.get("current")),
+        .delinquent = try parseVoteAccountArray(allocator, obj.get("delinquent")),
     };
 }
 
@@ -1887,14 +2014,34 @@ fn parseTokenLargestAccountsResponse(allocator: Allocator, result: std.json.Valu
 }
 
 fn parseBlockProductionResponse(allocator: Allocator, result: std.json.Value) !BlockProductionInfo {
-    _ = allocator;
     const obj = result.object;
     const value = obj.get("value").?.object;
     const range = value.get("range").?.object;
 
-    // TODO: Parse byIdentity map
+    // Parse byIdentity map: { "pubkey": [leader_slots, blocks_produced], ... }
+    var by_identity: []const IdentityBlockProduction = &.{};
+    if (value.get("byIdentity")) |bi_val| {
+        if (bi_val != .null) {
+            const bi_obj = bi_val.object;
+            var parsed_identities = try allocator.alloc(IdentityBlockProduction, bi_obj.count());
+            var idx: usize = 0;
+            var iter = bi_obj.iterator();
+            while (iter.next()) |entry| {
+                const identity_key = entry.key_ptr.*;
+                const slots_arr = entry.value_ptr.*.array;
+                parsed_identities[idx] = .{
+                    .identity = identity_key,
+                    .leader_slots = @intCast(slots_arr.items[0].integer),
+                    .blocks_produced = @intCast(slots_arr.items[1].integer),
+                };
+                idx += 1;
+            }
+            by_identity = parsed_identities;
+        }
+    }
+
     return .{
-        .by_identity = &.{},
+        .by_identity = by_identity,
         .range = .{
             .first_slot = @intCast(range.get("firstSlot").?.integer),
             .last_slot = @intCast(range.get("lastSlot").?.integer),

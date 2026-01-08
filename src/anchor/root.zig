@@ -50,6 +50,13 @@
 //! - Context(Accounts) instruction context
 //! - Constraint validation (mut, signer, owner, address)
 //! - Anchor-compatible error codes
+//!
+//! ## Phase 2 Features (PDA Support)
+//!
+//! - Seed type system (literal, account, field references)
+//! - PDA validation and derivation helpers
+//! - Account initialization via CPI
+//! - Bump seeds storage in context
 
 const std = @import("std");
 
@@ -273,11 +280,150 @@ pub const parseContext = context.parseContext;
 pub const ContextError = context.ContextError;
 
 // ============================================================================
+// Phase 2: Seeds Module
+// ============================================================================
+
+/// Seed types for PDA derivation
+pub const seeds = @import("seeds.zig");
+
+/// Seed specification type
+///
+/// Defines how to obtain a seed value for PDA derivation.
+pub const SeedSpec = seeds.SeedSpec;
+
+/// Create a literal seed
+///
+/// Example:
+/// ```zig
+/// const my_seeds = &.{ anchor.seed("counter"), anchor.seed("v1") };
+/// ```
+pub const seed = seeds.seed;
+
+/// Create an account reference seed
+///
+/// References another account's public key as a seed.
+///
+/// Example:
+/// ```zig
+/// const my_seeds = &.{ anchor.seed("user"), anchor.seedAccount("authority") };
+/// ```
+pub const seedAccount = seeds.seedAccount;
+
+/// Create a field reference seed
+///
+/// References a field in the account data as a seed.
+///
+/// Example:
+/// ```zig
+/// const my_seeds = &.{ anchor.seed("owned_by"), anchor.seedField("owner") };
+/// ```
+pub const seedField = seeds.seedField;
+
+/// Create a bump reference seed
+pub const seedBump = seeds.seedBump;
+
+/// Maximum number of seeds
+pub const MAX_SEEDS = seeds.MAX_SEEDS;
+
+/// Maximum seed length
+pub const MAX_SEED_LEN = seeds.MAX_SEED_LEN;
+
+/// Seed buffer for runtime resolution
+pub const SeedBuffer = seeds.SeedBuffer;
+
+/// Seed resolution errors
+pub const SeedError = seeds.SeedError;
+
+// ============================================================================
+// Phase 2: PDA Module
+// ============================================================================
+
+/// PDA validation and derivation utilities
+pub const pda = @import("pda.zig");
+
+/// Validate that an account matches the expected PDA
+///
+/// Example:
+/// ```zig
+/// const bump = try anchor.validatePda(
+///     counter_account.key(),
+///     &.{ "counter", &authority.bytes },
+///     program_id,
+/// );
+/// ```
+pub const validatePda = pda.validatePda;
+
+/// Validate PDA with known bump seed
+pub const validatePdaWithBump = pda.validatePdaWithBump;
+
+/// Derive a PDA address and bump seed
+pub const derivePda = pda.derivePda;
+
+/// Create a PDA address with known bump
+pub const createPdaAddress = pda.createPdaAddress;
+
+/// Check if an address is a valid PDA
+pub const isPda = pda.isPda;
+
+/// PDA validation errors
+pub const PdaError = pda.PdaError;
+
+// ============================================================================
+// Phase 2: Init Module
+// ============================================================================
+
+/// Account initialization utilities
+pub const init = @import("init.zig");
+
+/// Configuration for account initialization
+pub const InitConfig = init.InitConfig;
+
+/// Get rent-exempt balance for an account
+///
+/// Example:
+/// ```zig
+/// const lamports = try anchor.rentExemptBalance(Counter.SPACE);
+/// ```
+pub const rentExemptBalance = init.rentExemptBalance;
+
+/// Calculate rent-exempt balance using defaults
+pub const rentExemptBalanceDefault = init.rentExemptBalanceDefault;
+
+/// Create a new account via CPI
+pub const createAccount = init.createAccount;
+
+/// Create an account at a PDA via CPI
+///
+/// Example:
+/// ```zig
+/// try anchor.createAccountAtPda(
+///     payer_info,
+///     counter_info,
+///     &my_program_id,
+///     Counter.SPACE,
+///     &.{ "counter", &authority.bytes },
+///     bump,
+///     &my_program_id,
+///     system_program_info,
+/// );
+/// ```
+pub const createAccountAtPda = init.createAccountAtPda;
+
+/// Check if an account is uninitialized
+pub const isUninitialized = init.isUninitialized;
+
+/// Validate account is ready for initialization
+pub const validateForInit = init.validateForInit;
+
+/// Account initialization errors
+pub const InitError = init.InitError;
+
+// ============================================================================
 // Tests
 // ============================================================================
 
 test "anchor module exports" {
-    // Verify all exports are accessible
+    // Phase 1 exports
     _ = DISCRIMINATOR_LENGTH;
     _ = Discriminator;
     _ = accountDiscriminator;
@@ -289,6 +435,16 @@ test "anchor module exports" {
     _ = SignerMut;
     _ = Program;
     _ = Context;
+
+    // Phase 2 exports
+    _ = SeedSpec;
+    _ = seed;
+    _ = seedAccount;
+    _ = seedField;
+    _ = validatePda;
+    _ = derivePda;
+    _ = rentExemptBalance;
+    _ = InitError;
 }
 
 test "discriminator submodule" {
@@ -317,4 +473,17 @@ test "program submodule" {
 
 test "context submodule" {
     _ = context;
+}
+
+// Phase 2 submodule tests
+test "seeds submodule" {
+    _ = seeds;
+}
+
+test "pda submodule" {
+    _ = pda;
+}
+
+test "init submodule" {
+    _ = init;
 }

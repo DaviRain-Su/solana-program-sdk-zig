@@ -35,6 +35,9 @@ jobs:
       - name: Check Client SDK format
         run: ./solana-zig/zig fmt --check client/src/
 
+      - name: Check Example Programs format
+        run: ./solana-zig/zig fmt --check examples/programs/
+
   # SDK tests - pure Zig, no syscalls
   sdk-test:
     name: SDK Tests
@@ -207,6 +210,56 @@ jobs:
       - name: Build and test programs
         shell: bash
         run: ./program-test/test.sh
+
+  # Example programs integration tests
+  example-programs-test:
+    name: Example Programs Tests
+    needs: [sdk-test, program-test]
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Cache solana-zig
+        uses: actions/cache@v4
+        with:
+          path: solana-zig
+          key: solana-zig-${{ env.SOLANA_ZIG_VERSION }}-${{ runner.os }}
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            examples/programs/target
+          key: cargo-examples-${{ runner.os }}-${{ hashFiles('examples/programs/Cargo.lock') }}
+          restore-keys: |
+            cargo-examples-${{ runner.os }}-
+
+      - name: Install solana-zig
+        shell: bash
+        run: ./install-solana-zig.sh solana-zig
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.86.0
+
+      - name: Build example programs
+        shell: bash
+        working-directory: examples/programs
+        run: ../../solana-zig/zig build
+
+      - name: Run example program tests
+        shell: bash
+        working-directory: examples/programs
+        run: cargo test -- --ignored
 
   # MCL tests - optional, for off-chain BN254 operations
   mcl-test:

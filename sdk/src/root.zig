@@ -71,6 +71,7 @@ pub const short_vec = @import("short_vec.zig");
 
 pub const @"error" = @import("error.zig");
 pub const ProgramError = @"error".ProgramError;
+pub const ProgramResult = @"error".ProgramResult;
 
 pub const instruction_error = @import("instruction_error.zig");
 pub const InstructionError = instruction_error.InstructionError;

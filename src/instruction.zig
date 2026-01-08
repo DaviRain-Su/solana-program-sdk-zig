@@ -22,10 +22,18 @@ const sdk = @import("solana_sdk");
 const Account = @import("account.zig").Account;
 const PublicKey = @import("public_key.zig").PublicKey;
 const bpf = @import("bpf.zig");
+const ProgramError = sdk.ProgramError;
+const ProgramResult = sdk.ProgramResult;
 
 // ============================================================================
 // Re-export SDK types
 // ============================================================================
+
+/// Re-export ProgramError for CPI error handling
+pub const Error = ProgramError;
+
+/// Re-export ProgramResult for CPI return types
+pub const Result = ProgramResult;
 
 /// Stack height when processing transaction-level instructions
 pub const TRANSACTION_LEVEL_STACK_HEIGHT = sdk.instruction.TRANSACTION_LEVEL_STACK_HEIGHT;
@@ -101,24 +109,34 @@ pub const Instruction = extern struct {
         };
     }
 
-    pub fn invoke(self: *const Instruction, accounts: []const Account.Info) !void {
+    /// Invoke a cross-program instruction.
+    ///
+    /// Returns null on success, or a ProgramError with the specific error code
+    /// from the invoked program on failure.
+    ///
+    /// Rust equivalent: `solana_cpi::invoke`
+    pub fn invoke(self: *const Instruction, accounts: []const Account.Info) ProgramResult {
         if (bpf.is_bpf_program) {
-            return switch (sol_invoke_signed_c(self, accounts.ptr, accounts.len, null, 0)) {
-                0 => {},
-                else => error.CrossProgramInvocationFailed,
-            };
+            const result = sol_invoke_signed_c(self, accounts.ptr, accounts.len, null, 0);
+            return if (result == 0) null else ProgramError.fromU64(result);
         }
-        return error.CrossProgramInvocationFailed;
+        // Non-BPF environment: return a generic error
+        return ProgramError.IncorrectProgramId;
     }
 
-    pub fn invokeSigned(self: *const Instruction, accounts: []const Account.Info, signer_seeds: []const []const []const u8) !void {
+    /// Invoke a cross-program instruction with program-derived address (PDA) signers.
+    ///
+    /// Returns null on success, or a ProgramError with the specific error code
+    /// from the invoked program on failure.
+    ///
+    /// Rust equivalent: `solana_cpi::invoke_signed`
+    pub fn invokeSigned(self: *const Instruction, accounts: []const Account.Info, signer_seeds: []const []const []const u8) ProgramResult {
         if (bpf.is_bpf_program) {
-            return switch (sol_invoke_signed_c(self, accounts.ptr, accounts.len, signer_seeds.ptr, signer_seeds.len)) {
-                0 => {},
-                else => error.CrossProgramInvocationFailed,
-            };
+            const result = sol_invoke_signed_c(self, accounts.ptr, accounts.len, signer_seeds.ptr, signer_seeds.len);
+            return if (result == 0) null else ProgramError.fromU64(result);
         }
-        return error.CrossProgramInvocationFailed;
+        // Non-BPF environment: return a generic error
+        return ProgramError.IncorrectProgramId;
     }
 };
 
@@ -237,4 +255,50 @@ test "instruction: re-exported constants" {
 
 test "instruction: re-exported ProcessedSiblingInstruction size" {
     try std.testing.expectEqual(@as(usize, 16), @sizeOf(ProcessedSiblingInstruction));
+}
+
+test "instruction: CPI Error and Result types" {
+    // Error is an alias for ProgramError
+    try std.testing.expectEqual(Error.InvalidAccountData, ProgramError.InvalidAccountData);
+    try std.testing.expectEqual(Error.MissingRequiredSignature, ProgramError.MissingRequiredSignature);
+
+    // Result is an alias for ProgramResult (?ProgramError)
+    const success: Result = null;
+    const failure: Result = Error.InsufficientFunds;
+
+    try std.testing.expect(success == null);
+    try std.testing.expect(failure != null);
+    try std.testing.expectEqual(Error.InsufficientFunds, failure.?);
+}
+
+test "instruction: invoke returns ProgramResult in non-BPF" {
+    const program_id = PublicKey.from([_]u8{1} ** 32);
+    const data = [_]u8{ 1, 2, 3, 4 };
+
+    const instr = Instruction.from(.{
+        .program_id = &program_id,
+        .accounts = &[_]Account.Param{},
+        .data = &data,
+    });
+
+    // In non-BPF environment, invoke returns IncorrectProgramId
+    const result = instr.invoke(&[_]Account.Info{});
+    try std.testing.expect(result != null);
+    try std.testing.expectEqual(ProgramError.IncorrectProgramId, result.?);
+}
+
+test "instruction: invokeSigned returns ProgramResult in non-BPF" {
+    const program_id = PublicKey.from([_]u8{1} ** 32);
+    const data = [_]u8{ 1, 2, 3, 4 };
+
+    const instr = Instruction.from(.{
+        .program_id = &program_id,
+        .accounts = &[_]Account.Param{},
+        .data = &data,
+    });
+
+    // In non-BPF environment, invokeSigned returns IncorrectProgramId
+    const result = instr.invokeSigned(&[_]Account.Info{}, &[_][]const []const u8{});
+    try std.testing.expect(result != null);
+    try std.testing.expectEqual(ProgramError.IncorrectProgramId, result.?);
 }

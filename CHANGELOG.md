@@ -2,6 +2,73 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+## [v2.4.0] - 2026-01-08 - SDK Enhancements & Cross-Validation
+
+**Goal**: Enhance SDK APIs for Rust compatibility, improve security, and add comprehensive cross-validation tests
+
+### Added
+
+#### PublicKey Auto-Conversion (`sdk/src/public_key.zig`)
+- `createProgramAddress` now auto-converts `PublicKey` seeds to byte slices (matches `findProgramAddress`)
+- 3 new tests for auto-conversion
+
+#### Keypair Security & API (`sdk/src/keypair.zig`)
+- **BREAKING**: `fromBytes` now validates embedded public key matches derived key
+- **BREAKING**: `sign` now returns `!Signature` (error on failure) instead of zero signature
+- Added `SigningFailed` error to `SignerError` enums
+- Rust API aliases: `new`, `fromSeedBytes`, `fromBase58String`, `toBase58String`, `secret`, `signMessage`, `tryPubkey`
+- 5 new tests
+
+#### Signature API (`sdk/src/signature.zig`)
+- Rust API aliases: `new`, `fromStr`, `toString`, `asRef`, `toBytes`
+
+#### Error Serialization (`sdk/src/error.zig`, `sdk/src/instruction_error.zig`)
+- Comprehensive tests for all 26 builtin ProgramError values
+- `InstructionError.fromU64()` and `toU64()` helpers for RPC serialization
+- 6 new tests
+
+#### Instruction Type (`sdk/src/instruction.zig`)
+- Added `Instruction` struct matching Rust's `solana_instruction::Instruction`
+- Constructors: `newWithBytes`, `newWithBorsh`, `newWithBincode`, `initBorrowed`
+- `AccountMeta` accessors: `getPubkey()`, `isSigner()`, `isWritable()`
+- `Instruction` accessors: `getProgramId()`, `getAccounts()`, `getData()`
+- 8 new tests
+
+#### TransactionError Helpers (`sdk/src/transaction_error.zig`)
+- `encodeInstructionError()` and `decodeInstructionError()` for RPC serialization
+- 2 new tests
+
+#### Nonce Strict Validation (`sdk/src/nonce.zig`)
+- **BREAKING**: `serialize` and `deserialize` now require **exact** 80-byte buffer (was >= 80)
+- Matches Rust SDK behavior, prevents misinterpreting extended/truncated data
+- 2 new tests
+
+#### Program Logging (`src/log.zig`)
+- `logData` now outputs base64-encoded data in non-BPF mode (was raw bytes)
+- Added `formatLogData` helper for testing
+- 3 new tests
+
+#### Integration Tests (`program-test/integration/test_pubkey.zig`)
+- **Bincode/Borsh complex type serialization**: struct, optional, array, nested struct roundtrips
+- **End-to-end transaction tests**: instruction building, message header encoding, complete transaction structure, keypair sign/verify, PDA derivation consistency
+- 11 new integration tests
+
+### Changed
+- Updated all callers of `Keypair.sign` to handle errors: `src/signer.zig`, `src/transaction.zig`, `client/src/transaction/signer.zig`, `client/src/transaction/builder.zig`
+
+### Tests
+- SDK: 305 tests (+7)
+- Program SDK: 297 tests (+3)
+- Client: 159 tests
+- Integration: 105 tests (+11)
+- **Total: 866 tests**
+
+### Verified
+- All tests pass in Debug and ReleaseFast modes
+- No undefined behavior detected
+
+---
+
 ## [v2.2.0] - 2026-01-07 - Stake Program Interface
 
 **Goal**: Implement Solana Stake program interface for staking operations and validator delegation

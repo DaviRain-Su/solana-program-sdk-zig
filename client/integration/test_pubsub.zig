@@ -96,7 +96,8 @@ test "pubsub: slotSubscribe and receive notification" {
     const max_attempts: u32 = 10;
 
     while (attempts < max_attempts) : (attempts += 1) {
-        if (try client.readNotification()) |_| {
+        if (try client.readNotification()) |*notification| {
+            defer notification.deinit();
             break;
         }
         std.Thread.sleep(500 * std.time.ns_per_ms);

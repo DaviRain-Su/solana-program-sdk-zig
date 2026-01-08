@@ -109,7 +109,7 @@ pub fn unpackUnchecked(comptime T: type, input: []const u8) PackError!T {
     }
 
     if (input.len != T.LEN) {
-        return PackError.InvalidAccountData;
+        return PackError.InvalidLength;
     }
     return T.unpackFromSlice(input);
 }
@@ -123,7 +123,7 @@ pub fn pack(comptime T: type, src: T, dst: []u8) PackError!void {
     }
 
     if (dst.len != T.LEN) {
-        return PackError.InvalidAccountData;
+        return PackError.InvalidLength;
     }
     src.packIntoSlice(dst);
 }
@@ -163,7 +163,7 @@ pub fn unpackStruct(comptime T: type, src: []const u8) PackError!T {
     inline for (info.@"struct".fields) |field| {
         const field_size = packFieldSize(field.type);
         if (offset + field_size > src.len) {
-            return PackError.InvalidAccountData;
+            return PackError.InvalidLength;
         }
 
         @field(result, field.name) = unpackField(field.type, src[offset..][0..field_size]);
@@ -285,7 +285,7 @@ pub const ExamplePackable = struct {
     /// Unpack from a byte slice
     pub fn unpackFromSlice(src: []const u8) PackError!ExamplePackable {
         if (src.len < LEN) {
-            return PackError.InvalidAccountData;
+            return PackError.InvalidLength;
         }
 
         var offset: usize = 0;
@@ -368,11 +368,11 @@ test "program_pack: wrong buffer size returns error" {
 
     // Buffer too small
     var small_buffer: [10]u8 = undefined;
-    try std.testing.expectError(PackError.InvalidAccountData, pack(ExamplePackable, original, &small_buffer));
+    try std.testing.expectError(PackError.InvalidLength, pack(ExamplePackable, original, &small_buffer));
 
     // Buffer too large
     var large_buffer: [100]u8 = undefined;
-    try std.testing.expectError(PackError.InvalidAccountData, pack(ExamplePackable, original, &large_buffer));
+    try std.testing.expectError(PackError.InvalidLength, pack(ExamplePackable, original, &large_buffer));
 }
 
 test "program_pack: packStruct helper" {

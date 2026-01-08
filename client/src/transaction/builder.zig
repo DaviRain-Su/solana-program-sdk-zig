@@ -179,11 +179,21 @@ pub const TransactionBuilder = struct {
     /// Build and sign the transaction with the provided keypairs.
     ///
     /// The keypairs must include all required signers, including the fee payer.
+    /// After signing, this method verifies all signatures are valid.
+    ///
+    /// ## Errors
+    /// - `MissingSigner` if not all required signers are provided
+    /// - `SigningFailed` if cryptographic signing fails
+    /// - `SignatureVerificationFailed` if any signature is invalid
     pub fn buildSigned(self: *Self, signers: []const *const Keypair) !BuiltTransaction {
         var tx = try self.build();
+        errdefer tx.deinit();
 
         // Sign the transaction
         try tx.sign(signers);
+
+        // Verify all required signatures are present and valid
+        try tx.verify();
 
         return tx;
     }
@@ -497,8 +507,8 @@ pub const BuiltTransaction = struct {
     /// required signature slots contain non-zero bytes, but does NOT validate
     /// that the signatures are cryptographically correct.
     ///
-    /// For signature validation, use `signer.verifyTransaction()` which performs
-    /// full cryptographic verification of each signature against the message.
+    /// For signature validation, use `verify()` or `signer.verifyTransaction()`
+    /// which performs full cryptographic verification of each signature.
     ///
     /// ## Use Cases
     /// - Quick check before serialization
@@ -521,6 +531,44 @@ pub const BuiltTransaction = struct {
         }
 
         return true;
+    }
+
+    /// Verify all signatures in the transaction are cryptographically valid.
+    ///
+    /// Checks that:
+    /// 1. All required signatures are present (non-zero)
+    /// 2. Each signature is valid for the corresponding public key
+    ///
+    /// ## Errors
+    /// - `MissingSigner` if signatures are missing
+    /// - `SignatureVerificationFailed` if any signature is invalid
+    pub fn verify(self: Self) !void {
+        const sigs = self.signatures orelse return error.MissingSigner;
+        const num_required = self.message.header.num_required_signatures;
+
+        if (sigs.len < num_required) {
+            return error.MissingSigner;
+        }
+
+        // Serialize message for verification
+        const message_bytes = self.message.serialize(self.allocator) catch {
+            return error.OutOfMemory;
+        };
+        defer self.allocator.free(message_bytes);
+
+        // Verify each required signature
+        for (sigs[0..num_required], 0..) |sig, i| {
+            // Check for default (zero) signature
+            if (std.mem.eql(u8, &sig.bytes, &[_]u8{0} ** 64)) {
+                return error.MissingSigner;
+            }
+
+            // Verify signature
+            const pubkey = self.message.account_keys[i];
+            sig.verify(message_bytes, &pubkey.bytes) catch {
+                return error.SignatureVerificationFailed;
+            };
+        }
     }
 
     /// Serialize the transaction to bytes.
@@ -805,8 +853,37 @@ test "builder: isSigned is presence check only" {
     // isSigned() returns true because slots are non-zero (presence check)
     try std.testing.expect(tx.isSigned());
 
-    // However, these bytes are NOT a valid Ed25519 signature!
-    // Callers should use verifyTransaction() for cryptographic validation.
+    // However, verify() should fail because these bytes are NOT a valid Ed25519 signature
+    try std.testing.expectError(error.SignatureVerificationFailed, tx.verify());
+}
+
+test "builder: verify succeeds with real signatures" {
+    const allocator = std.testing.allocator;
+
+    // Create a real keypair for the fee payer
+    const fee_payer_kp = Keypair.generate();
+    const blockhash = Hash.from([_]u8{2} ** 32);
+    const program_id = PublicKey.from([_]u8{3} ** 32);
+
+    var tx_builder = TransactionBuilder.init(allocator);
+    defer tx_builder.deinit();
+
+    _ = tx_builder.setFeePayer(fee_payer_kp.pubkey());
+    _ = tx_builder.setRecentBlockhash(blockhash);
+
+    _ = try tx_builder.addInstruction(.{
+        .program_id = program_id,
+        .accounts = &[_]AccountMeta{},
+        .data = &[_]u8{ 0x01, 0x02, 0x03 },
+    });
+
+    // buildSigned should sign and verify
+    var tx = try tx_builder.buildSigned(&[_]*const Keypair{&fee_payer_kp});
+    defer tx.deinit();
+
+    // Both presence check and cryptographic verification should pass
+    try std.testing.expect(tx.isSigned());
+    try tx.verify();
 }
 
 test "encodeShortVec: small values" {

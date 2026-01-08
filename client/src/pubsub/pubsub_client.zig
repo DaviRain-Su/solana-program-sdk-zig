@@ -662,10 +662,11 @@ pub const PubsubClient = struct {
             return null;
         };
         arena.* = std.heap.ArenaAllocator.init(self.allocator);
-        errdefer {
+        var cleanup = true;
+        defer if (cleanup) {
             arena.deinit();
             self.allocator.destroy(arena);
-        }
+        };
 
         const parsed = std.json.parseFromSlice(std.json.Value, arena.allocator(), data, .{}) catch {
             return null;
@@ -715,6 +716,7 @@ pub const PubsubClient = struct {
             return null;
         };
 
+        cleanup = false;
         return Notification{
             .allocator = self.allocator,
             .arena = arena,

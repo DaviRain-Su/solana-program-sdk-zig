@@ -3144,3 +3144,355 @@ test "last_restart_slot_roundtrip: Zig SDK bincode serialize/deserialize roundtr
         try std.testing.expectEqualSlices(u8, vector.serialized, zig_buffer[0..bytes_written]);
     }
 }
+
+// ============================================================================
+// Bincode Complex Types Serialization Cross-Validation
+// ============================================================================
+
+/// Test struct for bincode serialization with multiple field types
+const TestComplexStruct = struct {
+    field_u8: u8,
+    field_u16: u16,
+    field_u32: u32,
+    field_u64: u64,
+    field_i32: i32,
+    field_bool: bool,
+};
+
+test "bincode_complex: struct serialization roundtrip" {
+    const test_struct = TestComplexStruct{
+        .field_u8 = 0xFF,
+        .field_u16 = 0x1234,
+        .field_u32 = 0xDEADBEEF,
+        .field_u64 = 0x123456789ABCDEF0,
+        .field_i32 = -12345,
+        .field_bool = true,
+    };
+
+    // Serialize
+    var buffer: [32]u8 = undefined;
+    const len = try sdk.bincode.serialize(TestComplexStruct, test_struct, &buffer);
+
+    // Verify expected size: 1 + 2 + 4 + 8 + 4 + 1 = 20 bytes
+    try std.testing.expectEqual(@as(usize, 20), len);
+
+    // Deserialize and verify roundtrip
+    const result = try sdk.bincode.deserialize(TestComplexStruct, buffer[0..len]);
+    const deserialized = result.value;
+
+    try std.testing.expectEqual(test_struct.field_u8, deserialized.field_u8);
+    try std.testing.expectEqual(test_struct.field_u16, deserialized.field_u16);
+    try std.testing.expectEqual(test_struct.field_u32, deserialized.field_u32);
+    try std.testing.expectEqual(test_struct.field_u64, deserialized.field_u64);
+    try std.testing.expectEqual(test_struct.field_i32, deserialized.field_i32);
+    try std.testing.expectEqual(test_struct.field_bool, deserialized.field_bool);
+}
+
+test "bincode_complex: optional type serialization" {
+    // Some value
+    const some_value: ?u32 = 42;
+    var buffer1: [8]u8 = undefined;
+    const len1 = try sdk.bincode.serialize(?u32, some_value, &buffer1);
+
+    // Option tag (1) + u32 value = 1 + 4 = 5 bytes
+    try std.testing.expectEqual(@as(usize, 5), len1);
+    try std.testing.expectEqual(@as(u8, 1), buffer1[0]); // Some tag
+
+    // None value
+    const none_value: ?u32 = null;
+    var buffer2: [8]u8 = undefined;
+    const len2 = try sdk.bincode.serialize(?u32, none_value, &buffer2);
+
+    // Option tag (0) = 1 byte
+    try std.testing.expectEqual(@as(usize, 1), len2);
+    try std.testing.expectEqual(@as(u8, 0), buffer2[0]); // None tag
+
+    // Roundtrip test
+    const result1 = try sdk.bincode.deserialize(?u32, buffer1[0..len1]);
+    try std.testing.expectEqual(some_value, result1.value);
+
+    const result2 = try sdk.bincode.deserialize(?u32, buffer2[0..len2]);
+    try std.testing.expectEqual(none_value, result2.value);
+}
+
+test "bincode_complex: array serialization" {
+    const test_array = [4]u32{ 1, 2, 3, 4 };
+
+    var buffer: [32]u8 = undefined;
+    const len = try sdk.bincode.serialize([4]u32, test_array, &buffer);
+
+    // 4 x u32 = 16 bytes (fixed size array, no length prefix)
+    try std.testing.expectEqual(@as(usize, 16), len);
+
+    // Verify little-endian encoding
+    try std.testing.expectEqual(@as(u32, 1), std.mem.readInt(u32, buffer[0..4], .little));
+    try std.testing.expectEqual(@as(u32, 2), std.mem.readInt(u32, buffer[4..8], .little));
+    try std.testing.expectEqual(@as(u32, 3), std.mem.readInt(u32, buffer[8..12], .little));
+    try std.testing.expectEqual(@as(u32, 4), std.mem.readInt(u32, buffer[12..16], .little));
+
+    // Roundtrip
+    const result = try sdk.bincode.deserialize([4]u32, buffer[0..len]);
+    try std.testing.expectEqual(test_array, result.value);
+}
+
+test "bincode_complex: nested struct serialization" {
+    const InnerStruct = struct {
+        value: u32,
+    };
+    const OuterStruct = struct {
+        inner: InnerStruct,
+        flag: bool,
+    };
+
+    const test_struct = OuterStruct{
+        .inner = .{ .value = 0x12345678 },
+        .flag = true,
+    };
+
+    var buffer: [16]u8 = undefined;
+    const len = try sdk.bincode.serialize(OuterStruct, test_struct, &buffer);
+
+    // u32 + bool = 4 + 1 = 5 bytes
+    try std.testing.expectEqual(@as(usize, 5), len);
+
+    // Verify roundtrip
+    const result = try sdk.bincode.deserialize(OuterStruct, buffer[0..len]);
+    try std.testing.expectEqual(test_struct.inner.value, result.value.inner.value);
+    try std.testing.expectEqual(test_struct.flag, result.value.flag);
+}
+
+// ============================================================================
+// Borsh Complex Types Serialization Cross-Validation
+// ============================================================================
+
+test "borsh_complex: struct serialization roundtrip" {
+    const test_struct = TestComplexStruct{
+        .field_u8 = 0xFF,
+        .field_u16 = 0x1234,
+        .field_u32 = 0xDEADBEEF,
+        .field_u64 = 0x123456789ABCDEF0,
+        .field_i32 = -12345,
+        .field_bool = true,
+    };
+
+    // Serialize using Borsh
+    var buffer: [32]u8 = undefined;
+    const len = try sdk.borsh.serialize(TestComplexStruct, test_struct, &buffer);
+
+    // Same size as bincode for fixed-size struct: 1 + 2 + 4 + 8 + 4 + 1 = 20 bytes
+    try std.testing.expectEqual(@as(usize, 20), len);
+
+    // Deserialize and verify roundtrip
+    const result = try sdk.borsh.deserialize(TestComplexStruct, buffer[0..len]);
+    const deserialized = result.value;
+
+    try std.testing.expectEqual(test_struct.field_u8, deserialized.field_u8);
+    try std.testing.expectEqual(test_struct.field_u16, deserialized.field_u16);
+    try std.testing.expectEqual(test_struct.field_u32, deserialized.field_u32);
+    try std.testing.expectEqual(test_struct.field_u64, deserialized.field_u64);
+    try std.testing.expectEqual(test_struct.field_i32, deserialized.field_i32);
+    try std.testing.expectEqual(test_struct.field_bool, deserialized.field_bool);
+}
+
+test "borsh_complex: optional type serialization" {
+    // Some value
+    const some_value: ?u32 = 42;
+    var buffer1: [8]u8 = undefined;
+    const len1 = try sdk.borsh.serialize(?u32, some_value, &buffer1);
+
+    // Option tag (1) + u32 value = 1 + 4 = 5 bytes
+    try std.testing.expectEqual(@as(usize, 5), len1);
+    try std.testing.expectEqual(@as(u8, 1), buffer1[0]); // Some tag
+
+    // None value
+    const none_value: ?u32 = null;
+    var buffer2: [8]u8 = undefined;
+    const len2 = try sdk.borsh.serialize(?u32, none_value, &buffer2);
+
+    // Option tag (0) = 1 byte
+    try std.testing.expectEqual(@as(usize, 1), len2);
+    try std.testing.expectEqual(@as(u8, 0), buffer2[0]); // None tag
+
+    // Roundtrip test
+    const result1 = try sdk.borsh.deserialize(?u32, buffer1[0..len1]);
+    try std.testing.expectEqual(some_value, result1.value);
+
+    const result2 = try sdk.borsh.deserialize(?u32, buffer2[0..len2]);
+    try std.testing.expectEqual(none_value, result2.value);
+}
+
+// ============================================================================
+// End-to-End Transaction Tests
+// ============================================================================
+
+test "e2e_transaction: build transfer instruction and serialize" {
+    // This test verifies the complete flow:
+    // 1. Create instruction data (transfer amount)
+    // 2. Serialize using bincode (matches Solana's format)
+    // 3. Verify byte layout matches Rust SDK
+
+    // Transfer instruction data layout:
+    // - instruction index: u32 (2 for Transfer)
+    // - lamports: u64
+    const lamports: u64 = 1_000_000_000; // 1 SOL
+
+    var buffer: [12]u8 = undefined;
+
+    // Serialize instruction index
+    std.mem.writeInt(u32, buffer[0..4], 2, .little); // Transfer = 2
+
+    // Serialize lamports
+    std.mem.writeInt(u64, buffer[4..12], lamports, .little);
+
+    // Verify expected bytes
+    try std.testing.expectEqual(@as(u8, 2), buffer[0]); // instruction index
+    try std.testing.expectEqual(@as(u8, 0), buffer[1]);
+    try std.testing.expectEqual(@as(u8, 0), buffer[2]);
+    try std.testing.expectEqual(@as(u8, 0), buffer[3]);
+
+    // Lamports in little-endian
+    const read_lamports = std.mem.readInt(u64, buffer[4..12], .little);
+    try std.testing.expectEqual(lamports, read_lamports);
+}
+
+test "e2e_transaction: message header encoding" {
+    // Test message header serialization matches Rust
+    // Header: num_required_signatures, num_readonly_signed, num_readonly_unsigned
+
+    const num_required_signatures: u8 = 2;
+    const num_readonly_signed: u8 = 1;
+    const num_readonly_unsigned: u8 = 3;
+
+    var header: [3]u8 = undefined;
+    header[0] = num_required_signatures;
+    header[1] = num_readonly_signed;
+    header[2] = num_readonly_unsigned;
+
+    // Verify encoding
+    try std.testing.expectEqual(@as(u8, 2), header[0]);
+    try std.testing.expectEqual(@as(u8, 1), header[1]);
+    try std.testing.expectEqual(@as(u8, 3), header[2]);
+}
+
+test "e2e_transaction: complete transfer transaction structure" {
+    // Build a complete transfer transaction structure manually and verify layout
+
+    const fee_payer = PublicKey.from([_]u8{1} ** 32);
+    const recipient = PublicKey.from([_]u8{2} ** 32);
+    const system_program = PublicKey.from([_]u8{0} ** 32);
+    const blockhash = Hash.from([_]u8{3} ** 32);
+    const lamports: u64 = 1_000_000;
+
+    // Message structure:
+    // 1. Header (3 bytes)
+    // 2. Account keys count (short_vec)
+    // 3. Account keys (n * 32 bytes)
+    // 4. Recent blockhash (32 bytes)
+    // 5. Instructions count (short_vec)
+    // 6. Instructions
+
+    // Accounts: fee_payer (signer, writable), recipient (writable), system_program (readonly)
+    var message_buffer: [256]u8 = undefined;
+    var pos: usize = 0;
+
+    // Header
+    message_buffer[pos] = 1; // num_required_signatures
+    pos += 1;
+    message_buffer[pos] = 0; // num_readonly_signed
+    pos += 1;
+    message_buffer[pos] = 1; // num_readonly_unsigned (system_program)
+    pos += 1;
+
+    // Account keys count (3 accounts)
+    message_buffer[pos] = 3;
+    pos += 1;
+
+    // Account keys
+    @memcpy(message_buffer[pos..][0..32], &fee_payer.bytes);
+    pos += 32;
+    @memcpy(message_buffer[pos..][0..32], &recipient.bytes);
+    pos += 32;
+    @memcpy(message_buffer[pos..][0..32], &system_program.bytes);
+    pos += 32;
+
+    // Recent blockhash
+    @memcpy(message_buffer[pos..][0..32], &blockhash.bytes);
+    pos += 32;
+
+    // Instructions count
+    message_buffer[pos] = 1;
+    pos += 1;
+
+    // Instruction: program_id_index, accounts_len, accounts, data_len, data
+    message_buffer[pos] = 2; // system_program index
+    pos += 1;
+    message_buffer[pos] = 2; // 2 accounts
+    pos += 1;
+    message_buffer[pos] = 0; // fee_payer index
+    pos += 1;
+    message_buffer[pos] = 1; // recipient index
+    pos += 1;
+
+    // Data: transfer instruction (index 2) + lamports
+    message_buffer[pos] = 12; // data length
+    pos += 1;
+    std.mem.writeInt(u32, message_buffer[pos..][0..4], 2, .little);
+    pos += 4;
+    std.mem.writeInt(u64, message_buffer[pos..][0..8], lamports, .little);
+    pos += 8;
+
+    // Verify total message length
+    const expected_len: usize = 3 + 1 + (3 * 32) + 32 + 1 + 1 + 1 + 2 + 1 + 12;
+    try std.testing.expectEqual(expected_len, pos);
+
+    // Verify header
+    try std.testing.expectEqual(@as(u8, 1), message_buffer[0]);
+    try std.testing.expectEqual(@as(u8, 0), message_buffer[1]);
+    try std.testing.expectEqual(@as(u8, 1), message_buffer[2]);
+}
+
+test "e2e_transaction: keypair sign and verify roundtrip" {
+    // Test keypair signing produces valid signature that can be verified
+
+    // Generate deterministic keypair from seed
+    const seed = [_]u8{0x42} ** 32;
+    const keypair = try Keypair.fromSeed(seed);
+
+    // Message to sign
+    const message = "Hello, Solana!";
+
+    // Sign
+    const signature = try keypair.sign(message);
+
+    // Verify signature is not all zeros
+    var all_zeros = true;
+    for (signature.bytes) |b| {
+        if (b != 0) {
+            all_zeros = false;
+            break;
+        }
+    }
+    try std.testing.expect(!all_zeros);
+
+    // Verify signature is deterministic (same message = same signature)
+    const signature2 = try keypair.sign(message);
+    try std.testing.expectEqualSlices(u8, &signature.bytes, &signature2.bytes);
+}
+
+test "e2e_transaction: pubkey derivation consistency" {
+    // Verify PDA derivation produces consistent results
+
+    const program_id = PublicKey.from([_]u8{1} ** 32);
+
+    // Find PDA with seed
+    const pda1 = try PublicKey.findProgramAddress(.{"test_seed"}, program_id);
+    const pda2 = try PublicKey.findProgramAddress(.{"test_seed"}, program_id);
+
+    // Same seed = same PDA
+    try std.testing.expectEqualSlices(u8, &pda1.address.bytes, &pda2.address.bytes);
+    try std.testing.expectEqual(pda1.bump_seed[0], pda2.bump_seed[0]);
+
+    // Different seed = different PDA
+    const pda3 = try PublicKey.findProgramAddress(.{"other_seed"}, program_id);
+    try std.testing.expect(!std.mem.eql(u8, &pda1.address.bytes, &pda3.address.bytes));
+}

@@ -52,12 +52,20 @@ pub fn Response(comptime T: type) type {
 /// Account information returned by getAccountInfo
 ///
 /// Rust equivalent: `UiAccount` from `account-decoder`
+///
+/// **IMPORTANT**: The `data` field contains the BASE64-ENCODED string as returned
+/// by the RPC, NOT the decoded binary data. Use `decodeData()` to get the actual
+/// account data bytes.
 pub const AccountInfo = struct {
     /// Number of lamports in this account
     lamports: u64,
     /// Public key of the program that owns this account
     owner: PublicKey,
-    /// Account data (base64 encoded in JSON)
+    /// Account data as BASE64-ENCODED string (use `decodeData()` to get bytes)
+    ///
+    /// The RPC returns data in the requested encoding format (default: base64).
+    /// This field stores the raw encoded string. To work with the actual binary
+    /// data, call `decodeData()` which returns the decoded bytes.
     data: []const u8,
     /// Whether this account's data contains a loaded program
     executable: bool,
@@ -76,9 +84,42 @@ pub const AccountInfo = struct {
         return self.data.len == 0;
     }
 
-    /// Get data length
+    /// Get the length of the base64-encoded data string
+    ///
+    /// Note: This is the length of the encoded string, not the decoded data.
+    /// The decoded data will typically be ~75% of this length.
     pub fn dataLen(self: AccountInfo) usize {
         return self.data.len;
+    }
+
+    /// Decode the base64-encoded account data into binary bytes.
+    ///
+    /// Returns the decoded account data. Caller owns the returned slice
+    /// and must free it with the same allocator.
+    ///
+    /// ## Example
+    /// ```zig
+    /// const account_info = try rpc.getAccountInfo(pubkey);
+    /// if (account_info) |info| {
+    ///     const data = try info.decodeData(allocator);
+    ///     defer allocator.free(data);
+    ///     // Work with decoded data...
+    /// }
+    /// ```
+    pub fn decodeData(self: AccountInfo, allocator: std.mem.Allocator) ![]u8 {
+        if (self.data.len == 0) {
+            return allocator.alloc(u8, 0);
+        }
+        // Calculate decoded size (base64 is ~4/3 of original size)
+        const decoded_len = try std.base64.standard.Decoder.calcSizeForSlice(self.data);
+        const decoded = try allocator.alloc(u8, decoded_len);
+        errdefer allocator.free(decoded);
+
+        std.base64.standard.Decoder.decode(decoded, self.data) catch {
+            allocator.free(decoded);
+            return error.InvalidBase64;
+        };
+        return decoded;
     }
 };
 
@@ -356,16 +397,26 @@ pub const CompiledInstruction = struct {
 };
 
 /// Token balance info in transaction meta
+///
+/// Note: String fields (mint, owner, program_id) are BASE58-ENCODED public keys.
+/// Use `PublicKey.fromBase58()` to convert them to PublicKey if needed.
 pub const TokenBalanceInfo = struct {
     account_index: u8,
+    /// Mint address as base58-encoded string
     mint: []const u8,
     ui_token_amount: TokenBalance,
+    /// Owner address as base58-encoded string (optional)
     owner: ?[]const u8 = null,
+    /// Program ID as base58-encoded string (optional)
     program_id: ?[]const u8 = null,
 };
 
 /// Reward information
+///
+/// Note: `pubkey` is a BASE58-ENCODED public key string.
+/// Use `PublicKey.fromBase58()` to convert it if needed.
 pub const Reward = struct {
+    /// Recipient pubkey as base58-encoded string
     pubkey: []const u8,
     lamports: i64,
     post_balance: u64,
@@ -406,14 +457,21 @@ pub const TokenAccount = struct {
 };
 
 /// Parsed token account data
+///
+/// Note: Address fields (mint, owner, delegate, close_authority) are BASE58-ENCODED
+/// public key strings. Use `PublicKey.fromBase58()` to convert them if needed.
 pub const ParsedTokenAccount = struct {
+    /// Mint address as base58-encoded string
     mint: []const u8,
+    /// Owner address as base58-encoded string
     owner: []const u8,
     token_amount: TokenBalance,
+    /// Delegate address as base58-encoded string (optional)
     delegate: ?[]const u8 = null,
     state: []const u8 = "initialized",
     is_native: bool = false,
     delegated_amount: ?TokenBalance = null,
+    /// Close authority as base58-encoded string (optional)
     close_authority: ?[]const u8 = null,
 };
 
@@ -677,6 +735,41 @@ test "types: AccountInfo methods" {
 
     try std.testing.expect(!empty_account.hasBalance());
     try std.testing.expect(empty_account.isEmpty());
+}
+
+test "types: AccountInfo decodeData" {
+    const allocator = std.testing.allocator;
+
+    // "Hello" in base64 is "SGVsbG8="
+    const account = AccountInfo{
+        .lamports = 1000000000,
+        .owner = PublicKey.default(),
+        .data = "SGVsbG8=",
+        .executable = false,
+        .rent_epoch = 0,
+    };
+
+    const decoded = try account.decodeData(allocator);
+    defer allocator.free(decoded);
+
+    try std.testing.expectEqualStrings("Hello", decoded);
+}
+
+test "types: AccountInfo decodeData empty" {
+    const allocator = std.testing.allocator;
+
+    const account = AccountInfo{
+        .lamports = 0,
+        .owner = PublicKey.default(),
+        .data = "",
+        .executable = false,
+        .rent_epoch = 0,
+    };
+
+    const decoded = try account.decodeData(allocator);
+    defer allocator.free(decoded);
+
+    try std.testing.expectEqual(@as(usize, 0), decoded.len);
 }
 
 test "types: SignatureStatus" {

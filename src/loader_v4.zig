@@ -63,146 +63,43 @@ pub fn getProgramSize() usize {
     return 32;
 }
 
-/// Create a program account
-///
-/// Creates an instruction to initialize a new program account.
-///
-/// # Arguments
-/// * `allocator` - Memory allocator
-/// * `program_address` - Address of the program account to create
-/// * `program_data_address` - Address of the program data account
-/// * `authority_address` - Address that will have authority over the program
-///
-/// # Returns
-/// Instruction to create the program account
-///
-/// Rust equivalent: `solana_loader_v4_program::create_program()`
-// pub fn createProgram(
-//     allocator: std.mem.Allocator,
-//     program_address: PublicKey,
-//     program_data_address: PublicKey,
-//     authority_address: PublicKey,
-// ) !Instruction {
-//     // Instruction data format:
-//     // - Instruction discriminator: 1 byte (0 = CreateProgram)
-//     // - Program data address: 32 bytes
-//     // - Authority address: 32 bytes
-//
-//     var instruction_data = try std.ArrayList(u8).initCapacity(allocator, 65);
-//     defer instruction_data.deinit();
-//
-//     // Discriminator for CreateProgram
-//     try instruction_data.append(0);
-//
-//     // Program data address
-//     try instruction_data.appendSlice(&program_data_address.toBytes());
-//
-//     // Authority address
-//     try instruction_data.appendSlice(&authority_address.toBytes());
-//
-//     return Instruction.new(
-//         id,
-//         &.{program_address}, // accounts
-//         instruction_data.items,
-//     );
-// }
+// ============================================================================
+// Instruction Builders
+// ============================================================================
 
-/// Deploy a program
+/// Write bytes to a program account
 ///
-/// Creates an instruction to deploy program data to a program data account.
+/// Accounts:
+///   0. `[writable]` Program account to write to
+///   1. `[signer]` Authority
 ///
-/// # Arguments
-/// * `allocator` - Memory allocator
-/// * `program_data_address` - Address of the program data account
-/// * `program_data` - The compiled program data (BPF bytecode)
-/// * `authority_address` - Authority address for the program
-///
-/// # Returns
-/// Instruction to deploy the program
-///
-/// Rust equivalent: `solana_loader_v4_program::deploy_program()`
-// pub fn deployProgram(
-//     allocator: std.mem.Allocator,
-//     program_data_address: PublicKey,
-//     program_data: []const u8,
-//     authority_address: PublicKey,
-// ) !Instruction {
-//     // Instruction data format:
-//     // - Instruction discriminator: 1 byte (1 = DeployProgram)
-//     // - Program data length: 4 bytes (little endian)
-//     // - Program data: variable length
-//
-//     const data_len = 1 + 4 + program_data.len;
-//     var instruction_data = try std.ArrayList(u8).initCapacity(allocator, data_len);
-//     defer instruction_data.deinit();
-//
-//     // Discriminator for DeployProgram
-//     try instruction_data.append(1);
-//
-//     // Program data length
-//     const len_bytes = std.mem.toBytes(@as(u32, @intCast(program_data.len)));
-//     try instruction_data.appendSlice(&len_bytes);
-//
-//     // Program data
-//     try instruction_data.appendSlice(program_data);
-//
-//     return Instruction.new(
-//         id,
-//         &.{program_data_address, authority_address}, // accounts
-//         instruction_data.items,
-//     );
-// }
-
-/// Upgrade a program
-///
-/// Creates an instruction to upgrade an existing program with new data.
-/// This is similar to deploy but includes a spill account to receive
-/// excess lamports if the new program data is smaller than the old.
-///
-/// # Arguments
-/// * `allocator` - Memory allocator
-/// * `program_data_address` - Address of the program data account
-/// * `program_data` - The new compiled program data
-/// * `authority_address` - Authority address for the program
-/// * `spill_address` - Address to receive excess lamports if account shrinks
-///
-/// # Returns
-/// Instruction to upgrade the program, or error if allocation fails
-///
-/// Rust equivalent: `solana_loader_v4_program::upgrade_program()`
-pub fn upgradeProgram(
+/// Rust equivalent: `loader_v4::instruction::write()`
+/// Source: https://github.com/anza-xyz/solana-sdk/blob/master/loader-v4-interface/src/instruction.rs
+pub fn write(
     allocator: std.mem.Allocator,
-    program_data_address: PublicKey,
-    program_data: []const u8,
+    program_address: PublicKey,
     authority_address: PublicKey,
-    spill_address: PublicKey,
+    offset: u32,
+    bytes: []const u8,
 ) !BuiltInstruction {
     // Instruction data format:
-    // - Instruction discriminator: 1 byte (2 = RedeployProgram)
-    // - Program data length: 4 bytes (little endian)
-    // - Program data: variable length
+    // - Instruction discriminator: 1 byte (0 = Write)
+    // - Offset: 4 bytes (little endian)
+    // - Bytes: variable length
 
-    const data_len = 1 + 4 + program_data.len;
+    const data_len = 1 + 4 + bytes.len;
     var instruction_data = try allocator.alloc(u8, data_len);
     errdefer allocator.free(instruction_data);
 
-    // Discriminator for RedeployProgram (upgrade)
-    instruction_data[0] = @intFromEnum(InstructionType.redeploy_program);
+    instruction_data[0] = @intFromEnum(InstructionType.write);
+    @memcpy(instruction_data[1..5], &std.mem.toBytes(offset));
+    @memcpy(instruction_data[5..], bytes);
 
-    // Program data length (little endian)
-    const len_bytes = std.mem.toBytes(@as(u32, @intCast(program_data.len)));
-    @memcpy(instruction_data[1..5], &len_bytes);
-
-    // Program data
-    @memcpy(instruction_data[5..], program_data);
-
-    // Build account metas
-    var accounts = try std.ArrayList(AccountMeta).initCapacity(allocator, 3);
+    var accounts = try std.ArrayList(AccountMeta).initCapacity(allocator, 2);
     errdefer accounts.deinit(allocator);
 
-    accounts.appendAssumeCapacity(AccountMeta.init(program_data_address, false, true)); // writable, not signer
-    accounts.appendAssumeCapacity(AccountMeta.init(authority_address, true, false)); // signer, not writable
-    accounts.appendAssumeCapacity(AccountMeta.init(spill_address, false, true)); // writable, not signer
+    accounts.appendAssumeCapacity(AccountMeta.init(program_address, false, true)); // writable
+    accounts.appendAssumeCapacity(AccountMeta.init(authority_address, true, false)); // signer
 
     return BuiltInstruction{
         .program_id = id,
@@ -211,81 +108,236 @@ pub fn upgradeProgram(
     };
 }
 
-/// Close a program
+/// Copy bytes from source program to destination program
 ///
-/// Creates an instruction to close a program and recover its lamports.
+/// Accounts:
+///   0. `[writable]` Destination program account
+///   1. `[signer]` Authority
+///   2. `[]` Source program account
 ///
-/// # Arguments
-/// * `allocator` - Memory allocator
-/// * `program_address` - Address of the program account
-/// * `authority_address` - Authority address for the program
-/// * `recipient_address` - Address to receive the recovered lamports
+/// Rust equivalent: `loader_v4::instruction::copy()`
+pub fn copy(
+    allocator: std.mem.Allocator,
+    destination_address: PublicKey,
+    authority_address: PublicKey,
+    source_address: PublicKey,
+    destination_offset: u32,
+    source_offset: u32,
+    length: u32,
+) !BuiltInstruction {
+    // Instruction data format:
+    // - Instruction discriminator: 1 byte (1 = Copy)
+    // - Destination offset: 4 bytes
+    // - Source offset: 4 bytes
+    // - Length: 4 bytes
+
+    const data_len = 1 + 4 + 4 + 4;
+    var instruction_data = try allocator.alloc(u8, data_len);
+    errdefer allocator.free(instruction_data);
+
+    instruction_data[0] = @intFromEnum(InstructionType.copy);
+    @memcpy(instruction_data[1..5], &std.mem.toBytes(destination_offset));
+    @memcpy(instruction_data[5..9], &std.mem.toBytes(source_offset));
+    @memcpy(instruction_data[9..13], &std.mem.toBytes(length));
+
+    var accounts = try std.ArrayList(AccountMeta).initCapacity(allocator, 3);
+    errdefer accounts.deinit(allocator);
+
+    accounts.appendAssumeCapacity(AccountMeta.init(destination_address, false, true)); // writable
+    accounts.appendAssumeCapacity(AccountMeta.init(authority_address, true, false)); // signer
+    accounts.appendAssumeCapacity(AccountMeta.init(source_address, false, false)); // read-only
+
+    return BuiltInstruction{
+        .program_id = id,
+        .accounts = try accounts.toOwnedSlice(allocator),
+        .data = instruction_data,
+    };
+}
+
+/// Set program length (allocate or truncate)
 ///
-/// # Returns
-/// Instruction to close the program
+/// Accounts:
+///   0. `[writable]` Program account
+///   1. `[signer]` Authority
+///   2. `[writable]` Recipient (receives lamports if truncating)
 ///
-/// Rust equivalent: `solana_loader_v4_program::close_program()`
-// pub fn closeProgram(
-//     allocator: std.mem.Allocator,
-//     program_address: PublicKey,
-//     authority_address: PublicKey,
-//     recipient_address: PublicKey,
-// ) !Instruction {
-//     // Instruction data format:
-//     // - Instruction discriminator: 1 byte (3 = CloseProgram)
-//
-//     var instruction_data = try std.ArrayList(u8).initCapacity(allocator, 1);
-//     defer instruction_data.deinit();
-//
-//     // Discriminator for CloseProgram
-//     try instruction_data.append(3);
-//
-//     return Instruction.new(
-//         id,
-//         &.{program_address, authority_address, recipient_address}, // accounts
-//         instruction_data.items,
-//     );
-// }
+/// Rust equivalent: `loader_v4::instruction::set_program_length()`
+pub fn setProgramLength(
+    allocator: std.mem.Allocator,
+    program_address: PublicKey,
+    authority_address: PublicKey,
+    recipient_address: PublicKey,
+    new_size: u32,
+) !BuiltInstruction {
+    // Instruction data format:
+    // - Instruction discriminator: 1 byte (2 = SetProgramLength)
+    // - New size: 4 bytes
+
+    const data_len = 1 + 4;
+    var instruction_data = try allocator.alloc(u8, data_len);
+    errdefer allocator.free(instruction_data);
+
+    instruction_data[0] = @intFromEnum(InstructionType.set_program_length);
+    @memcpy(instruction_data[1..5], &std.mem.toBytes(new_size));
+
+    var accounts = try std.ArrayList(AccountMeta).initCapacity(allocator, 3);
+    errdefer accounts.deinit(allocator);
+
+    accounts.appendAssumeCapacity(AccountMeta.init(program_address, false, true)); // writable
+    accounts.appendAssumeCapacity(AccountMeta.init(authority_address, true, false)); // signer
+    accounts.appendAssumeCapacity(AccountMeta.init(recipient_address, false, true)); // writable
+
+    return BuiltInstruction{
+        .program_id = id,
+        .accounts = try accounts.toOwnedSlice(allocator),
+        .data = instruction_data,
+    };
+}
+
+/// Deploy program (make executable)
+///
+/// Accounts:
+///   0. `[writable]` Program account
+///   1. `[signer]` Authority
+///   2. `[writable, optional]` Source program (for deploy_from_source)
+///
+/// Rust equivalent: `loader_v4::instruction::deploy()`
+pub fn deploy(
+    allocator: std.mem.Allocator,
+    program_address: PublicKey,
+    authority_address: PublicKey,
+    source_address: ?PublicKey,
+) !BuiltInstruction {
+    // Instruction data format:
+    // - Instruction discriminator: 1 byte (3 = Deploy)
+
+    var instruction_data = try allocator.alloc(u8, 1);
+    errdefer allocator.free(instruction_data);
+
+    instruction_data[0] = @intFromEnum(InstructionType.deploy);
+
+    const num_accounts: usize = if (source_address != null) 3 else 2;
+    var accounts = try std.ArrayList(AccountMeta).initCapacity(allocator, num_accounts);
+    errdefer accounts.deinit(allocator);
+
+    accounts.appendAssumeCapacity(AccountMeta.init(program_address, false, true)); // writable
+    accounts.appendAssumeCapacity(AccountMeta.init(authority_address, true, false)); // signer
+
+    if (source_address) |source| {
+        accounts.appendAssumeCapacity(AccountMeta.init(source, false, true)); // writable
+    }
+
+    return BuiltInstruction{
+        .program_id = id,
+        .accounts = try accounts.toOwnedSlice(allocator),
+        .data = instruction_data,
+    };
+}
+
+/// Retract deployment (make non-executable)
+///
+/// Accounts:
+///   0. `[writable]` Program account
+///   1. `[signer]` Authority
+///
+/// Rust equivalent: `loader_v4::instruction::retract()`
+pub fn retract(
+    allocator: std.mem.Allocator,
+    program_address: PublicKey,
+    authority_address: PublicKey,
+) !BuiltInstruction {
+    // Instruction data format:
+    // - Instruction discriminator: 1 byte (4 = Retract)
+
+    var instruction_data = try allocator.alloc(u8, 1);
+    errdefer allocator.free(instruction_data);
+
+    instruction_data[0] = @intFromEnum(InstructionType.retract);
+
+    var accounts = try std.ArrayList(AccountMeta).initCapacity(allocator, 2);
+    errdefer accounts.deinit(allocator);
+
+    accounts.appendAssumeCapacity(AccountMeta.init(program_address, false, true)); // writable
+    accounts.appendAssumeCapacity(AccountMeta.init(authority_address, true, false)); // signer
+
+    return BuiltInstruction{
+        .program_id = id,
+        .accounts = try accounts.toOwnedSlice(allocator),
+        .data = instruction_data,
+    };
+}
 
 /// Transfer program authority
 ///
-/// Creates an instruction to transfer program authority to a new address.
+/// Accounts:
+///   0. `[writable]` Program account
+///   1. `[signer]` Current authority
+///   2. `[signer]` New authority
 ///
-/// # Arguments
-/// * `allocator` - Memory allocator
-/// * `program_data_address` - Address of the program data account
-/// * `current_authority` - Current authority address
-/// * `new_authority` - New authority address
+/// Rust equivalent: `loader_v4::instruction::transfer_authority()`
+pub fn transferAuthority(
+    allocator: std.mem.Allocator,
+    program_address: PublicKey,
+    current_authority: PublicKey,
+    new_authority: PublicKey,
+) !BuiltInstruction {
+    // Instruction data format:
+    // - Instruction discriminator: 1 byte (5 = TransferAuthority)
+
+    var instruction_data = try allocator.alloc(u8, 1);
+    errdefer allocator.free(instruction_data);
+
+    instruction_data[0] = @intFromEnum(InstructionType.transfer_authority);
+
+    var accounts = try std.ArrayList(AccountMeta).initCapacity(allocator, 3);
+    errdefer accounts.deinit(allocator);
+
+    accounts.appendAssumeCapacity(AccountMeta.init(program_address, false, true)); // writable
+    accounts.appendAssumeCapacity(AccountMeta.init(current_authority, true, false)); // signer
+    accounts.appendAssumeCapacity(AccountMeta.init(new_authority, true, false)); // signer
+
+    return BuiltInstruction{
+        .program_id = id,
+        .accounts = try accounts.toOwnedSlice(allocator),
+        .data = instruction_data,
+    };
+}
+
+/// Finalize program (set next version)
 ///
-/// # Returns
-/// Instruction to transfer authority
+/// Accounts:
+///   0. `[writable]` Program account
+///   1. `[signer]` Authority
+///   2. `[]` Next version program account
 ///
-/// Rust equivalent: `solana_loader_v4_program::transfer_program_authority()`
-// pub fn transferProgramAuthority(
-//     allocator: std.mem.Allocator,
-//     program_data_address: PublicKey,
-//     current_authority: PublicKey,
-//     new_authority: PublicKey,
-// ) !Instruction {
-//     // Instruction data format:
-//     // - Instruction discriminator: 1 byte (4 = TransferAuthority)
-//     // - New authority address: 32 bytes
-//
-//     var instruction_data = try std.ArrayList(u8).initCapacity(allocator, 33);
-//     defer instruction_data.deinit();
-//
-//     // Discriminator for TransferAuthority
-//     try instruction_data.append(4);
-//
-//     // New authority address
-//     try instruction_data.appendSlice(&new_authority.toBytes());
-//
-//     return Instruction.new(
-//         id,
-//         &.{program_data_address, current_authority}, // accounts
-//         instruction_data.items,
-//     );
-// }
+/// Rust equivalent: `loader_v4::instruction::finalize()`
+pub fn finalize(
+    allocator: std.mem.Allocator,
+    program_address: PublicKey,
+    authority_address: PublicKey,
+    next_version_address: PublicKey,
+) !BuiltInstruction {
+    // Instruction data format:
+    // - Instruction discriminator: 1 byte (6 = Finalize)
+
+    var instruction_data = try allocator.alloc(u8, 1);
+    errdefer allocator.free(instruction_data);
+
+    instruction_data[0] = @intFromEnum(InstructionType.finalize);
+
+    var accounts = try std.ArrayList(AccountMeta).initCapacity(allocator, 3);
+    errdefer accounts.deinit(allocator);
+
+    accounts.appendAssumeCapacity(AccountMeta.init(program_address, false, true)); // writable
+    accounts.appendAssumeCapacity(AccountMeta.init(authority_address, true, false)); // signer
+    accounts.appendAssumeCapacity(AccountMeta.init(next_version_address, false, false)); // read-only
+
+    return BuiltInstruction{
+        .program_id = id,
+        .accounts = try accounts.toOwnedSlice(allocator),
+        .data = instruction_data,
+    };
+}
 
 /// Program data account state
 ///
@@ -387,18 +439,30 @@ pub const Program = struct {
 };
 
 /// Instruction discriminators for Loader V4
+///
+/// Rust equivalent: `LoaderV4Instruction`
+/// Source: https://github.com/anza-xyz/solana-sdk/blob/master/loader-v4-interface/src/instruction.rs
 pub const InstructionType = enum(u8) {
-    /// Create a new program account
-    create_program = 0,
-    /// Deploy program data
-    deploy_program = 1,
-    /// Redeploy program with new data
-    redeploy_program = 2,
-    /// Close program and recover lamports
-    close_program = 3,
+    /// Write bytes to program account
+    write = 0,
+    /// Copy bytes from source program
+    copy = 1,
+    /// Set program length (allocate/truncate)
+    set_program_length = 2,
+    /// Deploy program (make executable)
+    deploy = 3,
+    /// Retract deployment (make non-executable)
+    retract = 4,
     /// Transfer program authority
-    transfer_authority = 4,
+    transfer_authority = 5,
+    /// Finalize program (set next version)
+    finalize = 6,
 };
+
+/// Cooldown before a program can be un-/redeployed again
+///
+/// Rust equivalent: `DEPLOYMENT_COOLDOWN_IN_SLOTS`
+pub const DEPLOYMENT_COOLDOWN_IN_SLOTS: u64 = 1;
 
 test "loader_v4: program data size calculation" {
     // Test basic size calculation
@@ -457,50 +521,157 @@ test "loader_v4: get program data" {
     }
 }
 
-test "loader_v4: upgradeProgram instruction" {
+test "loader_v4: write instruction" {
     const allocator = std.testing.allocator;
 
-    // Create test addresses
-    const program_data_addr = PublicKey.from([_]u8{1} ** 32);
+    const program_addr = PublicKey.from([_]u8{1} ** 32);
     const authority_addr = PublicKey.from([_]u8{2} ** 32);
-    const spill_addr = PublicKey.from([_]u8{3} ** 32);
+    const test_bytes = [_]u8{ 0xDE, 0xAD, 0xBE, 0xEF };
 
-    // Test program data
-    const program_bytes = [_]u8{ 0xDE, 0xAD, 0xBE, 0xEF };
+    var ix = try write(allocator, program_addr, authority_addr, 100, &test_bytes);
+    defer ix.deinit(allocator);
 
-    // Create upgrade instruction
-    var instruction = try upgradeProgram(
-        allocator,
-        program_data_addr,
-        &program_bytes,
-        authority_addr,
-        spill_addr,
-    );
-    defer instruction.deinit(allocator);
-
-    // Verify instruction program ID
-    try std.testing.expect(std.mem.eql(u8, &instruction.program_id.bytes, &id.bytes));
-
+    // Verify discriminator
+    try std.testing.expectEqual(@as(u8, @intFromEnum(InstructionType.write)), ix.data[0]);
+    // Verify offset
+    try std.testing.expectEqual(@as(u32, 100), std.mem.readInt(u32, ix.data[1..5], .little));
+    // Verify bytes
+    try std.testing.expectEqualSlices(u8, &test_bytes, ix.data[5..]);
     // Verify accounts
-    try std.testing.expectEqual(@as(usize, 3), instruction.accounts.len);
-    try std.testing.expect(std.mem.eql(u8, &instruction.accounts[0].pubkey.bytes, &program_data_addr.bytes));
-    try std.testing.expect(instruction.accounts[0].is_writable);
-    try std.testing.expect(!instruction.accounts[0].is_signer);
-    try std.testing.expect(std.mem.eql(u8, &instruction.accounts[1].pubkey.bytes, &authority_addr.bytes));
-    try std.testing.expect(!instruction.accounts[1].is_writable);
-    try std.testing.expect(instruction.accounts[1].is_signer);
-    try std.testing.expect(std.mem.eql(u8, &instruction.accounts[2].pubkey.bytes, &spill_addr.bytes));
-    try std.testing.expect(instruction.accounts[2].is_writable);
-    try std.testing.expect(!instruction.accounts[2].is_signer);
+    try std.testing.expectEqual(@as(usize, 2), ix.accounts.len);
+    try std.testing.expect(ix.accounts[0].is_writable);
+    try std.testing.expect(ix.accounts[1].is_signer);
+}
 
-    // Verify instruction data format
-    try std.testing.expectEqual(@as(usize, 1 + 4 + program_bytes.len), instruction.data.len);
-    try std.testing.expectEqual(@as(u8, @intFromEnum(InstructionType.redeploy_program)), instruction.data[0]);
+test "loader_v4: copy instruction" {
+    const allocator = std.testing.allocator;
 
-    // Verify program data length
-    const data_len = std.mem.readInt(u32, instruction.data[1..5], .little);
-    try std.testing.expectEqual(@as(u32, program_bytes.len), data_len);
+    const dest_addr = PublicKey.from([_]u8{1} ** 32);
+    const authority_addr = PublicKey.from([_]u8{2} ** 32);
+    const source_addr = PublicKey.from([_]u8{3} ** 32);
 
-    // Verify program data
-    try std.testing.expect(std.mem.eql(u8, instruction.data[5..], &program_bytes));
+    var ix = try copy(allocator, dest_addr, authority_addr, source_addr, 0, 100, 500);
+    defer ix.deinit(allocator);
+
+    // Verify discriminator
+    try std.testing.expectEqual(@as(u8, @intFromEnum(InstructionType.copy)), ix.data[0]);
+    // Verify offsets and length
+    try std.testing.expectEqual(@as(u32, 0), std.mem.readInt(u32, ix.data[1..5], .little));
+    try std.testing.expectEqual(@as(u32, 100), std.mem.readInt(u32, ix.data[5..9], .little));
+    try std.testing.expectEqual(@as(u32, 500), std.mem.readInt(u32, ix.data[9..13], .little));
+    // Verify accounts
+    try std.testing.expectEqual(@as(usize, 3), ix.accounts.len);
+    try std.testing.expect(ix.accounts[0].is_writable); // dest
+    try std.testing.expect(ix.accounts[1].is_signer); // authority
+    try std.testing.expect(!ix.accounts[2].is_writable); // source (read-only)
+}
+
+test "loader_v4: set_program_length instruction" {
+    const allocator = std.testing.allocator;
+
+    const program_addr = PublicKey.from([_]u8{1} ** 32);
+    const authority_addr = PublicKey.from([_]u8{2} ** 32);
+    const recipient_addr = PublicKey.from([_]u8{3} ** 32);
+
+    var ix = try setProgramLength(allocator, program_addr, authority_addr, recipient_addr, 10000);
+    defer ix.deinit(allocator);
+
+    // Verify discriminator
+    try std.testing.expectEqual(@as(u8, @intFromEnum(InstructionType.set_program_length)), ix.data[0]);
+    // Verify new size
+    try std.testing.expectEqual(@as(u32, 10000), std.mem.readInt(u32, ix.data[1..5], .little));
+    // Verify accounts
+    try std.testing.expectEqual(@as(usize, 3), ix.accounts.len);
+    try std.testing.expect(ix.accounts[0].is_writable); // program
+    try std.testing.expect(ix.accounts[1].is_signer); // authority
+    try std.testing.expect(ix.accounts[2].is_writable); // recipient
+}
+
+test "loader_v4: deploy instruction" {
+    const allocator = std.testing.allocator;
+
+    const program_addr = PublicKey.from([_]u8{1} ** 32);
+    const authority_addr = PublicKey.from([_]u8{2} ** 32);
+
+    // Without source
+    var ix1 = try deploy(allocator, program_addr, authority_addr, null);
+    defer ix1.deinit(allocator);
+
+    try std.testing.expectEqual(@as(u8, @intFromEnum(InstructionType.deploy)), ix1.data[0]);
+    try std.testing.expectEqual(@as(usize, 1), ix1.data.len);
+    try std.testing.expectEqual(@as(usize, 2), ix1.accounts.len);
+
+    // With source
+    const source_addr = PublicKey.from([_]u8{3} ** 32);
+    var ix2 = try deploy(allocator, program_addr, authority_addr, source_addr);
+    defer ix2.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 3), ix2.accounts.len);
+    try std.testing.expect(ix2.accounts[2].is_writable); // source is writable
+}
+
+test "loader_v4: retract instruction" {
+    const allocator = std.testing.allocator;
+
+    const program_addr = PublicKey.from([_]u8{1} ** 32);
+    const authority_addr = PublicKey.from([_]u8{2} ** 32);
+
+    var ix = try retract(allocator, program_addr, authority_addr);
+    defer ix.deinit(allocator);
+
+    try std.testing.expectEqual(@as(u8, @intFromEnum(InstructionType.retract)), ix.data[0]);
+    try std.testing.expectEqual(@as(usize, 1), ix.data.len);
+    try std.testing.expectEqual(@as(usize, 2), ix.accounts.len);
+    try std.testing.expect(ix.accounts[0].is_writable);
+    try std.testing.expect(ix.accounts[1].is_signer);
+}
+
+test "loader_v4: transfer_authority instruction" {
+    const allocator = std.testing.allocator;
+
+    const program_addr = PublicKey.from([_]u8{1} ** 32);
+    const current_auth = PublicKey.from([_]u8{2} ** 32);
+    const new_auth = PublicKey.from([_]u8{3} ** 32);
+
+    var ix = try transferAuthority(allocator, program_addr, current_auth, new_auth);
+    defer ix.deinit(allocator);
+
+    try std.testing.expectEqual(@as(u8, @intFromEnum(InstructionType.transfer_authority)), ix.data[0]);
+    try std.testing.expectEqual(@as(usize, 1), ix.data.len);
+    try std.testing.expectEqual(@as(usize, 3), ix.accounts.len);
+    try std.testing.expect(ix.accounts[0].is_writable); // program
+    try std.testing.expect(ix.accounts[1].is_signer); // current authority
+    try std.testing.expect(ix.accounts[2].is_signer); // new authority
+}
+
+test "loader_v4: finalize instruction" {
+    const allocator = std.testing.allocator;
+
+    const program_addr = PublicKey.from([_]u8{1} ** 32);
+    const authority_addr = PublicKey.from([_]u8{2} ** 32);
+    const next_version_addr = PublicKey.from([_]u8{3} ** 32);
+
+    var ix = try finalize(allocator, program_addr, authority_addr, next_version_addr);
+    defer ix.deinit(allocator);
+
+    try std.testing.expectEqual(@as(u8, @intFromEnum(InstructionType.finalize)), ix.data[0]);
+    try std.testing.expectEqual(@as(usize, 1), ix.data.len);
+    try std.testing.expectEqual(@as(usize, 3), ix.accounts.len);
+    try std.testing.expect(ix.accounts[0].is_writable); // program
+    try std.testing.expect(ix.accounts[1].is_signer); // authority
+    try std.testing.expect(!ix.accounts[2].is_writable); // next version (read-only)
+}
+
+test "loader_v4: DEPLOYMENT_COOLDOWN_IN_SLOTS constant" {
+    try std.testing.expectEqual(@as(u64, 1), DEPLOYMENT_COOLDOWN_IN_SLOTS);
+}
+
+test "loader_v4: InstructionType discriminators" {
+    try std.testing.expectEqual(@as(u8, 0), @intFromEnum(InstructionType.write));
+    try std.testing.expectEqual(@as(u8, 1), @intFromEnum(InstructionType.copy));
+    try std.testing.expectEqual(@as(u8, 2), @intFromEnum(InstructionType.set_program_length));
+    try std.testing.expectEqual(@as(u8, 3), @intFromEnum(InstructionType.deploy));
+    try std.testing.expectEqual(@as(u8, 4), @intFromEnum(InstructionType.retract));
+    try std.testing.expectEqual(@as(u8, 5), @intFromEnum(InstructionType.transfer_authority));
+    try std.testing.expectEqual(@as(u8, 6), @intFromEnum(InstructionType.finalize));
 }

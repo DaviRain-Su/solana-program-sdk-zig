@@ -112,35 +112,61 @@ const result = try map.getOrPut(allocator, "key");
 
 ## std.http.Client
 
-### GET Request
+Zig 0.15.2 completely rewrote the HTTP client API. The old `open/send/wait` pattern is gone.
+
+### High-Level API: fetch()
+
+```zig
+fn httpFetch(allocator: std.mem.Allocator, url: []const u8) !std.http.Client.FetchResult {
+    var client: std.http.Client = .{ .allocator = allocator };
+    defer client.deinit();
+
+    const result = try client.fetch(.{
+        .location = .{ .url = url },
+        .method = .GET,
+        .extra_headers = &.{
+            .{ .name = "Accept", .value = "application/json" },
+        },
+    });
+    
+    return result;
+}
+```
+
+### Low-Level API: request/response
 
 ```zig
 fn httpGet(allocator: std.mem.Allocator, url: []const u8) ![]u8 {
     var client: std.http.Client = .{ .allocator = allocator };
     defer client.deinit();
 
-    const uri = try std.Uri.parse(url);
+    const uri = std.Uri.parse(url) catch return error.InvalidUri;
     
-    var req = try client.open(.GET, uri, .{
+    // Create request with client.request() (NOT client.open!)
+    var req = client.request(.GET, uri, .{
         .extra_headers = &.{
             .{ .name = "Accept", .value = "application/json" },
         },
-    });
+    }) catch return error.ConnectionFailed;
     defer req.deinit();
 
-    try req.send();
-    try req.wait();
+    // Send request without body
+    req.sendBodiless() catch return error.ConnectionFailed;
 
-    if (req.status != .ok) {
+    // Receive response head
+    var redirect_buf: [4096]u8 = undefined;
+    var response = req.receiveHead(&redirect_buf) catch return error.ConnectionFailed;
+
+    // Check status
+    if (response.head.status != .ok) {
         return error.HttpError;
     }
 
-    // Read response body
-    var body = std.ArrayList(u8).init(allocator);
-    defer body.deinit();
+    // Read response body using std.Io.Reader
+    var body_reader = response.reader(&redirect_buf);
+    const body = body_reader.allocRemaining(allocator, std.Io.Limit.limited(10 * 1024 * 1024)) catch return error.ReadFailed;
     
-    try req.reader().readAllArrayList(&body, 10 * 1024 * 1024);
-    return try body.toOwnedSlice(allocator);
+    return body;
 }
 ```
 
@@ -151,31 +177,47 @@ fn httpPost(allocator: std.mem.Allocator, url: []const u8, body: []const u8) ![]
     var client: std.http.Client = .{ .allocator = allocator };
     defer client.deinit();
 
-    const uri = try std.Uri.parse(url);
+    const uri = std.Uri.parse(url) catch return error.InvalidUri;
     
-    var req = try client.open(.POST, uri, .{
+    var req = client.request(.POST, uri, .{
         .extra_headers = &.{
             .{ .name = "Content-Type", .value = "application/json" },
         },
-    });
+    }) catch return error.ConnectionFailed;
     defer req.deinit();
 
-    req.transfer_encoding = .{ .content_length = body.len };
-    try req.send();
-    
-    // Write body
-    try req.writer().writeAll(body);
-    try req.finish();
-    
-    try req.wait();
+    // Send request with body
+    // Note: sendBodyComplete internally only reads from body, so @constCast is safe
+    req.sendBodyComplete(@constCast(body)) catch return error.ConnectionFailed;
 
-    // Read response
-    var response = std.ArrayList(u8).init(allocator);
-    defer response.deinit();
-    try req.reader().readAllArrayList(&response, 10 * 1024 * 1024);
-    return try response.toOwnedSlice(allocator);
+    // Receive response
+    var redirect_buf: [4096]u8 = undefined;
+    var response = req.receiveHead(&redirect_buf) catch return error.ConnectionFailed;
+
+    const status = @intFromEnum(response.head.status);
+    if (status < 200 or status >= 300) {
+        return error.HttpError;
+    }
+
+    // Read response body
+    var body_reader = response.reader(&redirect_buf);
+    const response_body = body_reader.allocRemaining(allocator, std.Io.Limit.limited(10 * 1024 * 1024)) catch return error.ReadFailed;
+    
+    return response_body;
 }
 ```
+
+### API Reference (Zig 0.15.2)
+
+| Method | Description |
+|--------|-------------|
+| `client.request(method, uri, options)` | Create a Request object |
+| `client.fetch(options)` | High-level fetch API |
+| `req.sendBodiless()` | Send GET request (no body) |
+| `req.sendBodyComplete(body)` | Send request with body |
+| `req.receiveHead(buffer)` | Receive response headers |
+| `response.reader(buffer)` | Get std.Io.Reader for body |
+| `reader.allocRemaining(alloc, limit)` | Read all remaining data |
 
 ## std.crypto.sign.Ed25519
 
@@ -287,19 +329,37 @@ const data = parsed.value;
 std.debug.print("name: {s}, value: {d}\n", .{ data.name, data.value });
 ```
 
-### Stringify
+### Stringify (Zig 0.15.2 - new API)
+
+Zig 0.15.2 uses `std.json.Stringify` with a writer-based API. There is no `stringifyAlloc`.
 
 ```zig
 const data = MyStruct{ .name = "test", .value = 42 };
 
-// Allocating
-const json = try std.json.stringifyAlloc(allocator, data, .{});
-defer allocator.free(json);
+// Method 1: Using Stringify with std.Io.Writer.Allocating
+var out: std.Io.Writer.Allocating = .init(allocator);
+defer out.deinit();
 
-// To writer
+var stringify: std.json.Stringify = .{
+    .writer = &out.writer,
+    .options = .{},
+};
+try stringify.write(data);
+const json_output = out.written();
+
+// Method 2: Using fmt for formatting
+const formatted = try std.fmt.allocPrint(allocator, "{f}", .{std.json.fmt(data, .{})});
+defer allocator.free(formatted);
+
+// Method 3: To fixed buffer using std.io.Writer
 var buf: [1024]u8 = undefined;
 var fbs = std.io.fixedBufferStream(&buf);
-try std.json.stringify(data, .{}, fbs.writer());
+var writer = fbs.writer();
+var stringify2: std.json.Stringify = .{
+    .writer = &writer.adaptToNewApi(&.{}).new_interface,
+    .options = .{},
+};
+try stringify2.write(data);
 const output = fbs.getWritten();
 ```
 

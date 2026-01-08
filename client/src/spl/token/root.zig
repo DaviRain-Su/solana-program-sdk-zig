@@ -2,13 +2,14 @@
 //!
 //! Rust source: https://github.com/solana-program/token/tree/master/interface/src
 //!
-//! This module provides types and instruction builders for the SPL Token program.
+//! This module provides types, instruction builders, and RPC client for the SPL Token program.
 //! Core types (Mint, Account, TokenInstruction, etc.) are imported from the SDK.
 //! Instruction builders are provided for client-side transaction construction.
 //!
 //! ## Features
 //! - Token account state types (Mint, Account, Multisig) - from SDK
-//! - Token instruction builders (25 instructions) - client specific
+//! - Token instruction builders (25 instructions) - from SDK
+//! - TokenClient for high-level RPC operations
 //! - Token error types - from SDK
 //!
 //! ## Usage
@@ -16,17 +17,25 @@
 //! ```zig
 //! const spl = @import("solana_client").spl;
 //!
-//! // Parse a mint account
+//! // Low-level: Parse a mint account
 //! const mint = try spl.token.Mint.unpackFromSlice(account_data);
 //!
-//! // Create a transfer instruction
+//! // Low-level: Create a transfer instruction
 //! const ix = spl.token.transfer(source, dest, owner, amount);
+//!
+//! // High-level: Use TokenClient for RPC operations
+//! var client = spl.token.TokenClient.init(allocator, rpc);
+//! const sig = try client.transfer(source, dest, owner, amount, signers);
 //! ```
 
 const std = @import("std");
 
 // Re-export state types from SDK (via local re-export)
 pub const state = @import("state.zig");
+
+/// RPC client wrapper for token operations
+pub const client = @import("client.zig");
+pub const TokenClient = client.TokenClient;
 pub const COption = state.COption;
 pub const AccountState = state.AccountState;
 pub const Mint = state.Mint;

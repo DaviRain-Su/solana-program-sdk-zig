@@ -2,7 +2,7 @@
 //!
 //! Rust source: https://github.com/solana-program/stake
 //!
-//! This module provides instruction builders for the Stake program.
+//! This module provides instruction builders and RPC client for the Stake program.
 //! Types are re-exported from the SDK.
 //!
 //! ## Usage
@@ -10,21 +10,26 @@
 //! ```zig
 //! const stake = @import("solana_client").spl.stake;
 //!
-//! // Initialize a stake account
+//! // Low-level: Build instructions directly
 //! const authorized = stake.Authorized{
 //!     .staker = staker_pubkey,
 //!     .withdrawer = withdrawer_pubkey,
 //! };
 //! const ix = stake.initialize(stake_account, authorized, stake.Lockup.DEFAULT);
 //!
-//! // Delegate stake
-//! const delegate_ix = stake.delegateStake(stake_account, vote_account, authority);
+//! // High-level: Use StakeClient for RPC operations
+//! var client = stake.StakeClient.init(allocator, rpc);
+//! const sig = try client.delegate(stake_account, vote_account, authority, signers);
 //! ```
 
 const std = @import("std");
 
 /// Instruction builders and types
 pub const instruction = @import("instruction.zig");
+
+/// RPC client wrapper for stake operations
+pub const client = @import("client.zig");
+pub const StakeClient = client.StakeClient;
 
 // Re-export instruction builders for convenience
 pub const initialize = instruction.initialize;

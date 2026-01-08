@@ -172,6 +172,9 @@ pub const AddressLookupTable = struct {
     /// Deserialize an address lookup table from account data
     ///
     /// This performs zero-copy deserialization where possible.
+    /// Validates that:
+    /// - Data length is exactly LOOKUP_TABLE_META_SIZE + 32 * num_addresses
+    /// - last_extended_slot_start_index <= num_addresses
     ///
     /// Rust equivalent: `AddressLookupTable::deserialize`
     /// Source: https://github.com/anza-xyz/solana-sdk/blob/master/address-lookup-table-interface/src/state.rs#L228
@@ -188,13 +191,21 @@ pub const AddressLookupTable = struct {
         // Parse addresses (remaining data after metadata)
         const addresses_data = data[LOOKUP_TABLE_META_SIZE..];
 
-        // Each address is 32 bytes
+        // Each address is 32 bytes - strict length check
+        // Rust requires: data.len == LOOKUP_TABLE_META_SIZE + 32 * num_addresses
         if (addresses_data.len % 32 != 0) {
             return AddressLookupError.InvalidAccountData;
         }
 
         const num_addresses = addresses_data.len / 32;
         if (num_addresses > LOOKUP_TABLE_MAX_ADDRESSES) {
+            return AddressLookupError.InvalidAccountData;
+        }
+
+        // Validate last_extended_slot_start_index
+        // Rust requires: last_extended_slot_start_index <= num_addresses
+        // This prevents referencing addresses that don't exist
+        if (meta.last_extended_slot_start_index > num_addresses) {
             return AddressLookupError.InvalidAccountData;
         }
 
@@ -676,6 +687,74 @@ test "address_lookup_table: invalid data unaligned addresses" {
     const meta_bytes = serializeMeta(meta);
     @memcpy(data[0..LOOKUP_TABLE_META_SIZE], &meta_bytes);
     // 10 bytes is not divisible by 32
+
+    const result = AddressLookupTable.deserialize(&data);
+    try std.testing.expectError(AddressLookupError.InvalidAccountData, result);
+}
+
+test "address_lookup_table: invalid last_extended_slot_start_index exceeds addresses" {
+    // Create metadata with last_extended_slot_start_index = 5 but only 2 addresses
+    var data: [LOOKUP_TABLE_META_SIZE + 64]u8 = undefined;
+    const meta = LookupTableMeta{
+        .deactivation_slot = SLOT_MAX,
+        .last_extended_slot = 100,
+        .last_extended_slot_start_index = 5, // Invalid: exceeds num_addresses (2)
+        .authority = null,
+    };
+    const meta_bytes = serializeMeta(meta);
+    @memcpy(data[0..LOOKUP_TABLE_META_SIZE], &meta_bytes);
+    // 64 bytes = 2 addresses
+    @memset(data[LOOKUP_TABLE_META_SIZE..], 0);
+
+    const result = AddressLookupTable.deserialize(&data);
+    try std.testing.expectError(AddressLookupError.InvalidAccountData, result);
+}
+
+test "address_lookup_table: valid last_extended_slot_start_index equals addresses len" {
+    // last_extended_slot_start_index == num_addresses is valid (all addresses added in last slot)
+    var data: [LOOKUP_TABLE_META_SIZE + 64]u8 = undefined;
+    const meta = LookupTableMeta{
+        .deactivation_slot = SLOT_MAX,
+        .last_extended_slot = 100,
+        .last_extended_slot_start_index = 2, // Valid: equals num_addresses
+        .authority = null,
+    };
+    const meta_bytes = serializeMeta(meta);
+    @memcpy(data[0..LOOKUP_TABLE_META_SIZE], &meta_bytes);
+    @memset(data[LOOKUP_TABLE_META_SIZE..], 0);
+
+    const table = try AddressLookupTable.deserialize(&data);
+    try std.testing.expectEqual(@as(usize, 2), table.addresses.len);
+    try std.testing.expectEqual(@as(u8, 2), table.meta.last_extended_slot_start_index);
+}
+
+test "address_lookup_table: empty table with zero start index" {
+    // Empty table (no addresses) with start_index = 0 is valid
+    var data: [LOOKUP_TABLE_META_SIZE]u8 = undefined;
+    const meta = LookupTableMeta{
+        .deactivation_slot = SLOT_MAX,
+        .last_extended_slot = 0,
+        .last_extended_slot_start_index = 0,
+        .authority = null,
+    };
+    const meta_bytes = serializeMeta(meta);
+    @memcpy(data[0..LOOKUP_TABLE_META_SIZE], &meta_bytes);
+
+    const table = try AddressLookupTable.deserialize(&data);
+    try std.testing.expectEqual(@as(usize, 0), table.addresses.len);
+}
+
+test "address_lookup_table: empty table with non-zero start index is invalid" {
+    // Empty table with start_index > 0 is invalid
+    var data: [LOOKUP_TABLE_META_SIZE]u8 = undefined;
+    const meta = LookupTableMeta{
+        .deactivation_slot = SLOT_MAX,
+        .last_extended_slot = 100,
+        .last_extended_slot_start_index = 1, // Invalid: exceeds num_addresses (0)
+        .authority = null,
+    };
+    const meta_bytes = serializeMeta(meta);
+    @memcpy(data[0..LOOKUP_TABLE_META_SIZE], &meta_bytes);
 
     const result = AddressLookupTable.deserialize(&data);
     try std.testing.expectError(AddressLookupError.InvalidAccountData, result);

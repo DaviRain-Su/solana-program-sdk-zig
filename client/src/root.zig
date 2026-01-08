@@ -63,6 +63,8 @@ pub const TransactionStatus = types.TransactionStatus;
 
 pub const json_rpc = @import("json_rpc.zig");
 pub const JsonRpcClient = json_rpc.JsonRpcClient;
+pub const CallResult = json_rpc.CallResult;
+pub const JsonRpcError = json_rpc.JsonRpcError;
 
 pub const rpc_client = @import("rpc_client.zig");
 pub const RpcClient = rpc_client.RpcClient;

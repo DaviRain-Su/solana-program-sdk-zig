@@ -32,13 +32,103 @@ pub const JsonRpcError = struct {
     message: []const u8,
     data: ?std.json.Value = null,
 
-    /// Convert to RpcError
-    pub fn toRpcError(self: JsonRpcError) RpcError {
+    /// Convert to RpcError (copies strings to ensure lifetime)
+    pub fn toRpcError(self: JsonRpcError, allocator: Allocator) !RpcError {
+        return .{
+            .code = self.code,
+            .message = try allocator.dupe(u8, self.message),
+            .data = if (self.data) |d| try cloneJsonValue(allocator, d) else null,
+        };
+    }
+
+    /// Convert to RpcError without allocation (caller must ensure lifetime)
+    pub fn toRpcErrorUnmanaged(self: JsonRpcError) RpcError {
         return .{
             .code = self.code,
             .message = self.message,
             .data = self.data,
         };
+    }
+};
+
+/// Result of a JSON-RPC call
+///
+/// This type allows returning either a successful result or detailed RPC error
+/// information, similar to Rust's approach.
+pub const CallResult = struct {
+    allocator: Allocator,
+    /// The successful result value (if no error)
+    value: ?std.json.Value,
+    /// RPC error details (if error occurred)
+    rpc_error: ?RpcError,
+
+    const Self = @This();
+
+    /// Create a success result
+    pub fn success(allocator: Allocator, value: std.json.Value) Self {
+        return .{
+            .allocator = allocator,
+            .value = value,
+            .rpc_error = null,
+        };
+    }
+
+    /// Create an error result
+    pub fn err(allocator: Allocator, rpc_error: RpcError) Self {
+        return .{
+            .allocator = allocator,
+            .value = null,
+            .rpc_error = rpc_error,
+        };
+    }
+
+    /// Check if this is an error result
+    pub fn isError(self: Self) bool {
+        return self.rpc_error != null;
+    }
+
+    /// Check if this is a success result
+    pub fn isSuccess(self: Self) bool {
+        return self.value != null and self.rpc_error == null;
+    }
+
+    /// Get the value, returning ClientError.RpcError if this is an error result
+    pub fn unwrap(self: Self) ClientError!std.json.Value {
+        if (self.rpc_error != null) {
+            return ClientError.RpcError;
+        }
+        return self.value orelse ClientError.InvalidResponse;
+    }
+
+    /// Get the RPC error code (if error)
+    pub fn getErrorCode(self: Self) ?i64 {
+        if (self.rpc_error) |e| {
+            return e.code;
+        }
+        return null;
+    }
+
+    /// Check if this is a specific error code
+    pub fn isErrorCode(self: Self, code: i64) bool {
+        if (self.rpc_error) |e| {
+            return e.code == code;
+        }
+        return false;
+    }
+
+    /// Free allocated resources
+    pub fn deinit(self: *Self) void {
+        if (self.value) |v| {
+            freeJsonValue(self.allocator, v);
+            self.value = null;
+        }
+        if (self.rpc_error) |e| {
+            self.allocator.free(e.message);
+            if (e.data) |d| {
+                freeJsonValue(self.allocator, d);
+            }
+            self.rpc_error = null;
+        }
     }
 };
 
@@ -169,13 +259,68 @@ pub const JsonRpcClient = struct {
         }
     }
 
-    /// Send a JSON-RPC request and return the parsed response
+    /// Send a JSON-RPC request and return the parsed response.
+    ///
+    /// This method returns only the result value. For access to RPC error details
+    /// (code, message, data), use `callWithResult` instead.
+    ///
+    /// ## Errors
+    /// - `ClientError.RpcError` if the RPC returns an error (use `callWithResult` for details)
+    /// - `ClientError.JsonParseError` if response parsing fails
+    /// - `ClientError.InvalidResponse` if response has no result
     pub fn call(
         self: *JsonRpcClient,
         allocator: Allocator,
         method: []const u8,
         params: ?std.json.Value,
-    ) !std.json.Value {
+    ) ClientError!std.json.Value {
+        var result = try self.callWithResult(allocator, method, params);
+
+        // If there's an RPC error, clean up and return error
+        if (result.rpc_error != null) {
+            result.deinit();
+            return ClientError.RpcError;
+        }
+
+        // Return the value (caller owns it)
+        if (result.value) |v| {
+            result.value = null; // Prevent deinit from freeing
+            return v;
+        }
+
+        result.deinit();
+        return ClientError.InvalidResponse;
+    }
+
+    /// Send a JSON-RPC request and return full result with error details.
+    ///
+    /// Unlike `call`, this method provides access to RPC error information
+    /// including error code, message, and optional data. This allows callers
+    /// to distinguish between different error types (rate limiting, invalid
+    /// params, preflight failures, etc.).
+    ///
+    /// ## Usage
+    /// ```zig
+    /// var result = try client.callWithResult(allocator, "getBalance", params);
+    /// defer result.deinit();
+    ///
+    /// if (result.isError()) {
+    ///     const code = result.getErrorCode().?;
+    ///     if (code == RpcErrorCode.NODE_UNHEALTHY) {
+    ///         // Handle node unhealthy
+    ///     }
+    ///     // Access full error: result.rpc_error.?
+    /// } else {
+    ///     const value = result.value.?;
+    ///     // Process result
+    /// }
+    /// ```
+    pub fn callWithResult(
+        self: *JsonRpcClient,
+        allocator: Allocator,
+        method: []const u8,
+        params: ?std.json.Value,
+    ) ClientError!CallResult {
         // Build request body
         const body = try self.buildRequestBody(allocator, method, params);
         defer allocator.free(body);
@@ -194,15 +339,21 @@ pub const JsonRpcClient = struct {
 
         const response = parsed.value;
 
-        // Check for error
-        if (response.@"error") |_| {
-            return ClientError.RpcError;
+        // Check for error - return full error details
+        if (response.@"error") |json_err| {
+            const rpc_error = json_err.toRpcError(allocator) catch {
+                return ClientError.OutOfMemory;
+            };
+            return CallResult.err(allocator, rpc_error);
         }
 
         // Return result
         if (response.result) |result| {
             // Clone the result since parsed will be freed
-            return try cloneJsonValue(allocator, result);
+            const cloned = cloneJsonValue(allocator, result) catch {
+                return ClientError.OutOfMemory;
+            };
+            return CallResult.success(allocator, cloned);
         }
 
         return ClientError.InvalidResponse;
@@ -284,6 +435,29 @@ fn cloneJsonValue(allocator: Allocator, value: std.json.Value) !std.json.Value {
             break :blk .{ .object = new_obj };
         },
     };
+}
+
+/// Free a JSON value (deep free for cloned values)
+fn freeJsonValue(allocator: Allocator, value: std.json.Value) void {
+    switch (value) {
+        .null, .bool, .integer, .float => {},
+        .number_string => |s| allocator.free(s),
+        .string => |s| allocator.free(s),
+        .array => |arr| {
+            for (arr.items) |item| {
+                freeJsonValue(allocator, item);
+            }
+            @constCast(&arr).deinit();
+        },
+        .object => |obj| {
+            var it = obj.iterator();
+            while (it.next()) |entry| {
+                allocator.free(entry.key_ptr.*);
+                freeJsonValue(allocator, entry.value_ptr.*);
+            }
+            @constCast(&obj).deinit();
+        },
+    }
 }
 
 /// Helper to create JSON array from values
@@ -374,16 +548,80 @@ test "json_rpc: buildRequestBody with params" {
     try std.testing.expect(std.mem.indexOf(u8, body, "test_pubkey") != null);
 }
 
-test "json_rpc: JsonRpcError toRpcError" {
+test "json_rpc: JsonRpcError toRpcErrorUnmanaged" {
     const err = JsonRpcError{
         .code = -32600,
         .message = "Invalid request",
         .data = null,
     };
 
-    const rpc_err = err.toRpcError();
+    const rpc_err = err.toRpcErrorUnmanaged();
     try std.testing.expectEqual(@as(i64, -32600), rpc_err.code);
     try std.testing.expectEqualStrings("Invalid request", rpc_err.message);
+}
+
+test "json_rpc: JsonRpcError toRpcError with allocation" {
+    const allocator = std.testing.allocator;
+
+    const err = JsonRpcError{
+        .code = -32602,
+        .message = "Invalid params",
+        .data = null,
+    };
+
+    const rpc_err = try err.toRpcError(allocator);
+    defer allocator.free(rpc_err.message);
+
+    try std.testing.expectEqual(@as(i64, -32602), rpc_err.code);
+    try std.testing.expectEqualStrings("Invalid params", rpc_err.message);
+}
+
+test "json_rpc: CallResult success" {
+    const allocator = std.testing.allocator;
+
+    const value = try cloneJsonValue(allocator, .{ .integer = 42 });
+    var result = CallResult.success(allocator, value);
+    defer result.deinit();
+
+    try std.testing.expect(result.isSuccess());
+    try std.testing.expect(!result.isError());
+    try std.testing.expectEqual(@as(?i64, null), result.getErrorCode());
+
+    const unwrapped = try result.unwrap();
+    try std.testing.expectEqual(@as(i64, 42), unwrapped.integer);
+}
+
+test "json_rpc: CallResult error" {
+    const allocator = std.testing.allocator;
+
+    const rpc_error = RpcError{
+        .code = -32600,
+        .message = try allocator.dupe(u8, "Invalid request"),
+        .data = null,
+    };
+
+    var result = CallResult.err(allocator, rpc_error);
+    defer result.deinit();
+
+    try std.testing.expect(result.isError());
+    try std.testing.expect(!result.isSuccess());
+    try std.testing.expectEqual(@as(?i64, -32600), result.getErrorCode());
+    try std.testing.expect(result.isErrorCode(-32600));
+    try std.testing.expect(!result.isErrorCode(-32601));
+
+    // unwrap should return error
+    try std.testing.expectError(ClientError.RpcError, result.unwrap());
+}
+
+test "json_rpc: freeJsonValue" {
+    const allocator = std.testing.allocator;
+
+    // Clone a complex value
+    var obj = std.json.ObjectMap.init(allocator);
+    try obj.put(try allocator.dupe(u8, "key"), .{ .string = try allocator.dupe(u8, "value") });
+
+    // Free should not leak
+    freeJsonValue(allocator, .{ .object = obj });
 }
 
 test "json_rpc: helper functions" {

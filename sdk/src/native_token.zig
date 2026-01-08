@@ -113,18 +113,12 @@ pub fn solStrToLamports(sol_str: []const u8) ?u64 {
         // Parse fractional part (after decimal)
         const frac_str = sol_str[pos + 1 ..];
         if (frac_str.len > 0) {
-            if (frac_str.len > SOL_DECIMALS) {
-                // Too many decimal places - could truncate or return null
-                // Following Rust behavior: parse first 9 digits
-                const truncated = frac_str[0..SOL_DECIMALS];
-                fractional_lamports = std.fmt.parseUnsigned(u64, truncated, 10) catch return null;
-            } else {
-                // Pad with zeros to get full lamport precision
-                const parsed = std.fmt.parseUnsigned(u64, frac_str, 10) catch return null;
-                // Multiply by 10^(9 - len) to scale up
-                const scale = std.math.pow(u64, 10, SOL_DECIMALS - @as(u8, @intCast(frac_str.len)));
-                fractional_lamports = parsed * scale;
-            }
+            if (frac_str.len > SOL_DECIMALS) return null; // Too many decimal places
+            // Pad with zeros to get full lamport precision
+            const parsed = std.fmt.parseUnsigned(u64, frac_str, 10) catch return null;
+            // Multiply by 10^(9 - len) to scale up
+            const scale = std.math.pow(u64, 10, SOL_DECIMALS - @as(u8, @intCast(frac_str.len)));
+            fractional_lamports = parsed * scale;
         }
     } else {
         // No decimal point - just an integer SOL amount
@@ -262,8 +256,17 @@ test "native_token: solStrToLamports decimal edge cases" {
     // Just decimal with digits
     try std.testing.expectEqual(@as(?u64, 100_000_000), solStrToLamports(".1"));
 
-    // Trailing zeros
-    try std.testing.expectEqual(@as(?u64, 1_000_000_000), solStrToLamports("1.00000000000"));
+    // Exactly 9 decimal places (max precision) - should work
+    try std.testing.expectEqual(@as(?u64, 1_123_456_789), solStrToLamports("1.123456789"));
+    try std.testing.expectEqual(@as(?u64, 123_456_789), solStrToLamports("0.123456789"));
+
+    // Too many fractional digits (10+ decimals) - should reject, not truncate
+    // This matches Rust SDK behavior: sol_str_to_lamports returns None for >9 decimals
+    try std.testing.expectEqual(@as(?u64, null), solStrToLamports("1.0000000001")); // 10 decimals
+    try std.testing.expectEqual(@as(?u64, null), solStrToLamports("1.00000000000")); // 11 decimals
+    try std.testing.expectEqual(@as(?u64, null), solStrToLamports("0.0000000001")); // 10 decimals
+    try std.testing.expectEqual(@as(?u64, null), solStrToLamports("1.1234567890")); // 10 decimals
+    try std.testing.expectEqual(@as(?u64, null), solStrToLamports("1.12345678901234")); // 14 decimals
 
     // Large integer part
     try std.testing.expectEqual(@as(?u64, 1000_000_000_000), solStrToLamports("1000"));

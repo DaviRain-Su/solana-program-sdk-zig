@@ -49,6 +49,12 @@ pub const TransactionError = error{
     DuplicateInstruction,
     /// Allocation error
     OutOfMemory,
+    /// Signing operation failed
+    SigningFailed,
+    /// Signer keypair not found in account_keys
+    SignerNotFound,
+    /// No allocator provided for operation requiring allocation
+    MissingAllocator,
 };
 
 /// A Solana transaction.
@@ -147,48 +153,59 @@ pub const Transaction = struct {
 
     /// Partially sign the transaction with the given keypairs.
     ///
+    /// Updates the message's recent_blockhash and signs the message with each
+    /// provided keypair. Each keypair's public key must exist in the message's
+    /// account_keys, otherwise SignerNotFound is returned.
+    ///
     /// Rust equivalent: `Transaction::partial_sign`
-    pub fn partialSign(self: *Self, keypairs: []const *Keypair, recent_blockhash: Hash) !void {
-        // Update blockhash in message
-        // Note: In a real implementation, we'd need to modify the message
-        // For now, we just sign with the provided keypairs
-        _ = recent_blockhash;
+    pub fn partialSign(self: *Self, keypairs: []const *Keypair, recent_blockhash: Hash) TransactionError!void {
+        const alloc = self.allocator orelse return TransactionError.MissingAllocator;
 
-        const alloc = self.allocator orelse return TransactionError.OutOfMemory;
+        // Update blockhash in message before signing
+        self.message.recent_blockhash = recent_blockhash;
 
         // Ensure we have signature slots
         if (self.signatures.len == 0) {
             const num_sigs = self.message.header.num_required_signatures;
-            self.signatures = try alloc.alloc(Signature, num_sigs);
+            self.signatures = alloc.alloc(Signature, num_sigs) catch return TransactionError.OutOfMemory;
             for (self.signatures) |*sig| {
                 sig.* = Signature.default();
             }
         }
 
-        // Get message bytes for signing
-        const message_bytes = try self.message.serialize(alloc);
+        // Get message bytes for signing (includes the updated blockhash)
+        const message_bytes = self.message.serialize(alloc) catch return TransactionError.SanitizeFailure;
         defer alloc.free(message_bytes);
 
         // Sign with each keypair
         for (keypairs) |kp| {
             const pk = kp.pubkey();
             // Find the position of this pubkey in account_keys
+            var found = false;
             for (self.message.account_keys, 0..) |account_key, i| {
                 if (std.mem.eql(u8, &pk.bytes, &account_key.bytes)) {
+                    found = true;
                     if (i < self.signatures.len) {
-                        self.signatures[i] = kp.sign(message_bytes) catch return error.SigningFailed;
+                        self.signatures[i] = kp.sign(message_bytes) catch return TransactionError.SigningFailed;
                     }
                     break;
                 }
+            }
+            // Each provided keypair must be found in account_keys
+            if (!found) {
+                return TransactionError.SignerNotFound;
             }
         }
     }
 
     /// Verify all signatures in this transaction.
     ///
+    /// Verifies that all required signatures are present and valid.
+    /// Returns MissingAllocator if no allocator is available for serialization.
+    ///
     /// Rust equivalent: `Transaction::verify`
     pub fn verify(self: Self) TransactionError!void {
-        const alloc = self.allocator orelse return;
+        const alloc = self.allocator orelse return TransactionError.MissingAllocator;
 
         if (self.signatures.len < self.message.header.num_required_signatures) {
             return TransactionError.NotEnoughSigners;
@@ -205,7 +222,11 @@ pub const Transaction = struct {
             if (i >= signer_keys.len) {
                 return TransactionError.NotEnoughSigners;
             }
-            sig.verify(signer_keys[i], message_bytes) catch {
+            // Check for default (unset) signature
+            if (std.mem.eql(u8, &sig.bytes, &[_]u8{0} ** SIGNATURE_BYTES)) {
+                return TransactionError.NotEnoughSigners;
+            }
+            sig.verify(message_bytes, &signer_keys[i].bytes) catch {
                 return TransactionError.SignatureFailure;
             };
         }
@@ -214,9 +235,10 @@ pub const Transaction = struct {
     /// Verify signatures and return a hash of the message.
     ///
     /// Rust equivalent: `Transaction::verify_and_hash_message`
-    pub fn verifyAndHashMessage(self: Self, allocator: std.mem.Allocator) TransactionError!Hash {
+    pub fn verifyAndHashMessage(self: Self) TransactionError!Hash {
         try self.verify();
-        return self.message.hash(allocator) catch {
+        const alloc = self.allocator orelse return TransactionError.MissingAllocator;
+        return self.message.hash(alloc) catch {
             return TransactionError.SanitizeFailure;
         };
     }
@@ -471,4 +493,98 @@ test "transaction: isSigned" {
     // Set a non-zero signature
     tx.signatures[0] = Signature.from([_]u8{1} ** 64);
     try std.testing.expect(tx.isSigned());
+}
+
+test "transaction: partialSign updates blockhash" {
+    const allocator = std.testing.allocator;
+
+    var kp = Keypair.generate();
+    const pk = kp.pubkey();
+
+    const header = MessageHeader{
+        .num_required_signatures = 1,
+        .num_readonly_signed_accounts = 0,
+        .num_readonly_unsigned_accounts = 0,
+    };
+    const keys = [_]PublicKey{pk};
+    const initial_blockhash = Hash.default();
+    const msg = Message.init(header, &keys, initial_blockhash, &[_]CompiledInstruction{});
+
+    var tx = try Transaction.newWithSignatureSlots(allocator, msg);
+    defer tx.deinit();
+
+    // Sign with a new blockhash
+    const new_blockhash = Hash.from([_]u8{0xAB} ** 32);
+    try tx.partialSign(&[_]*Keypair{&kp}, new_blockhash);
+
+    // Message blockhash should be updated
+    try std.testing.expectEqualSlices(u8, &new_blockhash.bytes, &tx.message.recent_blockhash.bytes);
+
+    // Transaction should be signed
+    try std.testing.expect(tx.isSigned());
+}
+
+test "transaction: partialSign returns SignerNotFound for unknown keypair" {
+    const allocator = std.testing.allocator;
+
+    // Create keypair that is NOT in the message
+    var unknown_kp = Keypair.generate();
+
+    // Create message with a different key
+    const header = MessageHeader{
+        .num_required_signatures = 1,
+        .num_readonly_signed_accounts = 0,
+        .num_readonly_unsigned_accounts = 0,
+    };
+    const keys = [_]PublicKey{
+        PublicKey.from([_]u8{1} ** 32), // Different key
+    };
+    const msg = Message.init(header, &keys, Hash.default(), &[_]CompiledInstruction{});
+
+    var tx = try Transaction.newWithSignatureSlots(allocator, msg);
+    defer tx.deinit();
+
+    // Signing with unknown keypair should fail
+    const result = tx.partialSign(&[_]*Keypair{&unknown_kp}, Hash.default());
+    try std.testing.expectError(TransactionError.SignerNotFound, result);
+}
+
+test "transaction: verify returns MissingAllocator for newUnsigned" {
+    const header = MessageHeader{
+        .num_required_signatures = 1,
+        .num_readonly_signed_accounts = 0,
+        .num_readonly_unsigned_accounts = 0,
+    };
+    const keys = [_]PublicKey{
+        PublicKey.from([_]u8{1} ** 32),
+    };
+    const msg = Message.init(header, &keys, Hash.default(), &[_]CompiledInstruction{});
+
+    // newUnsigned has no allocator
+    const tx = Transaction.newUnsigned(msg);
+
+    // verify should return MissingAllocator
+    const result = tx.verify();
+    try std.testing.expectError(TransactionError.MissingAllocator, result);
+}
+
+test "transaction: verify returns NotEnoughSigners for zero signatures" {
+    const allocator = std.testing.allocator;
+
+    const header = MessageHeader{
+        .num_required_signatures = 1,
+        .num_readonly_signed_accounts = 0,
+        .num_readonly_unsigned_accounts = 0,
+    };
+    const keys = [_]PublicKey{
+        PublicKey.from([_]u8{1} ** 32),
+    };
+    const msg = Message.init(header, &keys, Hash.default(), &[_]CompiledInstruction{});
+
+    var tx = try Transaction.newWithSignatureSlots(allocator, msg);
+    defer tx.deinit();
+
+    // Signatures are all zeros (default) - verify should fail
+    const result = tx.verify();
+    try std.testing.expectError(TransactionError.NotEnoughSigners, result);
 }

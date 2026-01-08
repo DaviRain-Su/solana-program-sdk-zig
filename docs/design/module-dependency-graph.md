@@ -330,8 +330,8 @@ src/
 
 ## Verification Checklist
 
-- [ ] All SDK modules compile independently (`sdk/build.zig`)
-- [ ] No SDK module imports syscalls, bpf, or log
-- [ ] Program SDK depends on SDK (`build.zig.zon`)
-- [ ] All 375 tests pass after restructure
-- [ ] Example programs still work
+- [x] All SDK modules compile independently (`sdk/build.zig`)
+- [x] No SDK module imports syscalls, bpf, or log
+- [x] Program SDK depends on SDK (`build.zig.zon`)
+- [x] All tests pass after restructure (SDK: 305, Program SDK: 297)
+- [x] Example programs still work

@@ -52,6 +52,22 @@ pub const EPOCH_REWARDS = PublicKey.comptimeFromBase58("SysvarEpochRewards111111
 /// The LastRestartSlot sysvar contains the slot number of the last network restart.
 pub const LAST_RESTART_SLOT = PublicKey.comptimeFromBase58("SysvarLastRestartS1ot1111111111111111111111");
 
+/// Recent blockhashes sysvar public key
+///
+/// The RecentBlockhashes sysvar contains recent block hashes.
+/// Note: This sysvar is deprecated but still used by nonce operations.
+pub const RECENT_BLOCKHASHES = PublicKey.comptimeFromBase58("SysvarRecentB1ockHashes11111111111111111111");
+
+/// Epoch schedule sysvar public key
+///
+/// The EpochSchedule sysvar contains the epoch schedule parameters.
+pub const EPOCH_SCHEDULE = PublicKey.comptimeFromBase58("SysvarEpochSchedu1e111111111111111111111111");
+
+/// Fees sysvar public key (deprecated)
+///
+/// The Fees sysvar contained fee rate information. Now deprecated.
+pub const FEES = PublicKey.comptimeFromBase58("SysvarFees111111111111111111111111111111111");
+
 /// All sysvar IDs as an array
 ///
 /// This array contains all the sysvar public keys for convenience.
@@ -64,6 +80,9 @@ pub const ALL_IDS = [_]PublicKey{
     INSTRUCTIONS,
     EPOCH_REWARDS,
     LAST_RESTART_SLOT,
+    RECENT_BLOCKHASHES,
+    EPOCH_SCHEDULE,
+    FEES,
 };
 
 // ============================================================================
@@ -127,7 +146,7 @@ test "sysvar-ids: LAST_RESTART_SLOT constant" {
 }
 
 test "sysvar-ids: ALL_IDS array" {
-    try std.testing.expectEqual(@as(usize, 8), ALL_IDS.len);
+    try std.testing.expectEqual(@as(usize, 11), ALL_IDS.len);
 
     // Verify all IDs are present
     try std.testing.expect(CLOCK.equals(ALL_IDS[0]));
@@ -138,6 +157,9 @@ test "sysvar-ids: ALL_IDS array" {
     try std.testing.expect(INSTRUCTIONS.equals(ALL_IDS[5]));
     try std.testing.expect(EPOCH_REWARDS.equals(ALL_IDS[6]));
     try std.testing.expect(LAST_RESTART_SLOT.equals(ALL_IDS[7]));
+    try std.testing.expect(RECENT_BLOCKHASHES.equals(ALL_IDS[8]));
+    try std.testing.expect(EPOCH_SCHEDULE.equals(ALL_IDS[9]));
+    try std.testing.expect(FEES.equals(ALL_IDS[10]));
 }
 
 test "sysvar-ids: no duplicate IDs" {

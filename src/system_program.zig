@@ -9,6 +9,7 @@
 const std = @import("std");
 const PublicKey = @import("public_key.zig").PublicKey;
 const AccountMeta = @import("instruction.zig").AccountMeta;
+const sysvar_id = @import("sysvar_id.zig");
 
 /// Built instruction data for transaction building
 /// This is used for off-chain instruction creation (not CPI)
@@ -342,6 +343,317 @@ pub fn allocate(
     };
 }
 
+/// Create a CreateAccountWithSeed instruction
+///
+/// Rust equivalent: `system_instruction::create_account_with_seed`
+pub fn createAccountWithSeed(
+    allocator: std.mem.Allocator,
+    from_pubkey: PublicKey,
+    to_pubkey: PublicKey,
+    base: PublicKey,
+    seed: []const u8,
+    lamports: u64,
+    space: u64,
+    owner: PublicKey,
+) !BuiltInstruction {
+    // CreateAccountWithSeed: 4 (index) + 32 (base) + 4 (seed len) + seed + 8 (lamports) + 8 (space) + 32 (owner)
+    const data_len = 4 + 32 + 4 + seed.len + 8 + 8 + 32;
+    var data = try std.ArrayList(u8).initCapacity(allocator, data_len);
+    errdefer data.deinit(allocator);
+
+    // Instruction index: 3 = CreateAccountWithSeed
+    data.appendSliceAssumeCapacity(&[_]u8{ 3, 0, 0, 0 });
+    // base (32 bytes)
+    data.appendSliceAssumeCapacity(&base.bytes);
+    // seed length (u32 little-endian) + seed bytes
+    data.appendSliceAssumeCapacity(&std.mem.toBytes(@as(u32, @intCast(seed.len))));
+    try data.appendSlice(allocator, seed);
+    // lamports (u64 little-endian)
+    try data.appendSlice(allocator, &std.mem.toBytes(lamports));
+    // space (u64 little-endian)
+    try data.appendSlice(allocator, &std.mem.toBytes(space));
+    // owner (32 bytes)
+    try data.appendSlice(allocator, &owner.bytes);
+
+    var accounts = try std.ArrayList(AccountMeta).initCapacity(allocator, 3);
+    errdefer accounts.deinit(allocator);
+    accounts.appendAssumeCapacity(AccountMeta.init(from_pubkey, true, true));
+    accounts.appendAssumeCapacity(AccountMeta.init(to_pubkey, false, true));
+    // Base account only needs to be signer if it's different from from_pubkey
+    const base_is_signer = !base.equals(from_pubkey);
+    accounts.appendAssumeCapacity(AccountMeta.init(base, base_is_signer, false));
+
+    return BuiltInstruction{
+        .program_id = id,
+        .accounts = try accounts.toOwnedSlice(allocator),
+        .data = try data.toOwnedSlice(allocator),
+    };
+}
+
+/// Create an AdvanceNonceAccount instruction
+///
+/// Rust equivalent: `system_instruction::advance_nonce_account`
+pub fn advanceNonceAccount(
+    allocator: std.mem.Allocator,
+    nonce_pubkey: PublicKey,
+    authorized_pubkey: PublicKey,
+) !BuiltInstruction {
+    // AdvanceNonceAccount: 4 (index) = 4 bytes
+    var data = try std.ArrayList(u8).initCapacity(allocator, 4);
+    errdefer data.deinit(allocator);
+
+    // Instruction index: 4 = AdvanceNonceAccount
+    data.appendSliceAssumeCapacity(&[_]u8{ 4, 0, 0, 0 });
+
+    var accounts = try std.ArrayList(AccountMeta).initCapacity(allocator, 3);
+    errdefer accounts.deinit(allocator);
+    accounts.appendAssumeCapacity(AccountMeta.init(nonce_pubkey, false, true));
+    accounts.appendAssumeCapacity(AccountMeta.init(sysvar_id.RECENT_BLOCKHASHES, false, false));
+    accounts.appendAssumeCapacity(AccountMeta.init(authorized_pubkey, true, false));
+
+    return BuiltInstruction{
+        .program_id = id,
+        .accounts = try accounts.toOwnedSlice(allocator),
+        .data = try data.toOwnedSlice(allocator),
+    };
+}
+
+/// Create a WithdrawNonceAccount instruction
+///
+/// Rust equivalent: `system_instruction::withdraw_nonce_account`
+pub fn withdrawNonceAccount(
+    allocator: std.mem.Allocator,
+    nonce_pubkey: PublicKey,
+    authorized_pubkey: PublicKey,
+    to_pubkey: PublicKey,
+    lamports: u64,
+) !BuiltInstruction {
+    // WithdrawNonceAccount: 4 (index) + 8 (lamports) = 12 bytes
+    var data = try std.ArrayList(u8).initCapacity(allocator, 12);
+    errdefer data.deinit(allocator);
+
+    // Instruction index: 5 = WithdrawNonceAccount
+    data.appendSliceAssumeCapacity(&[_]u8{ 5, 0, 0, 0 });
+    // lamports (u64 little-endian)
+    data.appendSliceAssumeCapacity(&std.mem.toBytes(lamports));
+
+    var accounts = try std.ArrayList(AccountMeta).initCapacity(allocator, 5);
+    errdefer accounts.deinit(allocator);
+    accounts.appendAssumeCapacity(AccountMeta.init(nonce_pubkey, false, true));
+    accounts.appendAssumeCapacity(AccountMeta.init(to_pubkey, false, true));
+    accounts.appendAssumeCapacity(AccountMeta.init(sysvar_id.RECENT_BLOCKHASHES, false, false));
+    accounts.appendAssumeCapacity(AccountMeta.init(sysvar_id.RENT, false, false));
+    accounts.appendAssumeCapacity(AccountMeta.init(authorized_pubkey, true, false));
+
+    return BuiltInstruction{
+        .program_id = id,
+        .accounts = try accounts.toOwnedSlice(allocator),
+        .data = try data.toOwnedSlice(allocator),
+    };
+}
+
+/// Create an InitializeNonceAccount instruction
+///
+/// Rust equivalent: `system_instruction::initialize_nonce_account`
+pub fn initializeNonceAccount(
+    allocator: std.mem.Allocator,
+    nonce_pubkey: PublicKey,
+    authority: PublicKey,
+) !BuiltInstruction {
+    // InitializeNonceAccount: 4 (index) + 32 (authority) = 36 bytes
+    var data = try std.ArrayList(u8).initCapacity(allocator, 36);
+    errdefer data.deinit(allocator);
+
+    // Instruction index: 6 = InitializeNonceAccount
+    data.appendSliceAssumeCapacity(&[_]u8{ 6, 0, 0, 0 });
+    // authority (32 bytes)
+    data.appendSliceAssumeCapacity(&authority.bytes);
+
+    var accounts = try std.ArrayList(AccountMeta).initCapacity(allocator, 3);
+    errdefer accounts.deinit(allocator);
+    accounts.appendAssumeCapacity(AccountMeta.init(nonce_pubkey, false, true));
+    accounts.appendAssumeCapacity(AccountMeta.init(sysvar_id.RECENT_BLOCKHASHES, false, false));
+    accounts.appendAssumeCapacity(AccountMeta.init(sysvar_id.RENT, false, false));
+
+    return BuiltInstruction{
+        .program_id = id,
+        .accounts = try accounts.toOwnedSlice(allocator),
+        .data = try data.toOwnedSlice(allocator),
+    };
+}
+
+/// Create an AuthorizeNonceAccount instruction
+///
+/// Rust equivalent: `system_instruction::authorize_nonce_account`
+pub fn authorizeNonceAccount(
+    allocator: std.mem.Allocator,
+    nonce_pubkey: PublicKey,
+    authorized_pubkey: PublicKey,
+    new_authority: PublicKey,
+) !BuiltInstruction {
+    // AuthorizeNonceAccount: 4 (index) + 32 (new authority) = 36 bytes
+    var data = try std.ArrayList(u8).initCapacity(allocator, 36);
+    errdefer data.deinit(allocator);
+
+    // Instruction index: 7 = AuthorizeNonceAccount
+    data.appendSliceAssumeCapacity(&[_]u8{ 7, 0, 0, 0 });
+    // new authority (32 bytes)
+    data.appendSliceAssumeCapacity(&new_authority.bytes);
+
+    var accounts = try std.ArrayList(AccountMeta).initCapacity(allocator, 2);
+    errdefer accounts.deinit(allocator);
+    accounts.appendAssumeCapacity(AccountMeta.init(nonce_pubkey, false, true));
+    accounts.appendAssumeCapacity(AccountMeta.init(authorized_pubkey, true, false));
+
+    return BuiltInstruction{
+        .program_id = id,
+        .accounts = try accounts.toOwnedSlice(allocator),
+        .data = try data.toOwnedSlice(allocator),
+    };
+}
+
+/// Create an AllocateWithSeed instruction
+///
+/// Rust equivalent: `system_instruction::allocate_with_seed`
+pub fn allocateWithSeed(
+    allocator: std.mem.Allocator,
+    address: PublicKey,
+    base: PublicKey,
+    seed: []const u8,
+    space: u64,
+    owner: PublicKey,
+) !BuiltInstruction {
+    // AllocateWithSeed: 4 (index) + 32 (base) + 4 (seed len) + seed + 8 (space) + 32 (owner)
+    const data_len = 4 + 32 + 4 + seed.len + 8 + 32;
+    var data = try std.ArrayList(u8).initCapacity(allocator, data_len);
+    errdefer data.deinit(allocator);
+
+    // Instruction index: 9 = AllocateWithSeed
+    data.appendSliceAssumeCapacity(&[_]u8{ 9, 0, 0, 0 });
+    // base (32 bytes)
+    data.appendSliceAssumeCapacity(&base.bytes);
+    // seed length (u32 little-endian) + seed bytes
+    data.appendSliceAssumeCapacity(&std.mem.toBytes(@as(u32, @intCast(seed.len))));
+    try data.appendSlice(allocator, seed);
+    // space (u64 little-endian)
+    try data.appendSlice(allocator, &std.mem.toBytes(space));
+    // owner (32 bytes)
+    try data.appendSlice(allocator, &owner.bytes);
+
+    var accounts = try std.ArrayList(AccountMeta).initCapacity(allocator, 2);
+    errdefer accounts.deinit(allocator);
+    accounts.appendAssumeCapacity(AccountMeta.init(address, false, true));
+    accounts.appendAssumeCapacity(AccountMeta.init(base, true, false));
+
+    return BuiltInstruction{
+        .program_id = id,
+        .accounts = try accounts.toOwnedSlice(allocator),
+        .data = try data.toOwnedSlice(allocator),
+    };
+}
+
+/// Create an AssignWithSeed instruction
+///
+/// Rust equivalent: `system_instruction::assign_with_seed`
+pub fn assignWithSeed(
+    allocator: std.mem.Allocator,
+    address: PublicKey,
+    base: PublicKey,
+    seed: []const u8,
+    owner: PublicKey,
+) !BuiltInstruction {
+    // AssignWithSeed: 4 (index) + 32 (base) + 4 (seed len) + seed + 32 (owner)
+    const data_len = 4 + 32 + 4 + seed.len + 32;
+    var data = try std.ArrayList(u8).initCapacity(allocator, data_len);
+    errdefer data.deinit(allocator);
+
+    // Instruction index: 10 = AssignWithSeed
+    data.appendSliceAssumeCapacity(&[_]u8{ 10, 0, 0, 0 });
+    // base (32 bytes)
+    data.appendSliceAssumeCapacity(&base.bytes);
+    // seed length (u32 little-endian) + seed bytes
+    data.appendSliceAssumeCapacity(&std.mem.toBytes(@as(u32, @intCast(seed.len))));
+    try data.appendSlice(allocator, seed);
+    // owner (32 bytes)
+    try data.appendSlice(allocator, &owner.bytes);
+
+    var accounts = try std.ArrayList(AccountMeta).initCapacity(allocator, 2);
+    errdefer accounts.deinit(allocator);
+    accounts.appendAssumeCapacity(AccountMeta.init(address, false, true));
+    accounts.appendAssumeCapacity(AccountMeta.init(base, true, false));
+
+    return BuiltInstruction{
+        .program_id = id,
+        .accounts = try accounts.toOwnedSlice(allocator),
+        .data = try data.toOwnedSlice(allocator),
+    };
+}
+
+/// Create a TransferWithSeed instruction
+///
+/// Rust equivalent: `system_instruction::transfer_with_seed`
+pub fn transferWithSeed(
+    allocator: std.mem.Allocator,
+    from_pubkey: PublicKey,
+    from_base: PublicKey,
+    from_seed: []const u8,
+    from_owner: PublicKey,
+    to_pubkey: PublicKey,
+    lamports: u64,
+) !BuiltInstruction {
+    // TransferWithSeed: 4 (index) + 8 (lamports) + 4 (seed len) + seed + 32 (owner)
+    const data_len = 4 + 8 + 4 + from_seed.len + 32;
+    var data = try std.ArrayList(u8).initCapacity(allocator, data_len);
+    errdefer data.deinit(allocator);
+
+    // Instruction index: 11 = TransferWithSeed
+    data.appendSliceAssumeCapacity(&[_]u8{ 11, 0, 0, 0 });
+    // lamports (u64 little-endian)
+    data.appendSliceAssumeCapacity(&std.mem.toBytes(lamports));
+    // seed length (u32 little-endian) + seed bytes
+    data.appendSliceAssumeCapacity(&std.mem.toBytes(@as(u32, @intCast(from_seed.len))));
+    try data.appendSlice(allocator, from_seed);
+    // from_owner (32 bytes)
+    try data.appendSlice(allocator, &from_owner.bytes);
+
+    var accounts = try std.ArrayList(AccountMeta).initCapacity(allocator, 3);
+    errdefer accounts.deinit(allocator);
+    accounts.appendAssumeCapacity(AccountMeta.init(from_pubkey, false, true));
+    accounts.appendAssumeCapacity(AccountMeta.init(from_base, true, false));
+    accounts.appendAssumeCapacity(AccountMeta.init(to_pubkey, false, true));
+
+    return BuiltInstruction{
+        .program_id = id,
+        .accounts = try accounts.toOwnedSlice(allocator),
+        .data = try data.toOwnedSlice(allocator),
+    };
+}
+
+/// Create an UpgradeNonceAccount instruction
+///
+/// Rust equivalent: `system_instruction::upgrade_nonce_account`
+pub fn upgradeNonceAccount(
+    allocator: std.mem.Allocator,
+    nonce_pubkey: PublicKey,
+) !BuiltInstruction {
+    // UpgradeNonceAccount: 4 (index) = 4 bytes
+    var data = try std.ArrayList(u8).initCapacity(allocator, 4);
+    errdefer data.deinit(allocator);
+
+    // Instruction index: 12 = UpgradeNonceAccount
+    data.appendSliceAssumeCapacity(&[_]u8{ 12, 0, 0, 0 });
+
+    var accounts = try std.ArrayList(AccountMeta).initCapacity(allocator, 1);
+    errdefer accounts.deinit(allocator);
+    accounts.appendAssumeCapacity(AccountMeta.init(nonce_pubkey, false, true));
+
+    return BuiltInstruction{
+        .program_id = id,
+        .accounts = try accounts.toOwnedSlice(allocator),
+        .data = try data.toOwnedSlice(allocator),
+    };
+}
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -434,4 +746,188 @@ test "system_program: allocate instruction" {
 
 test "system_program: max permitted data length" {
     try std.testing.expectEqual(@as(u64, 10 * 1024 * 1024), MAX_PERMITTED_DATA_LENGTH);
+}
+
+test "system_program: create account with seed instruction" {
+    const allocator = std.testing.allocator;
+
+    const from = PublicKey.from([_]u8{1} ** 32);
+    const to = PublicKey.from([_]u8{2} ** 32);
+    const base = PublicKey.from([_]u8{3} ** 32);
+    const owner = PublicKey.from([_]u8{4} ** 32);
+    const seed = "test_seed";
+
+    var ix = try createAccountWithSeed(allocator, from, to, base, seed, 1_000_000, 165, owner);
+    defer ix.deinit(allocator);
+
+    // Verify instruction index (3 = CreateAccountWithSeed)
+    try std.testing.expectEqual(@as(u8, 3), ix.data[0]);
+
+    // Verify accounts (from, to, base)
+    try std.testing.expectEqual(@as(usize, 3), ix.accounts.len);
+    try std.testing.expect(ix.accounts[0].is_signer); // from
+    try std.testing.expect(ix.accounts[0].is_writable);
+    try std.testing.expect(!ix.accounts[1].is_signer); // to (not signer)
+    try std.testing.expect(ix.accounts[1].is_writable);
+    try std.testing.expect(ix.accounts[2].is_signer); // base (signer when different from from)
+}
+
+test "system_program: advance nonce account instruction" {
+    const allocator = std.testing.allocator;
+
+    const nonce = PublicKey.from([_]u8{1} ** 32);
+    const authority = PublicKey.from([_]u8{2} ** 32);
+
+    var ix = try advanceNonceAccount(allocator, nonce, authority);
+    defer ix.deinit(allocator);
+
+    // Verify instruction index (4 = AdvanceNonceAccount)
+    try std.testing.expectEqual(@as(u8, 4), ix.data[0]);
+
+    // Verify accounts (nonce, recent_blockhashes, authority)
+    try std.testing.expectEqual(@as(usize, 3), ix.accounts.len);
+    try std.testing.expect(!ix.accounts[0].is_signer); // nonce
+    try std.testing.expect(ix.accounts[0].is_writable);
+    try std.testing.expect(!ix.accounts[1].is_signer); // recent_blockhashes sysvar
+    try std.testing.expect(!ix.accounts[1].is_writable);
+    try std.testing.expect(ix.accounts[2].is_signer); // authority
+}
+
+test "system_program: withdraw nonce account instruction" {
+    const allocator = std.testing.allocator;
+
+    const nonce = PublicKey.from([_]u8{1} ** 32);
+    const authority = PublicKey.from([_]u8{2} ** 32);
+    const to = PublicKey.from([_]u8{3} ** 32);
+
+    var ix = try withdrawNonceAccount(allocator, nonce, authority, to, 500_000);
+    defer ix.deinit(allocator);
+
+    // Verify instruction index (5 = WithdrawNonceAccount)
+    try std.testing.expectEqual(@as(u8, 5), ix.data[0]);
+
+    // Verify lamports
+    const lamports = std.mem.readInt(u64, ix.data[4..12], .little);
+    try std.testing.expectEqual(@as(u64, 500_000), lamports);
+
+    // Verify accounts (nonce, to, recent_blockhashes, rent, authority)
+    try std.testing.expectEqual(@as(usize, 5), ix.accounts.len);
+}
+
+test "system_program: initialize nonce account instruction" {
+    const allocator = std.testing.allocator;
+
+    const nonce = PublicKey.from([_]u8{1} ** 32);
+    const authority = PublicKey.from([_]u8{2} ** 32);
+
+    var ix = try initializeNonceAccount(allocator, nonce, authority);
+    defer ix.deinit(allocator);
+
+    // Verify instruction index (6 = InitializeNonceAccount)
+    try std.testing.expectEqual(@as(u8, 6), ix.data[0]);
+
+    // Verify authority in data
+    try std.testing.expectEqualSlices(u8, &authority.bytes, ix.data[4..36]);
+
+    // Verify accounts (nonce, recent_blockhashes, rent)
+    try std.testing.expectEqual(@as(usize, 3), ix.accounts.len);
+}
+
+test "system_program: authorize nonce account instruction" {
+    const allocator = std.testing.allocator;
+
+    const nonce = PublicKey.from([_]u8{1} ** 32);
+    const authority = PublicKey.from([_]u8{2} ** 32);
+    const new_authority = PublicKey.from([_]u8{3} ** 32);
+
+    var ix = try authorizeNonceAccount(allocator, nonce, authority, new_authority);
+    defer ix.deinit(allocator);
+
+    // Verify instruction index (7 = AuthorizeNonceAccount)
+    try std.testing.expectEqual(@as(u8, 7), ix.data[0]);
+
+    // Verify new authority in data
+    try std.testing.expectEqualSlices(u8, &new_authority.bytes, ix.data[4..36]);
+
+    // Verify accounts (nonce, authority)
+    try std.testing.expectEqual(@as(usize, 2), ix.accounts.len);
+    try std.testing.expect(ix.accounts[1].is_signer); // authority must sign
+}
+
+test "system_program: allocate with seed instruction" {
+    const allocator = std.testing.allocator;
+
+    const address = PublicKey.from([_]u8{1} ** 32);
+    const base = PublicKey.from([_]u8{2} ** 32);
+    const owner = PublicKey.from([_]u8{3} ** 32);
+    const seed = "allocate_seed";
+
+    var ix = try allocateWithSeed(allocator, address, base, seed, 2048, owner);
+    defer ix.deinit(allocator);
+
+    // Verify instruction index (9 = AllocateWithSeed)
+    try std.testing.expectEqual(@as(u8, 9), ix.data[0]);
+
+    // Verify accounts (address, base)
+    try std.testing.expectEqual(@as(usize, 2), ix.accounts.len);
+    try std.testing.expect(ix.accounts[1].is_signer); // base must sign
+}
+
+test "system_program: assign with seed instruction" {
+    const allocator = std.testing.allocator;
+
+    const address = PublicKey.from([_]u8{1} ** 32);
+    const base = PublicKey.from([_]u8{2} ** 32);
+    const owner = PublicKey.from([_]u8{3} ** 32);
+    const seed = "assign_seed";
+
+    var ix = try assignWithSeed(allocator, address, base, seed, owner);
+    defer ix.deinit(allocator);
+
+    // Verify instruction index (10 = AssignWithSeed)
+    try std.testing.expectEqual(@as(u8, 10), ix.data[0]);
+
+    // Verify accounts (address, base)
+    try std.testing.expectEqual(@as(usize, 2), ix.accounts.len);
+    try std.testing.expect(ix.accounts[1].is_signer); // base must sign
+}
+
+test "system_program: transfer with seed instruction" {
+    const allocator = std.testing.allocator;
+
+    const from = PublicKey.from([_]u8{1} ** 32);
+    const from_base = PublicKey.from([_]u8{2} ** 32);
+    const from_owner = PublicKey.from([_]u8{3} ** 32);
+    const to = PublicKey.from([_]u8{4} ** 32);
+    const seed = "transfer_seed";
+
+    var ix = try transferWithSeed(allocator, from, from_base, seed, from_owner, to, 1_000_000);
+    defer ix.deinit(allocator);
+
+    // Verify instruction index (11 = TransferWithSeed)
+    try std.testing.expectEqual(@as(u8, 11), ix.data[0]);
+
+    // Verify lamports
+    const lamports = std.mem.readInt(u64, ix.data[4..12], .little);
+    try std.testing.expectEqual(@as(u64, 1_000_000), lamports);
+
+    // Verify accounts (from, from_base, to)
+    try std.testing.expectEqual(@as(usize, 3), ix.accounts.len);
+    try std.testing.expect(ix.accounts[1].is_signer); // from_base must sign
+}
+
+test "system_program: upgrade nonce account instruction" {
+    const allocator = std.testing.allocator;
+
+    const nonce = PublicKey.from([_]u8{1} ** 32);
+
+    var ix = try upgradeNonceAccount(allocator, nonce);
+    defer ix.deinit(allocator);
+
+    // Verify instruction index (12 = UpgradeNonceAccount)
+    try std.testing.expectEqual(@as(u8, 12), ix.data[0]);
+
+    // Verify accounts (nonce only)
+    try std.testing.expectEqual(@as(usize, 1), ix.accounts.len);
+    try std.testing.expect(ix.accounts[0].is_writable);
 }

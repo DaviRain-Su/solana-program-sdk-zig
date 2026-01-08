@@ -122,6 +122,10 @@ pub const Signer = struct {
 /// All required signers must be provided. If the blockhash differs from
 /// the transaction's current blockhash, existing signatures will be cleared.
 ///
+/// This function performs full signature verification after signing to ensure
+/// all signatures are valid. Use `partialSignTransaction` for multi-party
+/// signing workflows where not all signers are available at once.
+///
 /// ## Parameters
 /// - `tx`: The transaction to sign
 /// - `signers`: Array of keypair pointers to sign with
@@ -129,7 +133,7 @@ pub const Signer = struct {
 ///
 /// ## Errors
 /// - `NotEnoughSigners` if not all required signers are provided
-/// - `MissingSigner` if a required signer's keypair is not in the array
+/// - `SignatureVerificationFailed` if any signature is invalid
 pub fn signTransaction(
     tx: *BuiltTransaction,
     signers: []const *const Keypair,
@@ -149,10 +153,9 @@ pub fn signTransaction(
     // Perform partial sign
     try partialSignTransaction(tx, signers, recent_blockhash);
 
-    // Verify all signatures are present
-    if (!tx.isSigned()) {
-        return SignerError.NotEnoughSigners;
-    }
+    // Verify all signatures are present AND valid
+    // This is more robust than just checking isSigned() which only checks for non-zero bytes
+    try verifyTransaction(tx.*);
 }
 
 /// Partially sign a transaction with a subset of required signers.
@@ -430,4 +433,106 @@ test "signer: getSignerPositions" {
     try std.testing.expectEqual(@as(?usize, 0), positions[0]); // kp1 at position 0
     try std.testing.expectEqual(@as(?usize, null), positions[1]); // kp3 not found
     try std.testing.expectEqual(@as(?usize, 1), positions[2]); // kp2 at position 1
+}
+
+test "signer: signTransaction with real signatures" {
+    const allocator = std.testing.allocator;
+
+    // Create a real keypair for the fee payer
+    const fee_payer_kp = Keypair.generate();
+    const program_id = PublicKey.from([_]u8{3} ** 32);
+    const blockhash = Hash.from([_]u8{2} ** 32);
+
+    // Build a transaction
+    var tx_builder = builder.TransactionBuilder.init(allocator);
+    defer tx_builder.deinit();
+
+    _ = tx_builder.setFeePayer(fee_payer_kp.pubkey());
+    _ = tx_builder.setRecentBlockhash(blockhash);
+
+    _ = try tx_builder.addInstruction(.{
+        .program_id = program_id,
+        .accounts = &[_]sdk.AccountMeta{},
+        .data = &[_]u8{ 0x01, 0x02, 0x03 },
+    });
+
+    var tx = try tx_builder.build();
+    defer tx.deinit();
+
+    // Transaction should not be signed yet
+    try std.testing.expect(!tx.isSigned());
+
+    // Sign the transaction - this now verifies signatures are valid
+    try signTransaction(&tx, &[_]*const Keypair{&fee_payer_kp}, blockhash);
+
+    // Transaction should now be signed
+    try std.testing.expect(tx.isSigned());
+
+    // Verify transaction should also pass
+    try verifyTransaction(tx);
+}
+
+test "signer: verifyTransaction fails with invalid signature" {
+    const allocator = std.testing.allocator;
+
+    const fee_payer = PublicKey.from([_]u8{1} ** 32);
+    const program_id = PublicKey.from([_]u8{3} ** 32);
+    const blockhash = Hash.from([_]u8{2} ** 32);
+
+    // Build a transaction
+    var tx_builder = builder.TransactionBuilder.init(allocator);
+    defer tx_builder.deinit();
+
+    _ = tx_builder.setFeePayer(fee_payer);
+    _ = tx_builder.setRecentBlockhash(blockhash);
+
+    _ = try tx_builder.addInstruction(.{
+        .program_id = program_id,
+        .accounts = &[_]sdk.AccountMeta{},
+        .data = &[_]u8{},
+    });
+
+    var tx = try tx_builder.build();
+    defer tx.deinit();
+
+    // Manually set invalid (but non-zero) signature bytes
+    tx.signatures = try allocator.alloc(Signature, 1);
+    tx.signatures.?[0] = Signature.from([_]u8{0xFF} ** 64);
+
+    // isSigned() returns true (presence check only)
+    try std.testing.expect(tx.isSigned());
+
+    // But verifyTransaction() should fail because the signature is invalid
+    try std.testing.expectError(SignerError.SignatureVerificationFailed, verifyTransaction(tx));
+}
+
+test "signer: signTransaction fails with missing signer" {
+    const allocator = std.testing.allocator;
+
+    // Create a keypair that's NOT the fee payer
+    const wrong_kp = Keypair.generate();
+    const fee_payer = PublicKey.from([_]u8{1} ** 32); // Different from wrong_kp
+    const program_id = PublicKey.from([_]u8{3} ** 32);
+    const blockhash = Hash.from([_]u8{2} ** 32);
+
+    // Build a transaction
+    var tx_builder = builder.TransactionBuilder.init(allocator);
+    defer tx_builder.deinit();
+
+    _ = tx_builder.setFeePayer(fee_payer);
+    _ = tx_builder.setRecentBlockhash(blockhash);
+
+    _ = try tx_builder.addInstruction(.{
+        .program_id = program_id,
+        .accounts = &[_]sdk.AccountMeta{},
+        .data = &[_]u8{},
+    });
+
+    var tx = try tx_builder.build();
+    defer tx.deinit();
+
+    // Try to sign with wrong keypair - signTransaction should fail
+    // because it verifies signatures after signing
+    const result = signTransaction(&tx, &[_]*const Keypair{&wrong_kp}, blockhash);
+    try std.testing.expectError(SignerError.NotEnoughSigners, result);
 }

@@ -491,7 +491,21 @@ pub const BuiltTransaction = struct {
         }
     }
 
-    /// Check if the transaction is fully signed.
+    /// Check if the transaction has all required signature slots filled.
+    ///
+    /// **IMPORTANT**: This is a presence check only - it verifies that all
+    /// required signature slots contain non-zero bytes, but does NOT validate
+    /// that the signatures are cryptographically correct.
+    ///
+    /// For signature validation, use `signer.verifyTransaction()` which performs
+    /// full cryptographic verification of each signature against the message.
+    ///
+    /// ## Use Cases
+    /// - Quick check before serialization
+    /// - Multi-party signing progress tracking
+    ///
+    /// ## Returns
+    /// `true` if all required signature slots are non-zero, `false` otherwise
     pub fn isSigned(self: Self) bool {
         const sigs = self.signatures orelse return false;
         const num_required = self.message.header.num_required_signatures;
@@ -757,7 +771,7 @@ test "builder: serialize unsigned transaction" {
     try std.testing.expectEqual(@as(u8, 0), serialized[0]);
 }
 
-test "builder: isSigned check" {
+test "builder: isSigned is presence check only" {
     const allocator = std.testing.allocator;
     var builder = TransactionBuilder.init(allocator);
     defer builder.deinit();
@@ -781,12 +795,18 @@ test "builder: isSigned check" {
     // Unsigned transaction should not be signed
     try std.testing.expect(!tx.isSigned());
 
-    // Manually set a signature
+    // Manually set arbitrary non-zero bytes as "signature"
+    // NOTE: isSigned() only checks for non-zero bytes (presence check),
+    // it does NOT validate that signatures are cryptographically correct.
+    // For actual validation, use signer.verifyTransaction().
     tx.signatures = try allocator.alloc(Signature, 1);
     tx.signatures.?[0] = Signature.from([_]u8{0xFF} ** 64);
 
-    // Now should be signed
+    // isSigned() returns true because slots are non-zero (presence check)
     try std.testing.expect(tx.isSigned());
+
+    // However, these bytes are NOT a valid Ed25519 signature!
+    // Callers should use verifyTransaction() for cryptographic validation.
 }
 
 test "encodeShortVec: small values" {

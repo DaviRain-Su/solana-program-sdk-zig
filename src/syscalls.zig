@@ -9,7 +9,11 @@
 //! Each syscall constant is the MurmurHash3-32 hash of the syscall name,
 //! which the Solana BPF/SBF runtime resolves to the actual implementation.
 
+const std = @import("std");
 const builtin = @import("builtin");
+
+const Account = @import("account.zig").Account;
+const Instruction = @import("instruction.zig").Instruction;
 
 /// Check if we're running as a BPF/SBF program
 pub const is_bpf_program = !builtin.is_test and
@@ -98,11 +102,45 @@ pub const sol_try_find_program_address = @as(*align(1) const fn ([*]const [*]con
 
 /// sol_invoke_signed_c
 /// Hash: 0xa22b9c85
-pub const sol_invoke_signed_c = @as(*align(1) const fn ([*]const u8, [*]const u8, u64, [*]const u8, u64) callconv(.c) u64, @ptrFromInt(0xa22b9c85));
+///
+/// Invokes a cross-program instruction using the C ABI format.
+/// Rust source: https://github.com/anza-xyz/solana-sdk/blob/master/cpi/src/syscalls.rs
+///
+/// Parameters:
+/// - instruction: pointer to the Instruction struct
+/// - account_infos: pointer to array of Account.Info structs
+/// - account_infos_len: number of account infos
+/// - signer_seeds: pointer to signer seeds for PDA signing (null if none)
+/// - signer_seeds_len: number of signer seeds
+pub const sol_invoke_signed_c = @as(
+    *align(1) const fn (
+        instruction: *const Instruction,
+        account_infos: ?[*]const Account.Info,
+        account_infos_len: u64,
+        signer_seeds: ?[*]const []const []const u8,
+        signer_seeds_len: u64,
+    ) callconv(.c) u64,
+    @ptrFromInt(0xa22b9c85),
+);
 
 /// sol_invoke_signed_rust
 /// Hash: 0xd7449092
-pub const sol_invoke_signed_rust = @as(*align(1) const fn ([*]const u8, [*]const u8, u64, [*]const u8, u64) callconv(.c) u64, @ptrFromInt(0xd7449092));
+///
+/// Invokes a cross-program instruction using the Rust ABI format.
+/// Note: This syscall uses Rust-specific struct layouts which differ from the C ABI.
+/// For most use cases, prefer sol_invoke_signed_c which uses the C-compatible layout.
+///
+/// Rust source: https://github.com/anza-xyz/solana-sdk/blob/master/cpi/src/syscalls.rs
+pub const sol_invoke_signed_rust = @as(
+    *align(1) const fn (
+        instruction: *const Instruction,
+        account_infos: ?[*]const Account.Info,
+        account_infos_len: u64,
+        signer_seeds: ?[*]const []const []const u8,
+        signer_seeds_len: u64,
+    ) callconv(.c) u64,
+    @ptrFromInt(0xd7449092),
+);
 
 /// sol_set_return_data
 /// Hash: 0xa226d3eb
@@ -185,7 +223,6 @@ pub fn log(message: []const u8) void {
     if (comptime is_bpf_program) {
         sol_log_(message.ptr, message.len);
     } else {
-        const std = @import("std");
         std.debug.print("{s}\n", .{message});
     }
 }
@@ -195,7 +232,6 @@ pub fn log64(arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64) void {
     if (comptime is_bpf_program) {
         sol_log_64_(arg1, arg2, arg3, arg4, arg5);
     } else {
-        const std = @import("std");
         std.debug.print("{} {} {} {} {}\n", .{ arg1, arg2, arg3, arg4, arg5 });
     }
 }
@@ -205,7 +241,6 @@ pub fn logComputeUnits() void {
     if (comptime is_bpf_program) {
         sol_log_compute_units_();
     } else {
-        const std = @import("std");
         std.debug.print("Compute units not available in test mode\n", .{});
     }
 }

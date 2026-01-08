@@ -9,7 +9,14 @@
 
 const std = @import("std");
 const PublicKey = @import("public_key.zig").PublicKey;
-const bincode = @import("solana_sdk").bincode;
+const AccountMeta = @import("instruction.zig").AccountMeta;
+const sysvar_id = @import("sysvar_id.zig");
+const system_program = @import("system_program.zig");
+
+/// Built instruction for BPF loader operations
+///
+/// Owns the allocated data and accounts. Call `deinit` to free memory.
+pub const BuiltInstruction = system_program.BuiltInstruction;
 
 /// BPF Loader v1 (deprecated)
 ///
@@ -295,6 +302,386 @@ pub const UpgradeableLoaderInstruction = union(enum) {
 };
 
 // ============================================================================
+// Instruction Builders
+// ============================================================================
+
+/// Create an InitializeBuffer instruction
+///
+/// # Account references
+///   0. `[writable]` Source account to initialize as buffer
+///   1. `[]` Buffer authority (optional, if omitted buffer is immutable)
+///
+/// Rust equivalent: `solana_loader_v3_interface::instruction::initialize_buffer`
+pub fn initializeBuffer(
+    allocator: std.mem.Allocator,
+    buffer_account: PublicKey,
+    buffer_authority: ?PublicKey,
+) !BuiltInstruction {
+    const num_accounts: usize = if (buffer_authority != null) 2 else 1;
+    const accounts = try allocator.alloc(AccountMeta, num_accounts);
+    errdefer allocator.free(accounts);
+
+    accounts[0] = AccountMeta.init(buffer_account, false, true); // writable
+    if (buffer_authority) |authority| {
+        accounts[1] = AccountMeta.init(authority, false, false); // readonly
+    }
+
+    const data = try allocator.alloc(u8, 4);
+    std.mem.writeInt(u32, data[0..4], 0, .little); // InitializeBuffer discriminant
+
+    return BuiltInstruction{
+        .program_id = bpf_loader_upgradeable_id,
+        .accounts = accounts,
+        .data = data,
+    };
+}
+
+/// Create a Write instruction
+///
+/// # Account references
+///   0. `[writable]` Buffer account to write to
+///   1. `[signer]` Buffer authority
+///
+/// Rust equivalent: `solana_loader_v3_interface::instruction::write`
+pub fn writeBuffer(
+    allocator: std.mem.Allocator,
+    buffer_account: PublicKey,
+    buffer_authority: PublicKey,
+    offset: u32,
+    bytes: []const u8,
+) !BuiltInstruction {
+    const accounts = try allocator.alloc(AccountMeta, 2);
+    errdefer allocator.free(accounts);
+
+    accounts[0] = AccountMeta.init(buffer_account, false, true); // writable
+    accounts[1] = AccountMeta.init(buffer_authority, true, false); // signer
+
+    // discriminant (4) + offset (4) + length (8) + bytes
+    const data_len = 4 + 4 + 8 + bytes.len;
+    const data = try allocator.alloc(u8, data_len);
+    errdefer allocator.free(data);
+
+    std.mem.writeInt(u32, data[0..4], 1, .little); // Write discriminant
+    std.mem.writeInt(u32, data[4..8], offset, .little);
+    std.mem.writeInt(u64, data[8..16], bytes.len, .little);
+    @memcpy(data[16..], bytes);
+
+    return BuiltInstruction{
+        .program_id = bpf_loader_upgradeable_id,
+        .accounts = accounts,
+        .data = data,
+    };
+}
+
+/// Create a DeployWithMaxDataLen instruction
+///
+/// # Account references
+///   0. `[writable, signer]` Payer account
+///   1. `[writable]` ProgramData account
+///   2. `[writable]` Program account
+///   3. `[writable]` Buffer account
+///   4. `[]` Rent sysvar
+///   5. `[]` Clock sysvar
+///   6. `[]` System program
+///   7. `[signer]` Authority
+///
+/// Rust equivalent: `solana_loader_v3_interface::instruction::deploy_with_max_data_len`
+pub fn deployWithMaxDataLen(
+    allocator: std.mem.Allocator,
+    payer: PublicKey,
+    program_data: PublicKey,
+    program: PublicKey,
+    buffer: PublicKey,
+    authority: PublicKey,
+    max_data_len: usize,
+) !BuiltInstruction {
+    const accounts = try allocator.alloc(AccountMeta, 8);
+    errdefer allocator.free(accounts);
+
+    accounts[0] = AccountMeta.init(payer, true, true); // signer, writable
+    accounts[1] = AccountMeta.init(program_data, false, true); // writable
+    accounts[2] = AccountMeta.init(program, false, true); // writable
+    accounts[3] = AccountMeta.init(buffer, false, true); // writable
+    accounts[4] = AccountMeta.init(sysvar_id.RENT, false, false); // readonly
+    accounts[5] = AccountMeta.init(sysvar_id.CLOCK, false, false); // readonly
+    accounts[6] = AccountMeta.init(system_program.id, false, false); // readonly
+    accounts[7] = AccountMeta.init(authority, true, false); // signer
+
+    const data = try allocator.alloc(u8, 4 + 8);
+    std.mem.writeInt(u32, data[0..4], 2, .little); // DeployWithMaxDataLen discriminant
+    std.mem.writeInt(u64, data[4..12], @intCast(max_data_len), .little);
+
+    return BuiltInstruction{
+        .program_id = bpf_loader_upgradeable_id,
+        .accounts = accounts,
+        .data = data,
+    };
+}
+
+/// Create an Upgrade instruction
+///
+/// # Account references
+///   0. `[writable]` ProgramData account
+///   1. `[writable]` Program account
+///   2. `[writable]` Buffer account
+///   3. `[writable]` Spill account (receives reclaimed lamports)
+///   4. `[]` Rent sysvar
+///   5. `[]` Clock sysvar
+///   6. `[signer]` Authority
+///
+/// Rust equivalent: `solana_loader_v3_interface::instruction::upgrade`
+pub fn upgradeProgram(
+    allocator: std.mem.Allocator,
+    program_data: PublicKey,
+    program: PublicKey,
+    buffer: PublicKey,
+    spill: PublicKey,
+    authority: PublicKey,
+) !BuiltInstruction {
+    const accounts = try allocator.alloc(AccountMeta, 7);
+    errdefer allocator.free(accounts);
+
+    accounts[0] = AccountMeta.init(program_data, false, true); // writable
+    accounts[1] = AccountMeta.init(program, false, true); // writable
+    accounts[2] = AccountMeta.init(buffer, false, true); // writable
+    accounts[3] = AccountMeta.init(spill, false, true); // writable
+    accounts[4] = AccountMeta.init(sysvar_id.RENT, false, false); // readonly
+    accounts[5] = AccountMeta.init(sysvar_id.CLOCK, false, false); // readonly
+    accounts[6] = AccountMeta.init(authority, true, false); // signer
+
+    const data = try allocator.alloc(u8, 4);
+    std.mem.writeInt(u32, data[0..4], 3, .little); // Upgrade discriminant
+
+    return BuiltInstruction{
+        .program_id = bpf_loader_upgradeable_id,
+        .accounts = accounts,
+        .data = data,
+    };
+}
+
+/// Create a SetAuthority instruction
+///
+/// # Account references
+///   0. `[writable]` Buffer or ProgramData account
+///   1. `[signer]` Current authority
+///   2. `[]` New authority (optional)
+///
+/// Rust equivalent: `solana_loader_v3_interface::instruction::set_authority`
+pub fn setAuthority(
+    allocator: std.mem.Allocator,
+    account: PublicKey,
+    current_authority: PublicKey,
+    new_authority: ?PublicKey,
+) !BuiltInstruction {
+    const num_accounts: usize = if (new_authority != null) 3 else 2;
+    const accounts = try allocator.alloc(AccountMeta, num_accounts);
+    errdefer allocator.free(accounts);
+
+    accounts[0] = AccountMeta.init(account, false, true); // writable
+    accounts[1] = AccountMeta.init(current_authority, true, false); // signer
+    if (new_authority) |new_auth| {
+        accounts[2] = AccountMeta.init(new_auth, false, false); // readonly
+    }
+
+    const data = try allocator.alloc(u8, 4);
+    std.mem.writeInt(u32, data[0..4], 4, .little); // SetAuthority discriminant
+
+    return BuiltInstruction{
+        .program_id = bpf_loader_upgradeable_id,
+        .accounts = accounts,
+        .data = data,
+    };
+}
+
+/// Create a Close instruction
+///
+/// # Account references
+///   0. `[writable]` Account to close
+///   1. `[writable]` Recipient account
+///   2. `[signer]` Authority (optional for uninitialized buffer)
+///   3. `[writable]` Program account (required when closing ProgramData)
+///
+/// Rust equivalent: `solana_loader_v3_interface::instruction::close`
+pub fn closeAccount(
+    allocator: std.mem.Allocator,
+    account_to_close: PublicKey,
+    recipient: PublicKey,
+    authority: ?PublicKey,
+    program: ?PublicKey,
+) !BuiltInstruction {
+    var num_accounts: usize = 2;
+    if (authority != null) num_accounts += 1;
+    if (program != null) num_accounts += 1;
+
+    const accounts = try allocator.alloc(AccountMeta, num_accounts);
+    errdefer allocator.free(accounts);
+
+    accounts[0] = AccountMeta.init(account_to_close, false, true); // writable
+    accounts[1] = AccountMeta.init(recipient, false, true); // writable
+
+    var idx: usize = 2;
+    if (authority) |auth| {
+        accounts[idx] = AccountMeta.init(auth, true, false); // signer
+        idx += 1;
+    }
+    if (program) |prog| {
+        accounts[idx] = AccountMeta.init(prog, false, true); // writable
+    }
+
+    const data = try allocator.alloc(u8, 4);
+    std.mem.writeInt(u32, data[0..4], 5, .little); // Close discriminant
+
+    return BuiltInstruction{
+        .program_id = bpf_loader_upgradeable_id,
+        .accounts = accounts,
+        .data = data,
+    };
+}
+
+/// Create an ExtendProgram instruction
+///
+/// # Account references
+///   0. `[writable]` ProgramData account
+///   1. `[writable]` Program account
+///   2. `[]` System program (optional, required if payer provided)
+///   3. `[writable, signer]` Payer (optional)
+///
+/// Rust equivalent: `solana_loader_v3_interface::instruction::extend_program`
+pub fn extendProgram(
+    allocator: std.mem.Allocator,
+    program_data: PublicKey,
+    program: PublicKey,
+    additional_bytes: u32,
+    payer: ?PublicKey,
+) !BuiltInstruction {
+    const num_accounts: usize = if (payer != null) 4 else 2;
+    const accounts = try allocator.alloc(AccountMeta, num_accounts);
+    errdefer allocator.free(accounts);
+
+    accounts[0] = AccountMeta.init(program_data, false, true); // writable
+    accounts[1] = AccountMeta.init(program, false, true); // writable
+    if (payer) |p| {
+        accounts[2] = AccountMeta.init(system_program.id, false, false); // readonly
+        accounts[3] = AccountMeta.init(p, true, true); // signer, writable
+    }
+
+    const data = try allocator.alloc(u8, 4 + 4);
+    std.mem.writeInt(u32, data[0..4], 6, .little); // ExtendProgram discriminant
+    std.mem.writeInt(u32, data[4..8], additional_bytes, .little);
+
+    return BuiltInstruction{
+        .program_id = bpf_loader_upgradeable_id,
+        .accounts = accounts,
+        .data = data,
+    };
+}
+
+/// Create a SetAuthorityChecked instruction
+///
+/// # Account references
+///   0. `[writable]` Buffer or ProgramData account
+///   1. `[signer]` Current authority
+///   2. `[signer]` New authority
+///
+/// Rust equivalent: `solana_loader_v3_interface::instruction::set_authority_checked`
+pub fn setAuthorityChecked(
+    allocator: std.mem.Allocator,
+    account: PublicKey,
+    current_authority: PublicKey,
+    new_authority: PublicKey,
+) !BuiltInstruction {
+    const accounts = try allocator.alloc(AccountMeta, 3);
+    errdefer allocator.free(accounts);
+
+    accounts[0] = AccountMeta.init(account, false, true); // writable
+    accounts[1] = AccountMeta.init(current_authority, true, false); // signer
+    accounts[2] = AccountMeta.init(new_authority, true, false); // signer
+
+    const data = try allocator.alloc(u8, 4);
+    std.mem.writeInt(u32, data[0..4], 7, .little); // SetAuthorityChecked discriminant
+
+    return BuiltInstruction{
+        .program_id = bpf_loader_upgradeable_id,
+        .accounts = accounts,
+        .data = data,
+    };
+}
+
+/// Create a Migrate instruction
+///
+/// Migrates the program to loader-v4.
+///
+/// # Account references
+///   0. `[writable]` ProgramData account
+///   1. `[writable]` Program account
+///   2. `[signer]` Authority
+///
+/// Rust equivalent: `solana_loader_v3_interface::instruction::migrate`
+pub fn migrateProgram(
+    allocator: std.mem.Allocator,
+    program_data: PublicKey,
+    program: PublicKey,
+    authority: PublicKey,
+) !BuiltInstruction {
+    const accounts = try allocator.alloc(AccountMeta, 3);
+    errdefer allocator.free(accounts);
+
+    accounts[0] = AccountMeta.init(program_data, false, true); // writable
+    accounts[1] = AccountMeta.init(program, false, true); // writable
+    accounts[2] = AccountMeta.init(authority, true, false); // signer
+
+    const data = try allocator.alloc(u8, 4);
+    std.mem.writeInt(u32, data[0..4], 8, .little); // Migrate discriminant
+
+    return BuiltInstruction{
+        .program_id = bpf_loader_upgradeable_id,
+        .accounts = accounts,
+        .data = data,
+    };
+}
+
+/// Create an ExtendProgramChecked instruction
+///
+/// # Account references
+///   0. `[writable]` ProgramData account
+///   1. `[writable]` Program account
+///   2. `[signer]` Authority
+///   3. `[]` System program (optional, required if payer provided)
+///   4. `[signer]` Payer (optional)
+///
+/// Rust equivalent: `solana_loader_v3_interface::instruction::extend_program_checked`
+pub fn extendProgramChecked(
+    allocator: std.mem.Allocator,
+    program_data: PublicKey,
+    program: PublicKey,
+    authority: PublicKey,
+    additional_bytes: u32,
+    payer: ?PublicKey,
+) !BuiltInstruction {
+    const num_accounts: usize = if (payer != null) 5 else 3;
+    const accounts = try allocator.alloc(AccountMeta, num_accounts);
+    errdefer allocator.free(accounts);
+
+    accounts[0] = AccountMeta.init(program_data, false, true); // writable
+    accounts[1] = AccountMeta.init(program, false, true); // writable
+    accounts[2] = AccountMeta.init(authority, true, false); // signer
+    if (payer) |p| {
+        accounts[3] = AccountMeta.init(system_program.id, false, false); // readonly
+        accounts[4] = AccountMeta.init(p, true, true); // signer, writable
+    }
+
+    const data = try allocator.alloc(u8, 4 + 4);
+    std.mem.writeInt(u32, data[0..4], 9, .little); // ExtendProgramChecked discriminant
+    std.mem.writeInt(u32, data[4..8], additional_bytes, .little);
+
+    return BuiltInstruction{
+        .program_id = bpf_loader_upgradeable_id,
+        .accounts = accounts,
+        .data = data,
+    };
+}
+
+// ============================================================================
 // Instruction Type Checking Functions
 // ============================================================================
 
@@ -384,35 +771,35 @@ test "bpf_loader: loader IDs are different" {
 }
 
 test "bpf_loader: instruction discriminants" {
-    const init_buffer: UpgradeableLoaderInstruction = .InitializeBuffer;
-    try std.testing.expectEqual(@as(u8, 0), init_buffer.getDiscriminant());
+    const init_buffer_instr: UpgradeableLoaderInstruction = .InitializeBuffer;
+    try std.testing.expectEqual(@as(u8, 0), init_buffer_instr.getDiscriminant());
 
-    const write: UpgradeableLoaderInstruction = .{ .Write = .{ .offset = 0, .bytes = &[_]u8{} } };
-    try std.testing.expectEqual(@as(u8, 1), write.getDiscriminant());
+    const write_instr: UpgradeableLoaderInstruction = .{ .Write = .{ .offset = 0, .bytes = &[_]u8{} } };
+    try std.testing.expectEqual(@as(u8, 1), write_instr.getDiscriminant());
 
-    const deploy: UpgradeableLoaderInstruction = .{ .DeployWithMaxDataLen = .{ .max_data_len = 1000 } };
-    try std.testing.expectEqual(@as(u8, 2), deploy.getDiscriminant());
+    const deploy_instr: UpgradeableLoaderInstruction = .{ .DeployWithMaxDataLen = .{ .max_data_len = 1000 } };
+    try std.testing.expectEqual(@as(u8, 2), deploy_instr.getDiscriminant());
 
-    const upgrade: UpgradeableLoaderInstruction = .Upgrade;
-    try std.testing.expectEqual(@as(u8, 3), upgrade.getDiscriminant());
+    const upgrade_instr: UpgradeableLoaderInstruction = .Upgrade;
+    try std.testing.expectEqual(@as(u8, 3), upgrade_instr.getDiscriminant());
 
-    const set_auth: UpgradeableLoaderInstruction = .SetAuthority;
-    try std.testing.expectEqual(@as(u8, 4), set_auth.getDiscriminant());
+    const set_auth_instr: UpgradeableLoaderInstruction = .SetAuthority;
+    try std.testing.expectEqual(@as(u8, 4), set_auth_instr.getDiscriminant());
 
-    const close: UpgradeableLoaderInstruction = .Close;
-    try std.testing.expectEqual(@as(u8, 5), close.getDiscriminant());
+    const close_instr: UpgradeableLoaderInstruction = .Close;
+    try std.testing.expectEqual(@as(u8, 5), close_instr.getDiscriminant());
 
-    const extend: UpgradeableLoaderInstruction = .{ .ExtendProgram = .{ .additional_bytes = 100 } };
-    try std.testing.expectEqual(@as(u8, 6), extend.getDiscriminant());
+    const extend_instr: UpgradeableLoaderInstruction = .{ .ExtendProgram = .{ .additional_bytes = 100 } };
+    try std.testing.expectEqual(@as(u8, 6), extend_instr.getDiscriminant());
 
-    const set_auth_checked: UpgradeableLoaderInstruction = .SetAuthorityChecked;
-    try std.testing.expectEqual(@as(u8, 7), set_auth_checked.getDiscriminant());
+    const set_auth_checked_instr: UpgradeableLoaderInstruction = .SetAuthorityChecked;
+    try std.testing.expectEqual(@as(u8, 7), set_auth_checked_instr.getDiscriminant());
 
-    const migrate: UpgradeableLoaderInstruction = .Migrate;
-    try std.testing.expectEqual(@as(u8, 8), migrate.getDiscriminant());
+    const migrate_instr: UpgradeableLoaderInstruction = .Migrate;
+    try std.testing.expectEqual(@as(u8, 8), migrate_instr.getDiscriminant());
 
-    const extend_checked: UpgradeableLoaderInstruction = .{ .ExtendProgramChecked = .{ .additional_bytes = 200 } };
-    try std.testing.expectEqual(@as(u8, 9), extend_checked.getDiscriminant());
+    const extend_checked_instr: UpgradeableLoaderInstruction = .{ .ExtendProgramChecked = .{ .additional_bytes = 200 } };
+    try std.testing.expectEqual(@as(u8, 9), extend_checked_instr.getDiscriminant());
 }
 
 test "bpf_loader: isUpgradeInstruction" {
@@ -530,4 +917,218 @@ test "bpf_loader: serialize Write" {
     try std.testing.expectEqual(@as(u32, 100), std.mem.readInt(u32, data[4..8], .little));
     try std.testing.expectEqual(@as(u64, 4), std.mem.readInt(u64, data[8..16], .little));
     try std.testing.expectEqualSlices(u8, &bytes, data[16..20]);
+}
+
+// ============================================================================
+// Instruction Builder Tests
+// ============================================================================
+
+test "bpf_loader: initializeBuffer builder" {
+    const allocator = std.testing.allocator;
+    const buffer = PublicKey.from([_]u8{1} ** 32);
+    const authority = PublicKey.from([_]u8{2} ** 32);
+
+    // With authority
+    var ix = try initializeBuffer(allocator, buffer, authority);
+    defer ix.deinit(allocator);
+
+    try std.testing.expectEqualSlices(u8, &bpf_loader_upgradeable_id.bytes, &ix.program_id.bytes);
+    try std.testing.expectEqual(@as(usize, 2), ix.accounts.len);
+    try std.testing.expect(ix.accounts[0].is_writable);
+    try std.testing.expect(!ix.accounts[0].is_signer);
+    try std.testing.expect(!ix.accounts[1].is_writable);
+    try std.testing.expectEqual(@as(usize, 4), ix.data.len);
+    try std.testing.expectEqual(@as(u32, 0), std.mem.readInt(u32, ix.data[0..4], .little));
+}
+
+test "bpf_loader: initializeBuffer without authority" {
+    const allocator = std.testing.allocator;
+    const buffer = PublicKey.from([_]u8{1} ** 32);
+
+    var ix = try initializeBuffer(allocator, buffer, null);
+    defer ix.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 1), ix.accounts.len);
+}
+
+test "bpf_loader: writeBuffer builder" {
+    const allocator = std.testing.allocator;
+    const buffer = PublicKey.from([_]u8{1} ** 32);
+    const authority = PublicKey.from([_]u8{2} ** 32);
+    const bytes = [_]u8{ 0xAB, 0xCD, 0xEF };
+
+    var ix = try writeBuffer(allocator, buffer, authority, 100, &bytes);
+    defer ix.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 2), ix.accounts.len);
+    try std.testing.expect(ix.accounts[0].is_writable);
+    try std.testing.expect(ix.accounts[1].is_signer);
+
+    // Check data: discriminant (4) + offset (4) + length (8) + bytes (3)
+    try std.testing.expectEqual(@as(usize, 19), ix.data.len);
+    try std.testing.expectEqual(@as(u32, 1), std.mem.readInt(u32, ix.data[0..4], .little));
+    try std.testing.expectEqual(@as(u32, 100), std.mem.readInt(u32, ix.data[4..8], .little));
+    try std.testing.expectEqual(@as(u64, 3), std.mem.readInt(u64, ix.data[8..16], .little));
+    try std.testing.expectEqualSlices(u8, &bytes, ix.data[16..19]);
+}
+
+test "bpf_loader: deployWithMaxDataLen builder" {
+    const allocator = std.testing.allocator;
+    const payer = PublicKey.from([_]u8{1} ** 32);
+    const program_data = PublicKey.from([_]u8{2} ** 32);
+    const program = PublicKey.from([_]u8{3} ** 32);
+    const buffer = PublicKey.from([_]u8{4} ** 32);
+    const authority = PublicKey.from([_]u8{5} ** 32);
+
+    var ix = try deployWithMaxDataLen(allocator, payer, program_data, program, buffer, authority, 50000);
+    defer ix.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 8), ix.accounts.len);
+    try std.testing.expect(ix.accounts[0].is_writable and ix.accounts[0].is_signer); // payer
+    try std.testing.expect(ix.accounts[7].is_signer); // authority
+
+    // Check sysvars
+    try std.testing.expectEqualSlices(u8, &sysvar_id.RENT.bytes, &ix.accounts[4].pubkey.bytes);
+    try std.testing.expectEqualSlices(u8, &sysvar_id.CLOCK.bytes, &ix.accounts[5].pubkey.bytes);
+    try std.testing.expectEqualSlices(u8, &system_program.id.bytes, &ix.accounts[6].pubkey.bytes);
+
+    try std.testing.expectEqual(@as(usize, 12), ix.data.len);
+    try std.testing.expectEqual(@as(u32, 2), std.mem.readInt(u32, ix.data[0..4], .little));
+    try std.testing.expectEqual(@as(u64, 50000), std.mem.readInt(u64, ix.data[4..12], .little));
+}
+
+test "bpf_loader: upgradeProgram builder" {
+    const allocator = std.testing.allocator;
+    const program_data = PublicKey.from([_]u8{1} ** 32);
+    const program = PublicKey.from([_]u8{2} ** 32);
+    const buffer = PublicKey.from([_]u8{3} ** 32);
+    const spill = PublicKey.from([_]u8{4} ** 32);
+    const authority = PublicKey.from([_]u8{5} ** 32);
+
+    var ix = try upgradeProgram(allocator, program_data, program, buffer, spill, authority);
+    defer ix.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 7), ix.accounts.len);
+    try std.testing.expect(ix.accounts[6].is_signer); // authority
+
+    try std.testing.expectEqual(@as(usize, 4), ix.data.len);
+    try std.testing.expectEqual(@as(u32, 3), std.mem.readInt(u32, ix.data[0..4], .little));
+}
+
+test "bpf_loader: setAuthority builder" {
+    const allocator = std.testing.allocator;
+    const account = PublicKey.from([_]u8{1} ** 32);
+    const current_auth = PublicKey.from([_]u8{2} ** 32);
+    const new_auth = PublicKey.from([_]u8{3} ** 32);
+
+    // With new authority
+    var ix = try setAuthority(allocator, account, current_auth, new_auth);
+    defer ix.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 3), ix.accounts.len);
+    try std.testing.expect(ix.accounts[1].is_signer);
+    try std.testing.expectEqual(@as(u32, 4), std.mem.readInt(u32, ix.data[0..4], .little));
+}
+
+test "bpf_loader: setAuthority without new authority" {
+    const allocator = std.testing.allocator;
+    const account = PublicKey.from([_]u8{1} ** 32);
+    const current_auth = PublicKey.from([_]u8{2} ** 32);
+
+    var ix = try setAuthority(allocator, account, current_auth, null);
+    defer ix.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 2), ix.accounts.len);
+}
+
+test "bpf_loader: closeAccount builder" {
+    const allocator = std.testing.allocator;
+    const account = PublicKey.from([_]u8{1} ** 32);
+    const recipient = PublicKey.from([_]u8{2} ** 32);
+    const authority = PublicKey.from([_]u8{3} ** 32);
+    const program = PublicKey.from([_]u8{4} ** 32);
+
+    var ix = try closeAccount(allocator, account, recipient, authority, program);
+    defer ix.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 4), ix.accounts.len);
+    try std.testing.expect(ix.accounts[2].is_signer); // authority
+    try std.testing.expectEqual(@as(u32, 5), std.mem.readInt(u32, ix.data[0..4], .little));
+}
+
+test "bpf_loader: extendProgram builder" {
+    const allocator = std.testing.allocator;
+    const program_data = PublicKey.from([_]u8{1} ** 32);
+    const program = PublicKey.from([_]u8{2} ** 32);
+    const payer = PublicKey.from([_]u8{3} ** 32);
+
+    var ix = try extendProgram(allocator, program_data, program, 1024, payer);
+    defer ix.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 4), ix.accounts.len);
+    try std.testing.expectEqualSlices(u8, &system_program.id.bytes, &ix.accounts[2].pubkey.bytes);
+    try std.testing.expect(ix.accounts[3].is_signer); // payer
+
+    try std.testing.expectEqual(@as(usize, 8), ix.data.len);
+    try std.testing.expectEqual(@as(u32, 6), std.mem.readInt(u32, ix.data[0..4], .little));
+    try std.testing.expectEqual(@as(u32, 1024), std.mem.readInt(u32, ix.data[4..8], .little));
+}
+
+test "bpf_loader: extendProgram without payer" {
+    const allocator = std.testing.allocator;
+    const program_data = PublicKey.from([_]u8{1} ** 32);
+    const program = PublicKey.from([_]u8{2} ** 32);
+
+    var ix = try extendProgram(allocator, program_data, program, 512, null);
+    defer ix.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 2), ix.accounts.len);
+}
+
+test "bpf_loader: setAuthorityChecked builder" {
+    const allocator = std.testing.allocator;
+    const account = PublicKey.from([_]u8{1} ** 32);
+    const current_auth = PublicKey.from([_]u8{2} ** 32);
+    const new_auth = PublicKey.from([_]u8{3} ** 32);
+
+    var ix = try setAuthorityChecked(allocator, account, current_auth, new_auth);
+    defer ix.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 3), ix.accounts.len);
+    try std.testing.expect(ix.accounts[1].is_signer); // current authority
+    try std.testing.expect(ix.accounts[2].is_signer); // new authority (checked)
+    try std.testing.expectEqual(@as(u32, 7), std.mem.readInt(u32, ix.data[0..4], .little));
+}
+
+test "bpf_loader: migrateProgram builder" {
+    const allocator = std.testing.allocator;
+    const program_data = PublicKey.from([_]u8{1} ** 32);
+    const program = PublicKey.from([_]u8{2} ** 32);
+    const authority = PublicKey.from([_]u8{3} ** 32);
+
+    var ix = try migrateProgram(allocator, program_data, program, authority);
+    defer ix.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 3), ix.accounts.len);
+    try std.testing.expect(ix.accounts[2].is_signer);
+    try std.testing.expectEqual(@as(u32, 8), std.mem.readInt(u32, ix.data[0..4], .little));
+}
+
+test "bpf_loader: extendProgramChecked builder" {
+    const allocator = std.testing.allocator;
+    const program_data = PublicKey.from([_]u8{1} ** 32);
+    const program = PublicKey.from([_]u8{2} ** 32);
+    const authority = PublicKey.from([_]u8{3} ** 32);
+    const payer = PublicKey.from([_]u8{4} ** 32);
+
+    var ix = try extendProgramChecked(allocator, program_data, program, authority, 2048, payer);
+    defer ix.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 5), ix.accounts.len);
+    try std.testing.expect(ix.accounts[2].is_signer); // authority
+    try std.testing.expect(ix.accounts[4].is_signer); // payer
+
+    try std.testing.expectEqual(@as(usize, 8), ix.data.len);
+    try std.testing.expectEqual(@as(u32, 9), std.mem.readInt(u32, ix.data[0..4], .little));
+    try std.testing.expectEqual(@as(u32, 2048), std.mem.readInt(u32, ix.data[4..8], .little));
 }

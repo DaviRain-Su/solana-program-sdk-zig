@@ -79,6 +79,40 @@ pub const SetAuthorityData = instruction.SetAuthorityData;
 pub const InitializeMintData = instruction.InitializeMintData;
 pub const InitializeMultisigData = instruction.InitializeMultisigData;
 
+// Sysvar IDs
+pub const RENT_SYSVAR = instruction.RENT_SYSVAR;
+
+// Instruction builder errors
+pub const MultisigError = instruction.MultisigError;
+
+// Instruction builders
+pub const initializeMint = instruction.initializeMint;
+pub const initializeMint2 = instruction.initializeMint2;
+pub const initializeAccount = instruction.initializeAccount;
+pub const initializeAccount2 = instruction.initializeAccount2;
+pub const initializeAccount3 = instruction.initializeAccount3;
+pub const initializeMultisig = instruction.initializeMultisig;
+pub const initializeMultisig2 = instruction.initializeMultisig2;
+pub const transfer = instruction.transfer;
+pub const transferMultisig = instruction.transferMultisig;
+pub const transferChecked = instruction.transferChecked;
+pub const approve = instruction.approve;
+pub const approveChecked = instruction.approveChecked;
+pub const revoke = instruction.revoke;
+pub const setAuthority = instruction.setAuthority;
+pub const mintTo = instruction.mintTo;
+pub const mintToChecked = instruction.mintToChecked;
+pub const burn = instruction.burn;
+pub const burnChecked = instruction.burnChecked;
+pub const closeAccount = instruction.closeAccount;
+pub const freezeAccount = instruction.freezeAccount;
+pub const thawAccount = instruction.thawAccount;
+pub const syncNative = instruction.syncNative;
+pub const getAccountDataSize = instruction.getAccountDataSize;
+pub const initializeImmutableOwner = instruction.initializeImmutableOwner;
+pub const amountToUiAmount = instruction.amountToUiAmount;
+pub const uiAmountToAmount = instruction.uiAmountToAmount;
+
 // ============================================================================
 // Error types
 // ============================================================================

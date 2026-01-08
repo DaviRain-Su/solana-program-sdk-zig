@@ -193,6 +193,41 @@ pub fn create(
     };
 }
 
+/// Creates an instruction to create an associated token account with a custom token program.
+///
+/// This variant allows specifying a token program other than the standard SPL Token program
+/// (e.g., for Token-2022 accounts). This instruction will fail if the account already exists.
+///
+/// For idempotent creation with a custom token program, use `createIdempotentWithProgram`.
+///
+/// Accounts:
+/// 0. `[writable, signer]` Funding account (payer)
+/// 1. `[writable]` Associated token account to be created
+/// 2. `[]` Wallet address for the new ATA
+/// 3. `[]` Token mint
+/// 4. `[]` System program
+/// 5. `[]` Custom token program (e.g., Token-2022)
+pub fn createWithProgram(
+    payer: PublicKey,
+    wallet: PublicKey,
+    mint: PublicKey,
+    token_program_id: PublicKey,
+) struct { accounts: [6]AccountMeta, data: [1]u8 } {
+    const ata = findAssociatedTokenAddressWithProgram(wallet, mint, token_program_id).address;
+
+    return .{
+        .accounts = .{
+            AccountMeta.newWritableSigner(payer),
+            AccountMeta.newWritable(ata),
+            AccountMeta.newReadonly(wallet),
+            AccountMeta.newReadonly(mint),
+            AccountMeta.newReadonly(SYSTEM_PROGRAM_ID),
+            AccountMeta.newReadonly(token_program_id),
+        },
+        .data = .{@intFromEnum(AssociatedTokenInstruction.Create)},
+    };
+}
+
 /// Creates an instruction to create an associated token account (idempotent).
 ///
 /// This instruction succeeds even if the account already exists.
@@ -279,6 +314,42 @@ pub fn recoverNested(
             AccountMeta.newReadonly(owner_mint),
             AccountMeta.newWritableSigner(wallet),
             AccountMeta.newReadonly(TOKEN_PROGRAM_ID),
+        },
+        .data = .{@intFromEnum(AssociatedTokenInstruction.RecoverNested)},
+    };
+}
+
+/// Creates an instruction to recover nested associated token accounts with a custom token program.
+///
+/// This variant allows specifying a token program other than the standard SPL Token program
+/// (e.g., for Token-2022 accounts).
+///
+/// Accounts:
+/// 0. `[writable]` Nested associated token account
+/// 1. `[]` Token mint for the nested ATA
+/// 2. `[writable]` Wallet's associated token account
+/// 3. `[]` Owner associated token account address
+/// 4. `[]` Token mint for the owner ATA
+/// 5. `[writable, signer]` Wallet address for the owner ATA
+/// 6. `[]` Custom token program (e.g., Token-2022)
+pub fn recoverNestedWithProgram(
+    nested_ata: PublicKey,
+    nested_mint: PublicKey,
+    wallet_ata: PublicKey,
+    owner_ata: PublicKey,
+    owner_mint: PublicKey,
+    wallet: PublicKey,
+    token_program_id: PublicKey,
+) struct { accounts: [7]AccountMeta, data: [1]u8 } {
+    return .{
+        .accounts = .{
+            AccountMeta.newWritable(nested_ata),
+            AccountMeta.newReadonly(nested_mint),
+            AccountMeta.newWritable(wallet_ata),
+            AccountMeta.newReadonly(owner_ata),
+            AccountMeta.newReadonly(owner_mint),
+            AccountMeta.newWritableSigner(wallet),
+            AccountMeta.newReadonly(token_program_id),
         },
         .data = .{@intFromEnum(AssociatedTokenInstruction.RecoverNested)},
     };
@@ -393,6 +464,48 @@ test "createIdempotent: ATA address is derived correctly" {
     try std.testing.expectEqual(expected_ata, ix.accounts[1].pubkey);
 }
 
+test "createWithProgram: instruction format" {
+    const payer = PublicKey.from([_]u8{1} ** 32);
+    const wallet = PublicKey.from([_]u8{2} ** 32);
+    const mint = PublicKey.from([_]u8{3} ** 32);
+    // Custom token program ID (e.g., Token-2022)
+    const custom_token_program = PublicKey.from([_]u8{4} ** 32);
+
+    const ix = createWithProgram(payer, wallet, mint, custom_token_program);
+
+    // Check instruction type (0 = Create, non-idempotent)
+    try std.testing.expectEqual(@as(u8, 0), ix.data[0]);
+
+    // Check account count
+    try std.testing.expectEqual(@as(usize, 6), ix.accounts.len);
+
+    // Check token program is the custom one
+    try std.testing.expectEqual(custom_token_program, ix.accounts[5].pubkey);
+
+    // Verify ATA is derived with custom token program
+    const expected_ata = findAssociatedTokenAddressWithProgram(wallet, mint, custom_token_program).address;
+    try std.testing.expectEqual(expected_ata, ix.accounts[1].pubkey);
+}
+
+test "createIdempotentWithProgram: instruction format" {
+    const payer = PublicKey.from([_]u8{1} ** 32);
+    const wallet = PublicKey.from([_]u8{2} ** 32);
+    const mint = PublicKey.from([_]u8{3} ** 32);
+    const custom_token_program = PublicKey.from([_]u8{4} ** 32);
+
+    const ix = createIdempotentWithProgram(payer, wallet, mint, custom_token_program);
+
+    // Check instruction type (1 = CreateIdempotent)
+    try std.testing.expectEqual(@as(u8, 1), ix.data[0]);
+
+    // Check token program is the custom one
+    try std.testing.expectEqual(custom_token_program, ix.accounts[5].pubkey);
+
+    // Verify ATA is derived with custom token program
+    const expected_ata = findAssociatedTokenAddressWithProgram(wallet, mint, custom_token_program).address;
+    try std.testing.expectEqual(expected_ata, ix.accounts[1].pubkey);
+}
+
 test "recoverNested: instruction format" {
     const nested_ata = PublicKey.from([_]u8{1} ** 32);
     const nested_mint = PublicKey.from([_]u8{2} ** 32);
@@ -413,4 +526,25 @@ test "recoverNested: instruction format" {
     try std.testing.expectEqual(wallet, ix.accounts[5].pubkey);
     try std.testing.expect(ix.accounts[5].is_signer);
     try std.testing.expect(ix.accounts[5].is_writable);
+}
+
+test "recoverNestedWithProgram: instruction format" {
+    const nested_ata = PublicKey.from([_]u8{1} ** 32);
+    const nested_mint = PublicKey.from([_]u8{2} ** 32);
+    const wallet_ata = PublicKey.from([_]u8{3} ** 32);
+    const owner_ata = PublicKey.from([_]u8{4} ** 32);
+    const owner_mint = PublicKey.from([_]u8{5} ** 32);
+    const wallet = PublicKey.from([_]u8{6} ** 32);
+    const custom_token_program = PublicKey.from([_]u8{7} ** 32);
+
+    const ix = recoverNestedWithProgram(nested_ata, nested_mint, wallet_ata, owner_ata, owner_mint, wallet, custom_token_program);
+
+    // Check instruction type (2 = RecoverNested)
+    try std.testing.expectEqual(@as(u8, 2), ix.data[0]);
+
+    // Check account count
+    try std.testing.expectEqual(@as(usize, 7), ix.accounts.len);
+
+    // Check token program is the custom one
+    try std.testing.expectEqual(custom_token_program, ix.accounts[6].pubkey);
 }

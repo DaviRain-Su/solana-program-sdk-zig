@@ -1,0 +1,24 @@
+[package]
+name = "solana-zig-example-programs-test"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Integration tests for Solana Zig example programs"
+
+[dependencies]
+solana-sdk = "3.0.0"
+
+[dev-dependencies]
+mollusk-svm = { version = "0.7", features = ["all-builtins"] }
+
+[[test]]
+name = "hello_world"
+path = "tests/hello_world.rs"
+
+[[test]]
+name = "counter"
+path = "tests/counter.rs"
+
+[[test]]
+name = "transfer_lamports"
+path = "tests/transfer_lamports.rs"

@@ -96,7 +96,9 @@ test "pubsub: slotSubscribe and receive notification" {
     const max_attempts: u32 = 10;
 
     while (attempts < max_attempts) : (attempts += 1) {
-        if (try client.readNotification()) |*notification| {
+        if (try client.readNotification()) |notification_result| {
+            // Take ownership of the notification so we can call deinit() (requires mutable).
+            var notification = notification_result;
             defer notification.deinit();
             break;
         }

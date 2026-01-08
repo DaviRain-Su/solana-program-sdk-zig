@@ -208,7 +208,14 @@ pub const JsonRpcClient = struct {
         return ClientError.InvalidResponse;
     }
 
-    /// Send HTTP POST request using Zig 0.15 request/response API
+    /// Send HTTP POST request using Zig 0.15.2 request/response API
+    ///
+    /// API Reference (Zig 0.15.2):
+    /// - client.request(method, uri, options) -> Request
+    /// - req.sendBodyComplete(body) - sends body and flushes
+    /// - req.receiveHead(buffer) -> Response
+    /// - response.reader(buffer) -> *std.Io.Reader
+    /// - reader.allocRemaining(allocator, limit) -> []u8
     fn sendHttpRequest(self: *JsonRpcClient, allocator: Allocator, body: []const u8) ![]u8 {
         var client = std.http.Client{ .allocator = allocator };
         defer client.deinit();
@@ -216,7 +223,7 @@ pub const JsonRpcClient = struct {
         // Parse the URI
         const uri = std.Uri.parse(self.endpoint) catch return ClientError.InvalidResponse;
 
-        // Create the request
+        // Create the request using client.request() (Zig 0.15.2 API)
         var req = client.request(.POST, uri, .{
             .extra_headers = &.{
                 .{ .name = "Content-Type", .value = "application/json" },
@@ -224,30 +231,15 @@ pub const JsonRpcClient = struct {
         }) catch return ClientError.ConnectionFailed;
         defer req.deinit();
 
-        // Allocate buffer for body writing
-        var body_buffer: [8192]u8 = undefined;
-
-        // Copy body to mutable buffer
-        var mutable_body: []u8 = undefined;
-        if (body.len <= body_buffer.len) {
-            @memcpy(body_buffer[0..body.len], body);
-            mutable_body = body_buffer[0..body.len];
-        } else {
-            // For larger bodies, allocate
-            const alloc_body = allocator.alloc(u8, body.len) catch return ClientError.ConnectionFailed;
-            defer allocator.free(alloc_body);
-            @memcpy(alloc_body, body);
-            mutable_body = alloc_body;
-        }
-
-        // Send the request with body
-        req.sendBodyComplete(mutable_body) catch return ClientError.ConnectionFailed;
+        // Send the request body
+        // Note: sendBodyComplete internally only reads from body, so @constCast is safe here
+        req.sendBodyComplete(@constCast(body)) catch return ClientError.ConnectionFailed;
 
         // Receive response head
         var redirect_buf: [4096]u8 = undefined;
         var response = req.receiveHead(&redirect_buf) catch return ClientError.ConnectionFailed;
 
-        // Check status
+        // Check status code
         const status = @intFromEnum(response.head.status);
         if (status < 200 or status >= 300) {
             if (status == 429) {
@@ -256,7 +248,7 @@ pub const JsonRpcClient = struct {
             return ClientError.UnexpectedStatus;
         }
 
-        // Read the response body
+        // Read response body using std.Io.Reader (Zig 0.15.2 Writergate API)
         var body_reader = response.reader(&redirect_buf);
         const response_body = body_reader.allocRemaining(allocator, std.Io.Limit.limited(10 * 1024 * 1024)) catch return ClientError.InvalidResponse;
 

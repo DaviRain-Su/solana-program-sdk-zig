@@ -263,6 +263,9 @@ pub fn loadAccounts(comptime Accounts: type, infos: []const AccountInfo) !Accoun
 /// For accounts with seedAccount/seedField references, you must call
 /// loadWithPda manually after loading the referenced accounts.
 ///
+/// Note: This function also validates Phase 3 constraints (has_one, close, realloc)
+/// after all accounts are loaded.
+///
 /// Example:
 /// ```zig
 /// const result = try loadAccountsWithPda(MyAccounts, &program_id, account_infos);
@@ -338,7 +341,30 @@ pub fn loadAccountsWithPda(
         }
     }
 
+    // Phase 3: Validate constraints after all accounts are loaded
+    try validatePhase3Constraints(Accounts, &accounts);
+
     return .{ .accounts = accounts, .bumps = bumps };
+}
+
+/// Validate Phase 3 constraints (has_one, close, realloc) for all accounts
+///
+/// This function iterates over all account fields and validates their
+/// configured constraints against other accounts in the struct.
+///
+/// Called automatically by loadAccountsWithPda and parseContext.
+pub fn validatePhase3Constraints(comptime Accounts: type, accounts: *const Accounts) !void {
+    const fields = @typeInfo(Accounts).@"struct".fields;
+
+    inline for (fields) |field| {
+        const FieldType = field.type;
+        const account = @field(accounts.*, field.name);
+
+        // Check if this field type has Phase 3 constraint validation
+        if (@hasDecl(FieldType, "validateAllConstraints")) {
+            try account.validateAllConstraints(accounts.*);
+        }
+    }
 }
 
 /// Parse full context from program inputs

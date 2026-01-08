@@ -57,6 +57,12 @@
 //! - PDA validation and derivation helpers
 //! - Account initialization via CPI
 //! - Bump seeds storage in context
+//!
+//! ## Phase 3 Features (Advanced Constraints)
+//!
+//! - has_one constraint: Validate account data field matches another account's key
+//! - close constraint: Account closing with lamport transfer to destination
+//! - realloc constraint: Dynamic account resizing with rent handling
 
 const std = @import("std");
 
@@ -419,6 +425,133 @@ pub const validateForInit = init.validateForInit;
 pub const InitError = init.InitError;
 
 // ============================================================================
+// Phase 3: Has-One Module
+// ============================================================================
+
+/// Has-one constraint validation
+pub const has_one = @import("has_one.zig");
+
+/// Has-one constraint specification
+///
+/// Defines a relationship between a field in account data and another account.
+///
+/// Example:
+/// ```zig
+/// const Vault = anchor.Account(VaultData, .{
+///     .discriminator = anchor.accountDiscriminator("Vault"),
+///     .has_one = &.{
+///         .{ .field = "authority", .target = "authority" },
+///     },
+/// });
+/// ```
+pub const HasOneSpec = has_one.HasOneSpec;
+
+/// Validate has_one constraint
+///
+/// Example:
+/// ```zig
+/// try anchor.validateHasOne(VaultData, &vault.data, "authority", authority.key());
+/// ```
+pub const validateHasOne = has_one.validateHasOne;
+
+/// Validate has_one constraint with raw bytes
+pub const validateHasOneBytes = has_one.validateHasOneBytes;
+
+/// Check if has_one constraint is satisfied (returns bool)
+pub const checkHasOne = has_one.checkHasOne;
+
+/// Get field bytes for has_one validation
+pub const getHasOneFieldBytes = has_one.getHasOneFieldBytes;
+
+/// Has-one validation errors
+pub const HasOneError = has_one.HasOneError;
+
+// ============================================================================
+// Phase 3: Close Module
+// ============================================================================
+
+/// Account closing utilities
+pub const close = @import("close.zig");
+
+/// Close an account, transferring lamports to destination
+///
+/// Transfers all lamports and zeros account data. The Solana runtime
+/// automatically garbage collects the account afterward.
+///
+/// Example:
+/// ```zig
+/// try anchor.closeAccount(account_info, destination_info);
+/// ```
+pub const closeAccount = close.closeAccount;
+
+/// Close account with typed wrapper
+pub const closeTyped = close.close;
+
+/// Check if account can be closed to destination
+pub const canClose = close.canClose;
+
+/// Get lamports that would be transferred on close
+pub const getCloseRefund = close.getCloseRefund;
+
+/// Check if account is already closed (zero lamports)
+pub const isClosed = close.isClosed;
+
+/// Account close errors
+pub const CloseError = close.CloseError;
+
+// ============================================================================
+// Phase 3: Realloc Module
+// ============================================================================
+
+/// Account reallocation utilities
+pub const realloc = @import("realloc.zig");
+
+/// Maximum account size (10 MB)
+pub const MAX_ACCOUNT_SIZE = realloc.MAX_ACCOUNT_SIZE;
+
+/// Realloc configuration
+///
+/// Example:
+/// ```zig
+/// const Dynamic = anchor.Account(Data, .{
+///     .discriminator = anchor.accountDiscriminator("Dynamic"),
+///     .realloc = .{
+///         .payer = "payer",
+///         .zero_init = true,
+///     },
+/// });
+/// ```
+pub const ReallocConfig = realloc.ReallocConfig;
+
+/// Reallocate account data to new size
+///
+/// Handles rent payment/refund based on size change.
+///
+/// Example:
+/// ```zig
+/// try anchor.reallocAccount(account_info, new_size, payer_info, true);
+/// ```
+pub const reallocAccount = realloc.reallocAccount;
+
+/// Calculate rent difference for reallocation
+pub const calculateRentDiff = realloc.calculateRentDiff;
+
+/// Validate a realloc operation without executing
+pub const validateRealloc = realloc.validateRealloc;
+
+/// Get rent required for a given size
+pub const rentForSize = realloc.rentForSize;
+
+/// Check if realloc would require payment
+pub const requiresPayment = realloc.requiresPayment;
+
+/// Check if realloc would produce refund
+pub const producesRefund = realloc.producesRefund;
+
+/// Account realloc errors
+pub const ReallocError = realloc.ReallocError;
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -445,6 +578,17 @@ test "anchor module exports" {
     _ = derivePda;
     _ = rentExemptBalance;
     _ = InitError;
+
+    // Phase 3 exports
+    _ = HasOneSpec;
+    _ = validateHasOne;
+    _ = HasOneError;
+    _ = closeAccount;
+    _ = CloseError;
+    _ = ReallocConfig;
+    _ = reallocAccount;
+    _ = ReallocError;
+    _ = MAX_ACCOUNT_SIZE;
 }
 
 test "discriminator submodule" {
@@ -486,4 +630,17 @@ test "pda submodule" {
 
 test "init submodule" {
     _ = init;
+}
+
+// Phase 3 submodule tests
+test "has_one submodule" {
+    _ = has_one;
+}
+
+test "close submodule" {
+    _ = close;
+}
+
+test "realloc submodule" {
+    _ = realloc;
 }

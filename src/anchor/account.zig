@@ -26,6 +26,8 @@ const anchor_error = @import("error.zig");
 const constraints_mod = @import("constraints.zig");
 const seeds_mod = @import("seeds.zig");
 const pda_mod = @import("pda.zig");
+const has_one_mod = @import("has_one.zig");
+const realloc_mod = @import("realloc.zig");
 
 // Import from parent SDK
 const sdk_account = @import("../account.zig");
@@ -39,6 +41,8 @@ const Constraints = constraints_mod.Constraints;
 const AccountInfo = sdk_account.Account.Info;
 const SeedSpec = seeds_mod.SeedSpec;
 const PdaError = pda_mod.PdaError;
+const HasOneSpec = has_one_mod.HasOneSpec;
+const ReallocConfig = realloc_mod.ReallocConfig;
 
 /// Configuration for Account wrapper
 pub const AccountConfig = struct {
@@ -82,6 +86,44 @@ pub const AccountConfig = struct {
     /// Required when init is true. References a field in the Accounts struct
     /// that will pay for account creation.
     payer: ?[]const u8 = null,
+
+    // === Phase 3: Advanced Constraints ===
+
+    /// has_one constraints - validate field matches account key
+    ///
+    /// Validates that a PublicKey field in account data matches another
+    /// account's public key from the Accounts struct.
+    ///
+    /// Example:
+    /// ```zig
+    /// .has_one = &.{
+    ///     .{ .field = "authority", .target = "authority" },
+    ///     .{ .field = "mint", .target = "mint" },
+    /// }
+    /// ```
+    has_one: ?[]const HasOneSpec = null,
+
+    /// Close destination account field name
+    ///
+    /// When specified, the account can be closed by transferring all
+    /// lamports to the named destination account and zeroing data.
+    ///
+    /// Example: `.close = "destination"`
+    close: ?[]const u8 = null,
+
+    /// Realloc configuration for dynamic account resizing
+    ///
+    /// Enables dynamic resizing of account data. The payer will pay
+    /// for additional rent when growing, and receive refunds when shrinking.
+    ///
+    /// Example:
+    /// ```zig
+    /// .realloc = .{
+    ///     .payer = "payer",
+    ///     .zero_init = true,
+    /// }
+    /// ```
+    realloc: ?ReallocConfig = null,
 };
 
 /// Account wrapper with discriminator validation
@@ -140,6 +182,26 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
 
         /// The payer field name (if init is required)
         pub const PAYER: ?[]const u8 = config.payer;
+
+        // === Phase 3 constants ===
+
+        /// Whether this account has has_one constraints
+        pub const HAS_HAS_ONE: bool = config.has_one != null;
+
+        /// Whether this account has close constraint
+        pub const HAS_CLOSE: bool = config.close != null;
+
+        /// Whether this account has realloc constraint
+        pub const HAS_REALLOC: bool = config.realloc != null;
+
+        /// The has_one constraint specifications (if any)
+        pub const HAS_ONE: ?[]const HasOneSpec = config.has_one;
+
+        /// The close destination field name (if any)
+        pub const CLOSE: ?[]const u8 = config.close;
+
+        /// The realloc configuration (if any)
+        pub const REALLOC: ?ReallocConfig = config.realloc;
 
         /// The account info from runtime
         info: *const AccountInfo,
@@ -339,6 +401,132 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
         pub fn rawData(self: Self) []u8 {
             return self.info.data[0..self.info.data_len];
         }
+
+        // === Phase 3: Constraint Validation Methods ===
+
+        /// Validate has_one constraints against an accounts struct
+        ///
+        /// This method checks that each field specified in has_one config
+        /// matches the corresponding target account's public key.
+        ///
+        /// Example:
+        /// ```zig
+        /// // After loading accounts
+        /// try vault.validateHasOneConstraints(accounts);
+        /// ```
+        pub fn validateHasOneConstraints(self: Self, accounts: anytype) !void {
+            if (config.has_one) |specs| {
+                inline for (specs) |spec| {
+                    // Get the target account from the accounts struct
+                    const target = @field(accounts, spec.target);
+
+                    // Get target's public key
+                    const target_key: *const PublicKey = if (@hasDecl(@TypeOf(target), "key"))
+                        target.key()
+                    else if (@TypeOf(target) == *const AccountInfo)
+                        target.id
+                    else
+                        @compileError("has_one target must have key() method or be AccountInfo");
+
+                    // Validate the field matches
+                    try has_one_mod.validateHasOne(T, self.data, spec.field, target_key);
+                }
+            }
+        }
+
+        /// Check if has_one constraints are satisfied (returns bool)
+        pub fn checkHasOneConstraints(self: Self, accounts: anytype) bool {
+            self.validateHasOneConstraints(accounts) catch return false;
+            return true;
+        }
+
+        /// Validate close constraint preconditions
+        ///
+        /// Checks that the close destination account is writable.
+        /// Call this before executing a close operation.
+        pub fn validateCloseConstraint(self: Self, accounts: anytype) !void {
+            if (config.close) |dest_field| {
+                const dest = @field(accounts, dest_field);
+
+                // Get destination AccountInfo
+                const dest_info: *const AccountInfo = if (@hasDecl(@TypeOf(dest), "toAccountInfo"))
+                    dest.toAccountInfo()
+                else if (@TypeOf(dest) == *const AccountInfo)
+                    dest
+                else
+                    @compileError("close target must have toAccountInfo() method or be AccountInfo");
+
+                // Validate destination is writable
+                if (dest_info.is_writable == 0) {
+                    return error.ConstraintClose;
+                }
+
+                // Validate not closing to self
+                if (self.info.id.equals(dest_info.id.*)) {
+                    return error.ConstraintClose;
+                }
+            }
+        }
+
+        /// Validate realloc constraint preconditions
+        ///
+        /// Checks that the payer account is a signer (required for growing).
+        pub fn validateReallocConstraint(self: Self, accounts: anytype) !void {
+            if (config.realloc) |realloc_config| {
+                if (realloc_config.payer) |payer_field| {
+                    const payer = @field(accounts, payer_field);
+                    const PayerType = @TypeOf(payer);
+
+                    // Get payer AccountInfo - handle both struct types and pointer types
+                    const payer_info: *const AccountInfo = blk: {
+                        if (@typeInfo(PayerType) == .pointer) {
+                            // It's a pointer - check if it's AccountInfo or has toAccountInfo
+                            const ChildType = @typeInfo(PayerType).pointer.child;
+                            if (ChildType == AccountInfo) {
+                                break :blk payer;
+                            } else if (@hasDecl(ChildType, "toAccountInfo")) {
+                                break :blk payer.toAccountInfo();
+                            } else {
+                                @compileError("realloc payer pointer must point to AccountInfo or type with toAccountInfo()");
+                            }
+                        } else if (@hasDecl(PayerType, "toAccountInfo")) {
+                            break :blk payer.toAccountInfo();
+                        } else {
+                            @compileError("realloc payer must have toAccountInfo() method or be *const AccountInfo");
+                        }
+                    };
+
+                    // Validate payer is signer (needed for potential growth)
+                    if (payer_info.is_signer == 0) {
+                        return error.ConstraintRealloc;
+                    }
+
+                    // Validate payer is writable (for refunds)
+                    if (payer_info.is_writable == 0) {
+                        return error.ConstraintRealloc;
+                    }
+                }
+
+                // Validate account is writable (required for realloc)
+                if (self.info.is_writable == 0) {
+                    return error.ConstraintRealloc;
+                }
+            }
+        }
+
+        /// Validate all Phase 3 constraints
+        ///
+        /// Convenience method to validate all configured constraints.
+        pub fn validateAllConstraints(self: Self, accounts: anytype) !void {
+            try self.validateHasOneConstraints(accounts);
+            try self.validateCloseConstraint(accounts);
+            try self.validateReallocConstraint(accounts);
+        }
+
+        /// Check if account requires constraint validation
+        pub fn requiresConstraintValidation() bool {
+            return HAS_HAS_ONE or HAS_CLOSE or HAS_REALLOC;
+        }
     };
 }
 
@@ -351,6 +539,10 @@ pub const AccountError = error{
     // Phase 2: PDA errors
     ConstraintSeeds,
     InvalidPda,
+    // Phase 3: Advanced constraint errors
+    ConstraintHasOne,
+    ConstraintClose,
+    ConstraintRealloc,
 };
 
 // ============================================================================
@@ -718,4 +910,515 @@ test "requiresInit returns true for accounts with init" {
 
     try std.testing.expect(InitAccount.requiresInit());
     try std.testing.expect(!TestAccount.requiresInit());
+}
+
+// ============================================================================
+// Phase 3: Advanced Constraints Tests
+// ============================================================================
+
+test "Account with has_one has HAS_HAS_ONE true" {
+    const VaultData = struct {
+        authority: PublicKey,
+        balance: u64,
+    };
+
+    const Vault = Account(VaultData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("Vault"),
+        .has_one = &.{
+            .{ .field = "authority", .target = "authority" },
+        },
+    });
+
+    try std.testing.expect(Vault.HAS_HAS_ONE);
+    try std.testing.expect(!Vault.HAS_CLOSE);
+    try std.testing.expect(!Vault.HAS_REALLOC);
+}
+
+test "Account without has_one has HAS_HAS_ONE false" {
+    try std.testing.expect(!TestAccount.HAS_HAS_ONE);
+}
+
+test "Account HAS_ONE constant is accessible" {
+    const VaultData = struct {
+        authority: PublicKey,
+        mint: PublicKey,
+    };
+
+    const Vault = Account(VaultData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("Vault"),
+        .has_one = &.{
+            .{ .field = "authority", .target = "authority" },
+            .{ .field = "mint", .target = "token_mint" },
+        },
+    });
+
+    try std.testing.expect(Vault.HAS_ONE != null);
+    try std.testing.expectEqual(@as(usize, 2), Vault.HAS_ONE.?.len);
+}
+
+test "Account with close has HAS_CLOSE true" {
+    const CloseableData = struct {
+        value: u64,
+    };
+
+    const Closeable = Account(CloseableData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("Closeable"),
+        .close = "destination",
+    });
+
+    try std.testing.expect(Closeable.HAS_CLOSE);
+    try std.testing.expect(std.mem.eql(u8, Closeable.CLOSE.?, "destination"));
+}
+
+test "Account without close has HAS_CLOSE false" {
+    try std.testing.expect(!TestAccount.HAS_CLOSE);
+    try std.testing.expect(TestAccount.CLOSE == null);
+}
+
+test "Account with realloc has HAS_REALLOC true" {
+    const DynamicData = struct {
+        len: u32,
+    };
+
+    const Dynamic = Account(DynamicData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("Dynamic"),
+        .realloc = .{
+            .payer = "payer",
+            .zero_init = true,
+        },
+    });
+
+    try std.testing.expect(Dynamic.HAS_REALLOC);
+    try std.testing.expect(Dynamic.REALLOC != null);
+    try std.testing.expect(std.mem.eql(u8, Dynamic.REALLOC.?.payer.?, "payer"));
+    try std.testing.expect(Dynamic.REALLOC.?.zero_init);
+}
+
+test "Account without realloc has HAS_REALLOC false" {
+    try std.testing.expect(!TestAccount.HAS_REALLOC);
+    try std.testing.expect(TestAccount.REALLOC == null);
+}
+
+test "Account with all Phase 3 constraints" {
+    const FullData = struct {
+        authority: PublicKey,
+        value: u64,
+    };
+
+    const Full = Account(FullData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("Full"),
+        .has_one = &.{
+            .{ .field = "authority", .target = "authority" },
+        },
+        .close = "destination",
+        .realloc = .{
+            .payer = "payer",
+            .zero_init = false,
+        },
+    });
+
+    try std.testing.expect(Full.HAS_HAS_ONE);
+    try std.testing.expect(Full.HAS_CLOSE);
+    try std.testing.expect(Full.HAS_REALLOC);
+}
+
+// ============================================================================
+// Phase 3: Constraint Enforcement Tests
+// ============================================================================
+
+const signer_mod = @import("signer.zig");
+const Signer = signer_mod.Signer;
+const SignerMut = signer_mod.SignerMut;
+
+test "validateHasOneConstraints succeeds when field matches target" {
+    // Use extern struct to ensure predictable layout
+    const VaultData = extern struct {
+        authority: PublicKey,
+        balance: u64,
+    };
+
+    const Vault = Account(VaultData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("Vault"),
+        .has_one = &.{
+            .{ .field = "authority", .target = "authority" },
+        },
+    });
+
+    // Create test data
+    const authority_key = comptime PublicKey.comptimeFromBase58("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+    var vault_id = comptime PublicKey.comptimeFromBase58("SysvarRent111111111111111111111111111111111");
+    var owner = PublicKey.default();
+    var vault_lamports: u64 = 1_000_000;
+    var authority_lamports: u64 = 500_000;
+
+    // Use proper struct layout
+    const DataWithDisc = extern struct {
+        disc: [8]u8,
+        data: VaultData,
+    };
+    var vault_buffer: DataWithDisc = undefined;
+    vault_buffer.disc = Vault.discriminator;
+    vault_buffer.data.authority = authority_key;
+    vault_buffer.data.balance = 0;
+
+    const vault_data_ptr: [*]u8 = @ptrCast(&vault_buffer);
+
+    const vault_info = AccountInfo{
+        .id = &vault_id,
+        .owner_id = &owner,
+        .lamports = &vault_lamports,
+        .data_len = @sizeOf(DataWithDisc),
+        .data = vault_data_ptr,
+        .is_signer = 0,
+        .is_writable = 1,
+        .is_executable = 0,
+    };
+
+    var authority_id = authority_key;
+    const authority_info = AccountInfo{
+        .id = &authority_id,
+        .owner_id = &owner,
+        .lamports = &authority_lamports,
+        .data_len = 0,
+        .data = undefined,
+        .is_signer = 1,
+        .is_writable = 0,
+        .is_executable = 0,
+    };
+
+    // Load accounts
+    const vault = try Vault.load(&vault_info);
+    const authority = try Signer.load(&authority_info);
+
+    // Create accounts struct
+    const Accounts = struct {
+        vault: Vault,
+        authority: Signer,
+    };
+    const accounts = Accounts{ .vault = vault, .authority = authority };
+
+    // Should succeed - authority matches
+    try vault.validateHasOneConstraints(accounts);
+}
+
+test "validateHasOneConstraints fails when field does not match target" {
+    // Use extern struct to ensure predictable layout
+    const VaultData = extern struct {
+        authority: PublicKey,
+        balance: u64,
+    };
+
+    const Vault = Account(VaultData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("Vault2"),
+        .has_one = &.{
+            .{ .field = "authority", .target = "authority" },
+        },
+    });
+
+    // Create test data with DIFFERENT keys
+    const stored_authority = comptime PublicKey.comptimeFromBase58("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+    const actual_authority = comptime PublicKey.comptimeFromBase58("SysvarRent111111111111111111111111111111111");
+
+    var vault_id = PublicKey.default();
+    var owner = PublicKey.default();
+    var vault_lamports: u64 = 1_000_000;
+    var authority_lamports: u64 = 500_000;
+
+    // Use proper struct layout
+    const DataWithDisc = extern struct {
+        disc: [8]u8,
+        data: VaultData,
+    };
+    var vault_buffer: DataWithDisc = undefined;
+    vault_buffer.disc = Vault.discriminator;
+    vault_buffer.data.authority = stored_authority; // Store different authority
+    vault_buffer.data.balance = 0;
+
+    const vault_data_ptr: [*]u8 = @ptrCast(&vault_buffer);
+
+    const vault_info = AccountInfo{
+        .id = &vault_id,
+        .owner_id = &owner,
+        .lamports = &vault_lamports,
+        .data_len = @sizeOf(DataWithDisc),
+        .data = vault_data_ptr,
+        .is_signer = 0,
+        .is_writable = 1,
+        .is_executable = 0,
+    };
+
+    var authority_id = actual_authority;
+    const authority_info = AccountInfo{
+        .id = &authority_id,
+        .owner_id = &owner,
+        .lamports = &authority_lamports,
+        .data_len = 0,
+        .data = undefined,
+        .is_signer = 1,
+        .is_writable = 0,
+        .is_executable = 0,
+    };
+
+    const vault = try Vault.load(&vault_info);
+    const authority = try Signer.load(&authority_info);
+
+    const Accounts = struct {
+        vault: Vault,
+        authority: Signer,
+    };
+    const accounts = Accounts{ .vault = vault, .authority = authority };
+
+    // Should fail - authority doesn't match stored value
+    try std.testing.expectError(error.ConstraintHasOne, vault.validateHasOneConstraints(accounts));
+}
+
+test "validateCloseConstraint succeeds when destination is writable" {
+    const CloseableData = struct {
+        value: u64,
+    };
+
+    const Closeable = Account(CloseableData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("Closeable"),
+        .close = "destination",
+    });
+
+    var closeable_id = comptime PublicKey.comptimeFromBase58("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+    var dest_id = comptime PublicKey.comptimeFromBase58("SysvarRent111111111111111111111111111111111");
+    var owner = PublicKey.default();
+    var closeable_lamports: u64 = 1_000_000;
+    var dest_lamports: u64 = 500_000;
+
+    var closeable_data: [16]u8 align(@alignOf(CloseableData)) = undefined;
+    @memcpy(closeable_data[0..8], &Closeable.discriminator);
+
+    const closeable_info = AccountInfo{
+        .id = &closeable_id,
+        .owner_id = &owner,
+        .lamports = &closeable_lamports,
+        .data_len = closeable_data.len,
+        .data = &closeable_data,
+        .is_signer = 0,
+        .is_writable = 1,
+        .is_executable = 0,
+    };
+
+    const dest_info = AccountInfo{
+        .id = &dest_id,
+        .owner_id = &owner,
+        .lamports = &dest_lamports,
+        .data_len = 0,
+        .data = undefined,
+        .is_signer = 1,
+        .is_writable = 1, // Writable
+        .is_executable = 0,
+    };
+
+    const closeable = try Closeable.load(&closeable_info);
+    const destination = try SignerMut.load(&dest_info);
+
+    const Accounts = struct {
+        closeable: Closeable,
+        destination: SignerMut,
+    };
+    const accounts = Accounts{ .closeable = closeable, .destination = destination };
+
+    // Should succeed
+    try closeable.validateCloseConstraint(accounts);
+}
+
+test "validateCloseConstraint fails when destination is not writable" {
+    const CloseableData = struct {
+        value: u64,
+    };
+
+    const Closeable = Account(CloseableData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("Closeable2"),
+        .close = "destination",
+    });
+
+    var closeable_id = comptime PublicKey.comptimeFromBase58("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+    var dest_id = comptime PublicKey.comptimeFromBase58("SysvarRent111111111111111111111111111111111");
+    var owner = PublicKey.default();
+    var closeable_lamports: u64 = 1_000_000;
+    var dest_lamports: u64 = 500_000;
+
+    var closeable_data: [16]u8 align(@alignOf(CloseableData)) = undefined;
+    @memcpy(closeable_data[0..8], &Closeable.discriminator);
+
+    const closeable_info = AccountInfo{
+        .id = &closeable_id,
+        .owner_id = &owner,
+        .lamports = &closeable_lamports,
+        .data_len = closeable_data.len,
+        .data = &closeable_data,
+        .is_signer = 0,
+        .is_writable = 1,
+        .is_executable = 0,
+    };
+
+    const dest_info = AccountInfo{
+        .id = &dest_id,
+        .owner_id = &owner,
+        .lamports = &dest_lamports,
+        .data_len = 0,
+        .data = undefined,
+        .is_signer = 1,
+        .is_writable = 0, // NOT writable
+        .is_executable = 0,
+    };
+
+    const closeable = try Closeable.load(&closeable_info);
+    const destination = try Signer.load(&dest_info); // Signer (not SignerMut)
+
+    const Accounts = struct {
+        closeable: Closeable,
+        destination: Signer,
+    };
+    const accounts = Accounts{ .closeable = closeable, .destination = destination };
+
+    // Should fail - destination not writable
+    try std.testing.expectError(error.ConstraintClose, closeable.validateCloseConstraint(accounts));
+}
+
+test "validateReallocConstraint succeeds when payer is signer and writable" {
+    const DynamicData = struct {
+        len: u32,
+    };
+
+    const Dynamic = Account(DynamicData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("Dynamic2"),
+        .realloc = .{
+            .payer = "payer",
+            .zero_init = true,
+        },
+    });
+
+    var dynamic_id = comptime PublicKey.comptimeFromBase58("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+    var payer_id = comptime PublicKey.comptimeFromBase58("SysvarRent111111111111111111111111111111111");
+    var owner = PublicKey.default();
+    var dynamic_lamports: u64 = 1_000_000;
+    var payer_lamports: u64 = 5_000_000;
+
+    var dynamic_data: [16]u8 align(@alignOf(DynamicData)) = undefined;
+    @memcpy(dynamic_data[0..8], &Dynamic.discriminator);
+
+    const dynamic_info = AccountInfo{
+        .id = &dynamic_id,
+        .owner_id = &owner,
+        .lamports = &dynamic_lamports,
+        .data_len = dynamic_data.len,
+        .data = &dynamic_data,
+        .is_signer = 0,
+        .is_writable = 1, // Must be writable
+        .is_executable = 0,
+    };
+
+    const payer_info = AccountInfo{
+        .id = &payer_id,
+        .owner_id = &owner,
+        .lamports = &payer_lamports,
+        .data_len = 0,
+        .data = undefined,
+        .is_signer = 1, // Is signer
+        .is_writable = 1, // Is writable
+        .is_executable = 0,
+    };
+
+    const dynamic = try Dynamic.load(&dynamic_info);
+    const payer = try SignerMut.load(&payer_info);
+
+    const Accounts = struct {
+        dynamic: Dynamic,
+        payer: SignerMut,
+    };
+    const accounts = Accounts{ .dynamic = dynamic, .payer = payer };
+
+    // Should succeed
+    try dynamic.validateReallocConstraint(accounts);
+}
+
+test "validateReallocConstraint fails when payer is not signer" {
+    const DynamicData = struct {
+        len: u32,
+    };
+
+    const Dynamic = Account(DynamicData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("Dynamic3"),
+        .realloc = .{
+            .payer = "payer",
+            .zero_init = true,
+        },
+    });
+
+    var dynamic_id = comptime PublicKey.comptimeFromBase58("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+    var payer_id = comptime PublicKey.comptimeFromBase58("SysvarRent111111111111111111111111111111111");
+    var owner = PublicKey.default();
+    var dynamic_lamports: u64 = 1_000_000;
+    var payer_lamports: u64 = 5_000_000;
+
+    var dynamic_data: [16]u8 align(@alignOf(DynamicData)) = undefined;
+    @memcpy(dynamic_data[0..8], &Dynamic.discriminator);
+
+    const dynamic_info = AccountInfo{
+        .id = &dynamic_id,
+        .owner_id = &owner,
+        .lamports = &dynamic_lamports,
+        .data_len = dynamic_data.len,
+        .data = &dynamic_data,
+        .is_signer = 0,
+        .is_writable = 1,
+        .is_executable = 0,
+    };
+
+    const payer_info = AccountInfo{
+        .id = &payer_id,
+        .owner_id = &owner,
+        .lamports = &payer_lamports,
+        .data_len = 0,
+        .data = undefined,
+        .is_signer = 0, // NOT a signer
+        .is_writable = 1,
+        .is_executable = 0,
+    };
+
+    const dynamic = try Dynamic.load(&dynamic_info);
+
+    // Can't use SignerMut here because payer is not a signer, so use raw AccountInfo
+    const Accounts = struct {
+        dynamic: Dynamic,
+        payer: *const AccountInfo,
+    };
+    const accounts = Accounts{ .dynamic = dynamic, .payer = &payer_info };
+
+    // Should fail - payer not signer
+    try std.testing.expectError(error.ConstraintRealloc, dynamic.validateReallocConstraint(accounts));
+}
+
+test "requiresConstraintValidation returns correct value" {
+    // Reuse existing discriminators to avoid comptime branch limit
+    const base_disc = TestAccount.discriminator;
+
+    const NoConstraints = Account(TestData, .{
+        .discriminator = base_disc,
+    });
+
+    const WithHasOne = Account(struct { authority: PublicKey }, .{
+        .discriminator = base_disc,
+        .has_one = &.{.{ .field = "authority", .target = "authority" }},
+    });
+
+    const WithClose = Account(TestData, .{
+        .discriminator = base_disc,
+        .close = "dest",
+    });
+
+    const WithRealloc = Account(TestData, .{
+        .discriminator = base_disc,
+        .realloc = .{ .payer = "payer" },
+    });
+
+    try std.testing.expect(!NoConstraints.requiresConstraintValidation());
+    try std.testing.expect(WithHasOne.requiresConstraintValidation());
+    try std.testing.expect(WithClose.requiresConstraintValidation());
+    try std.testing.expect(WithRealloc.requiresConstraintValidation());
 }

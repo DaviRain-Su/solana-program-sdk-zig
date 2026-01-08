@@ -1,0 +1,10 @@
+{
+  "skills": [
+    {
+      "name": "zig-0.15",
+      "path": "skills/zig-0.15/SKILL.md",
+      "auto_load": true,
+      "triggers": [".zig", "build.zig", "build.zig.zon"]
+    }
+  ]
+}

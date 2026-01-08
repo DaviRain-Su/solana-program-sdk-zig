@@ -312,9 +312,12 @@ pub const Versions = union(enum) {
 ///   - 32 bytes: authority pubkey
 ///   - 32 bytes: durable_nonce hash
 ///   - 8 bytes: lamports_per_signature
+///
+/// Returns error.InvalidAccountData if buffer length is not exactly 80 bytes.
+/// This matches Rust SDK behavior which requires exact size.
 pub fn serialize(versions: Versions, buffer: []u8) !void {
-    if (buffer.len < NONCE_ACCOUNT_LENGTH) {
-        return error.BufferTooSmall;
+    if (buffer.len != NONCE_ACCOUNT_LENGTH) {
+        return error.InvalidAccountData;
     }
 
     var offset: usize = 0;
@@ -360,8 +363,12 @@ pub fn serialize(versions: Versions, buffer: []u8) !void {
 }
 
 /// Deserialize nonce Versions from bytes.
+///
+/// Returns error.InvalidAccountData if buffer length is not exactly 80 bytes.
+/// This matches Rust SDK behavior which requires exact size to prevent
+/// misinterpreting extended account data or truncated data.
 pub fn deserialize(buffer: []const u8) !Versions {
-    if (buffer.len < NONCE_ACCOUNT_LENGTH) {
+    if (buffer.len != NONCE_ACCOUNT_LENGTH) {
         return error.InvalidAccountData;
     }
 
@@ -557,4 +564,41 @@ test "nonce: serialize legacy version" {
     try std.testing.expect(deserialized.isLegacy());
     const data = deserialized.state().getData().?;
     try std.testing.expect(data.authority.equals(authority));
+}
+
+test "nonce: serialize rejects wrong buffer size" {
+    const state = State.default();
+    const versions = Versions.init(state);
+
+    // Buffer too small
+    var small_buffer: [NONCE_ACCOUNT_LENGTH - 1]u8 = undefined;
+    try std.testing.expectError(error.InvalidAccountData, serialize(versions, &small_buffer));
+
+    // Buffer too large
+    var large_buffer: [NONCE_ACCOUNT_LENGTH + 1]u8 = undefined;
+    try std.testing.expectError(error.InvalidAccountData, serialize(versions, &large_buffer));
+
+    // Exact size should work
+    var exact_buffer: [NONCE_ACCOUNT_LENGTH]u8 = undefined;
+    try serialize(versions, &exact_buffer);
+}
+
+test "nonce: deserialize rejects wrong buffer size" {
+    // Create valid serialized data first
+    const state = State.default();
+    const versions = Versions.init(state);
+    var valid_buffer: [NONCE_ACCOUNT_LENGTH]u8 = undefined;
+    try serialize(versions, &valid_buffer);
+
+    // Buffer too small
+    try std.testing.expectError(error.InvalidAccountData, deserialize(valid_buffer[0 .. NONCE_ACCOUNT_LENGTH - 1]));
+
+    // Buffer too large (with extra trailing data)
+    var large_buffer: [NONCE_ACCOUNT_LENGTH + 10]u8 = undefined;
+    @memcpy(large_buffer[0..NONCE_ACCOUNT_LENGTH], &valid_buffer);
+    @memset(large_buffer[NONCE_ACCOUNT_LENGTH..], 0xFF); // trailing garbage
+    try std.testing.expectError(error.InvalidAccountData, deserialize(&large_buffer));
+
+    // Exact size should work
+    _ = try deserialize(&valid_buffer);
 }

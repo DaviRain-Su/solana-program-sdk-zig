@@ -5,18 +5,32 @@
 //! This module provides the Secp256k1 native program interface for verifying
 //! Ethereum-compatible ECDSA signatures on-chain. The program uses Keccak256
 //! hashing internally.
+//!
+//! ## Single vs Multi-Signature Verification
+//!
+//! The Secp256k1 program supports verifying multiple signatures in a single instruction:
+//! - `createInstruction()` - Verifies a single signature (convenience function)
+//! - `createInstructionWithSignatures()` - Verifies multiple signatures in batch
+//!
+//! Multi-signature verification is more efficient as it amortizes the instruction
+//! overhead across multiple signature verifications.
 
 const std = @import("std");
 const PublicKey = @import("public_key.zig").PublicKey;
+const AccountMeta = @import("instruction.zig").AccountMeta;
+const system_program = @import("system_program.zig");
 
 /// Built instruction for Secp256k1 verification
-pub const BuiltInstruction = struct {
-    program_id: PublicKey,
-    data: []u8,
+///
+/// Note: The Secp256k1 program requires no accounts, so the accounts slice is always empty.
+pub const BuiltInstruction = system_program.BuiltInstruction;
 
-    pub fn deinit(self: *BuiltInstruction, allocator: std.mem.Allocator) void {
-        allocator.free(self.data);
-    }
+/// Errors for Secp256k1 instruction construction
+pub const Secp256k1Error = error{
+    /// Recovery ID must be 0, 1, 2, or 3
+    InvalidRecoveryId,
+    /// Out of memory during allocation
+    OutOfMemory,
 };
 
 /// Secp256k1 program ID
@@ -96,11 +110,35 @@ pub const SecpSignatureOffsets = extern struct {
     }
 };
 
-/// Create a Secp256k1 verification instruction with an embedded signature
+/// Signature data for Secp256k1 verification
+///
+/// Contains all data needed to verify a single signature.
+pub const SignatureData = struct {
+    /// The 64-byte ECDSA signature (r || s)
+    signature: *const [SIGNATURE_SERIALIZED_SIZE]u8,
+    /// The recovery ID (must be 0, 1, 2, or 3)
+    recovery_id: u8,
+    /// The 20-byte Ethereum address
+    eth_address: *const [HASHED_PUBKEY_SERIALIZED_SIZE]u8,
+    /// The message that was signed (will be Keccak256 hashed by the program)
+    message: []const u8,
+};
+
+/// Validate that recovery_id is in valid range (0-3)
+fn validateRecoveryId(recovery_id: u8) Secp256k1Error!void {
+    if (recovery_id > 3) {
+        return Secp256k1Error.InvalidRecoveryId;
+    }
+}
+
+/// Create a Secp256k1 verification instruction with a single embedded signature
 ///
 /// This creates an instruction that verifies a single Secp256k1 signature.
 /// The signature, recovery ID, Ethereum address, and message are all embedded
 /// in the instruction data.
+///
+/// For verifying multiple signatures in a single instruction, use
+/// `createInstructionWithSignatures()` which is more efficient.
 ///
 /// # Arguments
 /// * `allocator` - Memory allocator
@@ -110,14 +148,21 @@ pub const SecpSignatureOffsets = extern struct {
 /// * `eth_address` - The 20-byte Ethereum address
 ///
 /// # Returns
-/// An instruction for the Secp256k1 program
+/// An instruction for the Secp256k1 program, or error if recovery_id is invalid
+///
+/// # Errors
+/// - `InvalidRecoveryId` if recovery_id > 3
+/// - `OutOfMemory` if allocation fails
 pub fn createInstruction(
     allocator: std.mem.Allocator,
     message: []const u8,
     signature: *const [SIGNATURE_SERIALIZED_SIZE]u8,
     recovery_id: u8,
     eth_address: *const [HASHED_PUBKEY_SERIALIZED_SIZE]u8,
-) !BuiltInstruction {
+) Secp256k1Error!BuiltInstruction {
+    // Validate recovery_id
+    try validateRecoveryId(recovery_id);
+
     // Layout:
     // [0]: num_signatures (u8)
     // [1..12]: SecpSignatureOffsets (11 bytes)
@@ -128,7 +173,7 @@ pub fn createInstruction(
 
     const sig_with_recovery_size = SIGNATURE_SERIALIZED_SIZE + 1;
     const total_size = DATA_START + sig_with_recovery_size + HASHED_PUBKEY_SERIALIZED_SIZE + message.len;
-    var data = try std.ArrayList(u8).initCapacity(allocator, total_size);
+    var data = std.ArrayList(u8).initCapacity(allocator, total_size) catch return Secp256k1Error.OutOfMemory;
     errdefer data.deinit(allocator);
 
     // Number of signatures
@@ -159,11 +204,115 @@ pub fn createInstruction(
     data.appendSliceAssumeCapacity(eth_address);
 
     // Write message
-    try data.appendSlice(allocator, message);
+    data.appendSlice(allocator, message) catch return Secp256k1Error.OutOfMemory;
+
+    // Secp256k1 program requires no accounts
+    const accounts = allocator.alloc(AccountMeta, 0) catch return Secp256k1Error.OutOfMemory;
 
     return BuiltInstruction{
         .program_id = id,
-        .data = try data.toOwnedSlice(allocator),
+        .accounts = accounts,
+        .data = data.toOwnedSlice(allocator) catch return Secp256k1Error.OutOfMemory,
+    };
+}
+
+/// Create a Secp256k1 verification instruction with multiple signatures
+///
+/// This creates an instruction that verifies multiple Secp256k1 signatures
+/// in a single instruction. This is more efficient than creating multiple
+/// single-signature instructions.
+///
+/// All signature data (signatures, recovery IDs, addresses, messages) are
+/// embedded in the instruction data.
+///
+/// # Arguments
+/// * `allocator` - Memory allocator
+/// * `signatures` - Array of signature data to verify
+///
+/// # Returns
+/// An instruction for the Secp256k1 program
+///
+/// # Errors
+/// - `InvalidRecoveryId` if any recovery_id > 3
+/// - `OutOfMemory` if allocation fails
+///
+/// Rust equivalent: `solana_secp256k1_program::new_secp256k1_instruction()`
+pub fn createInstructionWithSignatures(
+    allocator: std.mem.Allocator,
+    signatures: []const SignatureData,
+) Secp256k1Error!BuiltInstruction {
+    if (signatures.len == 0) {
+        // Empty instruction - just num_signatures = 0
+        const data = allocator.alloc(u8, 1) catch return Secp256k1Error.OutOfMemory;
+        data[0] = 0;
+        const accounts = allocator.alloc(AccountMeta, 0) catch return Secp256k1Error.OutOfMemory;
+        return BuiltInstruction{
+            .program_id = id,
+            .accounts = accounts,
+            .data = data,
+        };
+    }
+
+    // Validate all recovery IDs first
+    for (signatures) |sig_data| {
+        try validateRecoveryId(sig_data.recovery_id);
+    }
+
+    // Calculate total size needed
+    // Layout: num_signatures (1) + [offsets (11) for each sig] + [sig_data for each sig]
+    const num_sigs = signatures.len;
+    const offsets_total_size = num_sigs * SIGNATURE_OFFSETS_SERIALIZED_SIZE;
+    const header_size = 1 + offsets_total_size;
+
+    // Calculate data section size
+    var data_section_size: usize = 0;
+    for (signatures) |sig_data| {
+        // signature (64) + recovery_id (1) + eth_address (20) + message
+        data_section_size += SIGNATURE_SERIALIZED_SIZE + 1 + HASHED_PUBKEY_SERIALIZED_SIZE + sig_data.message.len;
+    }
+
+    const total_size = header_size + data_section_size;
+    var data = std.ArrayList(u8).initCapacity(allocator, total_size) catch return Secp256k1Error.OutOfMemory;
+    errdefer data.deinit(allocator);
+
+    // Write number of signatures
+    data.appendAssumeCapacity(@intCast(num_sigs));
+
+    // First pass: calculate and write all offsets
+    var current_data_offset: u16 = @intCast(header_size);
+    for (signatures) |sig_data| {
+        const sig_with_recovery_size: u16 = SIGNATURE_SERIALIZED_SIZE + 1;
+        const signature_offset = current_data_offset;
+        const eth_address_offset = current_data_offset + sig_with_recovery_size;
+        const message_offset = eth_address_offset + @as(u16, @intCast(HASHED_PUBKEY_SERIALIZED_SIZE));
+
+        const offsets = SecpSignatureOffsets.forCurrentInstruction(
+            signature_offset,
+            eth_address_offset,
+            message_offset,
+            @intCast(sig_data.message.len),
+        );
+        data.appendSliceAssumeCapacity(&offsets.toBytes());
+
+        // Advance offset for next signature's data
+        current_data_offset += sig_with_recovery_size + @as(u16, @intCast(HASHED_PUBKEY_SERIALIZED_SIZE)) + @as(u16, @intCast(sig_data.message.len));
+    }
+
+    // Second pass: write all signature data
+    for (signatures) |sig_data| {
+        data.appendSliceAssumeCapacity(sig_data.signature);
+        data.appendAssumeCapacity(sig_data.recovery_id);
+        data.appendSliceAssumeCapacity(sig_data.eth_address);
+        data.appendSlice(allocator, sig_data.message) catch return Secp256k1Error.OutOfMemory;
+    }
+
+    // Secp256k1 program requires no accounts
+    const accounts = allocator.alloc(AccountMeta, 0) catch return Secp256k1Error.OutOfMemory;
+
+    return BuiltInstruction{
+        .program_id = id,
+        .accounts = accounts,
+        .data = data.toOwnedSlice(allocator) catch return Secp256k1Error.OutOfMemory,
     };
 }
 
@@ -221,6 +370,9 @@ test "secp256k1_program: create instruction" {
     // Verify program ID
     try std.testing.expectEqualSlices(u8, &id.bytes, &ix.program_id.bytes);
 
+    // Verify empty accounts (Secp256k1 requires no accounts)
+    try std.testing.expectEqual(@as(usize, 0), ix.accounts.len);
+
     // Verify data structure
     try std.testing.expectEqual(@as(u8, 1), ix.data[0]); // num_signatures
 
@@ -236,6 +388,99 @@ test "secp256k1_program: create instruction" {
 
     // Verify eth_address at correct offset
     try std.testing.expectEqualSlices(u8, &eth_address, ix.data[DATA_START + 65 ..][0..20]);
+}
+
+test "secp256k1_program: invalid recovery_id rejected" {
+    const allocator = std.testing.allocator;
+
+    const message = "test";
+    var signature: [64]u8 = undefined;
+    @memset(&signature, 0xAB);
+    var eth_address: [20]u8 = undefined;
+    @memset(&eth_address, 0xCD);
+
+    // recovery_id = 4 is invalid (must be 0-3)
+    const result = createInstruction(allocator, message, &signature, 4, &eth_address);
+    try std.testing.expectError(Secp256k1Error.InvalidRecoveryId, result);
+
+    // recovery_id = 255 is also invalid
+    const result2 = createInstruction(allocator, message, &signature, 255, &eth_address);
+    try std.testing.expectError(Secp256k1Error.InvalidRecoveryId, result2);
+}
+
+test "secp256k1_program: valid recovery_id values" {
+    const allocator = std.testing.allocator;
+
+    const message = "test";
+    var signature: [64]u8 = undefined;
+    @memset(&signature, 0xAB);
+    var eth_address: [20]u8 = undefined;
+    @memset(&eth_address, 0xCD);
+
+    // All valid recovery IDs (0-3)
+    inline for (0..4) |i| {
+        var ix = try createInstruction(allocator, message, &signature, @intCast(i), &eth_address);
+        defer ix.deinit(allocator);
+        try std.testing.expectEqual(@as(u8, @intCast(i)), ix.data[DATA_START + 64]);
+    }
+}
+
+test "secp256k1_program: multi-signature instruction" {
+    const allocator = std.testing.allocator;
+
+    var sig1: [64]u8 = undefined;
+    @memset(&sig1, 0xAA);
+    var addr1: [20]u8 = undefined;
+    @memset(&addr1, 0x11);
+
+    var sig2: [64]u8 = undefined;
+    @memset(&sig2, 0xBB);
+    var addr2: [20]u8 = undefined;
+    @memset(&addr2, 0x22);
+
+    const signatures = [_]SignatureData{
+        .{ .signature = &sig1, .recovery_id = 0, .eth_address = &addr1, .message = "message1" },
+        .{ .signature = &sig2, .recovery_id = 1, .eth_address = &addr2, .message = "message2" },
+    };
+
+    var ix = try createInstructionWithSignatures(allocator, &signatures);
+    defer ix.deinit(allocator);
+
+    // Verify num_signatures
+    try std.testing.expectEqual(@as(u8, 2), ix.data[0]);
+
+    // Verify empty accounts
+    try std.testing.expectEqual(@as(usize, 0), ix.accounts.len);
+
+    // Verify offsets are present (2 * 11 bytes after num_signatures)
+    try std.testing.expect(ix.data.len > 1 + 2 * SIGNATURE_OFFSETS_SERIALIZED_SIZE);
+}
+
+test "secp256k1_program: empty signatures" {
+    const allocator = std.testing.allocator;
+
+    var ix = try createInstructionWithSignatures(allocator, &[_]SignatureData{});
+    defer ix.deinit(allocator);
+
+    // Should have num_signatures = 0
+    try std.testing.expectEqual(@as(usize, 1), ix.data.len);
+    try std.testing.expectEqual(@as(u8, 0), ix.data[0]);
+}
+
+test "secp256k1_program: multi-signature with invalid recovery_id" {
+    const allocator = std.testing.allocator;
+
+    var sig1: [64]u8 = undefined;
+    @memset(&sig1, 0xAA);
+    var addr1: [20]u8 = undefined;
+    @memset(&addr1, 0x11);
+
+    const signatures = [_]SignatureData{
+        .{ .signature = &sig1, .recovery_id = 5, .eth_address = &addr1, .message = "msg" }, // Invalid!
+    };
+
+    const result = createInstructionWithSignatures(allocator, &signatures);
+    try std.testing.expectError(Secp256k1Error.InvalidRecoveryId, result);
 }
 
 test "secp256k1_program: forCurrentInstruction helper" {

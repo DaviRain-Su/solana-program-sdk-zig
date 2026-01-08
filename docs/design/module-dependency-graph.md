@@ -333,5 +333,5 @@ src/
 - [x] All SDK modules compile independently (`sdk/build.zig`)
 - [x] No SDK module imports syscalls, bpf, or log
 - [x] Program SDK depends on SDK (`build.zig.zon`)
-- [x] All tests pass after restructure (SDK: 305, Program SDK: 297)
+- [x] All tests pass after restructure (current total: 363 across SDK/Program SDK/Client/Integration)
 - [x] Example programs still work

@@ -79,6 +79,29 @@ pub const StakeInstruction = instruction.StakeInstruction;
 pub const AuthorizeWithSeedArgs = instruction.AuthorizeWithSeedArgs;
 pub const AuthorizeCheckedWithSeedArgs = instruction.AuthorizeCheckedWithSeedArgs;
 
+// Instruction builders
+pub const initialize = instruction.initialize;
+pub const authorize = instruction.authorize;
+pub const delegateStake = instruction.delegateStake;
+pub const split = instruction.split;
+pub const withdraw = instruction.withdraw;
+pub const deactivate = instruction.deactivate;
+pub const setLockup = instruction.setLockup;
+pub const merge = instruction.merge;
+pub const initializeChecked = instruction.initializeChecked;
+pub const authorizeChecked = instruction.authorizeChecked;
+pub const setLockupChecked = instruction.setLockupChecked;
+pub const getMinimumDelegation = instruction.getMinimumDelegation;
+pub const deactivateDelinquent = instruction.deactivateDelinquent;
+pub const redelegate = instruction.redelegate;
+pub const moveStake = instruction.moveStake;
+pub const moveLamports = instruction.moveLamports;
+
+// Sysvar IDs
+pub const CLOCK_SYSVAR = instruction.CLOCK_SYSVAR;
+pub const RENT_SYSVAR = instruction.RENT_SYSVAR;
+pub const STAKE_HISTORY_SYSVAR = instruction.STAKE_HISTORY_SYSVAR;
+
 // Error types
 pub const err = @import("error.zig");
 pub const StakeError = err.StakeError;

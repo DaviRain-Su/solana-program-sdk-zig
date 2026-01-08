@@ -119,6 +119,10 @@ fn keypairIsInteractive(_: *anyopaque) bool {
 /// A null signer that doesn't actually sign anything.
 /// Useful for fee estimation or offline signing workflows.
 ///
+/// **Important**: `signMessage` returns `SignerError.SigningFailed` because
+/// NullSigner cannot produce valid signatures. For fee estimation or offline
+/// workflows where you need a placeholder signature, use `placeholderSignature()`.
+///
 /// Rust equivalent: `solana_signer::NullSigner`
 /// Source: https://github.com/anza-xyz/solana-sdk/blob/master/signer/src/null_signer.rs
 pub const NullSigner = struct {
@@ -134,7 +138,27 @@ pub const NullSigner = struct {
         return self.pubkey_value;
     }
 
+    /// Attempt to sign a message.
+    ///
+    /// **Always returns `SignerError.SigningFailed`** because NullSigner
+    /// cannot produce valid signatures. This prevents accidental use of
+    /// invalid signatures in real transactions.
+    ///
+    /// For fee estimation or offline workflows where you need a placeholder
+    /// signature, use `placeholderSignature()` instead.
     pub fn signMessage(_: *const Self, _: []const u8) SignerError!Signature {
+        return SignerError.SigningFailed;
+    }
+
+    /// Get a placeholder signature for fee estimation or offline workflows.
+    ///
+    /// **Warning**: This returns an all-zero signature that will NOT verify.
+    /// Only use this when you explicitly need a placeholder signature, such as:
+    /// - Fee estimation (signature size is known but content doesn't matter)
+    /// - Offline transaction preparation (signature will be added later)
+    ///
+    /// Do NOT use this signature in actual transaction submission.
+    pub fn placeholderSignature(_: *const Self) Signature {
         return Signature.default();
     }
 
@@ -221,9 +245,13 @@ test "signer: NullSigner" {
     try std.testing.expectEqualSlices(u8, &pk.bytes, &ns.pubkey().bytes);
     try std.testing.expect(!ns.isInteractive());
 
-    // NullSigner returns default (zero) signature
-    const sig = try ns.signMessage("test");
-    try std.testing.expectEqualSlices(u8, &[_]u8{0} ** 64, &sig.bytes);
+    // NullSigner.signMessage returns SigningFailed error
+    const result = ns.signMessage("test");
+    try std.testing.expectError(SignerError.SigningFailed, result);
+
+    // Use placeholderSignature for fee estimation/offline workflows
+    const placeholder = ns.placeholderSignature();
+    try std.testing.expectEqualSlices(u8, &[_]u8{0} ** 64, &placeholder.bytes);
 }
 
 test "signer: NullSigner as Signer interface" {
@@ -233,6 +261,10 @@ test "signer: NullSigner as Signer interface" {
 
     try std.testing.expectEqualSlices(u8, &pk.bytes, &signer.pubkey().bytes);
     try std.testing.expect(!signer.isInteractive());
+
+    // Signing through Signer interface also returns error
+    const result = signer.signMessage("test");
+    try std.testing.expectError(SignerError.SigningFailed, result);
 }
 
 test "signer: uniqueSigners" {

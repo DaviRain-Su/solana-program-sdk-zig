@@ -30,9 +30,13 @@
 //! const sub_id = try client.slotSubscribe();
 //!
 //! // Read notifications in a loop
-//! while (try client.readNotification()) |notification| {
-//!     // Handle notification
-//!     std.debug.print("Slot: {}\n", .{notification.slot});
+//! while (try client.readNotification()) |*notification| {
+//!     defer notification.deinit(); // Free notification data when done
+//!
+//!     // Access the result data (slot info for slotSubscribe)
+//!     if (notification.result.object.get("slot")) |slot_val| {
+//!         std.debug.print("Slot: {}\n", .{slot_val.integer});
+//!     }
 //! }
 //!
 //! // Unsubscribe
@@ -514,15 +518,29 @@ pub const PubsubClient = struct {
     // ========================================================================
 
     /// Notification from the server
+    ///
+    /// Contains the parsed result data from the notification. The caller must call
+    /// `deinit()` when done to free the memory used by the result.
     pub const Notification = struct {
+        allocator: std.mem.Allocator,
+        arena: *std.heap.ArenaAllocator,
         subscription_id: SubscriptionId,
         method: SubscriptionMethod,
         result: std.json.Value,
+
+        /// Free the memory used by this notification.
+        /// Must be called when done processing the notification.
+        pub fn deinit(self: *Notification) void {
+            self.arena.deinit();
+            self.allocator.destroy(self.arena);
+        }
     };
 
     /// Read the next notification from the WebSocket.
     ///
     /// Returns null if no message is available (timeout) or connection closed.
+    /// The caller must call `notification.deinit()` when done processing the result
+    /// to free the memory used by the notification data.
     pub fn readNotification(self: *Self) !?Notification {
         const message = (self.ws_client.read() catch {
             return null;
@@ -638,10 +656,22 @@ pub const PubsubClient = struct {
     }
 
     fn parseNotification(self: *Self, data: []const u8) !?Notification {
-        const parsed = std.json.parseFromSlice(std.json.Value, self.allocator, data, .{}) catch {
+        // Create an arena allocator to own the parsed JSON data.
+        // This arena will be owned by the Notification and freed when deinit() is called.
+        const arena = self.allocator.create(std.heap.ArenaAllocator) catch {
             return null;
         };
-        defer parsed.deinit();
+        arena.* = std.heap.ArenaAllocator.init(self.allocator);
+        errdefer {
+            arena.deinit();
+            self.allocator.destroy(arena);
+        }
+
+        const parsed = std.json.parseFromSlice(std.json.Value, arena.allocator(), data, .{}) catch {
+            return null;
+        };
+        // Note: We don't call parsed.deinit() here because the arena owns all the memory.
+        // The arena will be freed when Notification.deinit() is called.
 
         const obj = parsed.value.object;
 
@@ -680,16 +710,17 @@ pub const PubsubClient = struct {
             return null;
         };
 
-        // Note: We don't return the result value since it would be freed with parsed.deinit()
-        // For detailed result parsing, users should use typed notification handlers
-        _ = params_obj.get("result") orelse {
+        // Get the result value - this is the actual notification data
+        const result = params_obj.get("result") orelse {
             return null;
         };
 
         return Notification{
+            .allocator = self.allocator,
+            .arena = arena,
             .subscription_id = sub_id,
             .method = sub_info.method,
-            .result = .null, // Result data is not preserved to avoid memory issues
+            .result = result,
         };
     }
 
@@ -783,4 +814,90 @@ test "SubscriptionMethod: method names" {
     try std.testing.expectEqualStrings("slotSubscribe", PubsubClient.SubscriptionMethod.slot.subscribeMethod());
     try std.testing.expectEqualStrings("slotUnsubscribe", PubsubClient.SubscriptionMethod.slot.unsubscribeMethod());
     try std.testing.expectEqualStrings("slotNotification", PubsubClient.SubscriptionMethod.slot.notificationMethod());
+}
+
+test "Notification: result value is preserved with arena allocator" {
+    const allocator = std.testing.allocator;
+
+    // Simulate parsing a slot notification
+    const notification_json =
+        \\{"jsonrpc":"2.0","method":"slotNotification","params":{"subscription":42,"result":{"slot":123456,"parent":123455,"root":123400}}}
+    ;
+
+    // Create an arena to own the parsed data (simulating what parseNotification does)
+    const arena = try allocator.create(std.heap.ArenaAllocator);
+    arena.* = std.heap.ArenaAllocator.init(allocator);
+    errdefer {
+        arena.deinit();
+        allocator.destroy(arena);
+    }
+
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), notification_json, .{});
+    const params = parsed.value.object.get("params").?.object;
+    const result = params.get("result").?;
+
+    // Create notification with the result
+    var notification = PubsubClient.Notification{
+        .allocator = allocator,
+        .arena = arena,
+        .subscription_id = 42,
+        .method = .slot,
+        .result = result,
+    };
+
+    // Verify the result data is accessible (it's an object)
+    try std.testing.expect(notification.result == .object);
+    const slot_val = notification.result.object.get("slot").?;
+    try std.testing.expectEqual(@as(i64, 123456), slot_val.integer);
+    const parent_val = notification.result.object.get("parent").?;
+    try std.testing.expectEqual(@as(i64, 123455), parent_val.integer);
+    const root_val = notification.result.object.get("root").?;
+    try std.testing.expectEqual(@as(i64, 123400), root_val.integer);
+
+    // Clean up
+    notification.deinit();
+}
+
+test "Notification: complex account notification result" {
+    const allocator = std.testing.allocator;
+
+    // Simulate an account notification with nested data
+    const notification_json =
+        \\{"jsonrpc":"2.0","method":"accountNotification","params":{"subscription":99,"result":{"context":{"slot":100},"value":{"data":["base64data","base64"],"executable":false,"lamports":1000000,"owner":"11111111111111111111111111111111","rentEpoch":123}}}}
+    ;
+
+    const arena = try allocator.create(std.heap.ArenaAllocator);
+    arena.* = std.heap.ArenaAllocator.init(allocator);
+    errdefer {
+        arena.deinit();
+        allocator.destroy(arena);
+    }
+
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), notification_json, .{});
+    const params = parsed.value.object.get("params").?.object;
+    const result = params.get("result").?;
+
+    var notification = PubsubClient.Notification{
+        .allocator = allocator,
+        .arena = arena,
+        .subscription_id = 99,
+        .method = .account,
+        .result = result,
+    };
+
+    // Verify nested data is accessible
+    const context = notification.result.object.get("context").?.object;
+    try std.testing.expectEqual(@as(i64, 100), context.get("slot").?.integer);
+
+    const value = notification.result.object.get("value").?.object;
+    try std.testing.expectEqual(@as(i64, 1000000), value.get("lamports").?.integer);
+    try std.testing.expect(!value.get("executable").?.bool);
+    try std.testing.expectEqualStrings("11111111111111111111111111111111", value.get("owner").?.string);
+
+    // Data array is accessible
+    const data_arr = value.get("data").?.array;
+    try std.testing.expectEqual(@as(usize, 2), data_arr.items.len);
+    try std.testing.expectEqualStrings("base64data", data_arr.items[0].string);
+
+    notification.deinit();
 }

@@ -5,10 +5,43 @@
 //! This module provides the interface for Solana's Secp256r1 program, which supports
 //! P-256 elliptic curve operations for ECDSA signature verification. This is commonly
 //! used for WebAuthn authentication and other cryptographic protocols.
+//!
+//! ## Single Signature Verification
+//!
+//! This program supports single signature verification per instruction. Unlike the
+//! Secp256k1 program, Secp256r1 does not support batch verification of multiple
+//! signatures in a single instruction. For multiple signatures, create separate
+//! instructions.
+//!
+//! ## Message Length Limits
+//!
+//! Messages are limited to 65535 bytes (u16::MAX) due to the wire format using
+//! a u16 for message length. Attempting to create an instruction with a longer
+//! message will return `InvalidMessageLength`.
 
 const std = @import("std");
 const PublicKey = @import("public_key.zig").PublicKey;
-const Instruction = @import("instruction.zig").Instruction;
+const AccountMeta = @import("instruction.zig").AccountMeta;
+const system_program = @import("system_program.zig");
+
+/// Built instruction for Secp256r1 verification
+///
+/// Owns the allocated data and accounts. Call `deinit` to free memory.
+/// Note: The Secp256r1 program requires no accounts, so accounts slice is always empty.
+pub const BuiltInstruction = system_program.BuiltInstruction;
+
+/// Errors for Secp256r1 instruction construction
+pub const Secp256r1Error = error{
+    /// Message length exceeds u16::MAX (65535 bytes)
+    InvalidMessageLength,
+    /// Out of memory during allocation
+    OutOfMemory,
+    /// Invalid signature format
+    InvalidSignature,
+};
+
+/// Maximum message length (u16::MAX)
+pub const MAX_MESSAGE_LENGTH: usize = std.math.maxInt(u16);
 
 /// Secp256r1 program ID
 ///
@@ -56,7 +89,16 @@ pub const VerifyInstruction = struct {
     ///
     /// # Returns
     /// Serialized instruction data as bytes
-    pub fn serialize(self: VerifyInstruction, allocator: std.mem.Allocator) ![]u8 {
+    ///
+    /// # Errors
+    /// - `InvalidMessageLength` if message exceeds 65535 bytes
+    /// - `OutOfMemory` if allocation fails
+    pub fn serialize(self: VerifyInstruction, allocator: std.mem.Allocator) Secp256r1Error![]u8 {
+        // Validate message length fits in u16
+        if (self.message.len > MAX_MESSAGE_LENGTH) {
+            return Secp256r1Error.InvalidMessageLength;
+        }
+
         // Calculate total size:
         // - Discriminator: 1 byte
         // - Signature: 64 bytes
@@ -66,7 +108,7 @@ pub const VerifyInstruction = struct {
         const message_len = self.message.len;
         const total_size = 1 + 64 + 64 + 2 + message_len;
 
-        var data = try allocator.alloc(u8, total_size);
+        const data = allocator.alloc(u8, total_size) catch return Secp256r1Error.OutOfMemory;
         errdefer allocator.free(data);
 
         var offset: usize = 0;
@@ -84,10 +126,8 @@ pub const VerifyInstruction = struct {
         offset += 64;
 
         // Message length (little endian u16)
-        const msg_len_u16 = @as(u16, @intCast(message_len));
-        var len_buf: [2]u8 = undefined;
-        std.mem.writeInt(u16, &len_buf, msg_len_u16, .little);
-        @memcpy(data[offset .. offset + 2], &len_buf);
+        const msg_len_u16: u16 = @intCast(message_len);
+        std.mem.writeInt(u16, data[offset..][0..2], msg_len_u16, .little);
         offset += 2;
 
         // Message
@@ -98,14 +138,22 @@ pub const VerifyInstruction = struct {
 
     /// Create a verify instruction
     ///
+    /// Creates a complete instruction for Secp256r1 signature verification.
+    /// The returned `BuiltInstruction` owns the allocated data - call `deinit`
+    /// to free memory when done.
+    ///
     /// # Arguments
     /// * `allocator` - Memory allocator
-    /// * `signature` - ECDSA signature (64 bytes)
-    /// * `public_key` - P-256 public key (64 bytes, uncompressed)
-    /// * `message` - Message that was signed
+    /// * `signature` - ECDSA signature (64 bytes: r || s)
+    /// * `public_key` - P-256 public key (64 bytes, uncompressed without 0x04 prefix)
+    /// * `message` - Message that was signed (max 65535 bytes)
     ///
     /// # Returns
     /// Complete instruction ready for execution
+    ///
+    /// # Errors
+    /// - `InvalidMessageLength` if message exceeds 65535 bytes
+    /// - `OutOfMemory` if allocation fails
     ///
     /// Rust equivalent: `solana_secp256r1_program::verify()`
     pub fn createInstruction(
@@ -113,17 +161,18 @@ pub const VerifyInstruction = struct {
         signature: [64]u8,
         public_key: [64]u8,
         message: []const u8,
-    ) !Instruction {
+    ) Secp256r1Error!BuiltInstruction {
         const verify_instr = VerifyInstruction.new(signature, public_key, message);
         const data = try verify_instr.serialize(allocator);
-        defer allocator.free(data);
 
-        // No accounts needed for verification - the program is stateless
-        return Instruction.from(.{
-            .program_id = &id,
-            .accounts = &.{}, // No accounts required
+        // Secp256r1 program requires no accounts
+        const accounts = allocator.alloc(AccountMeta, 0) catch return Secp256r1Error.OutOfMemory;
+
+        return BuiltInstruction{
+            .program_id = id,
+            .accounts = accounts,
             .data = data,
-        });
+        };
     }
 };
 
@@ -267,9 +316,16 @@ pub const WebAuthn = struct {
 
     /// Verify a WebAuthn signature
     ///
+    /// Creates an instruction to verify a WebAuthn-style ECDSA signature.
+    /// The signed message is constructed as: authenticator_data || client_data_hash
+    ///
+    /// Note: This function expects the signature in raw r||s format (64 bytes).
+    /// Real WebAuthn signatures are DER-encoded and need proper parsing before
+    /// passing to this function.
+    ///
     /// # Arguments
     /// * `allocator` - Memory allocator
-    /// * `signature` - DER-encoded ECDSA signature
+    /// * `signature` - Raw ECDSA signature (64 bytes: r || s)
     /// * `public_key` - COSE format public key
     /// * `authenticator_data` - Authenticator data from WebAuthn
     /// * `client_data_hash` - SHA-256 hash of client data JSON
@@ -278,34 +334,41 @@ pub const WebAuthn = struct {
     /// Instruction for signature verification
     ///
     /// # Errors
-    /// Returns error if signature format is invalid
+    /// - `InvalidSignature` if signature is less than 64 bytes
+    /// - `InvalidMessageLength` if combined message exceeds 65535 bytes
+    /// - `OutOfMemory` if allocation fails
     pub fn verifySignature(
         allocator: std.mem.Allocator,
         signature: []const u8,
         public_key: CoseKey,
         authenticator_data: []const u8,
         client_data_hash: [32]u8,
-    ) !Instruction {
+    ) Secp256r1Error!BuiltInstruction {
         // WebAuthn signature verification requires constructing the message
         // that was signed. The signed message is:
         // authenticator_data || client_data_hash
 
         const message_len = authenticator_data.len + client_data_hash.len;
-        var message = try allocator.alloc(u8, message_len);
+
+        // Validate total message length
+        if (message_len > MAX_MESSAGE_LENGTH) {
+            return Secp256r1Error.InvalidMessageLength;
+        }
+
+        // Validate signature length
+        if (signature.len < 64) {
+            return Secp256r1Error.InvalidSignature;
+        }
+
+        // Allocate and construct message
+        const message = allocator.alloc(u8, message_len) catch return Secp256r1Error.OutOfMemory;
         defer allocator.free(message);
 
         @memcpy(message[0..authenticator_data.len], authenticator_data);
         @memcpy(message[authenticator_data.len..], &client_data_hash);
 
-        // Convert signature from DER to raw format (r || s)
-        // This is a simplified conversion - real implementation needs DER parsing
-        if (signature.len < 64) {
-            return error.InvalidSignature;
-        }
-
+        // Extract raw signature (r || s format)
         var raw_signature: [64]u8 = undefined;
-        // For simplicity, assume the signature is already in r || s format
-        // Real WebAuthn signatures are DER-encoded and need proper parsing
         @memcpy(&raw_signature, signature[0..64]);
 
         const public_key_uncompressed = public_key.toUncompressedSec1();
@@ -314,11 +377,11 @@ pub const WebAuthn = struct {
         var raw_public_key: [64]u8 = undefined;
         @memcpy(&raw_public_key, public_key_uncompressed[1..]);
 
-        return try VerifyInstruction.createInstruction(
+        return VerifyInstruction.createInstruction(
             allocator,
             raw_signature,
             raw_public_key,
-            &message,
+            message,
         );
     }
 };
@@ -361,21 +424,56 @@ test "secp256r1: create verify instruction" {
     const message_arr = [_]u8{0xCC} ** 32;
     const message = &message_arr;
 
-    const instruction = try VerifyInstruction.createInstruction(
+    var instruction = try VerifyInstruction.createInstruction(
         allocator,
         signature,
         public_key,
         message,
     );
+    defer instruction.deinit(allocator);
 
     // Verify program ID
-    try std.testing.expect(instruction.program_id.equals(id));
+    try std.testing.expectEqualSlices(u8, &id.bytes, &instruction.program_id.bytes);
 
-    // Verify no accounts
-    try std.testing.expectEqual(@as(usize, 0), instruction.accounts_len);
+    // Verify no accounts (Secp256r1 requires no accounts)
+    try std.testing.expectEqual(@as(usize, 0), instruction.accounts.len);
 
-    // Verify data length
-    try std.testing.expect(instruction.data_len > 0);
+    // Verify data length: 1 (discrim) + 64 (sig) + 64 (pubkey) + 2 (msg_len) + 32 (msg) = 163
+    try std.testing.expectEqual(@as(usize, 163), instruction.data.len);
+}
+
+test "secp256r1: message length validation - too long" {
+    const allocator = std.testing.allocator;
+
+    const signature = [_]u8{0xAA} ** 64;
+    const public_key = [_]u8{0xBB} ** 64;
+
+    // Create a fake long slice using a small buffer but larger length
+    // This simulates what would happen if message.len > MAX_MESSAGE_LENGTH
+    var small_buf: [1]u8 = .{0};
+    const fake_long_message: []const u8 = blk: {
+        var slice: []const u8 = &small_buf;
+        // Override the length to simulate a very long message
+        // This is safe because we only check the length, not access the data
+        const ptr: *[]const u8 = &slice;
+        const raw_ptr: *[2]usize = @ptrCast(ptr);
+        raw_ptr[1] = MAX_MESSAGE_LENGTH + 1; // Set length to exceed max
+        break :blk slice;
+    };
+
+    const verify_instr = VerifyInstruction{
+        .signature = signature,
+        .public_key = public_key,
+        .message = fake_long_message,
+    };
+
+    const result = verify_instr.serialize(allocator);
+    try std.testing.expectError(Secp256r1Error.InvalidMessageLength, result);
+}
+
+test "secp256r1: message length at maximum" {
+    // Test that MAX_MESSAGE_LENGTH is exactly u16::MAX
+    try std.testing.expectEqual(@as(usize, 65535), MAX_MESSAGE_LENGTH);
 }
 
 test "secp256r1: P-256 coordinate extraction" {

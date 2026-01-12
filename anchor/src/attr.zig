@@ -22,6 +22,8 @@ pub const Attr = union(enum) {
     signer: void,
     seeds: []const SeedSpec,
     bump: void,
+    bump_field: []const u8,
+    seeds_program: SeedSpec,
     init: void,
     payer: []const u8,
     close: []const u8,
@@ -44,6 +46,8 @@ pub const AccountAttrConfig = struct {
     signer: bool = false,
     seeds: ?[]const SeedSpec = null,
     bump: bool = false,
+    bump_field: ?[]const u8 = null,
+    seeds_program: ?SeedSpec = null,
     init: bool = false,
     payer: ?[]const u8 = null,
     close: ?[]const u8 = null,
@@ -72,6 +76,8 @@ fn countAccountAttrs(comptime config: AccountAttrConfig) usize {
     if (config.signer) count += 1;
     if (config.seeds != null) count += 1;
     if (config.bump) count += 1;
+    if (config.bump_field != null) count += 1;
+    if (config.seeds_program != null) count += 1;
     if (config.init) count += 1;
     if (config.payer != null) count += 1;
     if (config.close != null) count += 1;
@@ -103,6 +109,14 @@ pub const attr = struct {
 
     pub fn bump() Attr {
         return .{ .bump = {} };
+    }
+
+    pub fn bumpField(comptime value: []const u8) Attr {
+        return .{ .bump_field = value };
+    }
+
+    pub fn seedsProgram(comptime value: SeedSpec) Attr {
+        return .{ .seeds_program = value };
     }
 
     pub fn init() Attr {
@@ -172,6 +186,14 @@ pub const attr = struct {
         }
         if (config.bump) {
             attrs[index] = attr.bump();
+            index += 1;
+        }
+        if (config.bump_field) |value| {
+            attrs[index] = attr.bumpField(value);
+            index += 1;
+        }
+        if (config.seeds_program) |value| {
+            attrs[index] = attr.seedsProgram(value);
             index += 1;
         }
         if (config.init) {

@@ -90,6 +90,18 @@ pub const AccountConfig = struct {
     /// Requires seeds to be specified.
     bump: bool = false,
 
+    /// Bump seed field name (optional)
+    ///
+    /// Anchor equivalent: `bump = <field>`
+    /// Requires seeds to be specified.
+    bump_field: ?[]const u8 = null,
+
+    /// Program seed override (optional)
+    ///
+    /// Anchor equivalent: `seeds::program = <expr>`
+    /// Requires seeds to be specified and cannot be used with init.
+    seeds_program: ?SeedSpec = null,
+
     /// Initialize new account (optional)
     ///
     /// When true, the account will be created if it doesn't exist.
@@ -175,6 +187,15 @@ fn applyAttrs(comptime base: AccountConfig, comptime attrs: []const Attr) Accoun
                 if (result.bump) @compileError("bump already set");
                 result.bump = true;
             },
+            .bump_field => |value| {
+                if (result.bump_field != null) @compileError("bump field already set");
+                result.bump_field = value;
+                result.bump = true;
+            },
+            .seeds_program => |value| {
+                if (result.seeds_program != null) @compileError("seeds::program already set");
+                result.seeds_program = value;
+            },
             .init => {
                 if (result.init) @compileError("init already set");
                 result.init = true;
@@ -253,6 +274,15 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
         if (merged.bump and merged.seeds == null) {
             @compileError("bump requires seeds to be specified");
         }
+        if (merged.bump_field != null and merged.seeds == null) {
+            @compileError("bump field requires seeds to be specified");
+        }
+        if (merged.seeds_program != null and merged.seeds == null) {
+            @compileError("seeds::program requires seeds to be specified");
+        }
+        if (merged.seeds_program != null and merged.init) {
+            @compileError("seeds::program cannot be used with init");
+        }
         if (merged.init and merged.payer == null) {
             @compileError("init requires payer to be specified");
         }
@@ -277,7 +307,7 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
         pub const HAS_SEEDS: bool = merged.seeds != null;
 
         /// Whether this account stores a bump seed
-        pub const HAS_BUMP: bool = merged.bump;
+        pub const HAS_BUMP: bool = merged.bump or merged.bump_field != null;
 
         /// Whether this account requires initialization
         pub const IS_INIT: bool = merged.init;
@@ -290,6 +320,12 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
 
         /// The seeds specification (if any)
         pub const SEEDS: ?[]const SeedSpec = merged.seeds;
+
+        /// The bump field name (if any)
+        pub const BUMP_FIELD: ?[]const u8 = merged.bump_field;
+
+        /// The program seed override (if any)
+        pub const SEEDS_PROGRAM: ?SeedSpec = merged.seeds_program;
 
         /// The payer field name (if init is required)
         pub const PAYER: ?[]const u8 = merged.payer;
@@ -1229,7 +1265,7 @@ test "Account attribute sugar maps macro fields" {
             .mut = true,
             .signer = true,
             .seeds = &.{ seeds_mod.seed("full"), seeds_mod.seedAccount("authority") },
-            .bump = true,
+            .bump_field = "bump",
             .init = true,
             .payer = "payer",
             .has_one_fields = &.{ "authority" },
@@ -1246,6 +1282,8 @@ test "Account attribute sugar maps macro fields" {
 
     try std.testing.expect(Full.HAS_SEEDS);
     try std.testing.expect(Full.HAS_BUMP);
+    try std.testing.expect(Full.BUMP_FIELD != null);
+    try std.testing.expect(std.mem.eql(u8, Full.BUMP_FIELD.?, "bump"));
     try std.testing.expect(Full.IS_INIT);
     try std.testing.expect(Full.HAS_MUT);
     try std.testing.expect(Full.HAS_SIGNER);
@@ -1261,6 +1299,24 @@ test "Account attribute sugar maps macro fields" {
     try std.testing.expectEqual(@as(usize, 128), Full.SPACE);
     try std.testing.expect(std.mem.eql(u8, Full.HAS_ONE.?[0].field, "authority"));
     try std.testing.expect(std.mem.eql(u8, Full.HAS_ONE.?[0].target, "authority"));
+}
+
+test "Account attribute sugar maps seeds program" {
+    const ProgramData = struct {
+        authority: PublicKey,
+    };
+
+    const WithProgram = Account(ProgramData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("SeedsProgram"),
+        .attrs = attr_mod.attr.account(.{
+            .seeds = &.{ seeds_mod.seed("seed"), seeds_mod.seedAccount("authority") },
+            .seeds_program = seeds_mod.seedAccount("authority"),
+        }),
+    });
+
+    try std.testing.expect(WithProgram.HAS_SEEDS);
+    try std.testing.expect(WithProgram.SEEDS_PROGRAM != null);
+    try std.testing.expect(WithProgram.SEEDS_PROGRAM.? == SeedSpec{ .account = "authority" });
 }
 
 // ============================================================================

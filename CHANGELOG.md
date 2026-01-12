@@ -2,6 +2,22 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-12-017
+
+**Date**: 2026-01-12
+**Goal**: Extend account attr parsing for bump and seeds::program
+
+#### Completed Work
+1. Added bump field and seeds::program support to account attr DSL
+2. Emitted `pda.program` for seeds::program in IDL output
+3. Added account/IDL tests for program seed mapping
+4. Updated docs, roadmap, and story
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ./solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-12-016
 
 **Date**: 2026-01-12

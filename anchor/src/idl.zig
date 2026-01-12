@@ -59,6 +59,7 @@ pub const AccountDescriptor = struct {
 pub const ConstraintDescriptor = struct {
     seeds: ?[]const SeedSpec = null,
     bump: bool = false,
+    seeds_program: ?SeedSpec = null,
     init: bool = false,
     payer: ?[]const u8 = null,
     close: ?[]const u8 = null,
@@ -367,6 +368,9 @@ fn accountsJson(allocator: Allocator, accounts: []const AccountDescriptor) !std.
             if (constraints.seeds) |seeds| {
                 var pda_obj = std.json.ObjectMap.init(allocator);
                 try pda_obj.put(try allocator.dupe(u8, "seeds"), try seedsJson(allocator, seeds));
+                if (constraints.seeds_program) |program| {
+                    try pda_obj.put(try allocator.dupe(u8, "program"), try seedJson(allocator, program));
+                }
                 try obj.put(try allocator.dupe(u8, "pda"), .{ .object = pda_obj });
             }
             if (constraints.has_one) |has_one| {
@@ -530,31 +534,35 @@ fn constraintsJson(allocator: Allocator, constraints: ConstraintDescriptor) !?st
     return .{ .object = obj };
 }
 
+fn seedJson(allocator: Allocator, spec: SeedSpec) !std.json.Value {
+    var obj = std.json.ObjectMap.init(allocator);
+    switch (spec) {
+        .literal => |value| {
+            try putString(allocator, &obj, "kind", "const");
+            try obj.put(try allocator.dupe(u8, "value"), try bytesArrayJson(allocator, value));
+        },
+        .account => |value| {
+            try putString(allocator, &obj, "kind", "account");
+            try obj.put(try allocator.dupe(u8, "path"), jsonString(allocator, value));
+        },
+        .field => |value| {
+            try putString(allocator, &obj, "kind", "arg");
+            try obj.put(try allocator.dupe(u8, "path"), jsonString(allocator, value));
+        },
+        .bump => |value| {
+            try putString(allocator, &obj, "kind", "arg");
+            try obj.put(try allocator.dupe(u8, "path"), jsonString(allocator, value));
+        },
+    }
+    return .{ .object = obj };
+}
+
 fn seedsJson(allocator: Allocator, seeds: []const SeedSpec) !std.json.Value {
     var arr = std.json.Array.init(allocator);
     try arr.ensureTotalCapacity(seeds.len);
 
     for (seeds) |spec| {
-        var obj = std.json.ObjectMap.init(allocator);
-        switch (spec) {
-            .literal => |value| {
-                try putString(allocator, &obj, "kind", "const");
-                try obj.put(try allocator.dupe(u8, "value"), try bytesArrayJson(allocator, value));
-            },
-            .account => |value| {
-                try putString(allocator, &obj, "kind", "account");
-                try obj.put(try allocator.dupe(u8, "path"), jsonString(allocator, value));
-            },
-            .field => |value| {
-                try putString(allocator, &obj, "kind", "arg");
-                try obj.put(try allocator.dupe(u8, "path"), jsonString(allocator, value));
-            },
-            .bump => |value| {
-                try putString(allocator, &obj, "kind", "arg");
-                try obj.put(try allocator.dupe(u8, "path"), jsonString(allocator, value));
-            },
-        }
-        arr.appendAssumeCapacity(.{ .object = obj });
+        arr.appendAssumeCapacity(try seedJson(allocator, spec));
     }
 
     return .{ .array = arr };
@@ -935,6 +943,7 @@ fn accountConstraints(comptime T: type) ?ConstraintDescriptor {
     const constraints = ConstraintDescriptor{
         .seeds = T.SEEDS,
         .bump = T.HAS_BUMP,
+        .seeds_program = T.SEEDS_PROGRAM,
         .init = T.IS_INIT,
         .payer = T.PAYER,
         .close = T.CLOSE,
@@ -1103,6 +1112,7 @@ const Counter = @import("account.zig").Account(CounterData, .{
     .discriminator = discriminator_mod.accountDiscriminator("Counter"),
     .seeds = &.{ seeds_mod.seed("counter"), seeds_mod.seedAccount("authority") },
     .bump = true,
+    .seeds_program = seeds_mod.seedAccount("authority"),
     .has_one = &.{.{ .field = "authority", .target = "authority" }},
     .close = "authority",
     .realloc = .{ .payer = "payer", .zero_init = true },
@@ -1236,6 +1246,11 @@ test "idl: event and constraints details" {
     try std.testing.expect(counter_account != null);
     try std.testing.expect(counter_account.?.get("writable").?.bool);
     try std.testing.expect(counter_account.?.get("pda") != null);
+    const pda = counter_account.?.get("pda").?.object;
+    try std.testing.expect(pda.get("program") != null);
+    const program = pda.get("program").?.object;
+    try std.testing.expectEqualStrings("account", program.get("kind").?.string);
+    try std.testing.expectEqualStrings("authority", program.get("path").?.string);
     try std.testing.expect(counter_account.?.get("relations") != null);
     const relations = counter_account.?.get("relations").?.array;
     try std.testing.expectEqualStrings("authority", relations.items[0].string);

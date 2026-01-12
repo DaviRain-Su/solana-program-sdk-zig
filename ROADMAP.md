@@ -1203,6 +1203,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.1.7 - Anchor Account Attr Parsing
+
+- [x] Add bump field and seeds::program mapping
+- [x] Emit seeds::program in IDL pda
+- [x] Update docs and tests
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

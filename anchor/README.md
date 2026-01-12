@@ -83,7 +83,8 @@ const AccountsSugar = anchor.Accounts(struct {
         .discriminator = anchor.accountDiscriminator("Counter"),
         .attrs = anchor.attr.account(.{
             .seeds = &.{ anchor.seed("counter"), anchor.seedAccount("authority") },
-            .bump = true,
+            .seeds_program = anchor.seedAccount("authority"),
+            .bump_field = "bump",
             .constraint = "authority.key() == counter.authority",
         }),
     }),

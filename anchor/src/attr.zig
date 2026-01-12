@@ -210,108 +210,8 @@ pub const attr = struct {
             @compileError("has_one and has_one_fields are mutually exclusive");
         }
 
-        const attr_count = comptime countAccountAttrs(config);
-        comptime var attrs: [attr_count]Attr = undefined;
-        comptime var index: usize = 0;
-
-        if (config.mut) {
-            attrs[index] = attr.mut();
-            index += 1;
-        }
-        if (config.signer) {
-            attrs[index] = attr.signer();
-            index += 1;
-        }
-        if (config.seeds) |value| {
-            attrs[index] = attr.seeds(value);
-            index += 1;
-        }
-        if (config.bump) {
-            attrs[index] = attr.bump();
-            index += 1;
-        }
-        if (config.bump_field) |value| {
-            attrs[index] = attr.bumpField(value);
-            index += 1;
-        }
-        if (config.seeds_program) |value| {
-            attrs[index] = attr.seedsProgram(value);
-            index += 1;
-        }
-        if (config.init_if_needed) {
-            attrs[index] = attr.initIfNeeded();
-            index += 1;
-        }
-        if (config.associated_token_mint) |value| {
-            attrs[index] = attr.associatedTokenMint(value);
-            index += 1;
-        }
-        if (config.associated_token_authority) |value| {
-            attrs[index] = attr.associatedTokenAuthority(value);
-            index += 1;
-        }
-        if (config.associated_token_token_program) |value| {
-            attrs[index] = attr.associatedTokenTokenProgram(value);
-            index += 1;
-        }
-        if (config.token_mint) |value| {
-            attrs[index] = attr.tokenMint(value);
-            index += 1;
-        }
-        if (config.token_authority) |value| {
-            attrs[index] = attr.tokenAuthority(value);
-            index += 1;
-        }
-        if (config.init) {
-            attrs[index] = attr.init();
-            index += 1;
-        }
-        if (config.payer) |value| {
-            attrs[index] = attr.payer(value);
-            index += 1;
-        }
-        if (config.close) |value| {
-            attrs[index] = attr.close(value);
-            index += 1;
-        }
-        if (config.realloc) |value| {
-            attrs[index] = attr.realloc(value);
-            index += 1;
-        }
-        if (config.has_one) |value| {
-            attrs[index] = attr.hasOne(value);
-            index += 1;
-        }
-        if (config.has_one_fields) |value| {
-            attrs[index] = attr.hasOne(hasOneSpecsFromFields(value));
-            index += 1;
-        }
-        if (config.rent_exempt) {
-            attrs[index] = attr.rentExempt();
-            index += 1;
-        }
-        if (config.constraint) |value| {
-            attrs[index] = attr.constraint(value);
-            index += 1;
-        }
-        if (config.owner) |value| {
-            attrs[index] = attr.owner(value);
-            index += 1;
-        }
-        if (config.address) |value| {
-            attrs[index] = attr.address(value);
-            index += 1;
-        }
-        if (config.executable) {
-            attrs[index] = attr.executable();
-            index += 1;
-        }
-        if (config.space) |value| {
-            attrs[index] = attr.space(value);
-            index += 1;
-        }
-
-        return attrs[0..index];
+        const attrs = comptime buildAccountAttrArray(config);
+        return attrs[0..];
     }
 
     /// Parse `#[account(...)]`-style attributes into an Attr list.
@@ -328,6 +228,111 @@ pub const attr = struct {
         return attr.account(parseAccountConfig(input));
     }
 };
+
+fn buildAccountAttrArray(comptime config: AccountAttrConfig) [countAccountAttrs(config)]Attr {
+    const attr_count = comptime countAccountAttrs(config);
+    comptime var attrs: [attr_count]Attr = undefined;
+    comptime var index: usize = 0;
+
+    if (config.mut) {
+        attrs[index] = attr.mut();
+        index += 1;
+    }
+    if (config.signer) {
+        attrs[index] = attr.signer();
+        index += 1;
+    }
+    if (config.seeds) |value| {
+        attrs[index] = attr.seeds(value);
+        index += 1;
+    }
+    if (config.bump) {
+        attrs[index] = attr.bump();
+        index += 1;
+    }
+    if (config.bump_field) |value| {
+        attrs[index] = attr.bumpField(value);
+        index += 1;
+    }
+    if (config.seeds_program) |value| {
+        attrs[index] = attr.seedsProgram(value);
+        index += 1;
+    }
+    if (config.init_if_needed) {
+        attrs[index] = attr.initIfNeeded();
+        index += 1;
+    }
+    if (config.associated_token_mint) |value| {
+        attrs[index] = attr.associatedTokenMint(value);
+        index += 1;
+    }
+    if (config.associated_token_authority) |value| {
+        attrs[index] = attr.associatedTokenAuthority(value);
+        index += 1;
+    }
+    if (config.associated_token_token_program) |value| {
+        attrs[index] = attr.associatedTokenTokenProgram(value);
+        index += 1;
+    }
+    if (config.token_mint) |value| {
+        attrs[index] = attr.tokenMint(value);
+        index += 1;
+    }
+    if (config.token_authority) |value| {
+        attrs[index] = attr.tokenAuthority(value);
+        index += 1;
+    }
+    if (config.init) {
+        attrs[index] = attr.init();
+        index += 1;
+    }
+    if (config.payer) |value| {
+        attrs[index] = attr.payer(value);
+        index += 1;
+    }
+    if (config.close) |value| {
+        attrs[index] = attr.close(value);
+        index += 1;
+    }
+    if (config.realloc) |value| {
+        attrs[index] = attr.realloc(value);
+        index += 1;
+    }
+    if (config.has_one) |value| {
+        attrs[index] = attr.hasOne(value);
+        index += 1;
+    }
+    if (config.has_one_fields) |value| {
+        attrs[index] = attr.hasOne(hasOneSpecsFromFields(value));
+        index += 1;
+    }
+    if (config.rent_exempt) {
+        attrs[index] = attr.rentExempt();
+        index += 1;
+    }
+    if (config.constraint) |value| {
+        attrs[index] = attr.constraint(value);
+        index += 1;
+    }
+    if (config.owner) |value| {
+        attrs[index] = attr.owner(value);
+        index += 1;
+    }
+    if (config.address) |value| {
+        attrs[index] = attr.address(value);
+        index += 1;
+    }
+    if (config.executable) {
+        attrs[index] = attr.executable();
+        index += 1;
+    }
+    if (config.space) |value| {
+        attrs[index] = attr.space(value);
+        index += 1;
+    }
+
+    return attrs;
+}
 
 const Parser = struct {
     input: []const u8,
@@ -554,6 +559,7 @@ const Parser = struct {
 };
 
 fn parseAccountConfig(comptime input: []const u8) AccountAttrConfig {
+    @setEvalBranchQuota(4000);
     comptime var parser = Parser.init(input);
     comptime var config: AccountAttrConfig = .{};
 

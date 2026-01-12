@@ -2,6 +2,21 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-12-024
+
+**Date**: 2026-01-12
+**Goal**: Add AccountsWith derive helper
+
+#### Completed Work
+1. Added AccountsWith to apply field attrs in a derive-like config
+2. Added AccountsWith tests and updated docs
+3. Updated roadmap and story
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ./solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-12-023
 
 **Date**: 2026-01-12

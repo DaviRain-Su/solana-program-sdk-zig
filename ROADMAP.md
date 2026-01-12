@@ -1253,6 +1253,13 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.4 - Anchor Accounts Derive
+
+- [x] Add AccountsWith helper
+- [x] Update docs and tests
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

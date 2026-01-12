@@ -163,6 +163,9 @@ pub const generateZigClient = codegen.generateZigClient;
 /// Comptime Accounts validator
 pub const Accounts = @import("dsl.zig").Accounts;
 
+/// Comptime Accounts validator with field attrs config.
+pub const AccountsWith = @import("dsl.zig").AccountsWith;
+
 /// Comptime Event validator
 pub const Event = @import("dsl.zig").Event;
 
@@ -223,7 +226,7 @@ pub const Attr = @import("attr.zig").Attr;
 pub const AccountAttrConfig = @import("attr.zig").AccountAttrConfig;
 
 /// Typed selector for Accounts struct fields.
-pub fn accountField(comptime Accounts: type, comptime field: std.meta.FieldEnum(Accounts)) []const u8 {
+pub fn accountField(comptime AccountsType: type, comptime field: std.meta.FieldEnum(AccountsType)) []const u8 {
     return @tagName(field);
 }
 
@@ -234,12 +237,12 @@ pub fn dataField(comptime Data: type, comptime field: std.meta.FieldEnum(Data)) 
 
 /// Typed field list helper for Accounts struct fields.
 pub fn accountFields(
-    comptime Accounts: type,
-    comptime fields: []const std.meta.FieldEnum(Accounts),
+    comptime AccountsType: type,
+    comptime fields: []const std.meta.FieldEnum(AccountsType),
 ) []const []const u8 {
     comptime var names: [fields.len][]const u8 = undefined;
     inline for (fields, 0..) |field, index| {
-        names[index] = accountField(Accounts, field);
+        names[index] = accountField(AccountsType, field);
     }
     return names[0..];
 }
@@ -408,8 +411,8 @@ pub const seed = seeds.seed;
 pub const seedAccount = seeds.seedAccount;
 
 /// Create an account reference seed using typed field selector.
-pub fn seedAccountField(comptime Accounts: type, comptime field: std.meta.FieldEnum(Accounts)) SeedSpec {
-    return seeds.seedAccount(accountField(Accounts, field));
+pub fn seedAccountField(comptime AccountsType: type, comptime field: std.meta.FieldEnum(AccountsType)) SeedSpec {
+    return seeds.seedAccount(accountField(AccountsType, field));
 }
 
 /// Create a field reference seed
@@ -552,12 +555,12 @@ pub const HasOneSpec = has_one.HasOneSpec;
 pub fn hasOneSpec(
     comptime Data: type,
     comptime data_field: std.meta.FieldEnum(Data),
-    comptime Accounts: type,
-    comptime target_field: std.meta.FieldEnum(Accounts),
+    comptime AccountsType: type,
+    comptime target_field: std.meta.FieldEnum(AccountsType),
 ) HasOneSpec {
     return .{
         .field = dataField(Data, data_field),
-        .target = accountField(Accounts, target_field),
+        .target = accountField(AccountsType, target_field),
     };
 }
 
@@ -682,6 +685,7 @@ test "anchor module exports" {
     _ = AccountField;
     _ = AccountConfig;
     _ = AssociatedTokenConfig;
+    _ = AccountsWith;
     _ = Signer;
     _ = SignerMut;
     _ = Program;
@@ -713,7 +717,7 @@ test "anchor module exports" {
 }
 
 test "typed field helpers" {
-    const Accounts = struct {
+    const AccountsType = struct {
         payer: SignerMut,
         authority: Signer,
     };
@@ -723,10 +727,10 @@ test "typed field helpers" {
         bump: u8,
     };
 
-    try std.testing.expectEqualStrings("payer", accountField(Accounts, .payer));
+    try std.testing.expectEqualStrings("payer", accountField(AccountsType, .payer));
     try std.testing.expectEqualStrings("authority", dataField(Data, .authority));
 
-    const account_seed = seedAccountField(Accounts, .payer);
+    const account_seed = seedAccountField(AccountsType, .payer);
     switch (account_seed) {
         .account => |name| try std.testing.expectEqualStrings("payer", name),
         else => try std.testing.expect(false),
@@ -738,7 +742,7 @@ test "typed field helpers" {
         else => try std.testing.expect(false),
     }
 
-    const spec = hasOneSpec(Data, .authority, Accounts, .authority);
+    const spec = hasOneSpec(Data, .authority, AccountsType, .authority);
     try std.testing.expectEqualStrings("authority", spec.field);
     try std.testing.expectEqualStrings("authority", spec.target);
 }

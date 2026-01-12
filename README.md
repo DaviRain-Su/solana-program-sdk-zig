@@ -138,11 +138,13 @@ const CounterTyped = anchor.Account(CounterData, .{
     },
 });
 
-const FieldAccounts = anchor.Accounts(struct {
+const FieldAccounts = anchor.AccountsWith(struct {
     authority: anchor.Signer,
-    counter: anchor.AccountField(CounterTyped, &.{
-        anchor.attr.mut(),
-        anchor.attr.signer(),
+    counter: CounterTyped,
+}, .{
+    .counter = anchor.attr.account(.{
+        .mut = true,
+        .signer = true,
     }),
 });
 

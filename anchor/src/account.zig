@@ -434,7 +434,7 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
         }
         if (merged.seeds) |s| {
             seeds_mod.validateSeeds(s);
-            inline for (s) |seed| {
+            for (s) |seed| {
                 switch (seed) {
                     .field => |name| {
                         const FieldType = fieldTypeByName(T, name) orelse {
@@ -457,7 +457,7 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
             }
         }
         if (merged.has_one) |list| {
-            inline for (list) |spec| {
+            for (list) |spec| {
                 const FieldType = fieldTypeByName(T, spec.field) orelse {
                     @compileError("has_one field not found in account data: " ++ spec.field);
                 };
@@ -1415,6 +1415,9 @@ test "Account attributes DSL merges config" {
         value: u64,
     };
 
+    const owner_key = comptime PublicKey.comptimeFromBase58("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+    const address_key = comptime PublicKey.comptimeFromBase58("SysvarRent111111111111111111111111111111111");
+
     const Full = Account(FullData, .{
         .discriminator = discriminator_mod.accountDiscriminator("FullAttr"),
         .attrs = &.{
@@ -1429,8 +1432,8 @@ test "Account attributes DSL merges config" {
             attr_mod.attr.realloc(.{ .payer = "payer", .zero_init = true }),
             attr_mod.attr.rentExempt(),
             attr_mod.attr.constraint("authority.key() == full.authority"),
-            attr_mod.attr.owner(PublicKey.default()),
-            attr_mod.attr.address(PublicKey.default()),
+            attr_mod.attr.owner(owner_key),
+            attr_mod.attr.address(address_key),
             attr_mod.attr.executable(),
             attr_mod.attr.space(128),
         },
@@ -1530,22 +1533,17 @@ test "Account constraint expression evaluates at runtime" {
     var counter_lamports: u64 = 1_000_000;
     var authority_lamports: u64 = 500_000;
 
-    const DataWithDisc = extern struct {
-        disc: [8]u8,
-        data: Data,
-    };
-    var counter_buffer: DataWithDisc = undefined;
-    counter_buffer.disc = Constrained.discriminator;
-    counter_buffer.data.authority = authority_key;
-
-    const counter_data_ptr: [*]u8 = @ptrCast(&counter_buffer);
+    var counter_buffer: [DISCRIMINATOR_LENGTH + @sizeOf(Data)]u8 align(@alignOf(Data)) = undefined;
+    @memcpy(counter_buffer[0..DISCRIMINATOR_LENGTH], &Constrained.discriminator);
+    const data_ptr: *Data = @ptrCast(@alignCast(counter_buffer[DISCRIMINATOR_LENGTH..].ptr));
+    data_ptr.* = .{ .authority = authority_key };
 
     const counter_info = AccountInfo{
         .id = &counter_id,
         .owner_id = &owner,
         .lamports = &counter_lamports,
-        .data_len = @sizeOf(DataWithDisc),
-        .data = counter_data_ptr,
+        .data_len = counter_buffer.len,
+        .data = counter_buffer[0..].ptr,
         .is_signer = 0,
         .is_writable = 1,
         .is_executable = 0,
@@ -1570,7 +1568,7 @@ test "Account constraint expression evaluates at runtime" {
 
     try accounts.counter.validateAllConstraints("counter", accounts);
 
-    counter_buffer.data.authority = PublicKey.default();
+    data_ptr.authority = PublicKey.default();
     try std.testing.expectError(error.ConstraintRaw, accounts.counter.validateAllConstraints("counter", accounts));
 }
 
@@ -1578,7 +1576,11 @@ test "Account attribute sugar maps macro fields" {
     const FullData = struct {
         authority: PublicKey,
         value: u64,
+        bump: u8,
     };
+
+    const owner_key = comptime PublicKey.comptimeFromBase58("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+    const address_key = comptime PublicKey.comptimeFromBase58("SysvarRent111111111111111111111111111111111");
 
     const Full = Account(FullData, .{
         .discriminator = discriminator_mod.accountDiscriminator("FullAttrSugar"),
@@ -1594,8 +1596,8 @@ test "Account attribute sugar maps macro fields" {
             .realloc = .{ .payer = "payer", .zero_init = true },
             .rent_exempt = true,
             .constraint = "authority.key() == full.authority",
-            .owner = PublicKey.default(),
-            .address = PublicKey.default(),
+            .owner = owner_key,
+            .address = address_key,
             .executable = true,
             .space = 128,
         }),

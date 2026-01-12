@@ -104,6 +104,25 @@ pub fn generateJson(allocator: Allocator, comptime program: anytype, comptime co
     return std.json.stringifyAlloc(allocator, json, .{ .whitespace = .indent_2 });
 }
 
+/// Write Anchor IDL JSON to a file path.
+pub fn writeJsonFile(
+    allocator: Allocator,
+    comptime program: anytype,
+    comptime config: IdlConfig,
+    output_path: []const u8,
+) !void {
+    const json = try generateJson(allocator, program, config);
+    defer allocator.free(json);
+
+    const dir = std.fs.path.dirname(output_path) orelse ".";
+    try std.fs.cwd().makePath(dir);
+
+    var file = try std.fs.cwd().createFile(output_path, .{ .truncate = true });
+    defer file.close();
+
+    try file.writeAll(json);
+}
+
 fn buildInstructionsJson(
     allocator: Allocator,
     comptime program: anytype,

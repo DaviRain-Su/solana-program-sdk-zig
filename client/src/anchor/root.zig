@@ -1,5 +1,7 @@
 //! Anchor client helpers for generated programs
 //!
+//! Rust source: https://github.com/coral-xyz/anchor/blob/master/client/src/lib.rs
+//!
 //! Provides common RPC transaction helpers and account decode utilities used
 //! by code-generated clients.
 

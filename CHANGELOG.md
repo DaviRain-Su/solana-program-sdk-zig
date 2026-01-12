@@ -2,6 +2,22 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-12-008
+
+**Date**: 2026-01-12
+**Goal**: Add IDL JSON output tooling
+
+#### Completed Work
+1. Added `anchor.idl.writeJsonFile` helper
+2. Added `zig build idl` step with `idl-program`/`idl-output` options
+3. Added IDL CLI and example program module
+4. Updated docs and roadmap entries
+
+#### Test Results
+- Not run (build tooling changes)
+
+---
+
 ### Session 2026-01-12-007
 
 **Date**: 2026-01-12

@@ -5,6 +5,11 @@
 - [x] IDL JSON generation
 - [x] Zig client codegen
 
+## ✅ v3.0.8 - Anchor IDL Output
+
+- [x] IDL file output helper
+- [x] Build step for IDL generation
+
 ## ✅ v3.0.7 - Anchor Zig Client (High-level)
 
 - [x] ProgramClient RPC wrapper

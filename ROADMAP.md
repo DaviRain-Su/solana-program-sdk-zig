@@ -1134,6 +1134,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.0.8 - Anchor IDL Output
+
+- [x] Add IDL JSON file output helper
+- [x] Add build step to generate IDL JSON
+- [x] Document IDL build usage
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

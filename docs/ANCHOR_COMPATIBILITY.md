@@ -35,6 +35,7 @@ const sol = anchor.sdk;
 | Init/close/realloc | `#[account(init/close/realloc)]` | `init.zig`, `close.zig`, `realloc.zig` | ✅ |
 | IDL | `anchor idl` | `anchor.generateIdlJson` (events/constants/metadata, constraint hints) | ✅ |
 | Client codegen | `anchor client` | `anchor.generateZigClient` | ✅ |
+| IDL file output | `anchor idl --out` | `anchor.idl.writeJsonFile` / `zig build idl` | ✅ |
 | RPC client wrapper | `AnchorClient` | `ProgramClient` (generated) | ✅ |
 | Accounts derive | `#[derive(Accounts)]` | `anchor.Accounts(T)` | ✅ |
 | Event derive | `#[event]` | `anchor.Event(T)` | ✅ |

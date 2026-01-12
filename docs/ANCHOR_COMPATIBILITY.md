@@ -40,6 +40,7 @@ const sol = anchor.sdk;
 | Constraint expr | `constraint = <expr>` | `anchor.constraint()` | ✅ |
 | Accounts derive | `#[derive(Accounts)]` | `anchor.Accounts(T)` | ✅ |
 | Event derive | `#[event]` | `anchor.Event(T)` | ✅ |
+| Event index | `#[index]` | `anchor.eventField(..., .{ .index = true })` | ✅ |
 
 ## Example
 

@@ -87,6 +87,11 @@ const Accounts = anchor.Accounts(struct {
         .constraint = anchor.constraint("authority.key() == counter.authority"),
     }),
 });
+
+const CounterEvent = anchor.Event(struct {
+    amount: anchor.eventField(u64, .{ .index = true }),
+    owner: sol.PublicKey,
+});
 ```
 
 Build/tests for anchor:

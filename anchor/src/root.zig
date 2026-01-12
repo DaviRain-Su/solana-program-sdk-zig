@@ -166,6 +166,9 @@ pub const Accounts = @import("dsl.zig").Accounts;
 /// Comptime Event validator
 pub const Event = @import("dsl.zig").Event;
 
+/// Event field helper
+pub const eventField = @import("dsl.zig").eventField;
+
 // ============================================================================
 // Constraints Module
 // ============================================================================

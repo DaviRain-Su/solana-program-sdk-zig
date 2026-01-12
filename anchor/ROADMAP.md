@@ -5,6 +5,11 @@
 - [x] IDL JSON generation
 - [x] Zig client codegen
 
+## ✅ v3.1.0 - Anchor Event Index
+
+- [x] eventField wrapper
+- [x] IDL event index output
+
 ## ✅ v3.0.9 - Anchor Constraint DSL
 
 - [x] Constraint expression helper

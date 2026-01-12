@@ -2,6 +2,21 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-12-010
+
+**Date**: 2026-01-12
+**Goal**: Add indexed event fields
+
+#### Completed Work
+1. Added `anchor.eventField` wrapper for indexed fields
+2. Emitted event index flags in IDL
+3. Updated docs and roadmap entries
+
+#### Test Results
+- Anchor: `zig build test` 153 passed
+
+---
+
 ### Session 2026-01-12-009
 
 **Date**: 2026-01-12

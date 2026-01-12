@@ -367,9 +367,11 @@ fn eventFieldsJson(
     inline for (fields) |field| {
         var obj = std.json.ObjectMap.init(allocator);
         try putString(allocator, &obj, "name", field.name);
-        const type_value = try typeToJson(allocator, field.type, type_registry, type_defs);
+        const field_type = @import("dsl.zig").unwrapEventField(field.type);
+        const field_config = @import("dsl.zig").eventFieldConfig(field.type);
+        const type_value = try typeToJson(allocator, field_type, type_registry, type_defs);
         try obj.put(try allocator.dupe(u8, "type"), type_value);
-        try obj.put(try allocator.dupe(u8, "index"), .{ .bool = false });
+        try obj.put(try allocator.dupe(u8, "index"), .{ .bool = field_config.index });
         arr.appendAssumeCapacity(.{ .object = obj });
     }
 
@@ -815,7 +817,7 @@ pub const ExampleProgram = struct {
 
     pub const events = struct {
         pub const CounterEvent = struct {
-            amount: u64,
+            amount: @import("dsl.zig").eventField(u64, .{ .index = true }),
             owner: @import("solana_program_sdk").PublicKey,
         };
     };
@@ -928,7 +930,9 @@ test "idl: event and constraints details" {
 
     const root = parsed.value.object;
     const events = root.get("events").?.array;
+    const event_fields = events.items[0].object.get("fields").?.array;
     try std.testing.expectEqualStrings("CounterEvent", events.items[0].object.get("name").?.string);
+    try std.testing.expect(event_fields.items[0].object.get("index").?.bool);
 
     const constants = root.get("constants").?.array;
     try std.testing.expectEqualStrings("fee_bps", constants.items[0].object.get("name").?.string);

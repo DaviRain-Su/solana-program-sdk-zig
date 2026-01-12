@@ -74,7 +74,7 @@ const Accounts = anchor.Accounts(struct {
 });
 
 const CounterEvent = anchor.Event(struct {
-    amount: u64,
+    amount: anchor.eventField(u64, .{ .index = true }),
     owner: sol.PublicKey,
 });
 ```

@@ -1150,6 +1150,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.1.0 - Anchor Event Index
+
+- [x] Add eventField wrapper for indexed fields
+- [x] Emit indexed fields in IDL
+- [x] Document event index usage
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

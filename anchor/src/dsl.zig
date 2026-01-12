@@ -22,6 +22,25 @@ pub fn Accounts(comptime T: type) type {
     return T;
 }
 
+/// Event field configuration.
+pub const EventField = struct {
+    /// Mark this field as indexed in the IDL.
+    index: bool = false,
+};
+
+/// Wrap an indexed event field.
+///
+/// Example:
+/// ```zig
+/// amount: anchor.eventField(u64, .{ .index = true }),
+/// ```
+pub fn eventField(comptime T: type, comptime config: EventField) type {
+    return struct {
+        pub const FieldType = T;
+        pub const FIELD_CONFIG = config;
+    };
+}
+
 /// Validate Event struct and return it unchanged.
 pub fn Event(comptime T: type) type {
     comptime validateEvent(T);
@@ -52,6 +71,24 @@ fn validateAccounts(comptime T: type) void {
     }
 }
 
+fn isEventFieldWrapper(comptime T: type) bool {
+    return @hasDecl(T, "FieldType") and @hasDecl(T, "FIELD_CONFIG");
+}
+
+pub fn unwrapEventField(comptime T: type) type {
+    if (isEventFieldWrapper(T)) {
+        return T.FieldType;
+    }
+    return T;
+}
+
+pub fn eventFieldConfig(comptime T: type) EventField {
+    if (isEventFieldWrapper(T)) {
+        return T.FIELD_CONFIG;
+    }
+    return .{};
+}
+
 fn validateEvent(comptime T: type) void {
     const info = @typeInfo(T);
     if (info != .@"struct") {
@@ -61,6 +98,11 @@ fn validateEvent(comptime T: type) void {
     const fields = info.@"struct".fields;
     if (fields.len == 0) {
         @compileError("Event struct must have at least one field");
+    }
+
+    inline for (fields) |field| {
+        _ = unwrapEventField(field.type);
+        _ = eventFieldConfig(field.type);
     }
 }
 
@@ -91,7 +133,7 @@ test "dsl: accounts validation accepts anchor account types" {
 
 test "dsl: event validation accepts struct" {
     const EventType = Event(struct {
-        amount: u64,
+        amount: eventField(u64, .{ .index = true }),
         owner: sol.PublicKey,
     });
 

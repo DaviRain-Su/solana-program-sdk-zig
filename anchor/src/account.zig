@@ -124,6 +124,11 @@ pub const AccountConfig = struct {
     /// }
     /// ```
     realloc: ?ReallocConfig = null,
+
+    /// Rent-exempt constraint hint (not validated yet)
+    ///
+    /// Anchor equivalent: `#[account(rent_exempt)]`
+    rent_exempt: bool = false,
 };
 
 /// Account wrapper with discriminator validation
@@ -202,6 +207,9 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
 
         /// The realloc configuration (if any)
         pub const REALLOC: ?ReallocConfig = config.realloc;
+
+        /// Whether rent-exempt constraint is requested
+        pub const RENT_EXEMPT: bool = config.rent_exempt;
 
         /// The account info from runtime
         info: *const AccountInfo,

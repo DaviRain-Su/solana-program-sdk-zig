@@ -58,6 +58,7 @@ pub const ConstraintDescriptor = struct {
     close: ?[]const u8 = null,
     realloc: ?ReallocConfig = null,
     has_one: ?[]const HasOneSpec = null,
+    rent_exempt: bool = false,
 };
 
 /// Generate Anchor-compatible IDL JSON.
@@ -395,6 +396,10 @@ fn constraintsJson(allocator: Allocator, constraints: ConstraintDescriptor) !?st
         try obj.put(try allocator.dupe(u8, "hasOne"), .{ .array = relations });
         has_entries = true;
     }
+    if (constraints.rent_exempt) {
+        try obj.put(try allocator.dupe(u8, "rentExempt"), .{ .bool = true });
+        has_entries = true;
+    }
 
     if (!has_entries) {
         return null;
@@ -711,9 +716,10 @@ fn accountConstraints(comptime T: type) ?ConstraintDescriptor {
         .close = T.CLOSE,
         .realloc = T.REALLOC,
         .has_one = T.HAS_ONE,
+        .rent_exempt = T.RENT_EXEMPT,
     };
 
-    if (constraints.seeds == null and !constraints.bump and !constraints.init and constraints.payer == null and constraints.close == null and constraints.realloc == null and constraints.has_one == null) {
+    if (constraints.seeds == null and !constraints.bump and !constraints.init and constraints.payer == null and constraints.close == null and constraints.realloc == null and constraints.has_one == null and !constraints.rent_exempt) {
         return null;
     }
 
@@ -809,6 +815,7 @@ const Counter = @import("account.zig").Account(CounterData, .{
     .has_one = &.{.{ .field = "authority", .target = "authority" }},
     .close = "authority",
     .realloc = .{ .payer = "payer", .zero_init = true },
+    .rent_exempt = true,
 });
 
 const InitializeAccounts = struct {
@@ -926,4 +933,5 @@ test "idl: event and constraints details" {
     try std.testing.expect(constraints.contains("bump"));
     try std.testing.expect(constraints.contains("close"));
     try std.testing.expect(constraints.contains("realloc"));
+    try std.testing.expect(constraints.contains("rentExempt"));
 }

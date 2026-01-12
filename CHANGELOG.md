@@ -9,7 +9,7 @@ All notable changes to the Solana SDK Zig implementation will be documented in t
 
 #### Completed Work
 1. Added events/constants/metadata to IDL output
-2. Added account constraint hints to IDL
+2. Added account constraint hints to IDL (including rent_exempt)
 3. Added tests covering new IDL sections
 4. Updated ROADMAP and compatibility docs
 

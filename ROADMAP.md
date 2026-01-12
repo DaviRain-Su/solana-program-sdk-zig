@@ -1284,6 +1284,13 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.8 - Anchor Accounts Derive Signer Attrs
+
+- [x] Apply typed attrs to Signer fields in AccountsWith/AccountsDerive
+- [x] Update docs and tests
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

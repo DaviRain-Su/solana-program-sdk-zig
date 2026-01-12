@@ -124,8 +124,10 @@ fn applyAccountAttrs(comptime T: type, comptime config: anytype) type {
             const attrs = resolveAttrs(@field(config, field.name));
             if (@hasDecl(field_type, "DataType")) {
                 field_type = account_mod.AccountField(field_type, attrs);
+            } else if (field_type == Signer or field_type == SignerMut) {
+                field_type = applySignerAttrs(field_type, attrs);
             } else {
-                @compileError("AccountsWith only supports Account wrapper fields");
+                @compileError("AccountsWith only supports Account or Signer fields");
             }
         }
 
@@ -146,6 +148,21 @@ fn applyAccountAttrs(comptime T: type, comptime config: anytype) type {
             .is_tuple = info.@"struct".is_tuple,
         },
     });
+}
+
+fn applySignerAttrs(comptime FieldType: type, comptime attrs: []const attr_mod.Attr) type {
+    comptime var wants_mut = false;
+    inline for (attrs) |attr| {
+        switch (attr) {
+            .mut => wants_mut = true,
+            .signer => {},
+            else => @compileError("Signer fields only support mut/signer attrs"),
+        }
+    }
+
+    if (FieldType == SignerMut) return SignerMut;
+    if (wants_mut) return SignerMut;
+    return Signer;
 }
 
 fn isEventFieldWrapper(comptime T: type) bool {
@@ -277,6 +294,22 @@ test "dsl: AccountsDerive applies typed attrs" {
         @compileError("AccountsDerive failed to produce counter field");
     try std.testing.expect(fields[counter_index].type.HAS_MUT);
     try std.testing.expect(fields[counter_index].type.HAS_SIGNER);
+}
+
+test "dsl: AccountsDerive applies signer mut attrs" {
+    const AccountsType = AccountsDerive(struct {
+        authority: Signer,
+        payer: Signer,
+
+        pub const attrs = .{
+            .payer = attr_mod.attr.mut(),
+        };
+    });
+
+    const fields = @typeInfo(AccountsType).@"struct".fields;
+    const payer_index = std.meta.fieldIndex(AccountsType, "payer") orelse
+        @compileError("AccountsDerive failed to produce payer field");
+    try std.testing.expect(fields[payer_index].type == SignerMut);
 }
 
 test "dsl: event validation accepts struct" {

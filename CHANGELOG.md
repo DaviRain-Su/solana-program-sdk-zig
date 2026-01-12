@@ -2,6 +2,21 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-13-028
+
+**Date**: 2026-01-13
+**Goal**: Apply typed attrs to Signer fields in AccountsDerive
+
+#### Completed Work
+1. Allowed AccountsWith/AccountsDerive to map mut attrs onto Signer fields
+2. Added Signer attr mapping tests
+3. Updated roadmap and story
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-13-027
 
 **Date**: 2026-01-13

@@ -21,7 +21,7 @@ const sol = anchor.sdk;
 
 ## Not Implemented Yet
 
-- Account macro-style derives (full Rust macro parity not planned)
+- Full Rust macro parsing for `#[account(...)]` (use `anchor.attr.account` as macro-style sugar)
 
 ## Compatibility Table
 
@@ -38,7 +38,7 @@ const sol = anchor.sdk;
 | IDL file output | `anchor idl --out` | `anchor.idl.writeJsonFile` / `zig build idl` (root or `anchor/`) | ✅ |
 | RPC client wrapper | `AnchorClient` | `ProgramClient` (generated) | ✅ |
 | Constraint expr | `constraint = <expr>` | `anchor.constraint()` | ✅ |
-| Account attrs | `#[account(...)]` | `anchor.attr.*` + `.attrs` | ✅ |
+| Account attrs | `#[account(...)]` | `anchor.attr.*` + `.attrs` / `anchor.attr.account(...)` | ✅ |
 | Accounts derive | `#[derive(Accounts)]` | `anchor.Accounts(T)` | ✅ |
 | Event derive | `#[event]` | `anchor.Event(T)` | ✅ |
 | Event index | `#[index]` | `anchor.eventField(..., .{ .index = true })` (<=4, scalar/pubkey only) | ✅ |

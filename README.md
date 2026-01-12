@@ -102,6 +102,18 @@ const Accounts = anchor.Accounts(struct {
     }),
 });
 
+const AccountsSugar = anchor.Accounts(struct {
+    authority: anchor.Signer,
+    counter: anchor.Account(CounterData, .{
+        .discriminator = anchor.accountDiscriminator("Counter"),
+        .attrs = anchor.attr.account(.{
+            .seeds = &.{ anchor.seed("counter"), anchor.seedAccount("authority") },
+            .bump = true,
+            .constraint = "authority.key() == counter.authority",
+        }),
+    }),
+});
+
 const CounterEvent = anchor.Event(struct {
     amount: anchor.eventField(u64, .{ .index = true }),
     owner: sol.PublicKey,

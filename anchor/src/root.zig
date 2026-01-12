@@ -218,6 +218,9 @@ pub const attr = @import("attr.zig").attr;
 /// Account attribute type
 pub const Attr = @import("attr.zig").Attr;
 
+/// Account attribute config for macro-style syntax
+pub const AccountAttrConfig = @import("attr.zig").AccountAttrConfig;
+
 /// Account wrapper type
 ///
 /// Provides type-safe access to account data with automatic

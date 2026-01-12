@@ -2,6 +2,22 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-12-016
+
+**Date**: 2026-01-12
+**Goal**: Add macro-style account attribute sugar
+
+#### Completed Work
+1. Added `AccountAttrConfig` with `anchor.attr.account(...)` helper
+2. Added has_one shorthand mapping for account attributes
+3. Updated docs, roadmap, and story for account attr sugar
+4. Added tests covering macro-style attribute mapping
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ./solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-12-014
 
 **Date**: 2026-01-12

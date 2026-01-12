@@ -1217,6 +1217,52 @@ test "Account attributes DSL merges config" {
     try std.testing.expectEqual(@as(usize, 128), Full.SPACE);
 }
 
+test "Account attribute sugar maps macro fields" {
+    const FullData = struct {
+        authority: PublicKey,
+        value: u64,
+    };
+
+    const Full = Account(FullData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("FullAttrSugar"),
+        .attrs = attr_mod.attr.account(.{
+            .mut = true,
+            .signer = true,
+            .seeds = &.{ seeds_mod.seed("full"), seeds_mod.seedAccount("authority") },
+            .bump = true,
+            .init = true,
+            .payer = "payer",
+            .has_one_fields = &.{ "authority" },
+            .close = "destination",
+            .realloc = .{ .payer = "payer", .zero_init = true },
+            .rent_exempt = true,
+            .constraint = "authority.key() == full.authority",
+            .owner = PublicKey.default(),
+            .address = PublicKey.default(),
+            .executable = true,
+            .space = 128,
+        }),
+    });
+
+    try std.testing.expect(Full.HAS_SEEDS);
+    try std.testing.expect(Full.HAS_BUMP);
+    try std.testing.expect(Full.IS_INIT);
+    try std.testing.expect(Full.HAS_MUT);
+    try std.testing.expect(Full.HAS_SIGNER);
+    try std.testing.expect(Full.PAYER != null);
+    try std.testing.expect(Full.HAS_HAS_ONE);
+    try std.testing.expect(Full.HAS_CLOSE);
+    try std.testing.expect(Full.HAS_REALLOC);
+    try std.testing.expect(Full.RENT_EXEMPT);
+    try std.testing.expect(Full.CONSTRAINT != null);
+    try std.testing.expect(Full.OWNER != null);
+    try std.testing.expect(Full.ADDRESS != null);
+    try std.testing.expect(Full.EXECUTABLE);
+    try std.testing.expectEqual(@as(usize, 128), Full.SPACE);
+    try std.testing.expect(std.mem.eql(u8, Full.HAS_ONE.?[0].field, "authority"));
+    try std.testing.expect(std.mem.eql(u8, Full.HAS_ONE.?[0].target, "authority"));
+}
+
 // ============================================================================
 // Phase 3: Constraint Enforcement Tests
 // ============================================================================

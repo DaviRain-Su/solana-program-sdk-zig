@@ -35,6 +35,58 @@ pub const Attr = union(enum) {
     space: usize,
 };
 
+/// Macro-style account attribute configuration.
+///
+/// This config mirrors common `#[account(...)]` fields and is intended
+/// to be converted into an Attr list via `anchor.attr.account(...)`.
+pub const AccountAttrConfig = struct {
+    mut: bool = false,
+    signer: bool = false,
+    seeds: ?[]const SeedSpec = null,
+    bump: bool = false,
+    init: bool = false,
+    payer: ?[]const u8 = null,
+    close: ?[]const u8 = null,
+    realloc: ?ReallocConfig = null,
+    has_one: ?[]const HasOneSpec = null,
+    has_one_fields: ?[]const []const u8 = null,
+    rent_exempt: bool = false,
+    constraint: ?[]const u8 = null,
+    owner: ?PublicKey = null,
+    address: ?PublicKey = null,
+    executable: bool = false,
+    space: ?usize = null,
+};
+
+fn hasOneSpecsFromFields(comptime fields: []const []const u8) []const HasOneSpec {
+    comptime var specs: [fields.len]HasOneSpec = undefined;
+    inline for (fields, 0..) |field_name, index| {
+        specs[index] = .{ .field = field_name, .target = field_name };
+    }
+    return specs[0..];
+}
+
+fn countAccountAttrs(comptime config: AccountAttrConfig) usize {
+    comptime var count: usize = 0;
+    if (config.mut) count += 1;
+    if (config.signer) count += 1;
+    if (config.seeds != null) count += 1;
+    if (config.bump) count += 1;
+    if (config.init) count += 1;
+    if (config.payer != null) count += 1;
+    if (config.close != null) count += 1;
+    if (config.realloc != null) count += 1;
+    if (config.has_one != null) count += 1;
+    if (config.has_one_fields != null) count += 1;
+    if (config.rent_exempt) count += 1;
+    if (config.constraint != null) count += 1;
+    if (config.owner != null) count += 1;
+    if (config.address != null) count += 1;
+    if (config.executable) count += 1;
+    if (config.space != null) count += 1;
+    return count;
+}
+
 pub const attr = struct {
     pub fn mut() Attr {
         return .{ .mut = {} };
@@ -95,5 +147,82 @@ pub const attr = struct {
 
     pub fn space(value: usize) Attr {
         return .{ .space = value };
+    }
+
+    pub fn account(comptime config: AccountAttrConfig) []const Attr {
+        if (config.has_one != null and config.has_one_fields != null) {
+            @compileError("has_one and has_one_fields are mutually exclusive");
+        }
+
+        const attr_count = comptime countAccountAttrs(config);
+        comptime var attrs: [attr_count]Attr = undefined;
+        comptime var index: usize = 0;
+
+        if (config.mut) {
+            attrs[index] = attr.mut();
+            index += 1;
+        }
+        if (config.signer) {
+            attrs[index] = attr.signer();
+            index += 1;
+        }
+        if (config.seeds) |value| {
+            attrs[index] = attr.seeds(value);
+            index += 1;
+        }
+        if (config.bump) {
+            attrs[index] = attr.bump();
+            index += 1;
+        }
+        if (config.init) {
+            attrs[index] = attr.init();
+            index += 1;
+        }
+        if (config.payer) |value| {
+            attrs[index] = attr.payer(value);
+            index += 1;
+        }
+        if (config.close) |value| {
+            attrs[index] = attr.close(value);
+            index += 1;
+        }
+        if (config.realloc) |value| {
+            attrs[index] = attr.realloc(value);
+            index += 1;
+        }
+        if (config.has_one) |value| {
+            attrs[index] = attr.hasOne(value);
+            index += 1;
+        }
+        if (config.has_one_fields) |value| {
+            attrs[index] = attr.hasOne(hasOneSpecsFromFields(value));
+            index += 1;
+        }
+        if (config.rent_exempt) {
+            attrs[index] = attr.rentExempt();
+            index += 1;
+        }
+        if (config.constraint) |value| {
+            attrs[index] = attr.constraint(value);
+            index += 1;
+        }
+        if (config.owner) |value| {
+            attrs[index] = attr.owner(value);
+            index += 1;
+        }
+        if (config.address) |value| {
+            attrs[index] = attr.address(value);
+            index += 1;
+        }
+        if (config.executable) {
+            attrs[index] = attr.executable();
+            index += 1;
+        }
+        if (config.space) |value| {
+            attrs[index] = attr.space(value);
+            index += 1;
+        }
+
+        return attrs[0..index];
     }
 };

@@ -1195,6 +1195,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.1.6 - Anchor Account Attr Sugar
+
+- [x] Add macro-style account attribute config
+- [x] Support has_one shorthand mapping
+- [x] Update docs and tests
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

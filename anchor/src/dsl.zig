@@ -96,6 +96,12 @@ fn resolveAttrs(comptime value: anytype) []const attr_mod.Attr {
     if (ValueType == []const u8) {
         return attr_mod.attr.parseAccount(value);
     }
+    if (@typeInfo(ValueType) == .pointer) {
+        const child = @typeInfo(ValueType).pointer.child;
+        if (@typeInfo(child) == .array and @typeInfo(child).array.child == u8) {
+            return attr_mod.attr.parseAccount(value[0..]);
+        }
+    }
     if (ValueType == attr_mod.Attr) {
         const list = [_]attr_mod.Attr{value};
         return list[0..];
@@ -241,17 +247,9 @@ test "dsl: AccountsWith applies field attrs" {
     });
 
     const fields = @typeInfo(AccountsType).@"struct".fields;
-    comptime var counter_type: ?type = null;
-    inline for (fields) |field| {
-        if (std.mem.eql(u8, field.name, "counter")) {
-            counter_type = field.type;
-            break;
-        }
-    }
-    if (counter_type == null) {
+    const counter_index = std.meta.fieldIndex(AccountsType, "counter") orelse
         @compileError("AccountsWith failed to produce counter field");
-    }
-    try std.testing.expect(counter_type.?.HAS_MUT);
+    try std.testing.expect(fields[counter_index].type.HAS_MUT);
 }
 
 test "dsl: AccountsWith accepts macro string attrs" {
@@ -271,18 +269,10 @@ test "dsl: AccountsWith accepts macro string attrs" {
     });
 
     const fields = @typeInfo(AccountsType).@"struct".fields;
-    comptime var counter_type: ?type = null;
-    inline for (fields) |field| {
-        if (std.mem.eql(u8, field.name, "counter")) {
-            counter_type = field.type;
-            break;
-        }
-    }
-    if (counter_type == null) {
+    const counter_index = std.meta.fieldIndex(AccountsType, "counter") orelse
         @compileError("AccountsWith failed to produce counter field");
-    }
-    try std.testing.expect(counter_type.?.HAS_MUT);
-    try std.testing.expect(counter_type.?.HAS_SIGNER);
+    try std.testing.expect(fields[counter_index].type.HAS_MUT);
+    try std.testing.expect(fields[counter_index].type.HAS_SIGNER);
 }
 
 test "dsl: event validation accepts struct" {

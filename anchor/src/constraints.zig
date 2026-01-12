@@ -285,18 +285,21 @@ fn accessValueType(
     comptime account_name: []const u8,
     comptime Accounts: type,
 ) type {
-    comptime var parts = access.parts[0..access.len];
+    const parts = access.parts;
+    const len = access.len;
     comptime var current: type = Accounts;
+    comptime var index: usize = 0;
 
-    if (parts.len > 0 and std.mem.eql(u8, parts[0], account_name)) {
+    if (len > 0 and std.mem.eql(u8, parts[0], account_name)) {
         const FieldType = fieldTypeByName(Accounts, parts[0]) orelse {
             @compileError("constraint access references unknown account: " ++ parts[0]);
         };
         current = FieldType;
-        parts = parts[1..];
+        index = 1;
     }
 
-    inline for (parts) |name| {
+    while (index < len) : (index += 1) {
+        const name = parts[index];
         const Clean = unwrapPointerType(unwrapOptionalType(current));
         if (@hasDecl(Clean, "DataType")) {
             const DataType = Clean.DataType;
@@ -396,57 +399,59 @@ fn resolveAccessValue(
     comptime account_name: []const u8,
     accounts: anytype,
 ) Value {
-    var parts = access.parts[0..access.len];
-    var current = accounts;
-
-    if (parts.len > 0 and std.mem.eql(u8, parts[0], account_name)) {
-        current = @field(current, parts[0]);
-        parts = parts[1..];
+    const parts = access.parts;
+    const len = access.len;
+    const start_index: usize = if (len > 0 and std.mem.eql(u8, parts[0], account_name)) 1 else 0;
+    if (start_index == 1) {
+        return resolveAccessValueAt(access, @field(accounts, parts[0]), 1);
     }
+    return resolveAccessValueAt(access, accounts, 0);
+}
 
-    inline for (parts) |name| {
-        const CurrentType = @TypeOf(current);
-        if (@typeInfo(CurrentType) == .optional) {
-            if (current == null) {
-                return .{ .invalid = {} };
+fn resolveAccessValueAt(
+    comptime access: Access,
+    current: anytype,
+    comptime index: usize,
+) Value {
+    if (index >= access.len) {
+        if (access.use_key) {
+            const CleanType = @TypeOf(current);
+            if (!@hasDecl(CleanType, "key")) {
+                @compileError("constraint key() requires key() method");
             }
-            current = current.?;
+            return valueFromAny(current.key().*);
         }
-        if (@typeInfo(@TypeOf(current)) == .pointer) {
-            current = current.*;
-        }
-
-        const CleanType = @TypeOf(current);
-        if (@hasDecl(CleanType, "DataType")) {
-            const DataType = CleanType.DataType;
-            if (hasField(DataType, name)) {
-                current = @field(current.data.*, name);
-                continue;
-            }
-        }
-
-        if (std.mem.eql(u8, name, "__owner") and @hasDecl(CleanType, "owner")) {
-            current = current.owner();
-            continue;
-        }
-
-        if (hasField(CleanType, name)) {
-            current = @field(current, name);
-            continue;
-        }
-
-        @compileError("constraint access references unknown field: " ++ name);
+        return valueFromAny(current);
     }
 
-    if (access.use_key) {
-        const CleanType = @TypeOf(current);
-        if (!@hasDecl(CleanType, "key")) {
-            @compileError("constraint key() requires key() method");
+    const name = access.parts[index];
+    var next = current;
+    const CurrentType = @TypeOf(next);
+    if (@typeInfo(CurrentType) == .optional) {
+        if (next == null) {
+            return .{ .invalid = {} };
         }
-        return valueFromAny(current.key().*);
+        next = next.?;
+    }
+    if (@typeInfo(@TypeOf(next)) == .pointer) {
+        next = next.*;
     }
 
-    return valueFromAny(current);
+    const CleanType = @TypeOf(next);
+    if (comptime @hasDecl(CleanType, "DataType")) {
+        const DataType = CleanType.DataType;
+        if (comptime hasField(DataType, name)) {
+            return resolveAccessValueAt(access, @field(next.data.*, name), index + 1);
+        }
+    }
+    if (comptime std.mem.eql(u8, name, "__owner") and @hasDecl(CleanType, "owner")) {
+        return resolveAccessValueAt(access, next.owner(), index + 1);
+    }
+    if (comptime hasField(CleanType, name)) {
+        return resolveAccessValueAt(access, @field(next, name), index + 1);
+    }
+
+    @compileError("constraint access references unknown field: " ++ name);
 }
 
 fn evalOperand(

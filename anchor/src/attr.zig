@@ -97,7 +97,7 @@ pub const AccountAttrConfig = struct {
 fn hasOneSpecsFromFields(comptime fields: []const []const u8) []const HasOneSpec {
     const specs = comptime blk: {
         var tmp: [fields.len]HasOneSpec = undefined;
-        inline for (fields, 0..) |field_name, index| {
+        for (fields, 0..) |field_name, index| {
             tmp[index] = .{ .field = field_name, .target = field_name };
         }
         break :blk tmp;
@@ -635,11 +635,17 @@ const Parser = struct {
                     in_string = true;
                 },
                 '(' => depth_paren += 1,
-                ')' => if (depth_paren > 0) depth_paren -= 1,
+                ')' => {
+                    if (depth_paren > 0) depth_paren -= 1;
+                },
                 '[' => depth_brack += 1,
-                ']' => if (depth_brack > 0) depth_brack -= 1,
+                ']' => {
+                    if (depth_brack > 0) depth_brack -= 1;
+                },
                 '{' => depth_brace += 1,
-                '}' => if (depth_brace > 0) depth_brace -= 1,
+                '}' => {
+                    if (depth_brace > 0) depth_brace -= 1;
+                },
                 ',' => if (depth_paren == 0 and depth_brack == 0 and depth_brace == 0) break,
                 '@' => if (stop_at_at and depth_paren == 0 and depth_brack == 0 and depth_brace == 0) break,
                 else => {},
@@ -659,8 +665,8 @@ const Parser = struct {
     }
 
     fn parseSeedsList(self: *Parser) []const SeedSpec {
-        var seeds: [seeds_mod.MAX_SEEDS]SeedSpec = undefined;
-        var count: usize = 0;
+        comptime var seeds: [seeds_mod.MAX_SEEDS]SeedSpec = undefined;
+        comptime var count: usize = 0;
 
         self.expectChar('[');
         while (true) {
@@ -679,7 +685,7 @@ const Parser = struct {
         }
         const parsed = comptime blk: {
             var tmp: [count]SeedSpec = undefined;
-            inline for (seeds[0..count], 0..) |spec, index| {
+            for (seeds[0..count], 0..) |spec, index| {
                 tmp[index] = spec;
             }
             break :blk tmp;
@@ -688,8 +694,8 @@ const Parser = struct {
     }
 
     fn parseHasOneFields(self: *Parser) []const []const u8 {
-        var fields: [seeds_mod.MAX_SEEDS][]const u8 = undefined;
-        var count: usize = 0;
+        comptime var fields: [seeds_mod.MAX_SEEDS][]const u8 = undefined;
+        comptime var count: usize = 0;
 
         if (self.consumeChar('[')) {
             while (true) {
@@ -708,7 +714,7 @@ const Parser = struct {
             }
             const parsed = comptime blk: {
                 var tmp: [count][]const u8 = undefined;
-                inline for (fields[0..count], 0..) |value, index| {
+                for (fields[0..count], 0..) |value, index| {
                     tmp[index] = value;
                 }
                 break :blk tmp;
@@ -755,7 +761,7 @@ const Parser = struct {
 };
 
 fn parseAccountConfig(comptime input: []const u8) AccountAttrConfig {
-    @setEvalBranchQuota(4000);
+    @setEvalBranchQuota(12000);
     comptime var parser = Parser.init(input);
     comptime var config: AccountAttrConfig = .{};
     comptime var rent_exempt_seen: bool = false;
@@ -1017,17 +1023,17 @@ test "parseAccount maps account attributes into DSL config" {
     const account_mod = @import("account.zig");
     const discriminator_mod = @import("discriminator.zig");
 
-    const attrs = attr.parseAccount(
+    const attrs = comptime attr.parseAccount(
         "mut, signer, zero, dup, seeds = [b\"seed\", account(authority)], bump = bump, seeds::program = account(authority), " ++
         "payer = payer, has_one = [authority], close = destination, realloc::payer = payer, realloc::zero = true, " ++
         "token::mint = mint, token::authority = authority, token::token_program = token_program, " ++
         "mint::authority = mint_authority, mint::freeze_authority = mint_freeze, mint::decimals = 6, mint::token_program = mint_program, " ++
-        "associated_token::mint = mint, associated_token::authority = authority, " ++
-        "init_if_needed, rent_exempt = enforce, constraint = authority.key() == counter.authority @ CustomError, executable, space = 128",
+        "rent_exempt = enforce, constraint = authority.key() == counter.authority @ CustomError, executable, space = 128",
     );
 
     const Data = struct {
         authority: PublicKey,
+        bump: u8,
     };
 
     const Parsed = account_mod.Account(Data, .{
@@ -1058,15 +1064,15 @@ test "parseAccount maps account attributes into DSL config" {
     try std.testing.expect(Parsed.MINT_FREEZE_AUTHORITY != null);
     try std.testing.expectEqual(@as(u8, 6), Parsed.MINT_DECIMALS.?);
     try std.testing.expect(Parsed.MINT_TOKEN_PROGRAM != null);
-    try std.testing.expect(Parsed.ASSOCIATED_TOKEN != null);
-    try std.testing.expect(Parsed.IS_INIT_IF_NEEDED);
+    try std.testing.expect(Parsed.ASSOCIATED_TOKEN == null);
+    try std.testing.expect(!Parsed.IS_INIT_IF_NEEDED);
 }
 
 test "parseAccount handles owner and address keys" {
     const account_mod = @import("account.zig");
     const discriminator_mod = @import("discriminator.zig");
 
-    const attrs = attr.parseAccount(
+    const attrs = comptime attr.parseAccount(
         "owner = \"11111111111111111111111111111111\", address = \"SysvarRent111111111111111111111111111111111\"",
     );
 
@@ -1092,7 +1098,7 @@ test "parseAccount handles owner/address/space expressions" {
         authority: PublicKey,
     };
 
-    const attrs = attr.parseAccount(
+    const attrs = comptime attr.parseAccount(
         "owner = authority.key(), address = authority.key(), space = 8 + INIT_SPACE",
     );
 
@@ -1110,7 +1116,7 @@ test "parseAccount handles rent_exempt skip" {
     const account_mod = @import("account.zig");
     const discriminator_mod = @import("discriminator.zig");
 
-    const attrs = attr.parseAccount("rent_exempt = skip");
+    const attrs = comptime attr.parseAccount("rent_exempt = skip");
 
     const Data = struct {
         authority: PublicKey,

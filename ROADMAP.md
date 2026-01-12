@@ -1313,6 +1313,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.12 - Anchor Derive Auto Bind Sysvars
+
+- [x] Auto-wrap clock/rent/slot_hashes/slot_history
+- [x] Auto-wrap stake_history/instructions/epoch_rewards/last_restart_slot
+- [x] Update docs and tests
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

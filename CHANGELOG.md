@@ -2,6 +2,21 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-13-032
+
+**Date**: 2026-01-13
+**Goal**: Auto-bind common sysvar fields in AccountsDerive
+
+#### Completed Work
+1. Added SysvarId helper for sysvars without data types
+2. Auto-bound common sysvar fields (clock/instructions/stake_history/etc.)
+3. Added tests and updated roadmap/story
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-13-031
 
 **Date**: 2026-01-13

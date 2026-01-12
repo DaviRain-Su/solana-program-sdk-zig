@@ -7,6 +7,16 @@ const sol = @import("solana_program_sdk");
 const AccountInfo = sol.account.Account.Info;
 const PublicKey = sol.PublicKey;
 
+/// Sysvar marker for ID-only sysvars without a data type.
+pub fn SysvarId(comptime sysvar_id: PublicKey) type {
+    return struct {
+        pub const id = sysvar_id;
+    };
+}
+
+pub const Instructions = SysvarId(sol.INSTRUCTIONS_ID);
+pub const StakeHistory = SysvarId(sol.STAKE_HISTORY_ID);
+
 /// Sysvar account wrapper with address validation.
 pub fn Sysvar(comptime SysvarType: type) type {
     if (!@hasDecl(SysvarType, "id")) {

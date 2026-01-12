@@ -198,8 +198,29 @@ fn autoProgramAttrs(comptime name: []const u8, comptime FieldType: type) ?[]cons
 
 fn autoSysvarType(comptime name: []const u8, comptime FieldType: type) ?type {
     if (FieldType != *const AccountInfo) return null;
+    if (std.mem.eql(u8, name, "clock")) {
+        return sysvar_account.Sysvar(sol.clock.Clock);
+    }
     if (std.mem.eql(u8, name, "rent")) {
         return sysvar_account.Sysvar(sol.rent.Rent);
+    }
+    if (std.mem.eql(u8, name, "slot_hashes")) {
+        return sysvar_account.Sysvar(sol.slot_hashes.SlotHashes);
+    }
+    if (std.mem.eql(u8, name, "slot_history")) {
+        return sysvar_account.Sysvar(sol.slot_history.SlotHistory);
+    }
+    if (std.mem.eql(u8, name, "stake_history")) {
+        return sysvar_account.Sysvar(sysvar_account.StakeHistory);
+    }
+    if (std.mem.eql(u8, name, "instructions") or std.mem.eql(u8, name, "instructions_sysvar")) {
+        return sysvar_account.Sysvar(sysvar_account.Instructions);
+    }
+    if (std.mem.eql(u8, name, "epoch_rewards")) {
+        return sysvar_account.Sysvar(sysvar_account.SysvarId(sol.EPOCH_REWARDS_ID));
+    }
+    if (std.mem.eql(u8, name, "last_restart_slot")) {
+        return sysvar_account.Sysvar(sysvar_account.SysvarId(sol.LAST_RESTART_SLOT_ID));
     }
     return null;
 }
@@ -374,12 +395,19 @@ test "dsl: AccountsDerive applies program attrs" {
     _ = fields[unchecked_index];
 }
 
-test "dsl: AccountsDerive auto-binds common program fields" {
+test "dsl: AccountsDerive auto-binds common program/sysvar fields" {
     const AccountsType = AccountsDerive(struct {
         system_program: UncheckedProgram,
         token_program: UncheckedProgram,
         associated_token_program: UncheckedProgram,
         rent: *const AccountInfo,
+        clock: *const AccountInfo,
+        slot_hashes: *const AccountInfo,
+        slot_history: *const AccountInfo,
+        stake_history: *const AccountInfo,
+        instructions: *const AccountInfo,
+        epoch_rewards: *const AccountInfo,
+        last_restart_slot: *const AccountInfo,
     });
 
     const fields = @typeInfo(AccountsType).@"struct".fields;
@@ -391,6 +419,20 @@ test "dsl: AccountsDerive auto-binds common program fields" {
         @compileError("AccountsDerive failed to produce associated_token_program field");
     const rent_index = std.meta.fieldIndex(AccountsType, "rent") orelse
         @compileError("AccountsDerive failed to produce rent field");
+    const clock_index = std.meta.fieldIndex(AccountsType, "clock") orelse
+        @compileError("AccountsDerive failed to produce clock field");
+    const slot_hashes_index = std.meta.fieldIndex(AccountsType, "slot_hashes") orelse
+        @compileError("AccountsDerive failed to produce slot_hashes field");
+    const slot_history_index = std.meta.fieldIndex(AccountsType, "slot_history") orelse
+        @compileError("AccountsDerive failed to produce slot_history field");
+    const stake_history_index = std.meta.fieldIndex(AccountsType, "stake_history") orelse
+        @compileError("AccountsDerive failed to produce stake_history field");
+    const instructions_index = std.meta.fieldIndex(AccountsType, "instructions") orelse
+        @compileError("AccountsDerive failed to produce instructions field");
+    const epoch_rewards_index = std.meta.fieldIndex(AccountsType, "epoch_rewards") orelse
+        @compileError("AccountsDerive failed to produce epoch_rewards field");
+    const last_restart_slot_index = std.meta.fieldIndex(AccountsType, "last_restart_slot") orelse
+        @compileError("AccountsDerive failed to produce last_restart_slot field");
     if (!@hasField(fields[system_index].type, "base")) {
         @compileError("system_program was not wrapped with ProgramField");
     }
@@ -406,6 +448,37 @@ test "dsl: AccountsDerive auto-binds common program fields" {
     if (fields[rent_index].type.SYSVAR_TYPE != sol.rent.Rent) {
         @compileError("rent sysvar type mismatch");
     }
+    if (!@hasDecl(fields[clock_index].type, "SYSVAR_TYPE") or
+        fields[clock_index].type.SYSVAR_TYPE != sol.clock.Clock)
+    {
+        @compileError("clock sysvar type mismatch");
+    }
+    if (!@hasDecl(fields[slot_hashes_index].type, "SYSVAR_TYPE") or
+        fields[slot_hashes_index].type.SYSVAR_TYPE != sol.slot_hashes.SlotHashes)
+    {
+        @compileError("slot_hashes sysvar type mismatch");
+    }
+    if (!@hasDecl(fields[slot_history_index].type, "SYSVAR_TYPE") or
+        fields[slot_history_index].type.SYSVAR_TYPE != sol.slot_history.SlotHistory)
+    {
+        @compileError("slot_history sysvar type mismatch");
+    }
+    if (!@hasDecl(fields[stake_history_index].type, "ID")) {
+        @compileError("stake_history was not wrapped with Sysvar");
+    }
+    if (!@hasDecl(fields[instructions_index].type, "ID")) {
+        @compileError("instructions was not wrapped with Sysvar");
+    }
+    if (!@hasDecl(fields[epoch_rewards_index].type, "ID")) {
+        @compileError("epoch_rewards was not wrapped with Sysvar");
+    }
+    if (!@hasDecl(fields[last_restart_slot_index].type, "ID")) {
+        @compileError("last_restart_slot was not wrapped with Sysvar");
+    }
+    try std.testing.expect(fields[stake_history_index].type.ID.equals(sol.STAKE_HISTORY_ID));
+    try std.testing.expect(fields[instructions_index].type.ID.equals(sol.INSTRUCTIONS_ID));
+    try std.testing.expect(fields[epoch_rewards_index].type.ID.equals(sol.EPOCH_REWARDS_ID));
+    try std.testing.expect(fields[last_restart_slot_index].type.ID.equals(sol.LAST_RESTART_SLOT_ID));
 }
 
 test "dsl: event validation accepts struct" {

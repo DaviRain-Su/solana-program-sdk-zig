@@ -17,6 +17,20 @@ All notable changes to the Solana SDK Zig implementation will be documented in t
 
 ---
 
+### Session 2026-01-12-015
+
+**Date**: 2026-01-12
+**Goal**: Tighten event index validation
+
+#### Completed Work
+1. Restricted indexed event fields to scalar and PublicKey types
+2. Updated Anchor compatibility docs and roadmap/story
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ./solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-12-013
 
 **Date**: 2026-01-12

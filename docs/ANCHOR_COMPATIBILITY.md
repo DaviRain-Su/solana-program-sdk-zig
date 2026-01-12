@@ -41,7 +41,7 @@ const sol = anchor.sdk;
 | Account attrs | `#[account(...)]` | `anchor.attr.*` + `.attrs` | ✅ |
 | Accounts derive | `#[derive(Accounts)]` | `anchor.Accounts(T)` | ✅ |
 | Event derive | `#[event]` | `anchor.Event(T)` | ✅ |
-| Event index | `#[index]` | `anchor.eventField(..., .{ .index = true })` (<=4) | ✅ |
+| Event index | `#[index]` | `anchor.eventField(..., .{ .index = true })` (<=4, scalar/pubkey only) | ✅ |
 
 ## Example
 

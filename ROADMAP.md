@@ -1188,6 +1188,13 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.1.5 - Anchor Event Index Semantics
+
+- [x] Enforce scalar/PublicKey-only indexed event fields
+- [x] Update docs and tests
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

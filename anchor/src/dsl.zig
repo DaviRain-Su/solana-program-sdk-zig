@@ -102,9 +102,12 @@ fn validateEvent(comptime T: type) void {
 
     comptime var index_count: usize = 0;
     inline for (fields) |field| {
-        _ = unwrapEventField(field.type);
+        const field_type = unwrapEventField(field.type);
         const config = eventFieldConfig(field.type);
         if (config.index) {
+            if (!isIndexableEventFieldType(field_type)) {
+                @compileError("Indexed event fields must be scalar or PublicKey types");
+            }
             index_count += 1;
         }
     }
@@ -112,6 +115,16 @@ fn validateEvent(comptime T: type) void {
     if (index_count > 4) {
         @compileError("Event struct cannot have more than 4 indexed fields");
     }
+}
+
+fn isIndexableEventFieldType(comptime T: type) bool {
+    const info = @typeInfo(T);
+    switch (info) {
+        .bool => return true,
+        .int => return true,
+        else => {},
+    }
+    return T == sol.PublicKey;
 }
 
 // Ensure account wrappers expose load()

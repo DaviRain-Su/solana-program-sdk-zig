@@ -1298,6 +1298,13 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### 🔨 v3.2.10 - Anchor Derive Program Auto Bind
+
+- [ ] Auto-bind system_program/token_program fields
+- [ ] Update docs and tests
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

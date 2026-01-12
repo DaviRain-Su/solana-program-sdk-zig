@@ -2,6 +2,20 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-13-030
+
+**Date**: 2026-01-13
+**Goal**: Auto-bind common program fields in AccountsDerive
+
+#### Completed Work
+1. Added auto-binding for system_program/token_program UncheckedProgram fields
+2. Added tests and updated roadmap/story
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-13-029
 
 **Date**: 2026-01-13

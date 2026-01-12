@@ -26,15 +26,15 @@ pub fn Accounts(comptime T: type) type {
 /// Validate Accounts struct and apply field-level attrs.
 pub fn AccountsWith(comptime T: type, comptime config: anytype) type {
     comptime validateAccountsWith(T, config);
-    return applyAccountAttrs(T, config);
+    return applyAccountAttrs(T, config, false);
 }
 
 /// Validate Accounts struct and apply field attrs from `T.attrs`.
 pub fn AccountsDerive(comptime T: type) type {
     if (!@hasDecl(T, "attrs")) {
-        return Accounts(T);
+        return applyAccountAttrs(T, .{}, true);
     }
-    return AccountsWith(T, @field(T, "attrs"));
+    return applyAccountAttrs(T, @field(T, "attrs"), true);
 }
 
 /// Event field configuration.
@@ -109,7 +109,7 @@ fn resolveAttrs(comptime value: anytype) []const attr_mod.Attr {
     @compileError("AccountsWith expects Attr, []const Attr, or AccountAttrConfig");
 }
 
-fn applyAccountAttrs(comptime T: type, comptime config: anytype) type {
+fn applyAccountAttrs(comptime T: type, comptime config: anytype, comptime enable_auto: bool) type {
     const info = @typeInfo(T);
     if (info != .@"struct") {
         @compileError("Accounts must be a struct type");
@@ -120,8 +120,14 @@ fn applyAccountAttrs(comptime T: type, comptime config: anytype) type {
 
     inline for (fields, 0..) |field, index| {
         var field_type = field.type;
-        if (@hasField(@TypeOf(config), field.name)) {
-            const attrs = resolveAttrs(@field(config, field.name));
+        const explicit = @hasField(@TypeOf(config), field.name);
+        const auto_attrs = if (!explicit and enable_auto) autoProgramAttrs(field.name, field_type) else null;
+        if (explicit or auto_attrs != null) {
+            const attrs = if (explicit)
+                resolveAttrs(@field(config, field.name))
+            else
+                auto_attrs.?;
+
             if (@hasDecl(field_type, "DataType")) {
                 field_type = account_mod.AccountField(field_type, attrs);
             } else if (field_type == UncheckedProgram or @hasDecl(field_type, "ID")) {
@@ -165,6 +171,17 @@ fn applySignerAttrs(comptime FieldType: type, comptime attrs: []const attr_mod.A
     if (FieldType == SignerMut) return SignerMut;
     if (wants_mut) return SignerMut;
     return Signer;
+}
+
+fn autoProgramAttrs(comptime name: []const u8, comptime FieldType: type) ?[]const attr_mod.Attr {
+    if (FieldType != UncheckedProgram) return null;
+    if (std.mem.eql(u8, name, "system_program")) {
+        return &.{ attr_mod.attr.address(sol.system_program.id), attr_mod.attr.executable() };
+    }
+    if (std.mem.eql(u8, name, "token_program")) {
+        return &.{ attr_mod.attr.address(sol.spl.TOKEN_PROGRAM_ID), attr_mod.attr.executable() };
+    }
+    return null;
 }
 
 fn isEventFieldWrapper(comptime T: type) bool {
@@ -335,6 +352,25 @@ test "dsl: AccountsDerive applies program attrs" {
         @compileError("AccountsDerive failed to produce unchecked field");
     _ = fields[system_index];
     _ = fields[unchecked_index];
+}
+
+test "dsl: AccountsDerive auto-binds common program fields" {
+    const AccountsType = AccountsDerive(struct {
+        system_program: UncheckedProgram,
+        token_program: UncheckedProgram,
+    });
+
+    const fields = @typeInfo(AccountsType).@"struct".fields;
+    const system_index = std.meta.fieldIndex(AccountsType, "system_program") orelse
+        @compileError("AccountsDerive failed to produce system_program field");
+    const token_index = std.meta.fieldIndex(AccountsType, "token_program") orelse
+        @compileError("AccountsDerive failed to produce token_program field");
+    if (!@hasField(fields[system_index].type, "base")) {
+        @compileError("system_program was not wrapped with ProgramField");
+    }
+    if (!@hasField(fields[token_index].type, "base")) {
+        @compileError("token_program was not wrapped with ProgramField");
+    }
 }
 
 test "dsl: event validation accepts struct" {

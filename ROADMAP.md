@@ -1225,6 +1225,13 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.0 - Anchor Typed Field Refs
+
+- [x] Add typed field helper utilities
+- [x] Update docs and tests
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

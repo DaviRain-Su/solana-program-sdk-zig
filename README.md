@@ -129,6 +129,15 @@ const AccountsParsed = anchor.Accounts(struct {
 // Note: parseAccount is a compatibility layer. Prefer typed configs (`attr.account`/`attr.*`)
 // to keep compile-time validation for referenced fields.
 
+const CounterTyped = anchor.Account(CounterData, .{
+    .discriminator = anchor.accountDiscriminator("Counter"),
+    .bump_field = anchor.dataField(CounterData, .bump),
+    .seeds = &.{
+        anchor.seed("counter"),
+        anchor.seedDataField(CounterData, .authority),
+    },
+});
+
 const CounterEvent = anchor.Event(struct {
     amount: anchor.eventField(u64, .{ .index = true }),
     owner: sol.PublicKey,

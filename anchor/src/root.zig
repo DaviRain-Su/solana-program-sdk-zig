@@ -221,6 +221,40 @@ pub const Attr = @import("attr.zig").Attr;
 /// Account attribute config for macro-style syntax
 pub const AccountAttrConfig = @import("attr.zig").AccountAttrConfig;
 
+/// Typed selector for Accounts struct fields.
+pub fn accountField(comptime Accounts: type, comptime field: std.meta.FieldEnum(Accounts)) []const u8 {
+    return @tagName(field);
+}
+
+/// Typed selector for account data struct fields.
+pub fn dataField(comptime Data: type, comptime field: std.meta.FieldEnum(Data)) []const u8 {
+    return @tagName(field);
+}
+
+/// Typed field list helper for Accounts struct fields.
+pub fn accountFields(
+    comptime Accounts: type,
+    comptime fields: []const std.meta.FieldEnum(Accounts),
+) []const []const u8 {
+    comptime var names: [fields.len][]const u8 = undefined;
+    inline for (fields, 0..) |field, index| {
+        names[index] = accountField(Accounts, field);
+    }
+    return names[0..];
+}
+
+/// Typed field list helper for account data struct fields.
+pub fn dataFields(
+    comptime Data: type,
+    comptime fields: []const std.meta.FieldEnum(Data),
+) []const []const u8 {
+    comptime var names: [fields.len][]const u8 = undefined;
+    inline for (fields, 0..) |field, index| {
+        names[index] = dataField(Data, field);
+    }
+    return names[0..];
+}
+
 /// Account wrapper type
 ///
 /// Provides type-safe access to account data with automatic
@@ -369,6 +403,11 @@ pub const seed = seeds.seed;
 /// ```
 pub const seedAccount = seeds.seedAccount;
 
+/// Create an account reference seed using typed field selector.
+pub fn seedAccountField(comptime Accounts: type, comptime field: std.meta.FieldEnum(Accounts)) SeedSpec {
+    return seeds.seedAccount(accountField(Accounts, field));
+}
+
 /// Create a field reference seed
 ///
 /// References a field in the account data as a seed.
@@ -378,6 +417,11 @@ pub const seedAccount = seeds.seedAccount;
 /// const my_seeds = &.{ anchor.seed("owned_by"), anchor.seedField("owner") };
 /// ```
 pub const seedField = seeds.seedField;
+
+/// Create a field reference seed using typed data field selector.
+pub fn seedDataField(comptime Data: type, comptime field: std.meta.FieldEnum(Data)) SeedSpec {
+    return seeds.seedField(dataField(Data, field));
+}
 
 /// Create a bump reference seed
 pub const seedBump = seeds.seedBump;
@@ -499,6 +543,19 @@ pub const has_one = @import("has_one.zig");
 /// });
 /// ```
 pub const HasOneSpec = has_one.HasOneSpec;
+
+/// Typed helper for has_one specs.
+pub fn hasOneSpec(
+    comptime Data: type,
+    comptime data_field: std.meta.FieldEnum(Data),
+    comptime Accounts: type,
+    comptime target_field: std.meta.FieldEnum(Accounts),
+) HasOneSpec {
+    return .{
+        .field = dataField(Data, data_field),
+        .target = accountField(Accounts, target_field),
+    };
+}
 
 /// Validate has_one constraint
 ///
@@ -627,7 +684,9 @@ test "anchor module exports" {
     _ = SeedSpec;
     _ = seed;
     _ = seedAccount;
+    _ = seedAccountField;
     _ = seedField;
+    _ = seedDataField;
     _ = validatePda;
     _ = derivePda;
     _ = rentExemptBalance;
@@ -635,6 +694,7 @@ test "anchor module exports" {
 
     // Phase 3 exports
     _ = HasOneSpec;
+    _ = hasOneSpec;
     _ = validateHasOne;
     _ = HasOneError;
     _ = closeAccount;
@@ -643,6 +703,37 @@ test "anchor module exports" {
     _ = reallocAccount;
     _ = ReallocError;
     _ = MAX_ACCOUNT_SIZE;
+}
+
+test "typed field helpers" {
+    const Accounts = struct {
+        payer: SignerMut,
+        authority: Signer,
+    };
+
+    const Data = struct {
+        authority: sdk.PublicKey,
+        bump: u8,
+    };
+
+    try std.testing.expectEqualStrings("payer", accountField(Accounts, .payer));
+    try std.testing.expectEqualStrings("authority", dataField(Data, .authority));
+
+    const account_seed = seedAccountField(Accounts, .payer);
+    switch (account_seed) {
+        .account => |name| try std.testing.expectEqualStrings("payer", name),
+        else => try std.testing.expect(false),
+    }
+
+    const data_seed = seedDataField(Data, .authority);
+    switch (data_seed) {
+        .field => |name| try std.testing.expectEqualStrings("authority", name),
+        else => try std.testing.expect(false),
+    }
+
+    const spec = hasOneSpec(Data, .authority, Accounts, .authority);
+    try std.testing.expectEqualStrings("authority", spec.field);
+    try std.testing.expectEqualStrings("authority", spec.target);
 }
 
 test "discriminator submodule" {

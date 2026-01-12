@@ -351,6 +351,16 @@ pub const UncheckedProgram = program.UncheckedProgram;
 pub const ProgramError = program.ProgramError;
 
 // ============================================================================
+// Sysvar Module
+// ============================================================================
+
+/// Sysvar account wrapper types
+pub const sysvar_account = @import("sysvar_account.zig");
+
+/// Sysvar account wrapper with address validation.
+pub const Sysvar = sysvar_account.Sysvar;
+
+// ============================================================================
 // Context Module
 // ============================================================================
 

@@ -1298,10 +1298,18 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
-### 🔨 v3.2.10 - Anchor Derive Program Auto Bind
+### ✅ v3.2.10 - Anchor Derive Program Auto Bind
 
-- [ ] Auto-bind system_program/token_program fields
-- [ ] Update docs and tests
+- [x] Auto-bind system_program/token_program fields
+- [x] Update docs and tests
+
+---
+
+### ✅ v3.2.11 - Anchor Derive Auto Bind Common Accounts
+
+- [x] Auto-bind associated_token_program field
+- [x] Auto-wrap rent sysvar account
+- [x] Update docs and tests
 
 ---
 

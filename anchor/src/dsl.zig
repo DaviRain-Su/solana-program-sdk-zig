@@ -11,6 +11,7 @@ const account_mod = @import("account.zig");
 const attr_mod = @import("attr.zig");
 const signer_mod = @import("signer.zig");
 const program_mod = @import("program.zig");
+const sysvar_account = @import("sysvar_account.zig");
 
 const AccountInfo = sol.account.Account.Info;
 const Signer = signer_mod.Signer;
@@ -121,7 +122,14 @@ fn applyAccountAttrs(comptime T: type, comptime config: anytype, comptime enable
     inline for (fields, 0..) |field, index| {
         var field_type = field.type;
         const explicit = @hasField(@TypeOf(config), field.name);
-        const auto_attrs = if (!explicit and enable_auto) autoProgramAttrs(field.name, field_type) else null;
+        const auto_sysvar_type = if (!explicit and enable_auto) autoSysvarType(field.name, field_type) else null;
+        if (auto_sysvar_type) |sysvar_type| {
+            field_type = sysvar_type;
+        }
+        const auto_attrs = if (!explicit and enable_auto and auto_sysvar_type == null)
+            autoProgramAttrs(field.name, field_type)
+        else
+            null;
         if (explicit or auto_attrs != null) {
             const attrs = if (explicit)
                 resolveAttrs(@field(config, field.name))
@@ -180,6 +188,18 @@ fn autoProgramAttrs(comptime name: []const u8, comptime FieldType: type) ?[]cons
     }
     if (std.mem.eql(u8, name, "token_program")) {
         return &.{ attr_mod.attr.address(sol.spl.TOKEN_PROGRAM_ID), attr_mod.attr.executable() };
+    }
+    if (std.mem.eql(u8, name, "associated_token_program")) {
+        const program_id = sol.PublicKey.comptimeFromBase58("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+        return &.{ attr_mod.attr.address(program_id), attr_mod.attr.executable() };
+    }
+    return null;
+}
+
+fn autoSysvarType(comptime name: []const u8, comptime FieldType: type) ?type {
+    if (FieldType != *const AccountInfo) return null;
+    if (std.mem.eql(u8, name, "rent")) {
+        return sysvar_account.Sysvar(sol.rent.Rent);
     }
     return null;
 }
@@ -358,6 +378,8 @@ test "dsl: AccountsDerive auto-binds common program fields" {
     const AccountsType = AccountsDerive(struct {
         system_program: UncheckedProgram,
         token_program: UncheckedProgram,
+        associated_token_program: UncheckedProgram,
+        rent: *const AccountInfo,
     });
 
     const fields = @typeInfo(AccountsType).@"struct".fields;
@@ -365,11 +387,24 @@ test "dsl: AccountsDerive auto-binds common program fields" {
         @compileError("AccountsDerive failed to produce system_program field");
     const token_index = std.meta.fieldIndex(AccountsType, "token_program") orelse
         @compileError("AccountsDerive failed to produce token_program field");
+    const ata_index = std.meta.fieldIndex(AccountsType, "associated_token_program") orelse
+        @compileError("AccountsDerive failed to produce associated_token_program field");
+    const rent_index = std.meta.fieldIndex(AccountsType, "rent") orelse
+        @compileError("AccountsDerive failed to produce rent field");
     if (!@hasField(fields[system_index].type, "base")) {
         @compileError("system_program was not wrapped with ProgramField");
     }
     if (!@hasField(fields[token_index].type, "base")) {
         @compileError("token_program was not wrapped with ProgramField");
+    }
+    if (!@hasField(fields[ata_index].type, "base")) {
+        @compileError("associated_token_program was not wrapped with ProgramField");
+    }
+    if (!@hasDecl(fields[rent_index].type, "SYSVAR_TYPE")) {
+        @compileError("rent was not wrapped with Sysvar");
+    }
+    if (fields[rent_index].type.SYSVAR_TYPE != sol.rent.Rent) {
+        @compileError("rent sysvar type mismatch");
     }
 }
 

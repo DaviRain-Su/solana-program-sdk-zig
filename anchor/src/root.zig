@@ -270,6 +270,9 @@ pub fn dataFields(
 /// ```
 pub const Account = account.Account;
 
+/// Account wrapper with field-level attrs.
+pub const AccountField = account.AccountField;
+
 /// Account loading errors
 pub const AccountError = account.AccountError;
 
@@ -675,6 +678,7 @@ test "anchor module exports" {
     _ = AnchorError;
     _ = Constraints;
     _ = Account;
+    _ = AccountField;
     _ = Signer;
     _ = SignerMut;
     _ = Program;

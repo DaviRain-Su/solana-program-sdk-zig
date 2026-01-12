@@ -196,6 +196,38 @@ pub const AccountConfig = struct {
     attrs: ?[]const Attr = null,
 };
 
+/// Account wrapper with additional field-level attrs.
+///
+/// This helper rebuilds an Account type from an existing Account wrapper
+/// and merges extra attrs without touching the original Account config.
+pub fn AccountField(comptime Base: type, comptime attrs: []const Attr) type {
+    if (!@hasDecl(Base, "DataType") or !@hasDecl(Base, "discriminator")) {
+        @compileError("AccountField requires an Account wrapper type");
+    }
+
+    return Account(Base.DataType, .{
+        .discriminator = Base.discriminator,
+        .owner = Base.OWNER,
+        .mut = Base.HAS_MUT,
+        .signer = Base.HAS_SIGNER,
+        .address = Base.ADDRESS,
+        .executable = Base.EXECUTABLE,
+        .space = Base.SPACE,
+        .seeds = Base.SEEDS,
+        .bump = Base.HAS_BUMP,
+        .bump_field = Base.BUMP_FIELD,
+        .seeds_program = Base.SEEDS_PROGRAM,
+        .init = Base.IS_INIT,
+        .payer = Base.PAYER,
+        .has_one = Base.HAS_ONE,
+        .close = Base.CLOSE,
+        .realloc = Base.REALLOC,
+        .rent_exempt = Base.RENT_EXEMPT,
+        .constraint = Base.CONSTRAINT,
+        .attrs = attrs,
+    });
+}
+
 fn applyAttrs(comptime base: AccountConfig, comptime attrs: []const Attr) AccountConfig {
     comptime var result = base;
 
@@ -1312,6 +1344,36 @@ test "Account attributes DSL merges config" {
     try std.testing.expect(Full.ADDRESS != null);
     try std.testing.expect(Full.EXECUTABLE);
     try std.testing.expectEqual(@as(usize, 128), Full.SPACE);
+}
+
+test "AccountField merges field-level attrs" {
+    const Data = struct {
+        authority: PublicKey,
+        bump: u8,
+    };
+
+    const Base = Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("BaseField"),
+        .seeds = &.{ seeds_mod.seed("base"), seeds_mod.seedField("authority") },
+        .bump_field = "bump",
+    });
+
+    const Wrapped = AccountField(Base, &.{
+        attr_mod.attr.mut(),
+        attr_mod.attr.signer(),
+    });
+
+    try std.testing.expect(Base.HAS_SEEDS);
+    try std.testing.expect(Base.HAS_BUMP);
+    try std.testing.expect(!Base.HAS_MUT);
+    try std.testing.expect(!Base.HAS_SIGNER);
+
+    try std.testing.expect(Wrapped.HAS_SEEDS);
+    try std.testing.expect(Wrapped.HAS_BUMP);
+    try std.testing.expect(Wrapped.HAS_MUT);
+    try std.testing.expect(Wrapped.HAS_SIGNER);
+    try std.testing.expect(Wrapped.BUMP_FIELD != null);
+    try std.testing.expect(std.mem.eql(u8, Wrapped.BUMP_FIELD.?, "bump"));
 }
 
 test "Account attribute sugar maps macro fields" {

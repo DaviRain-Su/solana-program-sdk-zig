@@ -2,6 +2,21 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-12-021
+
+**Date**: 2026-01-12
+**Goal**: Add Accounts field-level attrs helper
+
+#### Completed Work
+1. Added `AccountField` helper to merge attrs into Account config
+2. Updated root exports and tests for field-level attrs
+3. Updated docs, roadmap, and story
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ./solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-12-020
 
 **Date**: 2026-01-12

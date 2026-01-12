@@ -1232,6 +1232,13 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.1 - Anchor Accounts Field Attrs
+
+- [x] Add `AccountField` for field-level attrs
+- [x] Update docs and tests
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

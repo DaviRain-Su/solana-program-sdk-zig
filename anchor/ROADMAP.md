@@ -10,6 +10,11 @@
 - [x] Account attribute DSL
 - [x] Account attrs example
 
+## ✅ v3.1.1 - Anchor Event Index Rules
+
+- [x] Event index limit (<=4)
+- [x] Multi-index tests
+
 ## ✅ v3.1.0 - Anchor Event Index
 
 - [x] eventField wrapper

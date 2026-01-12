@@ -2,6 +2,21 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-12-012
+
+**Date**: 2026-01-12
+**Goal**: Add event index validation rules
+
+#### Completed Work
+1. Enforced max 4 indexed fields in event DSL
+2. Added multi-index event tests
+3. Updated docs and roadmap entries
+
+#### Test Results
+- Anchor: `zig build test` 154 passed
+
+---
+
 ### Session 2026-01-12-011
 
 **Date**: 2026-01-12

@@ -1158,6 +1158,13 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.1.1 - Anchor Event Index Rules
+
+- [x] Enforce max indexed field count
+- [x] Add multi-index event tests
+
+---
+
 ### ✅ v3.1.2 - Anchor Account Attrs
 
 - [x] Add `anchor.attr.*` helpers

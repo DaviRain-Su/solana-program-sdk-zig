@@ -100,9 +100,17 @@ fn validateEvent(comptime T: type) void {
         @compileError("Event struct must have at least one field");
     }
 
+    comptime var index_count: usize = 0;
     inline for (fields) |field| {
         _ = unwrapEventField(field.type);
-        _ = eventFieldConfig(field.type);
+        const config = eventFieldConfig(field.type);
+        if (config.index) {
+            index_count += 1;
+        }
+    }
+
+    if (index_count > 4) {
+        @compileError("Event struct cannot have more than 4 indexed fields");
     }
 }
 
@@ -135,6 +143,17 @@ test "dsl: event validation accepts struct" {
     const EventType = Event(struct {
         amount: eventField(u64, .{ .index = true }),
         owner: sol.PublicKey,
+    });
+
+    _ = EventType;
+}
+
+test "dsl: event supports multiple indexed fields" {
+    const EventType = Event(struct {
+        amount: eventField(u64, .{ .index = true }),
+        owner: eventField(sol.PublicKey, .{ .index = true }),
+        slot: eventField(u64, .{ .index = true }),
+        nonce: eventField(u64, .{ .index = true }),
     });
 
     _ = EventType;

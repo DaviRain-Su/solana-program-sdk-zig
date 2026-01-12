@@ -21,7 +21,7 @@ const sol = anchor.sdk;
 
 ## Not Implemented Yet
 
-- Full Rust macro parsing parity for `#[account(...)]`/`#[derive(Accounts)]` (string parser now covers most common constraints, but expression-heavy cases like `owner = some_program.key()` or `space = 8 + INIT_SPACE` are still limited)
+- Full Rust macro parsing parity for `#[account(...)]`/`#[derive(Accounts)]` (string parser covers most common constraints and supports basic `owner/address` expressions and `space = 8 + CONST`, but complex expressions remain limited)
 
 ## Compatibility Table
 

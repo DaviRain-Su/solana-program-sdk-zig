@@ -96,6 +96,7 @@ const AccountsParsed = anchor.Accounts(struct {
         .discriminator = anchor.accountDiscriminator("Counter"),
         .attrs = anchor.attr.parseAccount(
             "mut, signer, seeds = [\"counter\", account(authority)], bump = bump, " ++
+            "owner = authority.key(), space = 8 + INIT_SPACE, " ++
             "constraint = \"authority.key() == counter.authority\"",
         ),
     }),

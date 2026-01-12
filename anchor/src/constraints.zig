@@ -305,6 +305,10 @@ fn accessValueType(
                 continue;
             }
         }
+        if (std.mem.eql(u8, name, "__owner") and @hasDecl(Clean, "owner")) {
+            current = PublicKey;
+            continue;
+        }
         if (hasField(Clean, name)) {
             current = fieldTypeByName(Clean, name).?;
             continue;
@@ -419,6 +423,11 @@ fn resolveAccessValue(
                 current = @field(current.data.*, name);
                 continue;
             }
+        }
+
+        if (std.mem.eql(u8, name, "__owner") and @hasDecl(CleanType, "owner")) {
+            current = current.owner();
+            continue;
         }
 
         if (hasField(CleanType, name)) {

@@ -2,6 +2,21 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-13-026
+
+**Date**: 2026-01-13
+**Goal**: Add macro expression support for owner/address/space
+
+#### Completed Work
+1. Added owner/address/space expression support in macro-style parsing
+2. Implemented space expression resolution and runtime owner/address checks
+3. Updated docs, roadmap, and story
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ./solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-13-025
 
 **Date**: 2026-01-13

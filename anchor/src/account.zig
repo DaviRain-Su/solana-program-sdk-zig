@@ -77,6 +77,132 @@ fn isSeedFieldType(comptime FieldType: type) bool {
     return false;
 }
 
+const SpaceParser = struct {
+    input: []const u8,
+    index: usize,
+
+    fn init(comptime input: []const u8) SpaceParser {
+        return .{ .input = input, .index = 0 };
+    }
+
+    fn eof(self: *const SpaceParser) bool {
+        return self.index >= self.input.len;
+    }
+
+    fn peek(self: *const SpaceParser) ?u8 {
+        if (self.eof()) return null;
+        return self.input[self.index];
+    }
+
+    fn skipWs(self: *SpaceParser) void {
+        while (self.peek()) |c| {
+            if (c != ' ' and c != '\n' and c != '\t' and c != '\r') break;
+            self.index += 1;
+        }
+    }
+
+    fn consumeChar(self: *SpaceParser, comptime expected: u8) bool {
+        if (self.peek() == expected) {
+            self.index += 1;
+            return true;
+        }
+        return false;
+    }
+
+    fn parseIdent(self: *SpaceParser) []const u8 {
+        const start = self.index;
+        while (self.peek()) |c| {
+            if (!(std.ascii.isAlphabetic(c) or std.ascii.isDigit(c) or c == '_')) break;
+            self.index += 1;
+        }
+        if (self.index == start) {
+            @compileError("space expression parse error: expected identifier");
+        }
+        return self.input[start..self.index];
+    }
+
+    fn parseQualifiedIdent(self: *SpaceParser) []const u8 {
+        var last = self.parseIdent();
+        while (true) {
+            self.skipWs();
+            if (!self.consumeChar(':')) break;
+            self.expectChar(':');
+            self.skipWs();
+            last = self.parseIdent();
+        }
+        return last;
+    }
+
+    fn parseInt(self: *SpaceParser) usize {
+        const start = self.index;
+        while (self.peek()) |c| {
+            if (!std.ascii.isDigit(c)) break;
+            self.index += 1;
+        }
+        if (self.index == start) {
+            @compileError("space expression parse error: expected integer");
+        }
+        return std.fmt.parseInt(usize, self.input[start..self.index], 10) catch {
+            @compileError("space expression parse error: invalid integer");
+        };
+    }
+
+    fn expectChar(self: *SpaceParser, comptime expected: u8) void {
+        if (!self.consumeChar(expected)) {
+            @compileError("space expression parse error: expected character");
+        }
+    }
+
+    fn expectEof(self: *SpaceParser) void {
+        if (!self.eof()) {
+            @compileError("space expression parse error: trailing input");
+        }
+    }
+};
+
+fn resolveSpaceConst(comptime T: type, comptime name: []const u8) usize {
+    if (!@hasDecl(T, name)) {
+        @compileError("space expression unknown constant: " ++ name);
+    }
+    const raw = @field(T, name);
+    const RawType = @TypeOf(raw);
+    if (@typeInfo(RawType) == .comptime_int) {
+        return @as(usize, raw);
+    }
+    if (@typeInfo(RawType) == .int) {
+        return @as(usize, @intCast(raw));
+    }
+    @compileError("space expression constant must be integer: " ++ name);
+}
+
+fn resolveSpaceExpr(comptime T: type, comptime expr: []const u8) usize {
+    comptime var parser = SpaceParser.init(expr);
+    comptime var total: usize = 0;
+
+    parser.skipWs();
+    while (true) {
+        const value = blk: {
+            if (parser.peek()) |c| {
+                if (std.ascii.isDigit(c)) {
+                    break :blk parser.parseInt();
+                }
+            }
+            const ident = parser.parseQualifiedIdent();
+            break :blk resolveSpaceConst(T, ident);
+        };
+        total += value;
+        parser.skipWs();
+        if (parser.consumeChar('+')) {
+            parser.skipWs();
+            continue;
+        }
+        parser.expectEof();
+        break;
+    }
+
+    return total;
+}
+
 /// Configuration for Account wrapper
 pub const AccountConfig = struct {
     /// 8-byte discriminator (required)
@@ -88,6 +214,11 @@ pub const AccountConfig = struct {
     ///
     /// If specified, account must be owned by this program
     owner: ?PublicKey = null,
+
+    /// Expected owner expression (optional)
+    ///
+    /// Macro-style expression, evaluated at runtime.
+    owner_expr: ?[]const u8 = null,
 
     /// Account must be mutable (writable)
     mut: bool = false,
@@ -108,6 +239,11 @@ pub const AccountConfig = struct {
     /// Expected address (optional)
     address: ?PublicKey = null,
 
+    /// Expected address expression (optional)
+    ///
+    /// Macro-style expression, evaluated at runtime.
+    address_expr: ?[]const u8 = null,
+
     /// Account must be executable
     executable: bool = false,
 
@@ -115,6 +251,11 @@ pub const AccountConfig = struct {
     ///
     /// If not specified, calculated as DISCRIMINATOR_LENGTH + @sizeOf(T)
     space: ?usize = null,
+
+    /// Required space expression (optional)
+    ///
+    /// Macro-style expression, evaluated at comptime.
+    space_expr: ?[]const u8 = null,
 
     // === Phase 2: PDA Support ===
 
@@ -270,13 +411,16 @@ pub fn AccountField(comptime Base: type, comptime attrs: []const Attr) type {
     return Account(Base.DataType, .{
         .discriminator = Base.discriminator,
         .owner = Base.OWNER,
+        .owner_expr = Base.OWNER_EXPR,
         .mut = Base.HAS_MUT,
         .signer = Base.HAS_SIGNER,
         .zero = Base.IS_ZERO,
         .dup = Base.IS_DUP,
         .address = Base.ADDRESS,
+        .address_expr = Base.ADDRESS_EXPR,
         .executable = Base.EXECUTABLE,
         .space = Base.SPACE,
+        .space_expr = Base.SPACE_EXPR,
         .seeds = Base.SEEDS,
         .bump = Base.HAS_BUMP,
         .bump_field = Base.BUMP_FIELD,
@@ -443,9 +587,21 @@ fn applyAttrs(comptime base: AccountConfig, comptime attrs: []const Attr) Accoun
                 if (result.owner != null) @compileError("owner already set");
                 result.owner = value;
             },
+            .owner_expr => |value| {
+                if (result.owner_expr != null or result.owner != null) {
+                    @compileError("owner already set");
+                }
+                result.owner_expr = value;
+            },
             .address => |value| {
                 if (result.address != null) @compileError("address already set");
                 result.address = value;
+            },
+            .address_expr => |value| {
+                if (result.address_expr != null or result.address != null) {
+                    @compileError("address already set");
+                }
+                result.address_expr = value;
             },
             .executable => {
                 if (result.executable) @compileError("executable already set");
@@ -454,6 +610,12 @@ fn applyAttrs(comptime base: AccountConfig, comptime attrs: []const Attr) Accoun
             .space => |value| {
                 if (result.space != null) @compileError("space already set");
                 result.space = value;
+            },
+            .space_expr => |value| {
+                if (result.space_expr != null or result.space != null) {
+                    @compileError("space already set");
+                }
+                result.space_expr = value;
             },
         }
     }
@@ -482,6 +644,12 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
     comptime var merged = config;
     if (merged.attrs) |attrs| {
         merged = applyAttrs(merged, attrs);
+    }
+    if (merged.space_expr != null and merged.space != null) {
+        @compileError("space and space_expr are mutually exclusive");
+    }
+    if (merged.space_expr) |expr| {
+        merged.space = resolveSpaceExpr(T, expr);
     }
 
     // Validate config at compile time
@@ -556,6 +724,9 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
 
         /// Required space: discriminator + data
         pub const SPACE: usize = merged.space orelse (DISCRIMINATOR_LENGTH + @sizeOf(T));
+
+        /// Space expression (if any)
+        pub const SPACE_EXPR: ?[]const u8 = merged.space_expr;
 
         /// The inner data type
         pub const DataType = T;
@@ -649,8 +820,14 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
         /// Expected owner (if any)
         pub const OWNER: ?PublicKey = merged.owner;
 
+        /// Expected owner expression (if any)
+        pub const OWNER_EXPR: ?[]const u8 = merged.owner_expr;
+
         /// Expected address (if any)
         pub const ADDRESS: ?PublicKey = merged.address;
+
+        /// Expected address expression (if any)
+        pub const ADDRESS_EXPR: ?[]const u8 = merged.address_expr;
 
         /// Whether account must be executable
         pub const EXECUTABLE: bool = merged.executable;
@@ -995,6 +1172,14 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
             try self.validateHasOneConstraints(accounts);
             try self.validateCloseConstraint(accounts);
             try self.validateReallocConstraint(accounts);
+            if (OWNER_EXPR) |expr| {
+                const full = comptime std.fmt.comptimePrint("{s}.__owner == {s}", .{ account_name, expr });
+                try constraints_mod.validateConstraintExpr(full, account_name, accounts);
+            }
+            if (ADDRESS_EXPR) |expr| {
+                const full = comptime std.fmt.comptimePrint("{s}.key() == {s}", .{ account_name, expr });
+                try constraints_mod.validateConstraintExpr(full, account_name, accounts);
+            }
             if (CONSTRAINT) |expr| {
                 try constraints_mod.validateConstraintExpr(expr.expr, account_name, accounts);
             }
@@ -1002,7 +1187,7 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
 
         /// Check if account requires constraint validation
         pub fn requiresConstraintValidation() bool {
-            return HAS_HAS_ONE or HAS_CLOSE or HAS_REALLOC or CONSTRAINT != null;
+            return HAS_HAS_ONE or HAS_CLOSE or HAS_REALLOC or CONSTRAINT != null or OWNER_EXPR != null or ADDRESS_EXPR != null;
         }
     };
 }
@@ -1665,6 +1850,66 @@ test "Account constraint expression evaluates at runtime" {
     try std.testing.expectError(error.ConstraintRaw, accounts.counter.validateAllConstraints("counter", accounts));
 }
 
+test "Account owner/address expressions validate at runtime" {
+    const Data = struct {
+        pub const INIT_SPACE: usize = 0;
+        authority: PublicKey,
+    };
+
+    const Constrained = Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("OwnerExpr"),
+        .attrs = attr_mod.attr.parseAccount(
+            "owner = authority.key(), address = authority.key(), space = 8 + INIT_SPACE",
+        ),
+    });
+
+    const Accounts = struct {
+        authority: Signer,
+        counter: Constrained,
+    };
+
+    const authority_key = comptime PublicKey.comptimeFromBase58("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+    var counter_id = authority_key;
+    var owner = authority_key;
+    var counter_lamports: u64 = 1_000_000;
+    var authority_lamports: u64 = 500_000;
+
+    var counter_buffer: [DISCRIMINATOR_LENGTH + @sizeOf(Data)]u8 align(@alignOf(Data)) = undefined;
+    @memcpy(counter_buffer[0..DISCRIMINATOR_LENGTH], &Constrained.discriminator);
+    const data_ptr: *Data = @ptrCast(@alignCast(counter_buffer[DISCRIMINATOR_LENGTH..].ptr));
+    data_ptr.* = .{ .authority = authority_key };
+
+    const counter_info = AccountInfo{
+        .id = &counter_id,
+        .owner_id = &owner,
+        .lamports = &counter_lamports,
+        .data_len = counter_buffer.len,
+        .data = counter_buffer[0..].ptr,
+        .is_signer = 0,
+        .is_writable = 1,
+        .is_executable = 0,
+    };
+
+    var authority_id = authority_key;
+    const authority_info = AccountInfo{
+        .id = &authority_id,
+        .owner_id = &owner,
+        .lamports = &authority_lamports,
+        .data_len = 0,
+        .data = undefined,
+        .is_signer = 1,
+        .is_writable = 0,
+        .is_executable = 0,
+    };
+
+    var accounts = Accounts{
+        .authority = try Signer.load(&authority_info),
+        .counter = try Constrained.load(&counter_info),
+    };
+
+    try accounts.counter.validateAllConstraints("counter", accounts);
+}
+
 test "Account attribute sugar maps macro fields" {
     const FullData = struct {
         authority: PublicKey,
@@ -2130,8 +2375,14 @@ test "requiresConstraintValidation returns correct value" {
         .realloc = .{ .payer = "payer" },
     });
 
+    const WithOwnerExpr = Account(TestData, .{
+        .discriminator = base_disc,
+        .owner_expr = "authority.key()",
+    });
+
     try std.testing.expect(!NoConstraints.requiresConstraintValidation());
     try std.testing.expect(WithHasOne.requiresConstraintValidation());
     try std.testing.expect(WithClose.requiresConstraintValidation());
     try std.testing.expect(WithRealloc.requiresConstraintValidation());
+    try std.testing.expect(WithOwnerExpr.requiresConstraintValidation());
 }

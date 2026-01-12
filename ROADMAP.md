@@ -1268,6 +1268,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.6 - Anchor Macro Expr Support
+
+- [x] Support owner/address/space expressions in macro-style attrs
+- [x] Runtime validation for owner/address expressions
+- [x] Update docs and tests
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

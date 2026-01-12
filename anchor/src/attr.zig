@@ -45,9 +45,12 @@ pub const Attr = union(enum) {
     rent_exempt: void,
     constraint: ConstraintExpr,
     owner: PublicKey,
+    owner_expr: []const u8,
     address: PublicKey,
+    address_expr: []const u8,
     executable: void,
     space: usize,
+    space_expr: []const u8,
 };
 
 /// Macro-style account attribute configuration.
@@ -83,9 +86,12 @@ pub const AccountAttrConfig = struct {
     rent_exempt: bool = false,
     constraint: ?[]const u8 = null,
     owner: ?PublicKey = null,
+    owner_expr: ?[]const u8 = null,
     address: ?PublicKey = null,
+    address_expr: ?[]const u8 = null,
     executable: bool = false,
     space: ?usize = null,
+    space_expr: ?[]const u8 = null,
 };
 
 fn hasOneSpecsFromFields(comptime fields: []const []const u8) []const HasOneSpec {
@@ -129,9 +135,12 @@ fn countAccountAttrs(comptime config: AccountAttrConfig) usize {
     if (config.rent_exempt) count += 1;
     if (config.constraint != null) count += 1;
     if (config.owner != null) count += 1;
+    if (config.owner_expr != null) count += 1;
     if (config.address != null) count += 1;
+    if (config.address_expr != null) count += 1;
     if (config.executable) count += 1;
     if (config.space != null) count += 1;
+    if (config.space_expr != null) count += 1;
     return count;
 }
 
@@ -245,8 +254,16 @@ pub const attr = struct {
         return .{ .owner = value };
     }
 
+    pub fn ownerExpr(comptime value: []const u8) Attr {
+        return .{ .owner_expr = value };
+    }
+
     pub fn address(value: PublicKey) Attr {
         return .{ .address = value };
+    }
+
+    pub fn addressExpr(comptime value: []const u8) Attr {
+        return .{ .address_expr = value };
     }
 
     pub fn executable() Attr {
@@ -257,9 +274,22 @@ pub const attr = struct {
         return .{ .space = value };
     }
 
+    pub fn spaceExpr(comptime value: []const u8) Attr {
+        return .{ .space_expr = value };
+    }
+
     pub fn account(comptime config: AccountAttrConfig) []const Attr {
         if (config.has_one != null and config.has_one_fields != null) {
             @compileError("has_one and has_one_fields are mutually exclusive");
+        }
+        if (config.owner != null and config.owner_expr != null) {
+            @compileError("owner and owner_expr are mutually exclusive");
+        }
+        if (config.address != null and config.address_expr != null) {
+            @compileError("address and address_expr are mutually exclusive");
+        }
+        if (config.space != null and config.space_expr != null) {
+            @compileError("space and space_expr are mutually exclusive");
         }
 
         const attrs = comptime buildAccountAttrArray(config);
@@ -400,8 +430,16 @@ fn buildAccountAttrArray(comptime config: AccountAttrConfig) [countAccountAttrs(
         attrs[index] = attr.owner(value);
         index += 1;
     }
+    if (config.owner_expr) |value| {
+        attrs[index] = attr.ownerExpr(value);
+        index += 1;
+    }
     if (config.address) |value| {
         attrs[index] = attr.address(value);
+        index += 1;
+    }
+    if (config.address_expr) |value| {
+        attrs[index] = attr.addressExpr(value);
         index += 1;
     }
     if (config.executable) {
@@ -410,6 +448,10 @@ fn buildAccountAttrArray(comptime config: AccountAttrConfig) [countAccountAttrs(
     }
     if (config.space) |value| {
         attrs[index] = attr.space(value);
+        index += 1;
+    }
+    if (config.space_expr) |value| {
+        attrs[index] = attr.spaceExpr(value);
         index += 1;
     }
 
@@ -851,15 +893,42 @@ fn parseAccountConfig(comptime input: []const u8) AccountAttrConfig {
                 }
             } else if (std.mem.eql(u8, key, "owner")) {
                 if (config.owner != null) @compileError("owner already set");
-                const key_str = parser.parseStringLiteral();
-                config.owner = PublicKey.comptimeFromBase58(key_str);
+                if (parser.peek() == '"') {
+                    const key_str = parser.parseStringLiteral();
+                    config.owner = PublicKey.comptimeFromBase58(key_str);
+                } else {
+                    const expr = parser.parseExprSlice(true);
+                    if (expr.len == 0) @compileError("attribute parse error: empty owner expression");
+                    config.owner_expr = expr;
+                }
             } else if (std.mem.eql(u8, key, "address")) {
                 if (config.address != null) @compileError("address already set");
-                const key_str = parser.parseStringLiteral();
-                config.address = PublicKey.comptimeFromBase58(key_str);
+                if (parser.peek() == '"') {
+                    const key_str = parser.parseStringLiteral();
+                    config.address = PublicKey.comptimeFromBase58(key_str);
+                } else {
+                    const expr = parser.parseExprSlice(true);
+                    if (expr.len == 0) @compileError("attribute parse error: empty address expression");
+                    config.address_expr = expr;
+                }
             } else if (std.mem.eql(u8, key, "space")) {
                 if (config.space != null) @compileError("space already set");
-                config.space = parser.parseInt();
+                const expr = parser.parseExprSlice(true);
+                if (expr.len == 0) @compileError("attribute parse error: empty space expression");
+                var all_digits = true;
+                for (expr) |ch| {
+                    if (!std.ascii.isDigit(ch)) {
+                        all_digits = false;
+                        break;
+                    }
+                }
+                if (all_digits) {
+                    config.space = std.fmt.parseInt(usize, expr, 10) catch {
+                        @compileError("attribute parse error: invalid integer");
+                    };
+                } else {
+                    config.space_expr = expr;
+                }
             } else if (std.mem.eql(u8, key, "rent_exempt")) {
                 if (rent_exempt_seen) @compileError("rent_exempt already set");
                 const mode = parser.parseIdent();
@@ -1012,6 +1081,29 @@ test "parseAccount handles owner and address keys" {
 
     try std.testing.expect(Parsed.OWNER != null);
     try std.testing.expect(Parsed.ADDRESS != null);
+}
+
+test "parseAccount handles owner/address/space expressions" {
+    const account_mod = @import("account.zig");
+    const discriminator_mod = @import("discriminator.zig");
+
+    const Data = struct {
+        pub const INIT_SPACE: usize = 24;
+        authority: PublicKey,
+    };
+
+    const attrs = attr.parseAccount(
+        "owner = authority.key(), address = authority.key(), space = 8 + INIT_SPACE",
+    );
+
+    const Parsed = account_mod.Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("ParsedExpr"),
+        .attrs = attrs,
+    });
+
+    try std.testing.expect(Parsed.OWNER_EXPR != null);
+    try std.testing.expect(Parsed.ADDRESS_EXPR != null);
+    try std.testing.expectEqual(@as(usize, 32), Parsed.SPACE);
 }
 
 test "parseAccount handles rent_exempt skip" {

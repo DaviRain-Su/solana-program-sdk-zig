@@ -2,6 +2,21 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-13-029
+
+**Date**: 2026-01-13
+**Goal**: Apply typed attrs to Program fields in AccountsDerive
+
+#### Completed Work
+1. Added ProgramField to apply address/owner/executable attrs
+2. Applied Program/UncheckedProgram attrs in AccountsWith/AccountsDerive
+3. Added tests and updated roadmap/story
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-13-028
 
 **Date**: 2026-01-13

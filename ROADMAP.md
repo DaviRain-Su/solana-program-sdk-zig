@@ -1291,6 +1291,13 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.9 - Anchor Accounts Derive Program Attrs
+
+- [x] Apply typed attrs to Program/UncheckedProgram fields
+- [x] Update docs and tests
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

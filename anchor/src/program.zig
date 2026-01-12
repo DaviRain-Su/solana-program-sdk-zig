@@ -16,6 +16,7 @@
 
 const std = @import("std");
 const anchor_error = @import("error.zig");
+const attr_mod = @import("attr.zig");
 const sol = @import("solana_program_sdk");
 
 // Import from parent SDK
@@ -24,6 +25,7 @@ const PublicKey = sol.PublicKey;
 
 const AnchorError = anchor_error.AnchorError;
 const AccountInfo = sdk_account.Account.Info;
+const Attr = attr_mod.Attr;
 
 /// Program account type with expected ID
 ///
@@ -107,6 +109,68 @@ pub const UncheckedProgram = struct {
         return self.info;
     }
 };
+
+/// Program field wrapper with additional typed attrs.
+pub fn ProgramField(comptime Base: type, comptime attrs: []const Attr) type {
+    comptime var address: ?PublicKey = null;
+    comptime var owner: ?PublicKey = null;
+    comptime var executable = false;
+
+    inline for (attrs) |attr| {
+        switch (attr) {
+            .address => |value| {
+                if (address != null) @compileError("address already set");
+                address = value;
+            },
+            .owner => |value| {
+                if (owner != null) @compileError("owner already set");
+                owner = value;
+            },
+            .executable => executable = true,
+            else => @compileError("Program fields only support address/owner/executable attrs"),
+        }
+    }
+
+    if (@hasDecl(Base, "ID")) {
+        if (address) |value| {
+            if (!std.mem.eql(u8, &Base.ID.bytes, &value.bytes)) {
+                @compileError("Program address must match Program.ID");
+            }
+        }
+    }
+
+    return struct {
+        const Self = @This();
+
+        base: Base,
+
+        pub fn load(info: *const AccountInfo) !Self {
+            const base = try Base.load(info);
+            if (executable and info.is_executable == 0) {
+                return error.ConstraintExecutable;
+            }
+            if (address) |value| {
+                if (!info.id.equals(value)) {
+                    return error.ConstraintAddress;
+                }
+            }
+            if (owner) |value| {
+                if (!info.owner_id.equals(value)) {
+                    return error.ConstraintOwner;
+                }
+            }
+            return .{ .base = base };
+        }
+
+        pub fn key(self: Self) *const PublicKey {
+            return self.base.key();
+        }
+
+        pub fn toAccountInfo(self: Self) *const AccountInfo {
+            return self.base.toAccountInfo();
+        }
+    };
+}
 
 /// Program validation errors
 pub const ProgramError = error{

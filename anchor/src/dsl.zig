@@ -124,10 +124,12 @@ fn applyAccountAttrs(comptime T: type, comptime config: anytype) type {
             const attrs = resolveAttrs(@field(config, field.name));
             if (@hasDecl(field_type, "DataType")) {
                 field_type = account_mod.AccountField(field_type, attrs);
+            } else if (field_type == UncheckedProgram or @hasDecl(field_type, "ID")) {
+                field_type = program_mod.ProgramField(field_type, attrs);
             } else if (field_type == Signer or field_type == SignerMut) {
                 field_type = applySignerAttrs(field_type, attrs);
             } else {
-                @compileError("AccountsWith only supports Account or Signer fields");
+                @compileError("AccountsWith only supports Account, Program, or Signer fields");
             }
         }
 
@@ -310,6 +312,29 @@ test "dsl: AccountsDerive applies signer mut attrs" {
     const payer_index = std.meta.fieldIndex(AccountsType, "payer") orelse
         @compileError("AccountsDerive failed to produce payer field");
     try std.testing.expect(fields[payer_index].type == SignerMut);
+}
+
+test "dsl: AccountsDerive applies program attrs" {
+    const program_id = comptime sol.PublicKey.comptimeFromBase58("11111111111111111111111111111111");
+    const SystemProgram = program_mod.Program(program_id);
+
+    const AccountsType = AccountsDerive(struct {
+        system_program: SystemProgram,
+        unchecked: UncheckedProgram,
+
+        pub const attrs = .{
+            .system_program = attr_mod.attr.executable(),
+            .unchecked = attr_mod.attr.owner(program_id),
+        };
+    });
+
+    const fields = @typeInfo(AccountsType).@"struct".fields;
+    const system_index = std.meta.fieldIndex(AccountsType, "system_program") orelse
+        @compileError("AccountsDerive failed to produce system_program field");
+    const unchecked_index = std.meta.fieldIndex(AccountsType, "unchecked") orelse
+        @compileError("AccountsDerive failed to produce unchecked field");
+    _ = fields[system_index];
+    _ = fields[unchecked_index];
 }
 
 test "dsl: event validation accepts struct" {

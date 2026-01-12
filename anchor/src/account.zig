@@ -1858,9 +1858,11 @@ test "Account owner/address expressions validate at runtime" {
 
     const Constrained = Account(Data, .{
         .discriminator = discriminator_mod.accountDiscriminator("OwnerExpr"),
-        .attrs = attr_mod.attr.parseAccount(
-            "owner = authority.key(), address = authority.key(), space = 8 + INIT_SPACE",
-        ),
+        .attrs = attr_mod.attr.account(.{
+            .owner_expr = "authority.key()",
+            .address_expr = "authority.key()",
+            .space_expr = "8 + INIT_SPACE",
+        }),
     });
 
     const Accounts = struct {

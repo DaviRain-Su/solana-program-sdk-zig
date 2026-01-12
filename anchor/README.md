@@ -90,20 +90,21 @@ const AccountsSugar = anchor.Accounts(struct {
     }),
 });
 
-const AccountsParsed = anchor.Accounts(struct {
+const AccountsTyped = anchor.Accounts(struct {
     authority: anchor.Signer,
     counter: anchor.Account(CounterData, .{
         .discriminator = anchor.accountDiscriminator("Counter"),
-        .attrs = anchor.attr.parseAccount(
-            "mut, signer, seeds = [\"counter\", account(authority)], bump = bump, " ++
-            "owner = authority.key(), space = 8 + INIT_SPACE, " ++
-            "constraint = \"authority.key() == counter.authority\"",
-        ),
+        .attrs = anchor.attr.account(.{
+            .mut = true,
+            .signer = true,
+            .seeds = &.{ anchor.seed("counter"), anchor.seedAccount("authority") },
+            .bump_field = "bump",
+            .owner_expr = "authority.key()",
+            .space_expr = "8 + INIT_SPACE",
+            .constraint = "authority.key() == counter.authority",
+        }),
     }),
 });
-
-// Note: parseAccount is a compatibility layer. Prefer typed configs (`attr.account`/`attr.*`)
-// to keep compile-time validation for referenced fields.
 
 const CounterTyped = anchor.Account(CounterData, .{
     .discriminator = anchor.accountDiscriminator("Counter"),
@@ -122,13 +123,6 @@ const FieldAccounts = anchor.AccountsWith(struct {
         .mut = true,
         .signer = true,
     }),
-});
-
-const FieldAccountsParsed = anchor.AccountsWith(struct {
-    authority: anchor.Signer,
-    counter: CounterTyped,
-}, .{
-    .counter = "mut, signer",
 });
 
 const FieldAccountsDerive = anchor.AccountsDerive(struct {

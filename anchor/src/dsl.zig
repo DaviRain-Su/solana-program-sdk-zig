@@ -101,21 +101,12 @@ fn resolveAttrs(comptime value: anytype) []const attr_mod.Attr {
     if (ValueType == attr_mod.AccountAttrConfig) {
         return attr_mod.attr.account(value);
     }
-    if (ValueType == []const u8) {
-        return attr_mod.attr.parseAccount(value);
-    }
-    if (@typeInfo(ValueType) == .pointer) {
-        const child = @typeInfo(ValueType).pointer.child;
-        if (@typeInfo(child) == .array and @typeInfo(child).array.child == u8) {
-            return attr_mod.attr.parseAccount(value[0..]);
-        }
-    }
     if (ValueType == attr_mod.Attr) {
         const list = [_]attr_mod.Attr{value};
         return list[0..];
     }
 
-    @compileError("AccountsWith expects Attr, []const Attr, AccountAttrConfig, or []const u8");
+    @compileError("AccountsWith expects Attr, []const Attr, or AccountAttrConfig");
 }
 
 fn applyAccountAttrs(comptime T: type, comptime config: anytype) type {
@@ -258,29 +249,6 @@ test "dsl: AccountsWith applies field attrs" {
     const counter_index = std.meta.fieldIndex(AccountsType, "counter") orelse
         @compileError("AccountsWith failed to produce counter field");
     try std.testing.expect(fields[counter_index].type.HAS_MUT);
-}
-
-test "dsl: AccountsWith accepts macro string attrs" {
-    const CounterData = struct {
-        value: u64,
-    };
-
-    const Counter = account_mod.Account(CounterData, .{
-        .discriminator = @import("discriminator.zig").accountDiscriminator("CounterStr"),
-    });
-
-    const AccountsType = AccountsWith(struct {
-        authority: Signer,
-        counter: Counter,
-    }, .{
-        .counter = "mut, signer",
-    });
-
-    const fields = @typeInfo(AccountsType).@"struct".fields;
-    const counter_index = std.meta.fieldIndex(AccountsType, "counter") orelse
-        @compileError("AccountsWith failed to produce counter field");
-    try std.testing.expect(fields[counter_index].type.HAS_MUT);
-    try std.testing.expect(fields[counter_index].type.HAS_SIGNER);
 }
 
 test "dsl: AccountsDerive applies typed attrs" {

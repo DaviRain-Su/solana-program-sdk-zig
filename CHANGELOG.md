@@ -2,6 +2,21 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-13-027
+
+**Date**: 2026-01-13
+**Goal**: Remove string-based account attrs
+
+#### Completed Work
+1. Removed `attr.parseAccount` and string attr parsing paths
+2. Migrated examples/tests to typed attr config and AccountsDerive
+3. Updated docs, roadmap, and story
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-13-026
 
 **Date**: 2026-01-13

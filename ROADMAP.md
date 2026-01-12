@@ -1276,6 +1276,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.7 - Anchor Typed-Only Attrs
+
+- [x] Remove string attr parsing (`parseAccount`)
+- [x] Remove AccountsWith string attr path
+- [x] Update docs and tests
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

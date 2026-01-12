@@ -78,4 +78,14 @@ pub const Rent = struct {
         }
         return rent;
     }
+
+    /// Get rent data or fall back to defaults without logging.
+    ///
+    /// This helper avoids noisy stderr output when running tests off-chain.
+    pub fn getOrDefault() Rent.Data {
+        if (bpf.is_bpf_program) {
+            return Rent.get() catch Rent.Data{};
+        }
+        return Rent.Data{};
+    }
 };

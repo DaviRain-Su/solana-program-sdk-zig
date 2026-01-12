@@ -811,6 +811,8 @@ examples/
 
 A native Zig framework inspired by Anchor, using comptime metaprogramming instead of Rust proc macros.
 
+> 从 v3.0.1 起，代码已迁移到仓库内 `anchor/` 子包。
+
 #### Design Philosophy
 
 | Anchor (Rust) | sol-anchor-zig (Zig) |
@@ -825,8 +827,8 @@ A native Zig framework inspired by Anchor, using comptime metaprogramming instea
 ```zig
 //! Example: Counter Program in sol-anchor-zig
 
-const anchor = @import("sol-anchor-zig");
-const sdk = @import("solana-program-sdk");
+const anchor = @import("sol_anchor_zig");
+const sdk = @import("solana_program_sdk");
 
 // ============================================
 // 1. Account Definitions (like #[account])
@@ -1068,6 +1070,18 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 | **Binary Size** | ~200KB+ | Target <50KB |
 | **Compute Units** | Higher overhead | Minimal overhead |
 | **Learning Curve** | Rust + macro DSL | Just Zig |
+
+---
+
+### ⏳ v3.0.1 - Anchor Extraction (Monorepo)
+
+将 `sol-anchor-zig` 从主 SDK 中拆分为仓库内独立子包 `anchor/`，并建立独立构建与测试流程。
+
+- [x] 新增 `anchor/` 子包（独立 `build.zig`/`build.zig.zon`）
+- [x] `anchor/` 通过路径依赖 `solana_program_sdk`
+- [x] 迁移 `src/anchor/*` 至 `anchor/src/*`
+- [x] 主 SDK 移除 `anchor` 导出与旧路径
+- [ ] 新增 `anchor` 独立 CI 与测试
 
 ---
 

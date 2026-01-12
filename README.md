@@ -44,8 +44,27 @@ solana-program-sdk-zig/
 │   ├── entrypoint.zig      # Program entrypoint
 │   ├── log.zig             # Logging
 │   └── ...
+├── anchor/                 # Anchor framework subpackage
+│   └── src/
+│       └── root.zig
 ├── program-test/           # Integration tests
 └── build.zig
+```
+
+## Anchor Framework
+
+The Anchor-like framework is now a dedicated subpackage under `anchor/`.
+
+```zig
+const sol = @import("solana_program_sdk");
+const anchor = @import("sol_anchor_zig");
+```
+
+Build/tests for anchor:
+
+```bash
+cd anchor
+../solana-zig/zig build test --summary all
 ```
 
 ## Prerequisites

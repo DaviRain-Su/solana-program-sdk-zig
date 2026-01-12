@@ -16,10 +16,11 @@
 //! ```
 
 const std = @import("std");
-const public_key_mod = @import("../public_key.zig");
+const sol = @import("solana_program_sdk");
+const public_key_mod = sol.public_key;
 const seeds_mod = @import("seeds.zig");
 
-const PublicKey = public_key_mod.PublicKey;
+const PublicKey = sol.PublicKey;
 const ProgramDerivedAddress = public_key_mod.ProgramDerivedAddress;
 const SeedSpec = seeds_mod.SeedSpec;
 const SeedBuffer = seeds_mod.SeedBuffer;

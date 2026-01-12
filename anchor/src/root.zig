@@ -16,12 +16,13 @@
 //! ## Example
 //!
 //! ```zig
-//! const anchor = @import("sol").anchor;
+//! const sol = @import("solana_program_sdk");
+//! const anchor = @import("sol_anchor_zig");
 //!
 //! // Define account state
 //! const CounterData = struct {
 //!     count: u64,
-//!     authority: PublicKey,
+//!     authority: sol.PublicKey,
 //! };
 //!
 //! // Create typed account wrapper

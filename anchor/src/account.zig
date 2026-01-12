@@ -28,11 +28,11 @@ const seeds_mod = @import("seeds.zig");
 const pda_mod = @import("pda.zig");
 const has_one_mod = @import("has_one.zig");
 const realloc_mod = @import("realloc.zig");
+const sol = @import("solana_program_sdk");
 
 // Import from parent SDK
-const sdk_account = @import("../account.zig");
-const public_key_mod = @import("../public_key.zig");
-const PublicKey = public_key_mod.PublicKey;
+const sdk_account = sol.account;
+const PublicKey = sol.PublicKey;
 
 const Discriminator = discriminator_mod.Discriminator;
 const DISCRIMINATOR_LENGTH = discriminator_mod.DISCRIMINATOR_LENGTH;

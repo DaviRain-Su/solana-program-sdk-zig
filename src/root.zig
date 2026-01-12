@@ -108,7 +108,6 @@ pub const secp256r1_program = @import("secp256r1_program.zig");
 pub const spl = sdk.spl;
 
 // Phase 21: v3.0.0 - Anchor Framework (sol-anchor-zig)
-pub const anchor = @import("anchor/root.zig");
 
 const entrypoint_mod = @import("entrypoint.zig");
 // error_mod defined above from SDK

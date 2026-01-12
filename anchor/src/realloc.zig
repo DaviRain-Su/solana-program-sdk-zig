@@ -27,9 +27,10 @@
 //! ```
 
 const std = @import("std");
-const sdk_account = @import("../account.zig");
-const rent_mod = @import("../rent.zig");
-const PublicKey = @import("../public_key.zig").PublicKey;
+const sol = @import("solana_program_sdk");
+const sdk_account = sol.account;
+const rent_mod = sol.rent;
+const PublicKey = sol.PublicKey;
 
 const AccountInfo = sdk_account.Account.Info;
 const Rent = rent_mod.Rent;
@@ -121,7 +122,7 @@ pub fn reallocAccount(
     }
 
     // Calculate rent difference
-    const rent = Rent.get() catch Rent.Data{};
+    const rent = Rent.getOrDefault();
     const old_rent = rent.getMinimumBalance(old_size);
     const new_rent = rent.getMinimumBalance(new_size);
 
@@ -187,7 +188,7 @@ pub fn reallocAccount(
 /// - Negative value: amount to refund (shrinking)
 /// - Zero: no rent change
 pub fn calculateRentDiff(old_size: usize, new_size: usize) i64 {
-    const rent = Rent.get() catch Rent.Data{};
+    const rent = Rent.getOrDefault();
     const old_rent = rent.getMinimumBalance(old_size);
     const new_rent = rent.getMinimumBalance(new_size);
 
@@ -196,7 +197,7 @@ pub fn calculateRentDiff(old_size: usize, new_size: usize) i64 {
 
 /// Calculate rent required for a given data size
 pub fn rentForSize(size: usize) u64 {
-    const rent = Rent.get() catch Rent.Data{};
+    const rent = Rent.getOrDefault();
     return rent.getMinimumBalance(size);
 }
 
@@ -233,7 +234,7 @@ pub fn validateRealloc(
         return;
     }
 
-    const rent = Rent.get() catch Rent.Data{};
+    const rent = Rent.getOrDefault();
     const old_rent = rent.getMinimumBalance(old_size);
     const new_rent = rent.getMinimumBalance(new_size);
 

@@ -19,10 +19,11 @@
 
 const std = @import("std");
 const anchor_error = @import("error.zig");
+const sol = @import("solana_program_sdk");
 
 // Import from parent SDK
-const sdk_account = @import("../account.zig");
-const PublicKey = @import("../public_key.zig").PublicKey;
+const sdk_account = sol.account;
+const PublicKey = sol.PublicKey;
 
 const AnchorError = anchor_error.AnchorError;
 const AccountInfo = sdk_account.Account.Info;

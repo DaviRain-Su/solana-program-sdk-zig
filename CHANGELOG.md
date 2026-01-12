@@ -2,6 +2,23 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-12-001
+
+**Date**: 2026-01-12
+**Goal**: Extract anchor into monorepo subpackage
+
+#### Completed Work
+1. Added `anchor/` subpackage with standalone build files
+2. Moved anchor sources and updated imports to use `solana_program_sdk`
+3. Removed anchor export from main SDK root
+4. Added `Rent.getOrDefault()` to avoid noisy non-BPF logs
+5. Updated roadmap and stories for new layout
+
+#### Test Results
+- Anchor: `zig build test` 152 passed
+
+---
+
 ## [v2.4.0] - 2026-01-08 - SDK Enhancements & Cross-Validation
 
 **Goal**: Enhance SDK APIs for Rust compatibility, improve security, and add comprehensive cross-validation tests

@@ -22,7 +22,8 @@
 //! ```
 
 const std = @import("std");
-const PublicKey = @import("../public_key.zig").PublicKey;
+const sol = @import("solana_program_sdk");
+const PublicKey = sol.PublicKey;
 
 /// Has-one constraint specification
 ///

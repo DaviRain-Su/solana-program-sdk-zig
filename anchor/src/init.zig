@@ -20,13 +20,14 @@
 //! ```
 
 const std = @import("std");
-const system_program = @import("../system_program.zig");
-const instruction_mod = @import("../instruction.zig");
-const rent_mod = @import("../rent.zig");
-const public_key_mod = @import("../public_key.zig");
-const sdk_account = @import("../account.zig");
+const sol = @import("solana_program_sdk");
+const system_program = sol.system_program;
+const instruction_mod = sol.instruction;
+const rent_mod = sol.rent;
+const public_key_mod = sol.public_key;
+const sdk_account = sol.account;
 
-const PublicKey = public_key_mod.PublicKey;
+const PublicKey = sol.PublicKey;
 const AccountInfo = sdk_account.Account.Info;
 const Instruction = instruction_mod.Instruction;
 const Rent = rent_mod.Rent;
@@ -73,10 +74,7 @@ pub const InitConfig = struct {
 /// const balance = try rentExemptBalance(Counter.SPACE);
 /// ```
 pub fn rentExemptBalance(space: usize) !u64 {
-    const rent = Rent.get() catch {
-        // Return default calculation if syscall unavailable
-        return rentExemptBalanceDefault(space);
-    };
+    const rent = Rent.getOrDefault();
     return rent.getMinimumBalance(space);
 }
 

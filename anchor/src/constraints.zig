@@ -22,10 +22,11 @@
 const std = @import("std");
 const anchor_error = @import("error.zig");
 const AnchorError = anchor_error.AnchorError;
+const sol = @import("solana_program_sdk");
 
 // Import from parent SDK
-const Account = @import("../account.zig").Account;
-const PublicKey = @import("../public_key.zig").PublicKey;
+const Account = sol.account.Account;
+const PublicKey = sol.PublicKey;
 
 /// Constraint specification for account validation
 ///

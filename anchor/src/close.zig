@@ -22,9 +22,10 @@
 //! ```
 
 const std = @import("std");
-const sdk_account = @import("../account.zig");
-const PublicKey = @import("../public_key.zig").PublicKey;
-const system_program = @import("../system_program.zig");
+const sol = @import("solana_program_sdk");
+const sdk_account = sol.account;
+const PublicKey = sol.PublicKey;
+const system_program = sol.system_program;
 
 const AccountInfo = sdk_account.Account.Info;
 

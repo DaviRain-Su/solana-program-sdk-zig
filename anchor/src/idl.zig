@@ -1034,6 +1034,17 @@ pub fn shortTypeName(full: []const u8) []const u8 {
     return full;
 }
 
+/// Returns the default IDL name for a program.
+pub fn defaultIdlName(comptime program: anytype) []const u8 {
+    if (@TypeOf(program) == type and @hasDecl(program, "metadata")) {
+        const metadata = program.metadata;
+        if (@hasField(@TypeOf(metadata), "name")) {
+            return metadata.name;
+        }
+    }
+    return programTypeName(program);
+}
+
 fn programTypeName(comptime program: anytype) []const u8 {
     if (@TypeOf(program) == type) {
         return shortTypeName(@typeName(program));

@@ -1180,6 +1180,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.1.4 - Root IDL Default Output
+
+- [x] Default root `zig build idl` output to `idl/`
+- [x] Add `idl-output-dir` and `idl-output` overrides
+- [x] Document default output and flags
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

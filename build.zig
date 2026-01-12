@@ -61,9 +61,11 @@ pub fn build(b: *std.Build) void {
     });
 
     const idl_program_path = b.option([]const u8, "idl-program", "Program module path for IDL generation") orelse "anchor/src/idl_example.zig";
-    const idl_output_path = b.option([]const u8, "idl-output", "IDL output path") orelse "idl/anchor.json";
+    const idl_output_dir = b.option([]const u8, "idl-output-dir", "IDL output directory") orelse "idl";
+    const idl_output_path = b.option([]const u8, "idl-output", "IDL output path (overrides idl-output-dir)") orelse "";
 
     const idl_options = b.addOptions();
+    idl_options.addOption([]const u8, "idl_output_dir", idl_output_dir);
     idl_options.addOption([]const u8, "idl_output_path", idl_output_path);
 
     const idl_program_mod = b.createModule(.{

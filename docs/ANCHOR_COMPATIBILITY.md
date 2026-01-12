@@ -89,6 +89,8 @@ const idl_json = try anchor.generateIdlJson(allocator, MyProgram, .{});
 const client_src = try anchor.generateZigClient(allocator, MyProgram, .{});
 ```
 
+Root `zig build idl` defaults to writing under `idl/` using the program metadata name (or program type name). Use `-Didl-output` to override the full output path, or `-Didl-output-dir` to change the directory.
+
 ## High-level Client
 
 ```zig

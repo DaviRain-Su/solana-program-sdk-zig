@@ -82,10 +82,10 @@ IDL output (build step):
 ```bash
 ./solana-zig/zig build idl \
   -Didl-program=anchor/src/idl_example.zig \
-  -Didl-output=idl/anchor.json
+  -Didl-output-dir=idl
 ```
 
-`idl-program` must export `pub const Program`.
+`idl-program` must export `pub const Program`. By default, the IDL file name is derived from the program metadata name (or the program type name) and written under `idl/`. Use `-Didl-output` to override the full path.
 
 Comptime derives:
 

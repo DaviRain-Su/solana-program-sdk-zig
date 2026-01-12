@@ -2,6 +2,21 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-12-014
+
+**Date**: 2026-01-12
+**Goal**: Default root IDL output to idl/
+
+#### Completed Work
+1. Added root IDL output directory option with default naming
+2. Updated root IDL CLI to derive file name from program metadata/type name
+3. Synced README, compatibility docs, ROADMAP, and Story
+
+#### Test Results
+- `./solana-zig/zig build idl`
+
+---
+
 ### Session 2026-01-12-013
 
 **Date**: 2026-01-12

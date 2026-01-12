@@ -69,7 +69,8 @@ const Op = enum {
 };
 
 const Access = struct {
-    parts: []const []const u8,
+    parts: [8][]const u8,
+    len: usize,
     use_key: bool,
 };
 
@@ -196,7 +197,7 @@ const ExprParser = struct {
             count += 1;
         }
 
-        return .{ .access = .{ .parts = parts[0..count], .use_key = use_key } };
+        return .{ .access = .{ .parts = parts, .len = count, .use_key = use_key } };
     }
 
     fn parseOp(self: *ExprParser) Op {
@@ -284,7 +285,7 @@ fn accessValueType(
     comptime account_name: []const u8,
     comptime Accounts: type,
 ) type {
-    comptime var parts = access.parts;
+    comptime var parts = access.parts[0..access.len];
     comptime var current: type = Accounts;
 
     if (parts.len > 0 and std.mem.eql(u8, parts[0], account_name)) {
@@ -391,7 +392,7 @@ fn resolveAccessValue(
     comptime account_name: []const u8,
     accounts: anytype,
 ) Value {
-    var parts = access.parts;
+    var parts = access.parts[0..access.len];
     var current = accounts;
 
     if (parts.len > 0 and std.mem.eql(u8, parts[0], account_name)) {

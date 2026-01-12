@@ -21,7 +21,7 @@ const sol = anchor.sdk;
 
 ## Not Implemented Yet
 
-- Full Rust macro parsing for `#[account(...)]` (partial string parser via `anchor.attr.parseAccount`; typed configs enforce compile-time field validation)
+- Full Rust macro parsing parity for `#[account(...)]`/`#[derive(Accounts)]` (string parser now covers most common constraints, but expression-heavy cases like `owner = some_program.key()` or `space = 8 + INIT_SPACE` are still limited)
 
 ## Compatibility Table
 
@@ -39,7 +39,7 @@ const sol = anchor.sdk;
 | RPC client wrapper | `AnchorClient` | `ProgramClient` (generated) | ✅ |
 | Constraint expr | `constraint = <expr>` | `anchor.constraint()` | ✅ |
 | Constraint runtime | `constraint = <expr>` | Runtime eval (==/!=, key(), field access) | ✅ |
-| Account attrs | `#[account(...)]` | `anchor.attr.*` + `.attrs` / `anchor.attr.account(...)` / `anchor.attr.parseAccount(...)` / `anchor.AccountField(...)` / `anchor.AccountsWith(...)` | ✅ |
+| Account attrs | `#[account(...)]` | `anchor.attr.*` + `.attrs` / `anchor.attr.account(...)` / `anchor.attr.parseAccount(...)` / `anchor.AccountField(...)` / `anchor.AccountsWith(...)` (string attrs supported) | ✅ |
 | Token constraints | `token::mint/authority`, `associated_token::*` | `anchor.attr.tokenMint/tokenAuthority/associatedToken*` | ✅ |
 | Accounts derive | `#[derive(Accounts)]` | `anchor.Accounts(T)` | ✅ |
 | Event derive | `#[event]` | `anchor.Event(T)` | ✅ |

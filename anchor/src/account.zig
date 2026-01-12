@@ -95,6 +95,16 @@ pub const AccountConfig = struct {
     /// Account must be signer
     signer: bool = false,
 
+    /// Account data must be zeroed
+    ///
+    /// Anchor equivalent: `#[account(zero)]`
+    zero: bool = false,
+
+    /// Account can be duplicated
+    ///
+    /// Anchor equivalent: `#[account(dup)]`
+    dup: bool = false,
+
     /// Expected address (optional)
     address: ?PublicKey = null,
 
@@ -181,6 +191,31 @@ pub const AccountConfig = struct {
     /// Anchor equivalent: `token::authority`
     token_authority: ?[]const u8 = null,
 
+    /// Token program constraint (optional)
+    ///
+    /// Anchor equivalent: `token::token_program`
+    token_program: ?[]const u8 = null,
+
+    /// Mint authority constraint (optional)
+    ///
+    /// Anchor equivalent: `mint::authority`
+    mint_authority: ?[]const u8 = null,
+
+    /// Mint freeze authority constraint (optional)
+    ///
+    /// Anchor equivalent: `mint::freeze_authority`
+    mint_freeze_authority: ?[]const u8 = null,
+
+    /// Mint decimals constraint (optional)
+    ///
+    /// Anchor equivalent: `mint::decimals`
+    mint_decimals: ?u8 = null,
+
+    /// Mint token program constraint (optional)
+    ///
+    /// Anchor equivalent: `mint::token_program`
+    mint_token_program: ?[]const u8 = null,
+
     /// Close destination account field name
     ///
     /// When specified, the account can be closed by transferring all
@@ -237,6 +272,8 @@ pub fn AccountField(comptime Base: type, comptime attrs: []const Attr) type {
         .owner = Base.OWNER,
         .mut = Base.HAS_MUT,
         .signer = Base.HAS_SIGNER,
+        .zero = Base.IS_ZERO,
+        .dup = Base.IS_DUP,
         .address = Base.ADDRESS,
         .executable = Base.EXECUTABLE,
         .space = Base.SPACE,
@@ -251,6 +288,11 @@ pub fn AccountField(comptime Base: type, comptime attrs: []const Attr) type {
         .associated_token = Base.ASSOCIATED_TOKEN,
         .token_mint = Base.TOKEN_MINT,
         .token_authority = Base.TOKEN_AUTHORITY,
+        .token_program = Base.TOKEN_PROGRAM,
+        .mint_authority = Base.MINT_AUTHORITY,
+        .mint_freeze_authority = Base.MINT_FREEZE_AUTHORITY,
+        .mint_decimals = Base.MINT_DECIMALS,
+        .mint_token_program = Base.MINT_TOKEN_PROGRAM,
         .close = Base.CLOSE,
         .realloc = Base.REALLOC,
         .rent_exempt = Base.RENT_EXEMPT,
@@ -271,6 +313,14 @@ fn applyAttrs(comptime base: AccountConfig, comptime attrs: []const Attr) Accoun
             .signer => {
                 if (result.signer) @compileError("signer already set");
                 result.signer = true;
+            },
+            .zero => {
+                if (result.zero) @compileError("zero already set");
+                result.zero = true;
+            },
+            .dup => {
+                if (result.dup) @compileError("dup already set");
+                result.dup = true;
             },
             .seeds => |value| {
                 if (result.seeds != null) @compileError("seeds already set");
@@ -358,6 +408,28 @@ fn applyAttrs(comptime base: AccountConfig, comptime attrs: []const Attr) Accoun
             .token_authority => |value| {
                 if (result.token_authority != null) @compileError("token::authority already set");
                 result.token_authority = value;
+            },
+            .token_program => |value| {
+                if (result.token_program != null) @compileError("token::token_program already set");
+                result.token_program = value;
+            },
+            .mint_authority => |value| {
+                if (result.mint_authority != null) @compileError("mint::authority already set");
+                result.mint_authority = value;
+            },
+            .mint_freeze_authority => |value| {
+                if (result.mint_freeze_authority != null) {
+                    @compileError("mint::freeze_authority already set");
+                }
+                result.mint_freeze_authority = value;
+            },
+            .mint_decimals => |value| {
+                if (result.mint_decimals != null) @compileError("mint::decimals already set");
+                result.mint_decimals = value;
+            },
+            .mint_token_program => |value| {
+                if (result.mint_token_program != null) @compileError("mint::token_program already set");
+                result.mint_token_program = value;
             },
             .rent_exempt => {
                 if (result.rent_exempt) @compileError("rent_exempt already set");
@@ -506,6 +578,12 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
         /// Whether this account must be signer
         pub const HAS_SIGNER: bool = merged.signer;
 
+        /// Whether this account is zeroed
+        pub const IS_ZERO: bool = merged.zero;
+
+        /// Whether this account is marked as duplicate
+        pub const IS_DUP: bool = merged.dup;
+
         /// The seeds specification (if any)
         pub const SEEDS: ?[]const SeedSpec = merged.seeds;
 
@@ -540,6 +618,21 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
 
         /// Token authority constraint (if any)
         pub const TOKEN_AUTHORITY: ?[]const u8 = merged.token_authority;
+
+        /// Token program constraint (if any)
+        pub const TOKEN_PROGRAM: ?[]const u8 = merged.token_program;
+
+        /// Mint authority constraint (if any)
+        pub const MINT_AUTHORITY: ?[]const u8 = merged.mint_authority;
+
+        /// Mint freeze authority constraint (if any)
+        pub const MINT_FREEZE_AUTHORITY: ?[]const u8 = merged.mint_freeze_authority;
+
+        /// Mint decimals constraint (if any)
+        pub const MINT_DECIMALS: ?u8 = merged.mint_decimals;
+
+        /// Mint token program constraint (if any)
+        pub const MINT_TOKEN_PROGRAM: ?[]const u8 = merged.mint_token_program;
 
         /// The close destination field name (if any)
         pub const CLOSE: ?[]const u8 = merged.close;
@@ -1639,7 +1732,7 @@ test "Account attribute sugar maps seeds program" {
 
     try std.testing.expect(WithProgram.HAS_SEEDS);
     try std.testing.expect(WithProgram.SEEDS_PROGRAM != null);
-    try std.testing.expect(WithProgram.SEEDS_PROGRAM.? == SeedSpec{ .account = "authority" });
+    try std.testing.expect(std.meta.eql(WithProgram.SEEDS_PROGRAM.?, SeedSpec{ .account = "authority" }));
 }
 
 // ============================================================================

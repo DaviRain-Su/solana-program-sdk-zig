@@ -1260,6 +1260,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.5 - Anchor Macro Parsing
+
+- [x] Expand parseAccount macro syntax coverage (rent_exempt=skip/enforce, realloc::payer/zero, token::token_program, mint::*, zero/dup, constraint @ error, b"seed")
+- [x] Allow AccountsWith string attrs
+- [x] Update docs and tests
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

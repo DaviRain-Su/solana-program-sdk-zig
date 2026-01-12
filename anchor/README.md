@@ -123,6 +123,13 @@ const FieldAccounts = anchor.AccountsWith(struct {
     }),
 });
 
+const FieldAccountsParsed = anchor.AccountsWith(struct {
+    authority: anchor.Signer,
+    counter: CounterTyped,
+}, .{
+    .counter = "mut, signer",
+});
+
 const CounterEvent = anchor.Event(struct {
     amount: anchor.eventField(u64, .{ .index = true }),
     owner: sol.PublicKey,

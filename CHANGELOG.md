@@ -2,6 +2,21 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-13-025
+
+**Date**: 2026-01-13
+**Goal**: Expand Anchor macro-style account parsing
+
+#### Completed Work
+1. Extended parseAccount to support macro-style syntax (rent_exempt modes, realloc:: keys, token/mint constraints, zero/dup, unquoted constraint expressions, byte seeds)
+2. Added AccountsWith support for string attrs and expanded tests
+3. Updated docs, roadmap, and story
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ./solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-12-024
 
 **Date**: 2026-01-12

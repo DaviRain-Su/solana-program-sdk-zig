@@ -20,6 +20,8 @@ const ConstraintExpr = constraints_mod.ConstraintExpr;
 pub const Attr = union(enum) {
     mut: void,
     signer: void,
+    zero: void,
+    dup: void,
     seeds: []const SeedSpec,
     bump: void,
     bump_field: []const u8,
@@ -30,6 +32,11 @@ pub const Attr = union(enum) {
     associated_token_token_program: []const u8,
     token_mint: []const u8,
     token_authority: []const u8,
+    token_program: []const u8,
+    mint_authority: []const u8,
+    mint_freeze_authority: []const u8,
+    mint_decimals: u8,
+    mint_token_program: []const u8,
     init: void,
     payer: []const u8,
     close: []const u8,
@@ -50,6 +57,8 @@ pub const Attr = union(enum) {
 pub const AccountAttrConfig = struct {
     mut: bool = false,
     signer: bool = false,
+    zero: bool = false,
+    dup: bool = false,
     seeds: ?[]const SeedSpec = null,
     bump: bool = false,
     bump_field: ?[]const u8 = null,
@@ -60,6 +69,11 @@ pub const AccountAttrConfig = struct {
     associated_token_token_program: ?[]const u8 = null,
     token_mint: ?[]const u8 = null,
     token_authority: ?[]const u8 = null,
+    token_program: ?[]const u8 = null,
+    mint_authority: ?[]const u8 = null,
+    mint_freeze_authority: ?[]const u8 = null,
+    mint_decimals: ?u8 = null,
+    mint_token_program: ?[]const u8 = null,
     init: bool = false,
     payer: ?[]const u8 = null,
     close: ?[]const u8 = null,
@@ -75,10 +89,13 @@ pub const AccountAttrConfig = struct {
 };
 
 fn hasOneSpecsFromFields(comptime fields: []const []const u8) []const HasOneSpec {
-    comptime var specs: [fields.len]HasOneSpec = undefined;
-    inline for (fields, 0..) |field_name, index| {
-        specs[index] = .{ .field = field_name, .target = field_name };
-    }
+    const specs = comptime blk: {
+        var tmp: [fields.len]HasOneSpec = undefined;
+        inline for (fields, 0..) |field_name, index| {
+            tmp[index] = .{ .field = field_name, .target = field_name };
+        }
+        break :blk tmp;
+    };
     return specs[0..];
 }
 
@@ -86,6 +103,8 @@ fn countAccountAttrs(comptime config: AccountAttrConfig) usize {
     comptime var count: usize = 0;
     if (config.mut) count += 1;
     if (config.signer) count += 1;
+    if (config.zero) count += 1;
+    if (config.dup) count += 1;
     if (config.seeds != null) count += 1;
     if (config.bump) count += 1;
     if (config.bump_field != null) count += 1;
@@ -96,6 +115,11 @@ fn countAccountAttrs(comptime config: AccountAttrConfig) usize {
     if (config.associated_token_token_program != null) count += 1;
     if (config.token_mint != null) count += 1;
     if (config.token_authority != null) count += 1;
+    if (config.token_program != null) count += 1;
+    if (config.mint_authority != null) count += 1;
+    if (config.mint_freeze_authority != null) count += 1;
+    if (config.mint_decimals != null) count += 1;
+    if (config.mint_token_program != null) count += 1;
     if (config.init) count += 1;
     if (config.payer != null) count += 1;
     if (config.close != null) count += 1;
@@ -118,6 +142,14 @@ pub const attr = struct {
 
     pub fn signer() Attr {
         return .{ .signer = {} };
+    }
+
+    pub fn zero() Attr {
+        return .{ .zero = {} };
+    }
+
+    pub fn dup() Attr {
+        return .{ .dup = {} };
     }
 
     pub fn seeds(comptime value: []const SeedSpec) Attr {
@@ -159,6 +191,26 @@ pub const attr = struct {
 
     pub fn tokenAuthority(comptime value: []const u8) Attr {
         return .{ .token_authority = value };
+    }
+
+    pub fn tokenProgram(comptime value: []const u8) Attr {
+        return .{ .token_program = value };
+    }
+
+    pub fn mintAuthority(comptime value: []const u8) Attr {
+        return .{ .mint_authority = value };
+    }
+
+    pub fn mintFreezeAuthority(comptime value: []const u8) Attr {
+        return .{ .mint_freeze_authority = value };
+    }
+
+    pub fn mintDecimals(value: u8) Attr {
+        return .{ .mint_decimals = value };
+    }
+
+    pub fn mintTokenProgram(comptime value: []const u8) Attr {
+        return .{ .mint_token_program = value };
     }
 
     pub fn init() Attr {
@@ -217,13 +269,15 @@ pub const attr = struct {
     /// Parse `#[account(...)]`-style attributes into an Attr list.
     ///
     /// Supported keys (subset):
-    /// - flags: mut, signer, init, rent_exempt, executable, bump
+    /// - flags: mut, signer, zero, dup, init, rent_exempt, executable, bump
     /// - key/value: payer, close, constraint, space, owner, address
     /// - seeds: seeds = [ ... ]
     /// - bump field: bump = <field>
     /// - seeds program: seeds::program = <seed>
     /// - has_one: has_one = <field> or has_one = [a, b]
-    /// - realloc: realloc = { payer = <field>, zero_init = true }
+    /// - realloc: realloc = { payer = <field>, zero_init = true } or realloc::payer/realloc::zero
+    /// - token: token::mint/token::authority/token::token_program
+    /// - mint: mint::authority/mint::freeze_authority/mint::decimals/mint::token_program
     pub fn parseAccount(comptime input: []const u8) []const Attr {
         return attr.account(parseAccountConfig(input));
     }
@@ -240,6 +294,14 @@ fn buildAccountAttrArray(comptime config: AccountAttrConfig) [countAccountAttrs(
     }
     if (config.signer) {
         attrs[index] = attr.signer();
+        index += 1;
+    }
+    if (config.zero) {
+        attrs[index] = attr.zero();
+        index += 1;
+    }
+    if (config.dup) {
+        attrs[index] = attr.dup();
         index += 1;
     }
     if (config.seeds) |value| {
@@ -280,6 +342,26 @@ fn buildAccountAttrArray(comptime config: AccountAttrConfig) [countAccountAttrs(
     }
     if (config.token_authority) |value| {
         attrs[index] = attr.tokenAuthority(value);
+        index += 1;
+    }
+    if (config.token_program) |value| {
+        attrs[index] = attr.tokenProgram(value);
+        index += 1;
+    }
+    if (config.mint_authority) |value| {
+        attrs[index] = attr.mintAuthority(value);
+        index += 1;
+    }
+    if (config.mint_freeze_authority) |value| {
+        attrs[index] = attr.mintFreezeAuthority(value);
+        index += 1;
+    }
+    if (config.mint_decimals) |value| {
+        attrs[index] = attr.mintDecimals(value);
+        index += 1;
+    }
+    if (config.mint_token_program) |value| {
+        attrs[index] = attr.mintTokenProgram(value);
         index += 1;
     }
     if (config.init) {
@@ -418,6 +500,11 @@ const Parser = struct {
         return self.input[start..end];
     }
 
+    fn parseByteStringLiteral(self: *Parser) []const u8 {
+        self.expectChar('b');
+        return self.parseStringLiteral();
+    }
+
     fn parseIdentOrString(self: *Parser) []const u8 {
         self.skipWs();
         if (self.peek() == '"') {
@@ -449,6 +536,10 @@ const Parser = struct {
 
     fn parseSeedSpec(self: *Parser) SeedSpec {
         self.skipWs();
+        if (self.peek() == 'b' and self.index + 1 < self.input.len and self.input[self.index + 1] == '"') {
+            const lit = self.parseByteStringLiteral();
+            return seeds_mod.seed(lit);
+        }
         if (self.peek() == '"') {
             const lit = self.parseStringLiteral();
             return seeds_mod.seed(lit);
@@ -480,6 +571,51 @@ const Parser = struct {
         @compileError("attribute parse error: unknown seed function");
     }
 
+    fn parseExprSlice(self: *Parser, comptime stop_at_at: bool) []const u8 {
+        self.skipWs();
+        const start = self.index;
+        var depth_paren: usize = 0;
+        var depth_brack: usize = 0;
+        var depth_brace: usize = 0;
+        var in_string = false;
+
+        while (self.peek()) |c| {
+            if (in_string) {
+                if (c == '"') {
+                    in_string = false;
+                }
+                self.index += 1;
+                continue;
+            }
+
+            switch (c) {
+                '"' => {
+                    in_string = true;
+                },
+                '(' => depth_paren += 1,
+                ')' => if (depth_paren > 0) depth_paren -= 1,
+                '[' => depth_brack += 1,
+                ']' => if (depth_brack > 0) depth_brack -= 1,
+                '{' => depth_brace += 1,
+                '}' => if (depth_brace > 0) depth_brace -= 1,
+                ',' => if (depth_paren == 0 and depth_brack == 0 and depth_brace == 0) break,
+                '@' => if (stop_at_at and depth_paren == 0 and depth_brack == 0 and depth_brace == 0) break,
+                else => {},
+            }
+            self.index += 1;
+        }
+
+        const end = self.index;
+        return std.mem.trim(u8, self.input[start..end], " \t\r\n");
+    }
+
+    fn consumeOptionalError(self: *Parser) void {
+        self.skipWs();
+        if (self.consumeChar('@')) {
+            _ = self.parseExprSlice(false);
+        }
+    }
+
     fn parseSeedsList(self: *Parser) []const SeedSpec {
         var seeds: [seeds_mod.MAX_SEEDS]SeedSpec = undefined;
         var count: usize = 0;
@@ -499,7 +635,14 @@ const Parser = struct {
             self.expectChar(']');
             break;
         }
-        return seeds[0..count];
+        const parsed = comptime blk: {
+            var tmp: [count]SeedSpec = undefined;
+            inline for (seeds[0..count], 0..) |spec, index| {
+                tmp[index] = spec;
+            }
+            break :blk tmp;
+        };
+        return parsed[0..];
     }
 
     fn parseHasOneFields(self: *Parser) []const []const u8 {
@@ -521,11 +664,22 @@ const Parser = struct {
                 self.expectChar(']');
                 break;
             }
-            return fields[0..count];
+            const parsed = comptime blk: {
+                var tmp: [count][]const u8 = undefined;
+                inline for (fields[0..count], 0..) |value, index| {
+                    tmp[index] = value;
+                }
+                break :blk tmp;
+            };
+            return parsed[0..];
         }
 
         fields[0] = self.parseIdentOrString();
-        return fields[0..1];
+        const single = comptime blk: {
+            const tmp = [_][]const u8{fields[0]};
+            break :blk tmp;
+        };
+        return single[0..];
     }
 
     fn parseRealloc(self: *Parser) ReallocConfig {
@@ -562,6 +716,7 @@ fn parseAccountConfig(comptime input: []const u8) AccountAttrConfig {
     @setEvalBranchQuota(4000);
     comptime var parser = Parser.init(input);
     comptime var config: AccountAttrConfig = .{};
+    comptime var rent_exempt_seen: bool = false;
 
     parser.skipWs();
     if (parser.eof()) return config;
@@ -584,8 +739,10 @@ fn parseAccountConfig(comptime input: []const u8) AccountAttrConfig {
                 key = "token::mint";
             } else if (std.mem.eql(u8, sub, "authority")) {
                 key = "token::authority";
+            } else if (std.mem.eql(u8, sub, "token_program")) {
+                key = "token::token_program";
             } else {
-                @compileError("attribute parse error: expected token::mint or token::authority");
+                @compileError("attribute parse error: expected token::mint/authority/token_program");
             }
         } else if (std.mem.eql(u8, ident, "associated_token") and parser.consumeColonColon()) {
             parser.skipWs();
@@ -598,6 +755,30 @@ fn parseAccountConfig(comptime input: []const u8) AccountAttrConfig {
                 key = "associated_token::token_program";
             } else {
                 @compileError("attribute parse error: expected associated_token::mint/authority/token_program");
+            }
+        } else if (std.mem.eql(u8, ident, "mint") and parser.consumeColonColon()) {
+            parser.skipWs();
+            const sub = parser.parseIdent();
+            if (std.mem.eql(u8, sub, "authority")) {
+                key = "mint::authority";
+            } else if (std.mem.eql(u8, sub, "freeze_authority")) {
+                key = "mint::freeze_authority";
+            } else if (std.mem.eql(u8, sub, "decimals")) {
+                key = "mint::decimals";
+            } else if (std.mem.eql(u8, sub, "token_program")) {
+                key = "mint::token_program";
+            } else {
+                @compileError("attribute parse error: expected mint::authority/freeze_authority/decimals/token_program");
+            }
+        } else if (std.mem.eql(u8, ident, "realloc") and parser.consumeColonColon()) {
+            parser.skipWs();
+            const sub = parser.parseIdent();
+            if (std.mem.eql(u8, sub, "payer")) {
+                key = "realloc::payer";
+            } else if (std.mem.eql(u8, sub, "zero") or std.mem.eql(u8, sub, "zero_init")) {
+                key = "realloc::zero";
+            } else {
+                @compileError("attribute parse error: expected realloc::payer or realloc::zero");
             }
         }
 
@@ -622,6 +803,9 @@ fn parseAccountConfig(comptime input: []const u8) AccountAttrConfig {
             } else if (std.mem.eql(u8, key, "token::authority")) {
                 if (config.token_authority != null) @compileError("token::authority already set");
                 config.token_authority = parser.parseIdentOrString();
+            } else if (std.mem.eql(u8, key, "token::token_program")) {
+                if (config.token_program != null) @compileError("token::token_program already set");
+                config.token_program = parser.parseIdentOrString();
             } else if (std.mem.eql(u8, key, "associated_token::mint")) {
                 if (config.associated_token_mint != null) @compileError("associated_token::mint already set");
                 config.associated_token_mint = parser.parseIdentOrString();
@@ -642,6 +826,15 @@ fn parseAccountConfig(comptime input: []const u8) AccountAttrConfig {
             } else if (std.mem.eql(u8, key, "realloc")) {
                 if (config.realloc != null) @compileError("realloc already set");
                 config.realloc = parser.parseRealloc();
+            } else if (std.mem.eql(u8, key, "realloc::payer")) {
+                if (config.realloc == null) config.realloc = .{};
+                if (config.realloc.?.payer != null) {
+                    @compileError("realloc payer already set");
+                }
+                config.realloc.?.payer = parser.parseIdentOrString();
+            } else if (std.mem.eql(u8, key, "realloc::zero")) {
+                if (config.realloc == null) config.realloc = .{};
+                config.realloc.?.zero_init = parser.parseBool();
             } else if (std.mem.eql(u8, key, "has_one")) {
                 if (config.has_one_fields != null or config.has_one != null) {
                     @compileError("has_one already set");
@@ -649,7 +842,13 @@ fn parseAccountConfig(comptime input: []const u8) AccountAttrConfig {
                 config.has_one_fields = parser.parseHasOneFields();
             } else if (std.mem.eql(u8, key, "constraint")) {
                 if (config.constraint != null) @compileError("constraint already set");
-                config.constraint = parser.parseStringLiteral();
+                if (parser.peek() == '"') {
+                    config.constraint = parser.parseStringLiteral();
+                } else {
+                    const expr = parser.parseExprSlice(true);
+                    if (expr.len == 0) @compileError("attribute parse error: empty constraint expression");
+                    config.constraint = expr;
+                }
             } else if (std.mem.eql(u8, key, "owner")) {
                 if (config.owner != null) @compileError("owner already set");
                 const key_str = parser.parseStringLiteral();
@@ -661,6 +860,33 @@ fn parseAccountConfig(comptime input: []const u8) AccountAttrConfig {
             } else if (std.mem.eql(u8, key, "space")) {
                 if (config.space != null) @compileError("space already set");
                 config.space = parser.parseInt();
+            } else if (std.mem.eql(u8, key, "rent_exempt")) {
+                if (rent_exempt_seen) @compileError("rent_exempt already set");
+                const mode = parser.parseIdent();
+                if (std.mem.eql(u8, mode, "enforce")) {
+                    config.rent_exempt = true;
+                } else if (std.mem.eql(u8, mode, "skip")) {
+                    config.rent_exempt = false;
+                } else {
+                    @compileError("attribute parse error: expected rent_exempt = skip|enforce");
+                }
+                rent_exempt_seen = true;
+            } else if (std.mem.eql(u8, key, "mint::authority")) {
+                if (config.mint_authority != null) @compileError("mint::authority already set");
+                config.mint_authority = parser.parseIdentOrString();
+            } else if (std.mem.eql(u8, key, "mint::freeze_authority")) {
+                if (config.mint_freeze_authority != null) @compileError("mint::freeze_authority already set");
+                config.mint_freeze_authority = parser.parseIdentOrString();
+            } else if (std.mem.eql(u8, key, "mint::decimals")) {
+                if (config.mint_decimals != null) @compileError("mint::decimals already set");
+                const value = parser.parseInt();
+                if (value > std.math.maxInt(u8)) {
+                    @compileError("attribute parse error: mint::decimals out of range");
+                }
+                config.mint_decimals = @as(u8, @intCast(value));
+            } else if (std.mem.eql(u8, key, "mint::token_program")) {
+                if (config.mint_token_program != null) @compileError("mint::token_program already set");
+                config.mint_token_program = parser.parseIdentOrString();
             } else {
                 @compileError("attribute parse error: unsupported key/value attribute");
             }
@@ -671,6 +897,12 @@ fn parseAccountConfig(comptime input: []const u8) AccountAttrConfig {
             } else if (std.mem.eql(u8, key, "signer")) {
                 if (config.signer) @compileError("signer already set");
                 config.signer = true;
+            } else if (std.mem.eql(u8, key, "zero")) {
+                if (config.zero) @compileError("zero already set");
+                config.zero = true;
+            } else if (std.mem.eql(u8, key, "dup")) {
+                if (config.dup) @compileError("dup already set");
+                config.dup = true;
             } else if (std.mem.eql(u8, key, "init")) {
                 if (config.init) @compileError("init already set");
                 config.init = true;
@@ -678,8 +910,9 @@ fn parseAccountConfig(comptime input: []const u8) AccountAttrConfig {
                 if (config.init_if_needed) @compileError("init_if_needed already set");
                 config.init_if_needed = true;
             } else if (std.mem.eql(u8, key, "rent_exempt")) {
-                if (config.rent_exempt) @compileError("rent_exempt already set");
+                if (rent_exempt_seen or config.rent_exempt) @compileError("rent_exempt already set");
                 config.rent_exempt = true;
+                rent_exempt_seen = true;
             } else if (std.mem.eql(u8, key, "executable")) {
                 if (config.executable) @compileError("executable already set");
                 config.executable = true;
@@ -691,6 +924,7 @@ fn parseAccountConfig(comptime input: []const u8) AccountAttrConfig {
             }
         }
 
+        parser.consumeOptionalError();
         parser.skipWs();
         if (parser.consumeChar(',')) {
             parser.skipWs();
@@ -715,10 +949,12 @@ test "parseAccount maps account attributes into DSL config" {
     const discriminator_mod = @import("discriminator.zig");
 
     const attrs = attr.parseAccount(
-        "mut, signer, seeds = [\"seed\", account(authority)], bump = bump, seeds::program = account(authority), " ++
-        "payer = payer, has_one = [authority], close = destination, realloc = { payer = payer, zero_init = true }, " ++
-        "token::mint = mint, token::authority = authority, associated_token::mint = mint, associated_token::authority = authority, " ++
-        "init_if_needed, rent_exempt, constraint = \"authority.key() == counter.authority\", executable, space = 128",
+        "mut, signer, zero, dup, seeds = [b\"seed\", account(authority)], bump = bump, seeds::program = account(authority), " ++
+        "payer = payer, has_one = [authority], close = destination, realloc::payer = payer, realloc::zero = true, " ++
+        "token::mint = mint, token::authority = authority, token::token_program = token_program, " ++
+        "mint::authority = mint_authority, mint::freeze_authority = mint_freeze, mint::decimals = 6, mint::token_program = mint_program, " ++
+        "associated_token::mint = mint, associated_token::authority = authority, " ++
+        "init_if_needed, rent_exempt = enforce, constraint = authority.key() == counter.authority @ CustomError, executable, space = 128",
     );
 
     const Data = struct {
@@ -732,6 +968,8 @@ test "parseAccount maps account attributes into DSL config" {
 
     try std.testing.expect(Parsed.HAS_MUT);
     try std.testing.expect(Parsed.HAS_SIGNER);
+    try std.testing.expect(Parsed.IS_ZERO);
+    try std.testing.expect(Parsed.IS_DUP);
     try std.testing.expect(Parsed.HAS_SEEDS);
     try std.testing.expect(Parsed.HAS_BUMP);
     try std.testing.expect(Parsed.BUMP_FIELD != null);
@@ -746,6 +984,11 @@ test "parseAccount maps account attributes into DSL config" {
     try std.testing.expectEqual(@as(usize, 128), Parsed.SPACE);
     try std.testing.expect(Parsed.TOKEN_MINT != null);
     try std.testing.expect(Parsed.TOKEN_AUTHORITY != null);
+    try std.testing.expect(Parsed.TOKEN_PROGRAM != null);
+    try std.testing.expect(Parsed.MINT_AUTHORITY != null);
+    try std.testing.expect(Parsed.MINT_FREEZE_AUTHORITY != null);
+    try std.testing.expectEqual(@as(u8, 6), Parsed.MINT_DECIMALS.?);
+    try std.testing.expect(Parsed.MINT_TOKEN_PROGRAM != null);
     try std.testing.expect(Parsed.ASSOCIATED_TOKEN != null);
     try std.testing.expect(Parsed.IS_INIT_IF_NEEDED);
 }
@@ -769,4 +1012,22 @@ test "parseAccount handles owner and address keys" {
 
     try std.testing.expect(Parsed.OWNER != null);
     try std.testing.expect(Parsed.ADDRESS != null);
+}
+
+test "parseAccount handles rent_exempt skip" {
+    const account_mod = @import("account.zig");
+    const discriminator_mod = @import("discriminator.zig");
+
+    const attrs = attr.parseAccount("rent_exempt = skip");
+
+    const Data = struct {
+        authority: PublicKey,
+    };
+
+    const Parsed = account_mod.Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("ParsedRentSkip"),
+        .attrs = attrs,
+    });
+
+    try std.testing.expect(!Parsed.RENT_EXEMPT);
 }

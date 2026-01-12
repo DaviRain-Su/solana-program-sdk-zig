@@ -148,6 +148,13 @@ const FieldAccounts = anchor.AccountsWith(struct {
     }),
 });
 
+const FieldAccountsParsed = anchor.AccountsWith(struct {
+    authority: anchor.Signer,
+    counter: CounterTyped,
+}, .{
+    .counter = "mut, signer",
+});
+
 const TokenAccounts = anchor.Accounts(struct {
     payer: anchor.SignerMut,
     authority: anchor.Signer,

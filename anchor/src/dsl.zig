@@ -93,12 +93,15 @@ fn resolveAttrs(comptime value: anytype) []const attr_mod.Attr {
     if (ValueType == attr_mod.AccountAttrConfig) {
         return attr_mod.attr.account(value);
     }
+    if (ValueType == []const u8) {
+        return attr_mod.attr.parseAccount(value);
+    }
     if (ValueType == attr_mod.Attr) {
         const list = [_]attr_mod.Attr{value};
         return list[0..];
     }
 
-    @compileError("AccountsWith expects Attr, []const Attr, or AccountAttrConfig");
+    @compileError("AccountsWith expects Attr, []const Attr, AccountAttrConfig, or []const u8");
 }
 
 fn applyAccountAttrs(comptime T: type, comptime config: anytype) type {
@@ -124,7 +127,7 @@ fn applyAccountAttrs(comptime T: type, comptime config: anytype) type {
         new_fields[index] = .{
             .name = field.name,
             .type = field_type,
-            .default_value = field.default_value,
+            .default_value_ptr = field.default_value_ptr,
             .is_comptime = field.is_comptime,
             .alignment = field.alignment,
         };
@@ -249,6 +252,37 @@ test "dsl: AccountsWith applies field attrs" {
         @compileError("AccountsWith failed to produce counter field");
     }
     try std.testing.expect(counter_type.?.HAS_MUT);
+}
+
+test "dsl: AccountsWith accepts macro string attrs" {
+    const CounterData = struct {
+        value: u64,
+    };
+
+    const Counter = account_mod.Account(CounterData, .{
+        .discriminator = @import("discriminator.zig").accountDiscriminator("CounterStr"),
+    });
+
+    const AccountsType = AccountsWith(struct {
+        authority: Signer,
+        counter: Counter,
+    }, .{
+        .counter = "mut, signer",
+    });
+
+    const fields = @typeInfo(AccountsType).@"struct".fields;
+    comptime var counter_type: ?type = null;
+    inline for (fields) |field| {
+        if (std.mem.eql(u8, field.name, "counter")) {
+            counter_type = field.type;
+            break;
+        }
+    }
+    if (counter_type == null) {
+        @compileError("AccountsWith failed to produce counter field");
+    }
+    try std.testing.expect(counter_type.?.HAS_MUT);
+    try std.testing.expect(counter_type.?.HAS_SIGNER);
 }
 
 test "dsl: event validation accepts struct" {

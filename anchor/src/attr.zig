@@ -24,6 +24,12 @@ pub const Attr = union(enum) {
     bump: void,
     bump_field: []const u8,
     seeds_program: SeedSpec,
+    init_if_needed: void,
+    associated_token_mint: []const u8,
+    associated_token_authority: []const u8,
+    associated_token_token_program: []const u8,
+    token_mint: []const u8,
+    token_authority: []const u8,
     init: void,
     payer: []const u8,
     close: []const u8,
@@ -48,6 +54,12 @@ pub const AccountAttrConfig = struct {
     bump: bool = false,
     bump_field: ?[]const u8 = null,
     seeds_program: ?SeedSpec = null,
+    init_if_needed: bool = false,
+    associated_token_mint: ?[]const u8 = null,
+    associated_token_authority: ?[]const u8 = null,
+    associated_token_token_program: ?[]const u8 = null,
+    token_mint: ?[]const u8 = null,
+    token_authority: ?[]const u8 = null,
     init: bool = false,
     payer: ?[]const u8 = null,
     close: ?[]const u8 = null,
@@ -78,6 +90,12 @@ fn countAccountAttrs(comptime config: AccountAttrConfig) usize {
     if (config.bump) count += 1;
     if (config.bump_field != null) count += 1;
     if (config.seeds_program != null) count += 1;
+    if (config.init_if_needed) count += 1;
+    if (config.associated_token_mint != null) count += 1;
+    if (config.associated_token_authority != null) count += 1;
+    if (config.associated_token_token_program != null) count += 1;
+    if (config.token_mint != null) count += 1;
+    if (config.token_authority != null) count += 1;
     if (config.init) count += 1;
     if (config.payer != null) count += 1;
     if (config.close != null) count += 1;
@@ -117,6 +135,30 @@ pub const attr = struct {
 
     pub fn seedsProgram(comptime value: SeedSpec) Attr {
         return .{ .seeds_program = value };
+    }
+
+    pub fn initIfNeeded() Attr {
+        return .{ .init_if_needed = {} };
+    }
+
+    pub fn associatedTokenMint(comptime value: []const u8) Attr {
+        return .{ .associated_token_mint = value };
+    }
+
+    pub fn associatedTokenAuthority(comptime value: []const u8) Attr {
+        return .{ .associated_token_authority = value };
+    }
+
+    pub fn associatedTokenTokenProgram(comptime value: []const u8) Attr {
+        return .{ .associated_token_token_program = value };
+    }
+
+    pub fn tokenMint(comptime value: []const u8) Attr {
+        return .{ .token_mint = value };
+    }
+
+    pub fn tokenAuthority(comptime value: []const u8) Attr {
+        return .{ .token_authority = value };
     }
 
     pub fn init() Attr {
@@ -194,6 +236,30 @@ pub const attr = struct {
         }
         if (config.seeds_program) |value| {
             attrs[index] = attr.seedsProgram(value);
+            index += 1;
+        }
+        if (config.init_if_needed) {
+            attrs[index] = attr.initIfNeeded();
+            index += 1;
+        }
+        if (config.associated_token_mint) |value| {
+            attrs[index] = attr.associatedTokenMint(value);
+            index += 1;
+        }
+        if (config.associated_token_authority) |value| {
+            attrs[index] = attr.associatedTokenAuthority(value);
+            index += 1;
+        }
+        if (config.associated_token_token_program) |value| {
+            attrs[index] = attr.associatedTokenTokenProgram(value);
+            index += 1;
+        }
+        if (config.token_mint) |value| {
+            attrs[index] = attr.tokenMint(value);
+            index += 1;
+        }
+        if (config.token_authority) |value| {
+            attrs[index] = attr.tokenAuthority(value);
             index += 1;
         }
         if (config.init) {
@@ -505,6 +571,28 @@ fn parseAccountConfig(comptime input: []const u8) AccountAttrConfig {
                 @compileError("attribute parse error: expected seeds::program");
             }
             key = "seeds::program";
+        } else if (std.mem.eql(u8, ident, "token") and parser.consumeColonColon()) {
+            parser.skipWs();
+            const sub = parser.parseIdent();
+            if (std.mem.eql(u8, sub, "mint")) {
+                key = "token::mint";
+            } else if (std.mem.eql(u8, sub, "authority")) {
+                key = "token::authority";
+            } else {
+                @compileError("attribute parse error: expected token::mint or token::authority");
+            }
+        } else if (std.mem.eql(u8, ident, "associated_token") and parser.consumeColonColon()) {
+            parser.skipWs();
+            const sub = parser.parseIdent();
+            if (std.mem.eql(u8, sub, "mint")) {
+                key = "associated_token::mint";
+            } else if (std.mem.eql(u8, sub, "authority")) {
+                key = "associated_token::authority";
+            } else if (std.mem.eql(u8, sub, "token_program")) {
+                key = "associated_token::token_program";
+            } else {
+                @compileError("attribute parse error: expected associated_token::mint/authority/token_program");
+            }
         }
 
         parser.skipWs();
@@ -522,6 +610,23 @@ fn parseAccountConfig(comptime input: []const u8) AccountAttrConfig {
                 }
                 config.bump_field = parser.parseIdentOrString();
                 config.bump = true;
+            } else if (std.mem.eql(u8, key, "token::mint")) {
+                if (config.token_mint != null) @compileError("token::mint already set");
+                config.token_mint = parser.parseIdentOrString();
+            } else if (std.mem.eql(u8, key, "token::authority")) {
+                if (config.token_authority != null) @compileError("token::authority already set");
+                config.token_authority = parser.parseIdentOrString();
+            } else if (std.mem.eql(u8, key, "associated_token::mint")) {
+                if (config.associated_token_mint != null) @compileError("associated_token::mint already set");
+                config.associated_token_mint = parser.parseIdentOrString();
+            } else if (std.mem.eql(u8, key, "associated_token::authority")) {
+                if (config.associated_token_authority != null) @compileError("associated_token::authority already set");
+                config.associated_token_authority = parser.parseIdentOrString();
+            } else if (std.mem.eql(u8, key, "associated_token::token_program")) {
+                if (config.associated_token_token_program != null) {
+                    @compileError("associated_token::token_program already set");
+                }
+                config.associated_token_token_program = parser.parseIdentOrString();
             } else if (std.mem.eql(u8, key, "payer")) {
                 if (config.payer != null) @compileError("payer already set");
                 config.payer = parser.parseIdentOrString();
@@ -563,6 +668,9 @@ fn parseAccountConfig(comptime input: []const u8) AccountAttrConfig {
             } else if (std.mem.eql(u8, key, "init")) {
                 if (config.init) @compileError("init already set");
                 config.init = true;
+            } else if (std.mem.eql(u8, key, "init_if_needed")) {
+                if (config.init_if_needed) @compileError("init_if_needed already set");
+                config.init_if_needed = true;
             } else if (std.mem.eql(u8, key, "rent_exempt")) {
                 if (config.rent_exempt) @compileError("rent_exempt already set");
                 config.rent_exempt = true;
@@ -603,7 +711,8 @@ test "parseAccount maps account attributes into DSL config" {
     const attrs = attr.parseAccount(
         "mut, signer, seeds = [\"seed\", account(authority)], bump = bump, seeds::program = account(authority), " ++
         "payer = payer, has_one = [authority], close = destination, realloc = { payer = payer, zero_init = true }, " ++
-        "rent_exempt, constraint = \"authority.key() == counter.authority\", executable, space = 128",
+        "token::mint = mint, token::authority = authority, associated_token::mint = mint, associated_token::authority = authority, " ++
+        "init_if_needed, rent_exempt, constraint = \"authority.key() == counter.authority\", executable, space = 128",
     );
 
     const Data = struct {
@@ -629,6 +738,10 @@ test "parseAccount maps account attributes into DSL config" {
     try std.testing.expect(Parsed.CONSTRAINT != null);
     try std.testing.expect(Parsed.EXECUTABLE);
     try std.testing.expectEqual(@as(usize, 128), Parsed.SPACE);
+    try std.testing.expect(Parsed.TOKEN_MINT != null);
+    try std.testing.expect(Parsed.TOKEN_AUTHORITY != null);
+    try std.testing.expect(Parsed.ASSOCIATED_TOKEN != null);
+    try std.testing.expect(Parsed.IS_INIT_IF_NEEDED);
 }
 
 test "parseAccount handles owner and address keys" {

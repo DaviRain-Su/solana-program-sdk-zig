@@ -77,6 +77,19 @@ fn validateAccountRefs(comptime Accounts: type) void {
                 expectAccountField(Accounts, spec.target);
             }
         }
+        if (FieldType.ASSOCIATED_TOKEN) |cfg| {
+            expectAccountField(Accounts, cfg.mint);
+            expectAccountField(Accounts, cfg.authority);
+            if (cfg.token_program) |name| {
+                expectAccountField(Accounts, name);
+            }
+        }
+        if (FieldType.TOKEN_MINT) |name| {
+            expectAccountField(Accounts, name);
+        }
+        if (FieldType.TOKEN_AUTHORITY) |name| {
+            expectAccountField(Accounts, name);
+        }
         if (FieldType.SEEDS) |seeds| {
             inline for (seeds) |seed| {
                 validateSeedAccountRef(Accounts, seed);

@@ -146,6 +146,21 @@ const FieldAccounts = anchor.Accounts(struct {
     }),
 });
 
+const TokenAccounts = anchor.Accounts(struct {
+    payer: anchor.SignerMut,
+    authority: anchor.Signer,
+    mint: *const anchor.sdk.account.Account.Info,
+});
+
+const TokenAccountWrapped = anchor.AccountField(CounterTyped, &.{
+    anchor.attr.initIfNeeded(),
+    anchor.attr.payer(anchor.accountField(TokenAccounts, .payer)),
+    anchor.attr.tokenMint(anchor.accountField(TokenAccounts, .mint)),
+    anchor.attr.tokenAuthority(anchor.accountField(TokenAccounts, .authority)),
+    anchor.attr.associatedTokenMint(anchor.accountField(TokenAccounts, .mint)),
+    anchor.attr.associatedTokenAuthority(anchor.accountField(TokenAccounts, .authority)),
+});
+
 const CounterEvent = anchor.Event(struct {
     amount: anchor.eventField(u64, .{ .index = true }),
     owner: sol.PublicKey,

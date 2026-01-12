@@ -32,13 +32,14 @@ const sol = anchor.sdk;
 | Context | `Context<T>` | `anchor.Context(T)` | ✅ |
 | Constraints | `#[account(mut, signer, ...)]` | `constraints.zig` | ✅ |
 | PDA helpers | `Pubkey::find_program_address` | `anchor.pda` helpers | ✅ |
-| Init/close/realloc | `#[account(init/close/realloc)]` | `init.zig`, `close.zig`, `realloc.zig` | ✅ |
+| Init/close/realloc | `#[account(init/init_if_needed/close/realloc)]` | `init.zig`, `close.zig`, `realloc.zig` | ✅ |
 | IDL | `anchor idl` | `anchor.generateIdlJson` (events/constants/metadata, constraint hints) | ✅ |
 | Client codegen | `anchor client` | `anchor.generateZigClient` | ✅ |
 | IDL file output | `anchor idl --out` | `anchor.idl.writeJsonFile` / `zig build idl` (root or `anchor/`) | ✅ |
 | RPC client wrapper | `AnchorClient` | `ProgramClient` (generated) | ✅ |
 | Constraint expr | `constraint = <expr>` | `anchor.constraint()` | ✅ |
 | Account attrs | `#[account(...)]` | `anchor.attr.*` + `.attrs` / `anchor.attr.account(...)` / `anchor.attr.parseAccount(...)` / `anchor.AccountField(...)` | ✅ |
+| Token constraints | `token::mint/authority`, `associated_token::*` | `anchor.attr.tokenMint/tokenAuthority/associatedToken*` | ✅ |
 | Accounts derive | `#[derive(Accounts)]` | `anchor.Accounts(T)` | ✅ |
 | Event derive | `#[event]` | `anchor.Event(T)` | ✅ |
 | Event index | `#[index]` | `anchor.eventField(..., .{ .index = true })` (<=4, scalar/pubkey only) | ✅ |

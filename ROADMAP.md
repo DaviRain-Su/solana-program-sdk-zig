@@ -1239,6 +1239,13 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.2 - Anchor Account Semantics
+
+- [x] Add init_if_needed and token/associated token constraints
+- [x] Update docs and tests
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

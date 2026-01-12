@@ -2,6 +2,22 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-12-022
+
+**Date**: 2026-01-12
+**Goal**: Add account semantics for init_if_needed and token constraints
+
+#### Completed Work
+1. Added init_if_needed and token/associated token attrs/config fields
+2. Added parseAccount support for token/associated token keys
+3. Validated Accounts references for token constraints
+4. Updated docs, roadmap, and story
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ./solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-12-021
 
 **Date**: 2026-01-12

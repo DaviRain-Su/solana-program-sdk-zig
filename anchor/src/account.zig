@@ -132,6 +132,12 @@ pub const AccountConfig = struct {
     /// Requires seeds to be specified and cannot be used with init.
     seeds_program: ?SeedSpec = null,
 
+    /// Initialize if needed (optional)
+    ///
+    /// Anchor equivalent: `init_if_needed`
+    /// Requires payer field to be specified.
+    init_if_needed: bool = false,
+
     /// Initialize new account (optional)
     ///
     /// When true, the account will be created if it doesn't exist.
@@ -159,6 +165,21 @@ pub const AccountConfig = struct {
     /// }
     /// ```
     has_one: ?[]const HasOneSpec = null,
+
+    /// Associated token constraints (optional)
+    ///
+    /// Anchor equivalent: `associated_token::mint/authority`
+    associated_token: ?AssociatedTokenConfig = null,
+
+    /// Token account mint constraint (optional)
+    ///
+    /// Anchor equivalent: `token::mint`
+    token_mint: ?[]const u8 = null,
+
+    /// Token account authority constraint (optional)
+    ///
+    /// Anchor equivalent: `token::authority`
+    token_authority: ?[]const u8 = null,
 
     /// Close destination account field name
     ///
@@ -196,6 +217,12 @@ pub const AccountConfig = struct {
     attrs: ?[]const Attr = null,
 };
 
+pub const AssociatedTokenConfig = struct {
+    mint: []const u8,
+    authority: []const u8,
+    token_program: ?[]const u8 = null,
+};
+
 /// Account wrapper with additional field-level attrs.
 ///
 /// This helper rebuilds an Account type from an existing Account wrapper
@@ -218,8 +245,12 @@ pub fn AccountField(comptime Base: type, comptime attrs: []const Attr) type {
         .bump_field = Base.BUMP_FIELD,
         .seeds_program = Base.SEEDS_PROGRAM,
         .init = Base.IS_INIT,
+        .init_if_needed = Base.IS_INIT_IF_NEEDED,
         .payer = Base.PAYER,
         .has_one = Base.HAS_ONE,
+        .associated_token = Base.ASSOCIATED_TOKEN,
+        .token_mint = Base.TOKEN_MINT,
+        .token_authority = Base.TOKEN_AUTHORITY,
         .close = Base.CLOSE,
         .realloc = Base.REALLOC,
         .rent_exempt = Base.RENT_EXEMPT,
@@ -258,6 +289,12 @@ fn applyAttrs(comptime base: AccountConfig, comptime attrs: []const Attr) Accoun
                 if (result.seeds_program != null) @compileError("seeds::program already set");
                 result.seeds_program = value;
             },
+            .init_if_needed => {
+                if (result.init_if_needed) @compileError("init_if_needed already set");
+                if (result.init) @compileError("init_if_needed cannot be used with init");
+                result.init_if_needed = true;
+                result.init = true;
+            },
             .init => {
                 if (result.init) @compileError("init already set");
                 result.init = true;
@@ -277,6 +314,50 @@ fn applyAttrs(comptime base: AccountConfig, comptime attrs: []const Attr) Accoun
             .has_one => |value| {
                 if (result.has_one != null) @compileError("has_one already set");
                 result.has_one = value;
+            },
+            .associated_token_mint => |value| {
+                if (result.associated_token != null and result.associated_token.?.mint.len != 0) {
+                    @compileError("associated_token mint already set");
+                }
+                const authority = if (result.associated_token) |cfg| cfg.authority else "";
+                const token_program = if (result.associated_token) |cfg| cfg.token_program else null;
+                result.associated_token = .{
+                    .mint = value,
+                    .authority = authority,
+                    .token_program = token_program,
+                };
+            },
+            .associated_token_authority => |value| {
+                if (result.associated_token != null and result.associated_token.?.authority.len != 0) {
+                    @compileError("associated_token authority already set");
+                }
+                const mint = if (result.associated_token) |cfg| cfg.mint else "";
+                const token_program = if (result.associated_token) |cfg| cfg.token_program else null;
+                result.associated_token = .{
+                    .mint = mint,
+                    .authority = value,
+                    .token_program = token_program,
+                };
+            },
+            .associated_token_token_program => |value| {
+                if (result.associated_token != null and result.associated_token.?.token_program != null) {
+                    @compileError("associated_token token_program already set");
+                }
+                const mint = if (result.associated_token) |cfg| cfg.mint else "";
+                const authority = if (result.associated_token) |cfg| cfg.authority else "";
+                result.associated_token = .{
+                    .mint = mint,
+                    .authority = authority,
+                    .token_program = value,
+                };
+            },
+            .token_mint => |value| {
+                if (result.token_mint != null) @compileError("token::mint already set");
+                result.token_mint = value;
+            },
+            .token_authority => |value| {
+                if (result.token_authority != null) @compileError("token::authority already set");
+                result.token_authority = value;
             },
             .rent_exempt => {
                 if (result.rent_exempt) @compileError("rent_exempt already set");
@@ -345,6 +426,9 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
         if (merged.seeds_program != null and merged.init) {
             @compileError("seeds::program cannot be used with init");
         }
+        if (merged.init_if_needed and merged.payer == null) {
+            @compileError("init_if_needed requires payer to be specified");
+        }
         if (merged.init and merged.payer == null) {
             @compileError("init requires payer to be specified");
         }
@@ -382,6 +466,14 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
                 }
             }
         }
+        if (merged.associated_token) |cfg| {
+            if (cfg.mint.len == 0 or cfg.authority.len == 0) {
+                @compileError("associated_token requires mint and authority");
+            }
+            if (merged.seeds != null) {
+                @compileError("associated_token cannot be used with seeds");
+            }
+        }
     }
 
     return struct {
@@ -404,6 +496,9 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
 
         /// Whether this account requires initialization
         pub const IS_INIT: bool = merged.init;
+
+        /// Whether this account uses init_if_needed
+        pub const IS_INIT_IF_NEEDED: bool = merged.init_if_needed;
 
         /// Whether this account must be writable
         pub const HAS_MUT: bool = merged.mut;
@@ -436,6 +531,15 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
 
         /// The has_one constraint specifications (if any)
         pub const HAS_ONE: ?[]const HasOneSpec = merged.has_one;
+
+        /// Associated token config (if any)
+        pub const ASSOCIATED_TOKEN: ?AssociatedTokenConfig = merged.associated_token;
+
+        /// Token mint constraint (if any)
+        pub const TOKEN_MINT: ?[]const u8 = merged.token_mint;
+
+        /// Token authority constraint (if any)
+        pub const TOKEN_AUTHORITY: ?[]const u8 = merged.token_authority;
 
         /// The close destination field name (if any)
         pub const CLOSE: ?[]const u8 = merged.close;
@@ -1374,6 +1478,32 @@ test "AccountField merges field-level attrs" {
     try std.testing.expect(Wrapped.HAS_SIGNER);
     try std.testing.expect(Wrapped.BUMP_FIELD != null);
     try std.testing.expect(std.mem.eql(u8, Wrapped.BUMP_FIELD.?, "bump"));
+}
+
+test "Account attrs support init_if_needed and token constraints" {
+    const Data = struct {
+        authority: PublicKey,
+    };
+
+    const TokenAccount = Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("TokenAccount"),
+        .attrs = &.{
+            attr_mod.attr.initIfNeeded(),
+            attr_mod.attr.payer("payer"),
+            attr_mod.attr.tokenMint("mint"),
+            attr_mod.attr.tokenAuthority("authority"),
+            attr_mod.attr.associatedTokenMint("mint"),
+            attr_mod.attr.associatedTokenAuthority("authority"),
+        },
+    });
+
+    try std.testing.expect(TokenAccount.IS_INIT_IF_NEEDED);
+    try std.testing.expect(TokenAccount.PAYER != null);
+    try std.testing.expect(TokenAccount.TOKEN_MINT != null);
+    try std.testing.expect(TokenAccount.TOKEN_AUTHORITY != null);
+    try std.testing.expect(TokenAccount.ASSOCIATED_TOKEN != null);
+    try std.testing.expect(std.mem.eql(u8, TokenAccount.ASSOCIATED_TOKEN.?.mint, "mint"));
+    try std.testing.expect(std.mem.eql(u8, TokenAccount.ASSOCIATED_TOKEN.?.authority, "authority"));
 }
 
 test "Account attribute sugar maps macro fields" {

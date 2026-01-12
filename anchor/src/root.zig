@@ -211,6 +211,7 @@ pub const account = @import("account.zig");
 
 /// Account configuration
 pub const AccountConfig = account.AccountConfig;
+pub const AssociatedTokenConfig = account.AssociatedTokenConfig;
 
 /// Account attribute DSL
 pub const attr = @import("attr.zig").attr;
@@ -679,6 +680,8 @@ test "anchor module exports" {
     _ = Constraints;
     _ = Account;
     _ = AccountField;
+    _ = AccountConfig;
+    _ = AssociatedTokenConfig;
     _ = Signer;
     _ = SignerMut;
     _ = Program;

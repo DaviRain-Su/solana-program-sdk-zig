@@ -2,18 +2,19 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
-### Session 2026-01-12-010
+### Session 2026-01-12-011
 
 **Date**: 2026-01-12
-**Goal**: Add indexed event fields
+**Goal**: Add Account attribute DSL
 
 #### Completed Work
-1. Added `anchor.eventField` wrapper for indexed fields
-2. Emitted event index flags in IDL
+1. Added `anchor.attr` helpers and `.attrs` support
+2. Added Account attr merge tests
 3. Updated docs and roadmap entries
 
 #### Test Results
-- Anchor: `zig build test` 153 passed
+- Anchor: `zig build test` 154 passed
+
 
 ---
 

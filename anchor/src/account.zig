@@ -25,6 +25,8 @@ const discriminator_mod = @import("discriminator.zig");
 const anchor_error = @import("error.zig");
 const constraints_mod = @import("constraints.zig");
 const ConstraintExpr = constraints_mod.ConstraintExpr;
+const attr_mod = @import("attr.zig");
+const Attr = attr_mod.Attr;
 const seeds_mod = @import("seeds.zig");
 const pda_mod = @import("pda.zig");
 const has_one_mod = @import("has_one.zig");
@@ -135,7 +137,65 @@ pub const AccountConfig = struct {
     ///
     /// Anchor equivalent: `#[account(constraint = <expr>)]`
     constraint: ?ConstraintExpr = null,
+
+    /// Attribute DSL list (optional)
+    attrs: ?[]const Attr = null,
 };
+
+fn applyAttrs(comptime base: AccountConfig, comptime attrs: []const Attr) AccountConfig {
+    comptime var result = base;
+
+    inline for (attrs) |attr| {
+        switch (attr) {
+            .seeds => |value| {
+                if (result.seeds != null) @compileError("seeds already set");
+                result.seeds = value;
+            },
+            .bump => {
+                if (result.bump) @compileError("bump already set");
+                result.bump = true;
+            },
+            .init => {
+                if (result.init) @compileError("init already set");
+                result.init = true;
+            },
+            .payer => |value| {
+                if (result.payer != null) @compileError("payer already set");
+                result.payer = value;
+            },
+            .close => |value| {
+                if (result.close != null) @compileError("close already set");
+                result.close = value;
+            },
+            .realloc => |value| {
+                if (result.realloc != null) @compileError("realloc already set");
+                result.realloc = value;
+            },
+            .has_one => |value| {
+                if (result.has_one != null) @compileError("has_one already set");
+                result.has_one = value;
+            },
+            .rent_exempt => {
+                if (result.rent_exempt) @compileError("rent_exempt already set");
+                result.rent_exempt = true;
+            },
+            .constraint => |value| {
+                if (result.constraint != null) @compileError("constraint already set");
+                result.constraint = value;
+            },
+            .owner => |value| {
+                if (result.owner != null) @compileError("owner already set");
+                result.owner = value;
+            },
+            .space => |value| {
+                if (result.space != null) @compileError("space already set");
+                result.space = value;
+            },
+        }
+    }
+
+    return result;
+}
 
 /// Account wrapper with discriminator validation
 ///
@@ -154,15 +214,21 @@ pub const AccountConfig = struct {
 /// }, .{ .discriminator = anchor.accountDiscriminator("Counter") });
 /// ```
 pub fn Account(comptime T: type, comptime config: AccountConfig) type {
+    // Merge attribute DSL if provided
+    comptime var merged = config;
+    if (merged.attrs) |attrs| {
+        merged = applyAttrs(merged, attrs);
+    }
+
     // Validate config at compile time
     comptime {
-        if (config.bump and config.seeds == null) {
+        if (merged.bump and merged.seeds == null) {
             @compileError("bump requires seeds to be specified");
         }
-        if (config.init and config.payer == null) {
+        if (merged.init and merged.payer == null) {
             @compileError("init requires payer to be specified");
         }
-        if (config.seeds) |s| {
+        if (merged.seeds) |s| {
             seeds_mod.validateSeeds(s);
         }
     }
@@ -171,54 +237,54 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
         const Self = @This();
 
         /// The discriminator for this account type
-        pub const discriminator: Discriminator = config.discriminator;
+        pub const discriminator: Discriminator = merged.discriminator;
 
         /// Required space: discriminator + data
-        pub const SPACE: usize = config.space orelse (DISCRIMINATOR_LENGTH + @sizeOf(T));
+        pub const SPACE: usize = merged.space orelse (DISCRIMINATOR_LENGTH + @sizeOf(T));
 
         /// The inner data type
         pub const DataType = T;
 
         /// Whether this account type has PDA seeds
-        pub const HAS_SEEDS: bool = config.seeds != null;
+        pub const HAS_SEEDS: bool = merged.seeds != null;
 
         /// Whether this account stores a bump seed
-        pub const HAS_BUMP: bool = config.bump;
+        pub const HAS_BUMP: bool = merged.bump;
 
         /// Whether this account requires initialization
-        pub const IS_INIT: bool = config.init;
+        pub const IS_INIT: bool = merged.init;
 
         /// The seeds specification (if any)
-        pub const SEEDS: ?[]const SeedSpec = config.seeds;
+        pub const SEEDS: ?[]const SeedSpec = merged.seeds;
 
         /// The payer field name (if init is required)
-        pub const PAYER: ?[]const u8 = config.payer;
+        pub const PAYER: ?[]const u8 = merged.payer;
 
         // === Phase 3 constants ===
 
         /// Whether this account has has_one constraints
-        pub const HAS_HAS_ONE: bool = config.has_one != null;
+        pub const HAS_HAS_ONE: bool = merged.has_one != null;
 
         /// Whether this account has close constraint
-        pub const HAS_CLOSE: bool = config.close != null;
+        pub const HAS_CLOSE: bool = merged.close != null;
 
         /// Whether this account has realloc constraint
-        pub const HAS_REALLOC: bool = config.realloc != null;
+        pub const HAS_REALLOC: bool = merged.realloc != null;
 
         /// The has_one constraint specifications (if any)
-        pub const HAS_ONE: ?[]const HasOneSpec = config.has_one;
+        pub const HAS_ONE: ?[]const HasOneSpec = merged.has_one;
 
         /// The close destination field name (if any)
-        pub const CLOSE: ?[]const u8 = config.close;
+        pub const CLOSE: ?[]const u8 = merged.close;
 
         /// The realloc configuration (if any)
-        pub const REALLOC: ?ReallocConfig = config.realloc;
+        pub const REALLOC: ?ReallocConfig = merged.realloc;
 
         /// Whether rent-exempt constraint is requested
-        pub const RENT_EXEMPT: bool = config.rent_exempt;
+        pub const RENT_EXEMPT: bool = merged.rent_exempt;
 
         /// Constraint expression (if any)
-        pub const CONSTRAINT: ?ConstraintExpr = config.constraint;
+        pub const CONSTRAINT: ?ConstraintExpr = merged.constraint;
 
         /// The account info from runtime
         info: *const AccountInfo,
@@ -1037,6 +1103,40 @@ test "Account with all Phase 3 constraints" {
     try std.testing.expect(Full.HAS_HAS_ONE);
     try std.testing.expect(Full.HAS_CLOSE);
     try std.testing.expect(Full.HAS_REALLOC);
+}
+
+test "Account attributes DSL merges config" {
+    const FullData = struct {
+        authority: PublicKey,
+        value: u64,
+    };
+
+    const Full = Account(FullData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("FullAttr"),
+        .attrs = &.{
+            attr_mod.attr.seeds(&.{ seeds_mod.seed("full"), seeds_mod.seedAccount("authority") }),
+            attr_mod.attr.bump(),
+            attr_mod.attr.init(),
+            attr_mod.attr.payer("payer"),
+            attr_mod.attr.hasOne(&.{.{ .field = "authority", .target = "authority" }}),
+            attr_mod.attr.close("destination"),
+            attr_mod.attr.realloc(.{ .payer = "payer", .zero_init = true }),
+            attr_mod.attr.rentExempt(),
+            attr_mod.attr.constraint("authority.key() == full.authority"),
+            attr_mod.attr.space(128),
+        },
+    });
+
+    try std.testing.expect(Full.HAS_SEEDS);
+    try std.testing.expect(Full.HAS_BUMP);
+    try std.testing.expect(Full.IS_INIT);
+    try std.testing.expect(Full.PAYER != null);
+    try std.testing.expect(Full.HAS_HAS_ONE);
+    try std.testing.expect(Full.HAS_CLOSE);
+    try std.testing.expect(Full.HAS_REALLOC);
+    try std.testing.expect(Full.RENT_EXEMPT);
+    try std.testing.expect(Full.CONSTRAINT != null);
+    try std.testing.expectEqual(@as(usize, 128), Full.SPACE);
 }
 
 // ============================================================================

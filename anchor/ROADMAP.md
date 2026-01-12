@@ -5,6 +5,11 @@
 - [x] IDL JSON generation
 - [x] Zig client codegen
 
+## ⏳ v3.1.2 - Anchor Account Attrs
+
+- [ ] Account attribute DSL
+- [ ] Account attrs example
+
 ## ✅ v3.1.0 - Anchor Event Index
 
 - [x] eventField wrapper

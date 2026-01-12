@@ -69,7 +69,11 @@ const Accounts = anchor.Accounts(struct {
     authority: anchor.Signer,
     counter: anchor.Account(CounterData, .{
         .discriminator = anchor.accountDiscriminator("Counter"),
-        .constraint = anchor.constraint("authority.key() == counter.authority"),
+        .attrs = &.{
+            anchor.attr.seeds(&.{ anchor.seed("counter"), anchor.seedAccount("authority") }),
+            anchor.attr.bump(),
+            anchor.attr.constraint("authority.key() == counter.authority"),
+        },
     }),
 });
 

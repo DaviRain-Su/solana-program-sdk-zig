@@ -212,6 +212,12 @@ pub const account = @import("account.zig");
 /// Account configuration
 pub const AccountConfig = account.AccountConfig;
 
+/// Account attribute DSL
+pub const attr = @import("attr.zig").attr;
+
+/// Account attribute type
+pub const Attr = @import("attr.zig").Attr;
+
 /// Account wrapper type
 ///
 /// Provides type-safe access to account data with automatic

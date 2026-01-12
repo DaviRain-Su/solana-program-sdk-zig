@@ -41,7 +41,7 @@ const sol = anchor.sdk;
 | Constraint runtime | `constraint = <expr>` | Runtime eval (==/!=, key(), field access) | ✅ |
 | Account attrs | `#[account(...)]` | `anchor.attr.*` + `.attrs` / `anchor.attr.account(...)` / `anchor.attr.parseAccount(...)` / `anchor.AccountField(...)` / `anchor.AccountsWith(...)` (string attrs supported) | ✅ |
 | Token constraints | `token::mint/authority`, `associated_token::*` | `anchor.attr.tokenMint/tokenAuthority/associatedToken*` | ✅ |
-| Accounts derive | `#[derive(Accounts)]` | `anchor.Accounts(T)` | ✅ |
+| Accounts derive | `#[derive(Accounts)]` | `anchor.Accounts(T)` / `anchor.AccountsDerive(T)` | ✅ |
 | Event derive | `#[event]` | `anchor.Event(T)` | ✅ |
 | Event index | `#[index]` | `anchor.eventField(..., .{ .index = true })` (<=4, scalar/pubkey only) | ✅ |
 

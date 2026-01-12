@@ -165,6 +165,8 @@ pub const Accounts = @import("dsl.zig").Accounts;
 
 /// Comptime Accounts validator with field attrs config.
 pub const AccountsWith = @import("dsl.zig").AccountsWith;
+/// Comptime Accounts validator with embedded field attrs.
+pub const AccountsDerive = @import("dsl.zig").AccountsDerive;
 
 /// Comptime Event validator
 pub const Event = @import("dsl.zig").Event;
@@ -686,6 +688,7 @@ test "anchor module exports" {
     _ = AccountConfig;
     _ = AssociatedTokenConfig;
     _ = AccountsWith;
+    _ = AccountsDerive;
     _ = Signer;
     _ = SignerMut;
     _ = Program;

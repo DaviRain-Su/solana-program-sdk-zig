@@ -29,6 +29,14 @@ pub fn AccountsWith(comptime T: type, comptime config: anytype) type {
     return applyAccountAttrs(T, config);
 }
 
+/// Validate Accounts struct and apply field attrs from `T.attrs`.
+pub fn AccountsDerive(comptime T: type) type {
+    if (!@hasDecl(T, "attrs")) {
+        return Accounts(T);
+    }
+    return AccountsWith(T, @field(T, "attrs"));
+}
+
 /// Event field configuration.
 pub const EventField = struct {
     /// Mark this field as indexed in the IDL.
@@ -271,6 +279,34 @@ test "dsl: AccountsWith accepts macro string attrs" {
     const fields = @typeInfo(AccountsType).@"struct".fields;
     const counter_index = std.meta.fieldIndex(AccountsType, "counter") orelse
         @compileError("AccountsWith failed to produce counter field");
+    try std.testing.expect(fields[counter_index].type.HAS_MUT);
+    try std.testing.expect(fields[counter_index].type.HAS_SIGNER);
+}
+
+test "dsl: AccountsDerive applies typed attrs" {
+    const CounterData = struct {
+        value: u64,
+    };
+
+    const Counter = account_mod.Account(CounterData, .{
+        .discriminator = @import("discriminator.zig").accountDiscriminator("CounterDerive"),
+    });
+
+    const AccountsType = AccountsDerive(struct {
+        authority: Signer,
+        counter: Counter,
+
+        pub const attrs = .{
+            .counter = attr_mod.attr.account(.{
+                .mut = true,
+                .signer = true,
+            }),
+        };
+    });
+
+    const fields = @typeInfo(AccountsType).@"struct".fields;
+    const counter_index = std.meta.fieldIndex(AccountsType, "counter") orelse
+        @compileError("AccountsDerive failed to produce counter field");
     try std.testing.expect(fields[counter_index].type.HAS_MUT);
     try std.testing.expect(fields[counter_index].type.HAS_SIGNER);
 }

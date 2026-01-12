@@ -1085,6 +1085,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.0.2 - Documentation P0
+
+- [x] Add deployment guide (`docs/DEPLOYMENT.md`)
+- [x] Add testing guide (`docs/TESTING.md`)
+- [x] Link docs from README
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

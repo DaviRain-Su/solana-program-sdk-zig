@@ -140,6 +140,8 @@ cd sdk && ../solana-zig/zig build test --summary all
 ./program-test/test.sh
 ```
 
+See [docs/TESTING.md](docs/TESTING.md) for the full test matrix.
+
 ### Testing with MCL (Optional)
 
 For off-chain BN254 elliptic curve operations:
@@ -150,6 +152,14 @@ git submodule update --init vendor/mcl
 ```
 
 MCL is optional. On-chain programs use Solana's native syscalls (`sol_alt_bn128_*`).
+
+## Deployment
+
+Build for Solana SBF and deploy with Solana CLI. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for step-by-step workflows.
+
+```bash
+./solana-zig/zig build -Dtarget=sbf-solana
+```
 
 ## Development Status
 

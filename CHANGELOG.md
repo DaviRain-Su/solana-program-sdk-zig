@@ -2,6 +2,21 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-12-002
+
+**Date**: 2026-01-12
+**Goal**: Add P0 deployment/testing docs
+
+#### Completed Work
+1. Added deployment guide and testing guide
+2. Linked docs from README
+3. Added ROADMAP entry for documentation P0
+
+#### Test Results
+- Not run (documentation-only changes)
+
+---
+
 ### Session 2026-01-12-001
 
 **Date**: 2026-01-12

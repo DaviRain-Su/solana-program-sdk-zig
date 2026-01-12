@@ -18,6 +18,8 @@ const ReallocConfig = realloc_mod.ReallocConfig;
 const ConstraintExpr = constraints_mod.ConstraintExpr;
 
 pub const Attr = union(enum) {
+    mut: void,
+    signer: void,
     seeds: []const SeedSpec,
     bump: void,
     init: void,
@@ -28,10 +30,20 @@ pub const Attr = union(enum) {
     rent_exempt: void,
     constraint: ConstraintExpr,
     owner: PublicKey,
+    address: PublicKey,
+    executable: void,
     space: usize,
 };
 
 pub const attr = struct {
+    pub fn mut() Attr {
+        return .{ .mut = {} };
+    }
+
+    pub fn signer() Attr {
+        return .{ .signer = {} };
+    }
+
     pub fn seeds(comptime value: []const SeedSpec) Attr {
         seeds_mod.validateSeeds(value);
         return .{ .seeds = value };
@@ -71,6 +83,14 @@ pub const attr = struct {
 
     pub fn owner(value: PublicKey) Attr {
         return .{ .owner = value };
+    }
+
+    pub fn address(value: PublicKey) Attr {
+        return .{ .address = value };
+    }
+
+    pub fn executable() Attr {
+        return .{ .executable = {} };
     }
 
     pub fn space(value: usize) Attr {

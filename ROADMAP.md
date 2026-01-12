@@ -1158,11 +1158,11 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
-### ⏳ v3.1.2 - Anchor Account Attrs
+### ✅ v3.1.2 - Anchor Account Attrs
 
-- [ ] Add `anchor.attr.*` helpers
-- [ ] Support `.attrs` in AccountConfig
-- [ ] Document account attribute usage
+- [x] Add `anchor.attr.*` helpers
+- [x] Support `.attrs` in AccountConfig
+- [x] Document account attribute usage
 
 ---
 

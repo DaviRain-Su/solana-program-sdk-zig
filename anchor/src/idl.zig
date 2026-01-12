@@ -13,6 +13,7 @@ const seeds_mod = @import("seeds.zig");
 const has_one_mod = @import("has_one.zig");
 const realloc_mod = @import("realloc.zig");
 const constraints_mod = @import("constraints.zig");
+const sol = @import("solana_program_sdk");
 
 const Allocator = std.mem.Allocator;
 
@@ -23,6 +24,7 @@ const SeedSpec = seeds_mod.SeedSpec;
 const HasOneSpec = has_one_mod.HasOneSpec;
 const ReallocConfig = realloc_mod.ReallocConfig;
 const ConstraintExpr = constraints_mod.ConstraintExpr;
+const PublicKey = sol.PublicKey;
 
 pub const IdlConfig = struct {
     /// Force mutable account names
@@ -62,6 +64,9 @@ pub const ConstraintDescriptor = struct {
     has_one: ?[]const HasOneSpec = null,
     rent_exempt: bool = false,
     constraint: ?ConstraintExpr = null,
+    owner: ?PublicKey = null,
+    address: ?PublicKey = null,
+    executable: bool = false,
 };
 
 /// Generate Anchor-compatible IDL JSON.
@@ -428,6 +433,20 @@ fn constraintsJson(allocator: Allocator, constraints: ConstraintDescriptor) !?st
         try obj.put(try allocator.dupe(u8, "constraint"), jsonString(allocator, expr.expr));
         has_entries = true;
     }
+    if (constraints.owner) |owner| {
+        var buf: [44]u8 = undefined;
+        try obj.put(try allocator.dupe(u8, "owner"), jsonString(allocator, owner.toBase58(&buf)));
+        has_entries = true;
+    }
+    if (constraints.address) |address| {
+        var buf: [44]u8 = undefined;
+        try obj.put(try allocator.dupe(u8, "address"), jsonString(allocator, address.toBase58(&buf)));
+        has_entries = true;
+    }
+    if (constraints.executable) {
+        try obj.put(try allocator.dupe(u8, "executable"), .{ .bool = true });
+        has_entries = true;
+    }
 
     if (!has_entries) {
         return null;
@@ -746,9 +765,12 @@ fn accountConstraints(comptime T: type) ?ConstraintDescriptor {
         .has_one = T.HAS_ONE,
         .rent_exempt = T.RENT_EXEMPT,
         .constraint = T.CONSTRAINT,
+        .owner = T.OWNER,
+        .address = T.ADDRESS,
+        .executable = T.EXECUTABLE,
     };
 
-    if (constraints.seeds == null and !constraints.bump and !constraints.init and constraints.payer == null and constraints.close == null and constraints.realloc == null and constraints.has_one == null and !constraints.rent_exempt and constraints.constraint == null) {
+    if (constraints.seeds == null and !constraints.bump and !constraints.init and constraints.payer == null and constraints.close == null and constraints.realloc == null and constraints.has_one == null and !constraints.rent_exempt and constraints.constraint == null and constraints.owner == null and constraints.address == null and !constraints.executable) {
         return null;
     }
 
@@ -763,6 +785,15 @@ pub fn extractAccounts(comptime Accounts: type, comptime config: IdlConfig) []co
         const FieldType = field.type;
         var is_signer = isSignerType(FieldType) or isSignerMutType(FieldType);
         var is_mut = isSignerMutType(FieldType);
+
+        if (isAccountWrapper(FieldType)) {
+            if (FieldType.HAS_MUT) {
+                is_mut = true;
+            }
+            if (FieldType.HAS_SIGNER) {
+                is_signer = true;
+            }
+        }
 
         if (nameInList(config.signer, field.name)) {
             is_signer = true;
@@ -846,6 +877,7 @@ const Counter = @import("account.zig").Account(CounterData, .{
     .realloc = .{ .payer = "payer", .zero_init = true },
     .rent_exempt = true,
     .constraint = constraints_mod.constraint("authority.key() == counter.authority"),
+    .attrs = &.{@import("attr.zig").attr.mut()},
 });
 
 const InitializeAccounts = struct {
@@ -960,6 +992,8 @@ test "idl: event and constraints details" {
         }
     }
     try std.testing.expect(counter_account != null);
+    try std.testing.expect(counter_account.?.get("isMut").?.bool);
+
     const constraints = counter_account.?.get("constraints").?.object;
     try std.testing.expect(constraints.contains("seeds"));
     try std.testing.expect(constraints.contains("bump"));

@@ -59,6 +59,18 @@ pub const AccountConfig = struct {
     /// If specified, account must be owned by this program
     owner: ?PublicKey = null,
 
+    /// Account must be mutable (writable)
+    mut: bool = false,
+
+    /// Account must be signer
+    signer: bool = false,
+
+    /// Expected address (optional)
+    address: ?PublicKey = null,
+
+    /// Account must be executable
+    executable: bool = false,
+
     /// Required space override (optional)
     ///
     /// If not specified, calculated as DISCRIMINATOR_LENGTH + @sizeOf(T)
@@ -147,6 +159,14 @@ fn applyAttrs(comptime base: AccountConfig, comptime attrs: []const Attr) Accoun
 
     inline for (attrs) |attr| {
         switch (attr) {
+            .mut => {
+                if (result.mut) @compileError("mut already set");
+                result.mut = true;
+            },
+            .signer => {
+                if (result.signer) @compileError("signer already set");
+                result.signer = true;
+            },
             .seeds => |value| {
                 if (result.seeds != null) @compileError("seeds already set");
                 result.seeds = value;
@@ -186,6 +206,14 @@ fn applyAttrs(comptime base: AccountConfig, comptime attrs: []const Attr) Accoun
             .owner => |value| {
                 if (result.owner != null) @compileError("owner already set");
                 result.owner = value;
+            },
+            .address => |value| {
+                if (result.address != null) @compileError("address already set");
+                result.address = value;
+            },
+            .executable => {
+                if (result.executable) @compileError("executable already set");
+                result.executable = true;
             },
             .space => |value| {
                 if (result.space != null) @compileError("space already set");
@@ -254,6 +282,12 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
         /// Whether this account requires initialization
         pub const IS_INIT: bool = merged.init;
 
+        /// Whether this account must be writable
+        pub const HAS_MUT: bool = merged.mut;
+
+        /// Whether this account must be signer
+        pub const HAS_SIGNER: bool = merged.signer;
+
         /// The seeds specification (if any)
         pub const SEEDS: ?[]const SeedSpec = merged.seeds;
 
@@ -286,6 +320,15 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
         /// Constraint expression (if any)
         pub const CONSTRAINT: ?ConstraintExpr = merged.constraint;
 
+        /// Expected owner (if any)
+        pub const OWNER: ?PublicKey = merged.owner;
+
+        /// Expected address (if any)
+        pub const ADDRESS: ?PublicKey = merged.address;
+
+        /// Whether account must be executable
+        pub const EXECUTABLE: bool = merged.executable;
+
         /// The account info from runtime
         info: *const AccountInfo,
 
@@ -313,10 +356,32 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
             }
 
             // Validate owner constraint if specified
-            if (config.owner) |expected_owner| {
+            if (merged.owner) |expected_owner| {
                 if (!info.owner_id.equals(expected_owner)) {
                     return error.ConstraintOwner;
                 }
+            }
+
+            // Validate mut constraint if specified
+            if (merged.mut and info.is_writable == 0) {
+                return error.ConstraintMut;
+            }
+
+            // Validate signer constraint if specified
+            if (merged.signer and info.is_signer == 0) {
+                return error.ConstraintSigner;
+            }
+
+            // Validate address constraint if specified
+            if (merged.address) |expected_address| {
+                if (!info.id.equals(expected_address)) {
+                    return error.ConstraintAddress;
+                }
+            }
+
+            // Validate executable constraint if specified
+            if (merged.executable and info.is_executable == 0) {
+                return error.ConstraintExecutable;
             }
 
             // Get typed pointer to data (after discriminator)
@@ -619,6 +684,9 @@ pub const AccountError = error{
     AccountDiscriminatorMismatch,
     ConstraintOwner,
     ConstraintMut,
+    ConstraintSigner,
+    ConstraintAddress,
+    ConstraintExecutable,
     // Phase 2: PDA errors
     ConstraintSeeds,
     InvalidPda,
@@ -1114,6 +1182,8 @@ test "Account attributes DSL merges config" {
     const Full = Account(FullData, .{
         .discriminator = discriminator_mod.accountDiscriminator("FullAttr"),
         .attrs = &.{
+            attr_mod.attr.mut(),
+            attr_mod.attr.signer(),
             attr_mod.attr.seeds(&.{ seeds_mod.seed("full"), seeds_mod.seedAccount("authority") }),
             attr_mod.attr.bump(),
             attr_mod.attr.init(),
@@ -1123,6 +1193,9 @@ test "Account attributes DSL merges config" {
             attr_mod.attr.realloc(.{ .payer = "payer", .zero_init = true }),
             attr_mod.attr.rentExempt(),
             attr_mod.attr.constraint("authority.key() == full.authority"),
+            attr_mod.attr.owner(PublicKey.default()),
+            attr_mod.attr.address(PublicKey.default()),
+            attr_mod.attr.executable(),
             attr_mod.attr.space(128),
         },
     });
@@ -1130,12 +1203,17 @@ test "Account attributes DSL merges config" {
     try std.testing.expect(Full.HAS_SEEDS);
     try std.testing.expect(Full.HAS_BUMP);
     try std.testing.expect(Full.IS_INIT);
+    try std.testing.expect(Full.HAS_MUT);
+    try std.testing.expect(Full.HAS_SIGNER);
     try std.testing.expect(Full.PAYER != null);
     try std.testing.expect(Full.HAS_HAS_ONE);
     try std.testing.expect(Full.HAS_CLOSE);
     try std.testing.expect(Full.HAS_REALLOC);
     try std.testing.expect(Full.RENT_EXEMPT);
     try std.testing.expect(Full.CONSTRAINT != null);
+    try std.testing.expect(Full.OWNER != null);
+    try std.testing.expect(Full.ADDRESS != null);
+    try std.testing.expect(Full.EXECUTABLE);
     try std.testing.expectEqual(@as(usize, 128), Full.SPACE);
 }
 

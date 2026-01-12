@@ -77,6 +77,16 @@ const idl_json = try anchor.generateIdlJson(allocator, MyProgram, .{});
 const client_src = try anchor.generateZigClient(allocator, MyProgram, .{});
 ```
 
+IDL output (build step):
+
+```bash
+./solana-zig/zig build idl \
+  -Didl-program=anchor/src/idl_example.zig \
+  -Didl-output=idl/anchor.json
+```
+
+`idl-program` must export `pub const Program`.
+
 Comptime derives:
 
 ```zig

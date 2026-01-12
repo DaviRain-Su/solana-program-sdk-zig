@@ -2,6 +2,21 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-12-013
+
+**Date**: 2026-01-12
+**Goal**: Integrate root IDL build step
+
+#### Completed Work
+1. Added root `zig build idl` step with anchor IDL CLI
+2. Updated README and compatibility docs for root IDL usage
+3. Added roadmap/story entries for root IDL integration
+
+#### Test Results
+- Not run (build tooling changes)
+
+---
+
 ### Session 2026-01-12-012
 
 **Date**: 2026-01-12

@@ -1173,6 +1173,13 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.1.3 - Anchor IDL Root Build
+
+- [x] Add root `zig build idl` integration
+- [x] Document root IDL build usage
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

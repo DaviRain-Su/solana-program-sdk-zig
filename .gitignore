@@ -9,3 +9,5 @@ zig-out/
 .DS_Store
 .surfpool
 target
+
+solana-f-anchor

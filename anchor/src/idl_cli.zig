@@ -5,7 +5,7 @@
 //! This tool writes Anchor-compatible IDL JSON to an output path.
 
 const std = @import("std");
-const idl = @import("idl.zig");
+const anchor = @import("sol_anchor_zig");
 const build_options = @import("build_options");
 const program_mod = @import("idl_program");
 
@@ -15,5 +15,5 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     const output = build_options.idl_output_path;
-    try idl.writeJsonFile(allocator, program_mod.Program, .{}, output);
+    try anchor.idl.writeJsonFile(allocator, program_mod.Program, .{}, output);
 }

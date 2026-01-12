@@ -20,6 +20,7 @@
         },
     },
     .paths = .{
+        "anchor",
         "build.zig",
         "build.zig.zon",
         "src",

@@ -13,10 +13,13 @@ All notable changes to the Solana SDK Zig implementation will be documented in t
 3. Removed anchor export from main SDK root
 4. Added `Rent.getOrDefault()` to avoid noisy non-BPF logs
 5. Re-exported `solana_program_sdk` as `anchor.sdk`
-6. Updated roadmap and stories for new layout
+6. Ensured keypair generation creates install directories
+7. Switched example programs to ReleaseSmall for SBF
+8. Updated roadmap and stories for new layout
 
 #### Test Results
 - Anchor: `zig build test` 152 passed
+- Examples: `zig build` (examples/programs)
 
 ---
 

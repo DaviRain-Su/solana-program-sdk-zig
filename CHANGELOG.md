@@ -2,6 +2,21 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-12-007
+
+**Date**: 2026-01-12
+**Goal**: Add high-level Anchor client codegen
+
+#### Completed Work
+1. Added anchor client helper module under client/
+2. Extended codegen with ProgramClient wrapper and decode helpers
+3. Updated documentation and roadmap entries
+
+#### Test Results
+- Anchor: `zig build test` 153 passed
+
+---
+
 ### Session 2026-01-12-006
 
 **Date**: 2026-01-12

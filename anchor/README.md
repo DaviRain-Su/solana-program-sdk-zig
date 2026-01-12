@@ -41,6 +41,16 @@ const idl_json = try anchor.generateIdlJson(allocator, MyProgram, .{});
 const client_src = try anchor.generateZigClient(allocator, MyProgram, .{});
 ```
 
+## Program Client
+
+```zig
+const client = @import("solana_client");
+var rpc = client.RpcClient.init(allocator, "http://localhost:8899");
+var program = ProgramClient.init(allocator, &rpc);
+
+const sig = try program.sendInitialize(authority, payer, counter, args, &.{ &payer_kp, &authority_kp });
+```
+
 ## Comptime Derives
 
 ```zig

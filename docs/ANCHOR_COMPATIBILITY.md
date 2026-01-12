@@ -35,6 +35,7 @@ const sol = anchor.sdk;
 | Init/close/realloc | `#[account(init/close/realloc)]` | `init.zig`, `close.zig`, `realloc.zig` | ✅ |
 | IDL | `anchor idl` | `anchor.generateIdlJson` (events/constants/metadata, constraint hints) | ✅ |
 | Client codegen | `anchor client` | `anchor.generateZigClient` | ✅ |
+| RPC client wrapper | `AnchorClient` | `ProgramClient` (generated) | ✅ |
 | Accounts derive | `#[derive(Accounts)]` | `anchor.Accounts(T)` | ✅ |
 | Event derive | `#[event]` | `anchor.Event(T)` | ✅ |
 
@@ -82,6 +83,18 @@ const MyProgram = struct {
 
 const idl_json = try anchor.generateIdlJson(allocator, MyProgram, .{});
 const client_src = try anchor.generateZigClient(allocator, MyProgram, .{});
+```
+
+## High-level Client
+
+```zig
+const client = @import("solana_client");
+const RpcClient = client.RpcClient;
+
+var rpc = RpcClient.init(allocator, "http://localhost:8899");
+var program = ProgramClient.init(allocator, &rpc);
+
+const sig = try program.sendInitialize(authority, payer, counter, args, &.{ &payer_kp, &authority_kp });
 ```
 
 ## Comptime Derives

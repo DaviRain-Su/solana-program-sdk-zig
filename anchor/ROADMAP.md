@@ -5,6 +5,12 @@
 - [x] IDL JSON generation
 - [x] Zig client codegen
 
+## ✅ v3.0.7 - Anchor Zig Client (High-level)
+
+- [x] ProgramClient RPC wrapper
+- [x] Account decode helpers
+- [x] Client module integration
+
 ## ✅ v3.0.6 - Anchor IDL Extensions
 
 - [x] IDL events/constants/metadata

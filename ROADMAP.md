@@ -1126,6 +1126,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.0.7 - Anchor Zig Client (High-level)
+
+- [x] Add ProgramClient RPC wrapper to codegen
+- [x] Add account decode helpers to codegen
+- [x] Integrate anchor client helpers under client/
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

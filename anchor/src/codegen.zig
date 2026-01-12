@@ -21,10 +21,16 @@ pub fn generateZigClient(allocator: Allocator, comptime program: anytype, compti
     const address = program.id.toBase58(&address_buffer);
 
     try output.appendSlice("const std = @import(\"std\");\n");
-    try output.appendSlice("const sdk = @import(\"solana_sdk\");\n\n");
+    try output.appendSlice("const sdk = @import(\"solana_sdk\");\n");
+    try output.appendSlice("const client = @import(\"solana_client\");\n\n");
     try output.appendSlice("pub const PublicKey = sdk.PublicKey;\n");
     try output.appendSlice("pub const AccountMeta = sdk.AccountMeta;\n");
-    try output.appendSlice("pub const Instruction = sdk.instruction.Instruction;\n\n");
+    try output.appendSlice("pub const Instruction = sdk.instruction.Instruction;\n");
+    try output.appendSlice("pub const RpcClient = client.RpcClient;\n");
+    try output.appendSlice("pub const Signature = client.Signature;\n");
+    try output.appendSlice("pub const Keypair = client.Keypair;\n");
+    try output.appendSlice("pub const AccountInfo = client.AccountInfo;\n");
+    try output.appendSlice("pub const AnchorClient = client.anchor;\n\n");
 
     try appendFmt(&output, allocator, "pub const PROGRAM_ID = sdk.PublicKey.comptimeFromBase58(\"{s}\");\n\n", .{address});
     try appendFmt(&output, allocator, "/// Client for {s}\n", .{program_name});
@@ -91,6 +97,73 @@ pub fn generateZigClient(allocator: Allocator, comptime program: anytype, compti
         try output.appendSlice("    }\n\n");
     }
 
+    try output.appendSlice("};\n\n");
+
+    const account_types = collectAccountTypes(program);
+    inline for (account_types) |account| {
+        try appendFmt(&output, allocator, "pub const {s}Discriminator = ", .{account.name});
+        try appendDiscriminator(&output, allocator, account.discriminator);
+        try output.appendSlice(";\n");
+
+        try appendFmt(&output, allocator, "pub fn decode{s}(allocator: std.mem.Allocator, comptime T: type, data: []const u8) !T {\n", .{account.name});
+        try appendFmt(&output, allocator, "    return AnchorClient.decodeAccountData(allocator, T, data, {s}Discriminator);\n", .{account.name});
+        try output.appendSlice("}\n\n");
+
+        try appendFmt(&output, allocator, "pub fn decode{s}FromAccountInfo(allocator: std.mem.Allocator, comptime T: type, info: AccountInfo) !T {\n", .{account.name});
+        try appendFmt(&output, allocator, "    return AnchorClient.decodeAccountInfo(allocator, T, info, {s}Discriminator);\n", .{account.name});
+        try output.appendSlice("}\n\n");
+    }
+
+    try output.appendSlice("pub const ProgramClient = struct {\n");
+    try output.appendSlice("    allocator: std.mem.Allocator,\n");
+    try output.appendSlice("    rpc: *RpcClient,\n\n");
+    try output.appendSlice("    pub fn init(allocator: std.mem.Allocator, rpc: *RpcClient) ProgramClient {\n");
+    try output.appendSlice("        return .{ .allocator = allocator, .rpc = rpc };\n");
+    try output.appendSlice("    }\n\n");
+
+    inline for (fields) |field| {
+        const InstructionType = field.type;
+        const Accounts = InstructionType.Accounts;
+        const Args = InstructionType.Args;
+        const accounts = idl_mod.extractAccounts(Accounts, config);
+
+        try appendFmt(&output, allocator, "    pub fn send{s}(self: *ProgramClient", .{field.name});
+        for (accounts) |account| {
+            try appendFmt(&output, allocator, ", {s}: PublicKey", .{account.name});
+        }
+        if (!isVoidArgs(Args)) {
+            try output.appendSlice(", args: anytype");
+        }
+        try output.appendSlice(", signers: []const *const Keypair) !Signature {\n");
+
+        try output.appendSlice("        var builder = Client.init(self.allocator);\n");
+        try appendFmt(&output, allocator, "        const ix = try builder.{s}(", .{field.name});
+        for (accounts, 0..) |account, index| {
+            if (index != 0) {
+                try output.appendSlice(", ");
+            }
+            try appendFmt(&output, allocator, "{s}", .{account.name});
+        }
+        if (!isVoidArgs(Args)) {
+            if (accounts.len > 0) {
+                try output.appendSlice(", ");
+            }
+            try output.appendSlice("args");
+        }
+        try output.appendSlice(");\n");
+        try output.appendSlice("        defer ix.deinit(self.allocator);\n");
+        try output.appendSlice("        return AnchorClient.sendInstruction(self.allocator, self.rpc, PROGRAM_ID, ix.accounts, ix.data, signers);\n");
+        try output.appendSlice("    }\n\n");
+    }
+
+    inline for (account_types) |account| {
+        try appendFmt(&output, allocator, "    pub fn get{s}(self: *ProgramClient, comptime T: type, address: PublicKey) !?T {\n", .{account.name});
+        try output.appendSlice("        const info = try self.rpc.getAccountInfo(address);\n");
+        try output.appendSlice("        if (info == null) return null;\n");
+        try appendFmt(&output, allocator, "        return AnchorClient.decodeAccountInfo(self.allocator, T, info.?, {s}Discriminator);\n", .{account.name});
+        try output.appendSlice("    }\n\n");
+    }
+
     try output.appendSlice("};\n");
 
     return output.toOwnedSlice(allocator);
@@ -123,6 +196,67 @@ fn boolLiteral(value: bool) []const u8 {
     return if (value) "true" else "false";
 }
 
+const AccountTypeInfo = struct {
+    name: []const u8,
+    discriminator: [8]u8,
+};
+
+fn collectAccountTypes(comptime program: anytype) []const AccountTypeInfo {
+    const instructions = @typeInfo(@TypeOf(program.instructions)).@"struct".fields;
+    comptime var max: usize = 0;
+    inline for (instructions) |field| {
+        const InstructionType = field.type;
+        const Accounts = InstructionType.Accounts;
+        max += @typeInfo(Accounts).@"struct".fields.len;
+    }
+
+    if (max == 0) {
+        return &[_]AccountTypeInfo{};
+    }
+
+    comptime var list: [max]AccountTypeInfo = undefined;
+    comptime var len: usize = 0;
+
+    inline for (instructions) |field| {
+        const InstructionType = field.type;
+        const Accounts = InstructionType.Accounts;
+        const fields = @typeInfo(Accounts).@"struct".fields;
+        inline for (fields) |account_field| {
+            const FieldType = account_field.type;
+            if (!isAccountWrapper(FieldType)) continue;
+
+            const name = accountTypeName(FieldType);
+            if (containsAccount(list[0..len], name)) continue;
+            list[len] = .{
+                .name = name,
+                .discriminator = FieldType.discriminator,
+            };
+            len += 1;
+        }
+    }
+
+    return list[0..len];
+}
+
+fn containsAccount(list: []const AccountTypeInfo, name: []const u8) bool {
+    for (list) |entry| {
+        if (std.mem.eql(u8, entry.name, name)) return true;
+    }
+    return false;
+}
+
+fn isAccountWrapper(comptime T: type) bool {
+    return @hasDecl(T, "DataType") and @hasDecl(T, "discriminator");
+}
+
+fn accountTypeName(comptime Wrapper: type) []const u8 {
+    const name = idl_mod.shortTypeName(@typeName(Wrapper));
+    if (std.mem.indexOf(u8, name, "Account(") != null or std.mem.eql(u8, name, "Account")) {
+        return idl_mod.shortTypeName(@typeName(Wrapper.DataType));
+    }
+    return name;
+}
+
 const ExampleProgram = idl_mod.ExampleProgram;
 
 test "codegen: emits program id and instruction builder" {
@@ -133,4 +267,7 @@ test "codegen: emits program id and instruction builder" {
     try std.testing.expect(std.mem.indexOf(u8, client_src, "PROGRAM_ID") != null);
     try std.testing.expect(std.mem.indexOf(u8, client_src, "Instruction.newWithBytes") != null);
     try std.testing.expect(std.mem.indexOf(u8, client_src, "borsh.serializeAlloc") != null);
+    try std.testing.expect(std.mem.indexOf(u8, client_src, "ProgramClient") != null);
+    try std.testing.expect(std.mem.indexOf(u8, client_src, "sendInstruction") != null);
+    try std.testing.expect(std.mem.indexOf(u8, client_src, "decode") != null);
 }

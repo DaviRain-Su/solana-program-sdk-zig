@@ -247,4 +247,407 @@ pub const attr = struct {
 
         return attrs[0..index];
     }
+
+    /// Parse `#[account(...)]`-style attributes into an Attr list.
+    ///
+    /// Supported keys (subset):
+    /// - flags: mut, signer, init, rent_exempt, executable, bump
+    /// - key/value: payer, close, constraint, space, owner, address
+    /// - seeds: seeds = [ ... ]
+    /// - bump field: bump = <field>
+    /// - seeds program: seeds::program = <seed>
+    /// - has_one: has_one = <field> or has_one = [a, b]
+    /// - realloc: realloc = { payer = <field>, zero_init = true }
+    pub fn parseAccount(comptime input: []const u8) []const Attr {
+        return attr.account(parseAccountConfig(input));
+    }
 };
+
+const Parser = struct {
+    input: []const u8,
+    index: usize,
+
+    fn init(comptime input: []const u8) Parser {
+        return .{ .input = input, .index = 0 };
+    }
+
+    fn eof(self: *const Parser) bool {
+        return self.index >= self.input.len;
+    }
+
+    fn peek(self: *const Parser) ?u8 {
+        if (self.eof()) return null;
+        return self.input[self.index];
+    }
+
+    fn skipWs(self: *Parser) void {
+        while (self.peek()) |c| {
+            if (c != ' ' and c != '\n' and c != '\t' and c != '\r') break;
+            self.index += 1;
+        }
+    }
+
+    fn consumeChar(self: *Parser, comptime expected: u8) bool {
+        if (self.peek() == expected) {
+            self.index += 1;
+            return true;
+        }
+        return false;
+    }
+
+    fn expectChar(self: *Parser, comptime expected: u8) void {
+        if (!self.consumeChar(expected)) {
+            @compileError("attribute parse error: expected character");
+        }
+    }
+
+    fn expectEof(self: *Parser) void {
+        if (!self.eof()) {
+            @compileError("attribute parse error: trailing input");
+        }
+    }
+
+    fn consumeColonColon(self: *Parser) bool {
+        if (self.index + 1 >= self.input.len) return false;
+        if (self.input[self.index] == ':' and self.input[self.index + 1] == ':') {
+            self.index += 2;
+            return true;
+        }
+        return false;
+    }
+
+    fn isIdentChar(c: u8) bool {
+        return std.ascii.isAlphabetic(c) or std.ascii.isDigit(c) or c == '_';
+    }
+
+    fn parseIdent(self: *Parser) []const u8 {
+        const start = self.index;
+        while (self.peek()) |c| {
+            if (!isIdentChar(c)) break;
+            self.index += 1;
+        }
+        if (self.index == start) {
+            @compileError("attribute parse error: expected identifier");
+        }
+        return self.input[start..self.index];
+    }
+
+    fn parseStringLiteral(self: *Parser) []const u8 {
+        self.expectChar('"');
+        const start = self.index;
+        while (self.peek()) |c| {
+            if (c == '"') break;
+            if (c == '\\') {
+                @compileError("attribute parse error: string escapes not supported");
+            }
+            self.index += 1;
+        }
+        const end = self.index;
+        self.expectChar('"');
+        return self.input[start..end];
+    }
+
+    fn parseIdentOrString(self: *Parser) []const u8 {
+        self.skipWs();
+        if (self.peek() == '"') {
+            return self.parseStringLiteral();
+        }
+        return self.parseIdent();
+    }
+
+    fn parseBool(self: *Parser) bool {
+        const value = self.parseIdent();
+        if (std.mem.eql(u8, value, "true")) return true;
+        if (std.mem.eql(u8, value, "false")) return false;
+        @compileError("attribute parse error: expected boolean");
+    }
+
+    fn parseInt(self: *Parser) usize {
+        const start = self.index;
+        while (self.peek()) |c| {
+            if (!std.ascii.isDigit(c)) break;
+            self.index += 1;
+        }
+        if (self.index == start) {
+            @compileError("attribute parse error: expected integer");
+        }
+        return std.fmt.parseInt(usize, self.input[start..self.index], 10) catch {
+            @compileError("attribute parse error: invalid integer");
+        };
+    }
+
+    fn parseSeedSpec(self: *Parser) SeedSpec {
+        self.skipWs();
+        if (self.peek() == '"') {
+            const lit = self.parseStringLiteral();
+            return seeds_mod.seed(lit);
+        }
+
+        const ident = self.parseIdent();
+        self.skipWs();
+        if (!self.consumeChar('(')) {
+            @compileError("attribute parse error: seed must be string literal or function form");
+        }
+        self.skipWs();
+        const value = self.parseIdentOrString();
+        self.skipWs();
+        self.expectChar(')');
+
+        if (std.mem.eql(u8, ident, "account")) {
+            return seeds_mod.seedAccount(value);
+        }
+        if (std.mem.eql(u8, ident, "field") or std.mem.eql(u8, ident, "arg")) {
+            return seeds_mod.seedField(value);
+        }
+        if (std.mem.eql(u8, ident, "bump")) {
+            return seeds_mod.seedBump(value);
+        }
+        if (std.mem.eql(u8, ident, "const") or std.mem.eql(u8, ident, "literal")) {
+            return seeds_mod.seed(value);
+        }
+
+        @compileError("attribute parse error: unknown seed function");
+    }
+
+    fn parseSeedsList(self: *Parser) []const SeedSpec {
+        var seeds: [seeds_mod.MAX_SEEDS]SeedSpec = undefined;
+        var count: usize = 0;
+
+        self.expectChar('[');
+        while (true) {
+            self.skipWs();
+            if (self.consumeChar(']')) break;
+            if (count >= seeds.len) {
+                @compileError("attribute parse error: too many seeds");
+            }
+            seeds[count] = self.parseSeedSpec();
+            count += 1;
+            self.skipWs();
+            if (self.consumeChar(',')) continue;
+            self.skipWs();
+            self.expectChar(']');
+            break;
+        }
+        return seeds[0..count];
+    }
+
+    fn parseHasOneFields(self: *Parser) []const []const u8 {
+        var fields: [seeds_mod.MAX_SEEDS][]const u8 = undefined;
+        var count: usize = 0;
+
+        if (self.consumeChar('[')) {
+            while (true) {
+                self.skipWs();
+                if (self.consumeChar(']')) break;
+                if (count >= fields.len) {
+                    @compileError("attribute parse error: too many has_one entries");
+                }
+                fields[count] = self.parseIdentOrString();
+                count += 1;
+                self.skipWs();
+                if (self.consumeChar(',')) continue;
+                self.skipWs();
+                self.expectChar(']');
+                break;
+            }
+            return fields[0..count];
+        }
+
+        fields[0] = self.parseIdentOrString();
+        return fields[0..1];
+    }
+
+    fn parseRealloc(self: *Parser) ReallocConfig {
+        var config: ReallocConfig = .{};
+        self.expectChar('{');
+        while (true) {
+            self.skipWs();
+            if (self.consumeChar('}')) break;
+            const key = self.parseIdent();
+            self.skipWs();
+            self.expectChar('=');
+            self.skipWs();
+            if (std.mem.eql(u8, key, "payer")) {
+                if (config.payer != null) {
+                    @compileError("attribute parse error: realloc payer already set");
+                }
+                config.payer = self.parseIdentOrString();
+            } else if (std.mem.eql(u8, key, "zero_init")) {
+                config.zero_init = self.parseBool();
+            } else {
+                @compileError("attribute parse error: unknown realloc field");
+            }
+            self.skipWs();
+            if (self.consumeChar(',')) continue;
+            self.skipWs();
+            self.expectChar('}');
+            break;
+        }
+        return config;
+    }
+};
+
+fn parseAccountConfig(comptime input: []const u8) AccountAttrConfig {
+    comptime var parser = Parser.init(input);
+    comptime var config: AccountAttrConfig = .{};
+
+    parser.skipWs();
+    if (parser.eof()) return config;
+
+    while (true) {
+        const ident = parser.parseIdent();
+        var key = ident;
+        parser.skipWs();
+        if (std.mem.eql(u8, ident, "seeds") and parser.consumeColonColon()) {
+            parser.skipWs();
+            const sub = parser.parseIdent();
+            if (!std.mem.eql(u8, sub, "program")) {
+                @compileError("attribute parse error: expected seeds::program");
+            }
+            key = "seeds::program";
+        }
+
+        parser.skipWs();
+        if (parser.consumeChar('=')) {
+            parser.skipWs();
+            if (std.mem.eql(u8, key, "seeds")) {
+                if (config.seeds != null) @compileError("seeds already set");
+                config.seeds = parser.parseSeedsList();
+            } else if (std.mem.eql(u8, key, "seeds::program")) {
+                if (config.seeds_program != null) @compileError("seeds::program already set");
+                config.seeds_program = parser.parseSeedSpec();
+            } else if (std.mem.eql(u8, key, "bump")) {
+                if (config.bump or config.bump_field != null) {
+                    @compileError("bump already set");
+                }
+                config.bump_field = parser.parseIdentOrString();
+                config.bump = true;
+            } else if (std.mem.eql(u8, key, "payer")) {
+                if (config.payer != null) @compileError("payer already set");
+                config.payer = parser.parseIdentOrString();
+            } else if (std.mem.eql(u8, key, "close")) {
+                if (config.close != null) @compileError("close already set");
+                config.close = parser.parseIdentOrString();
+            } else if (std.mem.eql(u8, key, "realloc")) {
+                if (config.realloc != null) @compileError("realloc already set");
+                config.realloc = parser.parseRealloc();
+            } else if (std.mem.eql(u8, key, "has_one")) {
+                if (config.has_one_fields != null or config.has_one != null) {
+                    @compileError("has_one already set");
+                }
+                config.has_one_fields = parser.parseHasOneFields();
+            } else if (std.mem.eql(u8, key, "constraint")) {
+                if (config.constraint != null) @compileError("constraint already set");
+                config.constraint = parser.parseStringLiteral();
+            } else if (std.mem.eql(u8, key, "owner")) {
+                if (config.owner != null) @compileError("owner already set");
+                const key_str = parser.parseStringLiteral();
+                config.owner = PublicKey.comptimeFromBase58(key_str);
+            } else if (std.mem.eql(u8, key, "address")) {
+                if (config.address != null) @compileError("address already set");
+                const key_str = parser.parseStringLiteral();
+                config.address = PublicKey.comptimeFromBase58(key_str);
+            } else if (std.mem.eql(u8, key, "space")) {
+                if (config.space != null) @compileError("space already set");
+                config.space = parser.parseInt();
+            } else {
+                @compileError("attribute parse error: unsupported key/value attribute");
+            }
+        } else {
+            if (std.mem.eql(u8, key, "mut")) {
+                if (config.mut) @compileError("mut already set");
+                config.mut = true;
+            } else if (std.mem.eql(u8, key, "signer")) {
+                if (config.signer) @compileError("signer already set");
+                config.signer = true;
+            } else if (std.mem.eql(u8, key, "init")) {
+                if (config.init) @compileError("init already set");
+                config.init = true;
+            } else if (std.mem.eql(u8, key, "rent_exempt")) {
+                if (config.rent_exempt) @compileError("rent_exempt already set");
+                config.rent_exempt = true;
+            } else if (std.mem.eql(u8, key, "executable")) {
+                if (config.executable) @compileError("executable already set");
+                config.executable = true;
+            } else if (std.mem.eql(u8, key, "bump")) {
+                if (config.bump) @compileError("bump already set");
+                config.bump = true;
+            } else {
+                @compileError("attribute parse error: expected key/value");
+            }
+        }
+
+        parser.skipWs();
+        if (parser.consumeChar(',')) {
+            parser.skipWs();
+            if (parser.eof()) {
+                @compileError("attribute parse error: trailing comma");
+            }
+            continue;
+        }
+        parser.expectEof();
+        break;
+    }
+
+    return config;
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+test "parseAccount maps account attributes into DSL config" {
+    const account_mod = @import("account.zig");
+    const discriminator_mod = @import("discriminator.zig");
+
+    const attrs = attr.parseAccount(
+        "mut, signer, seeds = [\"seed\", account(authority)], bump = bump, seeds::program = account(authority), " ++
+        "payer = payer, has_one = [authority], close = destination, realloc = { payer = payer, zero_init = true }, " ++
+        "rent_exempt, constraint = \"authority.key() == counter.authority\", executable, space = 128",
+    );
+
+    const Data = struct {
+        authority: PublicKey,
+    };
+
+    const Parsed = account_mod.Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("Parsed"),
+        .attrs = attrs,
+    });
+
+    try std.testing.expect(Parsed.HAS_MUT);
+    try std.testing.expect(Parsed.HAS_SIGNER);
+    try std.testing.expect(Parsed.HAS_SEEDS);
+    try std.testing.expect(Parsed.HAS_BUMP);
+    try std.testing.expect(Parsed.BUMP_FIELD != null);
+    try std.testing.expect(Parsed.SEEDS_PROGRAM != null);
+    try std.testing.expect(Parsed.PAYER != null);
+    try std.testing.expect(Parsed.HAS_HAS_ONE);
+    try std.testing.expect(Parsed.HAS_CLOSE);
+    try std.testing.expect(Parsed.HAS_REALLOC);
+    try std.testing.expect(Parsed.RENT_EXEMPT);
+    try std.testing.expect(Parsed.CONSTRAINT != null);
+    try std.testing.expect(Parsed.EXECUTABLE);
+    try std.testing.expectEqual(@as(usize, 128), Parsed.SPACE);
+}
+
+test "parseAccount handles owner and address keys" {
+    const account_mod = @import("account.zig");
+    const discriminator_mod = @import("discriminator.zig");
+
+    const attrs = attr.parseAccount(
+        "owner = \"11111111111111111111111111111111\", address = \"SysvarRent111111111111111111111111111111111\"",
+    );
+
+    const Data = struct {
+        authority: PublicKey,
+    };
+
+    const Parsed = account_mod.Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("ParsedOwner"),
+        .attrs = attrs,
+    });
+
+    try std.testing.expect(Parsed.OWNER != null);
+    try std.testing.expect(Parsed.ADDRESS != null);
+}

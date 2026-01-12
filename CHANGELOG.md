@@ -2,6 +2,36 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-12-019
+
+**Date**: 2026-01-12
+**Goal**: Add compile-time account attr type checks
+
+#### Completed Work
+1. Validated has_one/seed/bump field references against account data
+2. Validated payer/close/has_one/seeds account references against Accounts struct
+3. Updated docs, roadmap, and story for typed constraint enforcement
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ./solana-zig/zig build test --summary all`
+
+---
+
+### Session 2026-01-12-018
+
+**Date**: 2026-01-12
+**Goal**: Add account attribute string parser
+
+#### Completed Work
+1. Added `anchor.attr.parseAccount` for `#[account(...)]`-style strings
+2. Implemented seed/program/bump/has_one/realloc parsing
+3. Added parser tests and updated docs/roadmap/story
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ./solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-12-017
 
 **Date**: 2026-01-12

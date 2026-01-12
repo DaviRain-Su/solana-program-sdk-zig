@@ -30,6 +30,64 @@ const PublicKey = sol.PublicKey;
 const AccountInfo = sdk_account.Account.Info;
 const SeedSpec = seeds_mod.SeedSpec;
 
+fn unwrapOptionalType(comptime T: type) type {
+    const info = @typeInfo(T);
+    if (info == .optional) {
+        return info.optional.child;
+    }
+    return T;
+}
+
+fn isAccountWrapper(comptime T: type) bool {
+    return @hasDecl(T, "DataType") and @hasDecl(T, "discriminator");
+}
+
+fn expectAccountField(comptime Accounts: type, comptime name: []const u8) void {
+    if (!@hasField(Accounts, name)) {
+        @compileError("account constraint references unknown Accounts field: " ++ name);
+    }
+}
+
+fn validateSeedAccountRef(comptime Accounts: type, seed: SeedSpec) void {
+    switch (seed) {
+        .account => |name| expectAccountField(Accounts, name),
+        .bump => |name| expectAccountField(Accounts, name),
+        else => {},
+    }
+}
+
+fn validateAccountRefs(comptime Accounts: type) void {
+    const fields = @typeInfo(Accounts).@"struct".fields;
+
+    inline for (fields) |field| {
+        const FieldType = unwrapOptionalType(field.type);
+        if (!isAccountWrapper(FieldType)) continue;
+
+        if (FieldType.PAYER) |name| {
+            expectAccountField(Accounts, name);
+        }
+        if (FieldType.CLOSE) |name| {
+            expectAccountField(Accounts, name);
+        }
+        if (FieldType.BUMP_FIELD) |name| {
+            expectAccountField(Accounts, name);
+        }
+        if (FieldType.HAS_ONE) |list| {
+            inline for (list) |spec| {
+                expectAccountField(Accounts, spec.target);
+            }
+        }
+        if (FieldType.SEEDS) |seeds| {
+            inline for (seeds) |seed| {
+                validateSeedAccountRef(Accounts, seed);
+            }
+        }
+        if (FieldType.SEEDS_PROGRAM) |seed| {
+            validateSeedAccountRef(Accounts, seed);
+        }
+    }
+}
+
 /// Bump seeds storage for PDA accounts
 ///
 /// Stores bump seeds discovered during account loading.
@@ -151,6 +209,10 @@ pub const Bumps = struct {
 ///
 /// Anchor equivalent: `Context<'_, '_, '_, 'info, T>`
 pub fn Context(comptime Accounts: type) type {
+    comptime {
+        validateAccountRefs(Accounts);
+    }
+
     return struct {
         const Self = @This();
 

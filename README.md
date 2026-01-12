@@ -115,6 +115,20 @@ const AccountsSugar = anchor.Accounts(struct {
     }),
 });
 
+const AccountsParsed = anchor.Accounts(struct {
+    authority: anchor.Signer,
+    counter: anchor.Account(CounterData, .{
+        .discriminator = anchor.accountDiscriminator("Counter"),
+        .attrs = anchor.attr.parseAccount(
+            "mut, signer, seeds = [\"counter\", account(authority)], bump = bump, " ++
+            "constraint = \"authority.key() == counter.authority\"",
+        ),
+    }),
+});
+
+// Note: parseAccount is a compatibility layer. Prefer typed configs (`attr.account`/`attr.*`)
+// to keep compile-time validation for referenced fields.
+
 const CounterEvent = anchor.Event(struct {
     amount: anchor.eventField(u64, .{ .index = true }),
     owner: sol.PublicKey,

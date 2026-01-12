@@ -1211,6 +1211,20 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.1.8 - Anchor Account Attr Parser
+
+- [x] Add `#[account(...)]` string parser
+- [x] Update docs and tests
+
+---
+
+### ✅ v3.1.9 - Anchor Attr Type Checks
+
+- [x] Add compile-time validation for account/Accounts field references
+- [x] Update docs and tests
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

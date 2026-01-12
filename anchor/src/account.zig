@@ -47,6 +47,36 @@ const PdaError = pda_mod.PdaError;
 const HasOneSpec = has_one_mod.HasOneSpec;
 const ReallocConfig = realloc_mod.ReallocConfig;
 
+fn fieldTypeByName(comptime T: type, comptime name: []const u8) ?type {
+    const info = @typeInfo(T);
+    if (info != .@"struct") {
+        @compileError("expected struct for account data type");
+    }
+    inline for (info.@"struct".fields) |field| {
+        if (std.mem.eql(u8, field.name, name)) {
+            return field.type;
+        }
+    }
+    return null;
+}
+
+fn isHasOneFieldType(comptime FieldType: type) bool {
+    if (FieldType == PublicKey or FieldType == [32]u8) return true;
+    if (@typeInfo(FieldType) == .pointer) {
+        return @typeInfo(FieldType).pointer.child == PublicKey;
+    }
+    return false;
+}
+
+fn isSeedFieldType(comptime FieldType: type) bool {
+    if (FieldType == PublicKey) return true;
+    if (@typeInfo(FieldType) == .array) {
+        const array = @typeInfo(FieldType).array;
+        return array.child == u8;
+    }
+    return false;
+}
+
 /// Configuration for Account wrapper
 pub const AccountConfig = struct {
     /// 8-byte discriminator (required)
@@ -288,6 +318,37 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
         }
         if (merged.seeds) |s| {
             seeds_mod.validateSeeds(s);
+            inline for (s) |seed| {
+                switch (seed) {
+                    .field => |name| {
+                        const FieldType = fieldTypeByName(T, name) orelse {
+                            @compileError("seed field not found in account data: " ++ name);
+                        };
+                        if (!isSeedFieldType(FieldType)) {
+                            @compileError("seed field must be PublicKey or [N]u8");
+                        }
+                    },
+                    else => {},
+                }
+            }
+        }
+        if (merged.bump_field) |name| {
+            const FieldType = fieldTypeByName(T, name) orelse {
+                @compileError("bump field not found in account data: " ++ name);
+            };
+            if (FieldType != u8) {
+                @compileError("bump field must be u8");
+            }
+        }
+        if (merged.has_one) |list| {
+            inline for (list) |spec| {
+                const FieldType = fieldTypeByName(T, spec.field) orelse {
+                    @compileError("has_one field not found in account data: " ++ spec.field);
+                };
+                if (!isHasOneFieldType(FieldType)) {
+                    @compileError("has_one field must be PublicKey, [32]u8, or *const PublicKey");
+                }
+            }
         }
     }
 

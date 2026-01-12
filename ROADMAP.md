@@ -828,7 +828,7 @@ A native Zig framework inspired by Anchor, using comptime metaprogramming instea
 //! Example: Counter Program in sol-anchor-zig
 
 const anchor = @import("sol_anchor_zig");
-const sdk = @import("solana_program_sdk");
+const sdk = anchor.sdk;
 
 // ============================================
 // 1. Account Definitions (like #[account])

@@ -16,8 +16,8 @@
 //! ## Example
 //!
 //! ```zig
-//! const sol = @import("solana_program_sdk");
 //! const anchor = @import("sol_anchor_zig");
+//! const sol = anchor.sdk;
 //!
 //! // Define account state
 //! const CounterData = struct {
@@ -66,6 +66,9 @@
 //! - realloc constraint: Dynamic account resizing with rent handling
 
 const std = @import("std");
+
+/// Re-export solana_program_sdk for convenience.
+pub const sdk = @import("solana_program_sdk");
 
 // ============================================================================
 // Discriminator Module

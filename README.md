@@ -56,8 +56,8 @@ solana-program-sdk-zig/
 The Anchor-like framework is now a dedicated subpackage under `anchor/`.
 
 ```zig
-const sol = @import("solana_program_sdk");
 const anchor = @import("sol_anchor_zig");
+const sol = anchor.sdk;
 ```
 
 Build/tests for anchor:

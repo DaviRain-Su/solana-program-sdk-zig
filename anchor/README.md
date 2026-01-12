@@ -7,8 +7,8 @@ This package is extracted from `solana_program_sdk` and lives as a subpackage in
 ## Usage
 
 ```zig
-const sol = @import("solana_program_sdk");
 const anchor = @import("sol_anchor_zig");
+const sol = anchor.sdk;
 
 const CounterData = struct {
     count: u64,

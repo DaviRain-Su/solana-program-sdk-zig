@@ -339,7 +339,7 @@ pub fn loadAccounts(comptime Accounts: type, infos: []const AccountInfo) !Accoun
 /// For accounts with seedAccount/seedField references, you must call
 /// loadWithPda manually after loading the referenced accounts.
 ///
-/// Note: This function also validates Phase 3 constraints (has_one, close, realloc)
+/// Note: This function also validates Phase 3 constraints (has_one, close, realloc, constraint)
 /// after all accounts are loaded.
 ///
 /// Example:
@@ -423,7 +423,7 @@ pub fn loadAccountsWithPda(
     return .{ .accounts = accounts, .bumps = bumps };
 }
 
-/// Validate Phase 3 constraints (has_one, close, realloc) for all accounts
+/// Validate Phase 3 constraints (has_one, close, realloc, constraint) for all accounts
 ///
 /// This function iterates over all account fields and validates their
 /// configured constraints against other accounts in the struct.
@@ -438,7 +438,7 @@ pub fn validatePhase3Constraints(comptime Accounts: type, accounts: *const Accou
 
         // Check if this field type has Phase 3 constraint validation
         if (@hasDecl(FieldType, "validateAllConstraints")) {
-            try account.validateAllConstraints(accounts.*);
+            try account.validateAllConstraints(field.name, accounts.*);
         }
     }
 }

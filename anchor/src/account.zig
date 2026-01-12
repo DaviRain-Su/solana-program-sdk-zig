@@ -898,15 +898,18 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
         /// Validate all Phase 3 constraints
         ///
         /// Convenience method to validate all configured constraints.
-        pub fn validateAllConstraints(self: Self, accounts: anytype) !void {
+        pub fn validateAllConstraints(self: Self, comptime account_name: []const u8, accounts: anytype) !void {
             try self.validateHasOneConstraints(accounts);
             try self.validateCloseConstraint(accounts);
             try self.validateReallocConstraint(accounts);
+            if (CONSTRAINT) |expr| {
+                try constraints_mod.validateConstraintExpr(expr.expr, account_name, accounts);
+            }
         }
 
         /// Check if account requires constraint validation
         pub fn requiresConstraintValidation() bool {
-            return HAS_HAS_ONE or HAS_CLOSE or HAS_REALLOC;
+            return HAS_HAS_ONE or HAS_CLOSE or HAS_REALLOC or CONSTRAINT != null;
         }
     };
 }
@@ -1504,6 +1507,71 @@ test "Account attrs support init_if_needed and token constraints" {
     try std.testing.expect(TokenAccount.ASSOCIATED_TOKEN != null);
     try std.testing.expect(std.mem.eql(u8, TokenAccount.ASSOCIATED_TOKEN.?.mint, "mint"));
     try std.testing.expect(std.mem.eql(u8, TokenAccount.ASSOCIATED_TOKEN.?.authority, "authority"));
+}
+
+test "Account constraint expression evaluates at runtime" {
+    const Data = struct {
+        authority: PublicKey,
+    };
+
+    const Constrained = Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("Constrained"),
+        .constraint = constraints_mod.constraint("authority.key() == counter.authority"),
+    });
+
+    const Accounts = struct {
+        authority: Signer,
+        counter: Constrained,
+    };
+
+    const authority_key = comptime PublicKey.comptimeFromBase58("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+    var counter_id = comptime PublicKey.comptimeFromBase58("SysvarRent111111111111111111111111111111111");
+    var owner = PublicKey.default();
+    var counter_lamports: u64 = 1_000_000;
+    var authority_lamports: u64 = 500_000;
+
+    const DataWithDisc = extern struct {
+        disc: [8]u8,
+        data: Data,
+    };
+    var counter_buffer: DataWithDisc = undefined;
+    counter_buffer.disc = Constrained.discriminator;
+    counter_buffer.data.authority = authority_key;
+
+    const counter_data_ptr: [*]u8 = @ptrCast(&counter_buffer);
+
+    const counter_info = AccountInfo{
+        .id = &counter_id,
+        .owner_id = &owner,
+        .lamports = &counter_lamports,
+        .data_len = @sizeOf(DataWithDisc),
+        .data = counter_data_ptr,
+        .is_signer = 0,
+        .is_writable = 1,
+        .is_executable = 0,
+    };
+
+    var authority_id = authority_key;
+    const authority_info = AccountInfo{
+        .id = &authority_id,
+        .owner_id = &owner,
+        .lamports = &authority_lamports,
+        .data_len = 0,
+        .data = undefined,
+        .is_signer = 1,
+        .is_writable = 0,
+        .is_executable = 0,
+    };
+
+    var accounts = Accounts{
+        .authority = try Signer.load(&authority_info),
+        .counter = try Constrained.load(&counter_info),
+    };
+
+    try accounts.counter.validateAllConstraints("counter", accounts);
+
+    counter_buffer.data.authority = PublicKey.default();
+    try std.testing.expectError(error.ConstraintRaw, accounts.counter.validateAllConstraints("counter", accounts));
 }
 
 test "Account attribute sugar maps macro fields" {

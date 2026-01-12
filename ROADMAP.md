@@ -1246,6 +1246,13 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.3 - Anchor Constraint Runtime
+
+- [x] Execute constraint expressions at runtime
+- [x] Update docs and tests
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

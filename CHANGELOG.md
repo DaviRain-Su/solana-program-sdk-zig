@@ -2,6 +2,21 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-12-023
+
+**Date**: 2026-01-12
+**Goal**: Execute constraint expressions at runtime
+
+#### Completed Work
+1. Added constraint expression parser and evaluator
+2. Integrated runtime constraint checks in account validation
+3. Updated docs, roadmap, and story
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ./solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-12-022
 
 **Date**: 2026-01-12

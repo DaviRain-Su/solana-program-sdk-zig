@@ -1,5 +1,10 @@
 # sol-anchor-zig Roadmap
 
+## ✅ v3.0.4 - Anchor IDL + Zig Client
+
+- [x] IDL JSON generation
+- [x] Zig client codegen
+
 ## ⏳ v3.0.1 - Anchor Extraction (Monorepo)
 
 - [x] Build as standalone subpackage in `anchor/`

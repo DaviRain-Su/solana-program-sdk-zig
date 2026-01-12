@@ -2,6 +2,22 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-12-004
+
+**Date**: 2026-01-12
+**Goal**: Add Anchor IDL + Zig client codegen
+
+#### Completed Work
+1. Added Anchor IDL JSON generation (comptime reflection)
+2. Added Zig client code generator for instructions
+3. Updated Anchor docs and README for IDL/codegen
+4. Added ROADMAP entry for v3.0.4
+
+#### Test Results
+- Anchor: `zig build test` 152 passed
+
+---
+
 ### Session 2026-01-12-003
 
 **Date**: 2026-01-12

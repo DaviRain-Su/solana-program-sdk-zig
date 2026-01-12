@@ -70,6 +70,13 @@ const anchor = @import("sol_anchor_zig");
 const sol = anchor.sdk;
 ```
 
+IDL + Zig client codegen:
+
+```zig
+const idl_json = try anchor.generateIdlJson(allocator, MyProgram, .{});
+const client_src = try anchor.generateZigClient(allocator, MyProgram, .{});
+```
+
 Build/tests for anchor:
 
 ```bash

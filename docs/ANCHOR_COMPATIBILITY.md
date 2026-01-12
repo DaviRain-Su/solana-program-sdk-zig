@@ -21,8 +21,6 @@ const sol = anchor.sdk;
 
 ## Not Implemented Yet
 
-- IDL generation
-- Client code generation
 - Account macro-style derives (Zig uses comptime helpers instead)
 
 ## Compatibility Table
@@ -35,8 +33,8 @@ const sol = anchor.sdk;
 | Constraints | `#[account(mut, signer, ...)]` | `constraints.zig` | ✅ |
 | PDA helpers | `Pubkey::find_program_address` | `anchor.pda` helpers | ✅ |
 | Init/close/realloc | `#[account(init/close/realloc)]` | `init.zig`, `close.zig`, `realloc.zig` | ✅ |
-| IDL | `anchor idl` | Not available | ⏳ |
-| Client codegen | `anchor client` | Not available | ⏳ |
+| IDL | `anchor idl` | `anchor.generateIdlJson` | ✅ |
+| Client codegen | `anchor client` | `anchor.generateZigClient` | ✅ |
 
 ## Example
 
@@ -61,6 +59,27 @@ const Accounts = struct {
 fn increment(ctx: anchor.Context(Accounts)) !void {
     ctx.accounts.counter.data.count += 1;
 }
+```
+
+## IDL + Client Codegen
+
+```zig
+const anchor = @import("sol_anchor_zig");
+const sol = anchor.sdk;
+
+const MyProgram = struct {
+    pub const id = sol.PublicKey.comptimeFromBase58("11111111111111111111111111111111");
+
+    pub const instructions = struct {
+        pub const initialize = anchor.Instruction(.{
+            .Accounts = InitializeAccounts,
+            .Args = InitializeArgs,
+        });
+    };
+};
+
+const idl_json = try anchor.generateIdlJson(allocator, MyProgram, .{});
+const client_src = try anchor.generateZigClient(allocator, MyProgram, .{});
 ```
 
 ## Related

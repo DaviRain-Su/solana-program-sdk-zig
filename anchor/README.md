@@ -20,6 +20,27 @@ const Counter = anchor.Account(CounterData, .{
 });
 ```
 
+## IDL + Zig Client
+
+```zig
+const anchor = @import("sol_anchor_zig");
+const sol = anchor.sdk;
+
+const MyProgram = struct {
+    pub const id = sol.PublicKey.comptimeFromBase58("11111111111111111111111111111111");
+
+    pub const instructions = struct {
+        pub const initialize = anchor.Instruction(.{
+            .Accounts = InitializeAccounts,
+            .Args = InitializeArgs,
+        });
+    };
+};
+
+const idl_json = try anchor.generateIdlJson(allocator, MyProgram, .{});
+const client_src = try anchor.generateZigClient(allocator, MyProgram, .{});
+```
+
 ## Build & Test
 
 ```bash

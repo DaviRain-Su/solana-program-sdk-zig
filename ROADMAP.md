@@ -1103,6 +1103,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.0.4 - Anchor IDL + Zig Client
+
+- [x] Add comptime IDL JSON generation
+- [x] Add Zig client codegen
+- [x] Document IDL/codegen usage
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

@@ -135,6 +135,28 @@ pub const CUSTOM_ERROR_BASE = error_mod.CUSTOM_ERROR_BASE;
 pub const customErrorCode = error_mod.customErrorCode;
 
 // ============================================================================
+// IDL + Codegen
+// ============================================================================
+
+/// Anchor IDL generation utilities
+pub const idl = @import("idl.zig");
+
+/// Zig client code generation utilities
+pub const codegen = @import("codegen.zig");
+
+/// IDL config overrides
+pub const IdlConfig = idl.IdlConfig;
+
+/// Instruction descriptor for IDL/codegen
+pub const Instruction = idl.Instruction;
+
+/// Generate Anchor-compatible IDL JSON
+pub const generateIdlJson = idl.generateJson;
+
+/// Generate Zig client module source
+pub const generateZigClient = codegen.generateZigClient;
+
+// ============================================================================
 // Constraints Module
 // ============================================================================
 

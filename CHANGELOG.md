@@ -2,6 +2,23 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-12-003
+
+**Date**: 2026-01-12
+**Goal**: Add P1/P2 documentation guides
+
+#### Completed Work
+1. Added compute budget guide
+2. Added token programs guide and Token-2022 status
+3. Added anchor compatibility guide
+4. Added error handling guide
+5. Updated ROADMAP for v3.0.3 docs
+
+#### Test Results
+- Not run (documentation-only changes)
+
+---
+
 ### Session 2026-01-12-002
 
 **Date**: 2026-01-12

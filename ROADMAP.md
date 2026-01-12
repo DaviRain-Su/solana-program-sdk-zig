@@ -1093,6 +1093,16 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.0.3 - Documentation P1/P2
+
+- [x] Add compute budget guide (`docs/COMPUTE_BUDGET.md`)
+- [x] Add token programs guide (`docs/TOKEN_PROGRAMS.md`)
+- [x] Add anchor compatibility guide (`docs/ANCHOR_COMPATIBILITY.md`)
+- [x] Add error handling guide (`docs/ERROR_HANDLING.md`)
+- [x] Add Token-2022 status to README
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

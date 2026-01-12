@@ -11,6 +11,16 @@ This project provides a comprehensive, type-safe Zig SDK that mirrors the Rust `
 - **Type-Safe API** - Zero-cost abstractions matching Rust SDK
 - **Two-Layer Architecture** - Shared SDK types + Program SDK with syscalls
 
+### Token-2022 Support
+
+| Feature | Status |
+|---------|--------|
+| SPL Token (Original) | ✅ Complete (v2.0.0) |
+| Associated Token Account | ✅ Complete (v2.0.0) |
+| Token-2022 Extensions | ⏳ Planned (v2.1.0) |
+
+See [docs/TOKEN_PROGRAMS.md](docs/TOKEN_PROGRAMS.md) for details.
+
 ## Architecture
 
 ### Build Pipeline

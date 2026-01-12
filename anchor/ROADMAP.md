@@ -5,6 +5,11 @@
 - [x] IDL JSON generation
 - [x] Zig client codegen
 
+## ✅ v3.0.5 - Anchor Comptime Derives
+
+- [x] Accounts/Event DSL helpers
+- [x] Documentation updates
+
 ## ⏳ v3.0.1 - Anchor Extraction (Monorepo)
 
 - [x] Build as standalone subpackage in `anchor/`

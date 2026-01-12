@@ -77,6 +77,17 @@ const idl_json = try anchor.generateIdlJson(allocator, MyProgram, .{});
 const client_src = try anchor.generateZigClient(allocator, MyProgram, .{});
 ```
 
+Comptime derives:
+
+```zig
+const Accounts = anchor.Accounts(struct {
+    authority: anchor.Signer,
+    counter: anchor.Account(CounterData, .{
+        .discriminator = anchor.accountDiscriminator("Counter"),
+    }),
+});
+```
+
 Build/tests for anchor:
 
 ```bash

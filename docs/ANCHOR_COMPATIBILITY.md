@@ -21,7 +21,7 @@ const sol = anchor.sdk;
 
 ## Not Implemented Yet
 
-- Account macro-style derives (Zig uses comptime helpers instead)
+- Account macro-style derives (full Rust macro parity not planned)
 
 ## Compatibility Table
 
@@ -35,6 +35,8 @@ const sol = anchor.sdk;
 | Init/close/realloc | `#[account(init/close/realloc)]` | `init.zig`, `close.zig`, `realloc.zig` | ✅ |
 | IDL | `anchor idl` | `anchor.generateIdlJson` | ✅ |
 | Client codegen | `anchor client` | `anchor.generateZigClient` | ✅ |
+| Accounts derive | `#[derive(Accounts)]` | `anchor.Accounts(T)` | ✅ |
+| Event derive | `#[event]` | `anchor.Event(T)` | ✅ |
 
 ## Example
 
@@ -80,6 +82,22 @@ const MyProgram = struct {
 
 const idl_json = try anchor.generateIdlJson(allocator, MyProgram, .{});
 const client_src = try anchor.generateZigClient(allocator, MyProgram, .{});
+```
+
+## Comptime Derives
+
+```zig
+const Accounts = anchor.Accounts(struct {
+    authority: anchor.Signer,
+    counter: anchor.Account(CounterData, .{
+        .discriminator = anchor.accountDiscriminator("Counter"),
+    }),
+});
+
+const CounterEvent = anchor.Event(struct {
+    amount: u64,
+    owner: sol.PublicKey,
+});
 ```
 
 ## Related

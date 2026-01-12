@@ -157,6 +157,16 @@ pub const generateIdlJson = idl.generateJson;
 pub const generateZigClient = codegen.generateZigClient;
 
 // ============================================================================
+// Comptime Derives
+// ============================================================================
+
+/// Comptime Accounts validator
+pub const Accounts = @import("dsl.zig").Accounts;
+
+/// Comptime Event validator
+pub const Event = @import("dsl.zig").Event;
+
+// ============================================================================
 // Constraints Module
 // ============================================================================
 

@@ -1111,6 +1111,13 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.0.5 - Anchor Comptime Derives
+
+- [x] Add Accounts/Event DSL helpers
+- [x] Document derives usage
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

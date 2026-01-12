@@ -2,6 +2,21 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-12-009
+
+**Date**: 2026-01-12
+**Goal**: Add Anchor constraint expression DSL
+
+#### Completed Work
+1. Added `anchor.constraint()` helper and account config support
+2. Emitted constraint expressions in IDL
+3. Updated docs and roadmap entries
+
+#### Test Results
+- Anchor: `zig build test` 153 passed
+
+---
+
 ### Session 2026-01-12-008
 
 **Date**: 2026-01-12

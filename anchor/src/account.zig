@@ -24,6 +24,7 @@ const std = @import("std");
 const discriminator_mod = @import("discriminator.zig");
 const anchor_error = @import("error.zig");
 const constraints_mod = @import("constraints.zig");
+const ConstraintExpr = constraints_mod.ConstraintExpr;
 const seeds_mod = @import("seeds.zig");
 const pda_mod = @import("pda.zig");
 const has_one_mod = @import("has_one.zig");
@@ -129,6 +130,11 @@ pub const AccountConfig = struct {
     ///
     /// Anchor equivalent: `#[account(rent_exempt)]`
     rent_exempt: bool = false,
+
+    /// Custom constraint expression (IDL only)
+    ///
+    /// Anchor equivalent: `#[account(constraint = <expr>)]`
+    constraint: ?ConstraintExpr = null,
 };
 
 /// Account wrapper with discriminator validation
@@ -210,6 +216,9 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
 
         /// Whether rent-exempt constraint is requested
         pub const RENT_EXEMPT: bool = config.rent_exempt;
+
+        /// Constraint expression (if any)
+        pub const CONSTRAINT: ?ConstraintExpr = config.constraint;
 
         /// The account info from runtime
         info: *const AccountInfo,

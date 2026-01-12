@@ -1142,6 +1142,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.0.9 - Anchor Constraint DSL
+
+- [x] Add `anchor.constraint()` helper
+- [x] Emit constraint expression in IDL
+- [x] Document constraint usage
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

@@ -5,6 +5,11 @@
 - [x] IDL JSON generation
 - [x] Zig client codegen
 
+## ✅ v3.0.9 - Anchor Constraint DSL
+
+- [x] Constraint expression helper
+- [x] IDL constraint output
+
 ## ✅ v3.0.8 - Anchor IDL Output
 
 - [x] IDL file output helper

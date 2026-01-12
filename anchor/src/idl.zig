@@ -12,6 +12,7 @@ const program_mod = @import("program.zig");
 const seeds_mod = @import("seeds.zig");
 const has_one_mod = @import("has_one.zig");
 const realloc_mod = @import("realloc.zig");
+const constraints_mod = @import("constraints.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -21,6 +22,7 @@ const UncheckedProgram = program_mod.UncheckedProgram;
 const SeedSpec = seeds_mod.SeedSpec;
 const HasOneSpec = has_one_mod.HasOneSpec;
 const ReallocConfig = realloc_mod.ReallocConfig;
+const ConstraintExpr = constraints_mod.ConstraintExpr;
 
 pub const IdlConfig = struct {
     /// Force mutable account names
@@ -59,6 +61,7 @@ pub const ConstraintDescriptor = struct {
     realloc: ?ReallocConfig = null,
     has_one: ?[]const HasOneSpec = null,
     rent_exempt: bool = false,
+    constraint: ?ConstraintExpr = null,
 };
 
 /// Generate Anchor-compatible IDL JSON.
@@ -419,6 +422,10 @@ fn constraintsJson(allocator: Allocator, constraints: ConstraintDescriptor) !?st
         try obj.put(try allocator.dupe(u8, "rentExempt"), .{ .bool = true });
         has_entries = true;
     }
+    if (constraints.constraint) |expr| {
+        try obj.put(try allocator.dupe(u8, "constraint"), jsonString(allocator, expr.expr));
+        has_entries = true;
+    }
 
     if (!has_entries) {
         return null;
@@ -736,9 +743,10 @@ fn accountConstraints(comptime T: type) ?ConstraintDescriptor {
         .realloc = T.REALLOC,
         .has_one = T.HAS_ONE,
         .rent_exempt = T.RENT_EXEMPT,
+        .constraint = T.CONSTRAINT,
     };
 
-    if (constraints.seeds == null and !constraints.bump and !constraints.init and constraints.payer == null and constraints.close == null and constraints.realloc == null and constraints.has_one == null and !constraints.rent_exempt) {
+    if (constraints.seeds == null and !constraints.bump and !constraints.init and constraints.payer == null and constraints.close == null and constraints.realloc == null and constraints.has_one == null and !constraints.rent_exempt and constraints.constraint == null) {
         return null;
     }
 
@@ -835,6 +843,7 @@ const Counter = @import("account.zig").Account(CounterData, .{
     .close = "authority",
     .realloc = .{ .payer = "payer", .zero_init = true },
     .rent_exempt = true,
+    .constraint = constraints_mod.constraint("authority.key() == counter.authority"),
 });
 
 const InitializeAccounts = struct {
@@ -953,4 +962,6 @@ test "idl: event and constraints details" {
     try std.testing.expect(constraints.contains("close"));
     try std.testing.expect(constraints.contains("realloc"));
     try std.testing.expect(constraints.contains("rentExempt"));
+    try std.testing.expect(constraints.contains("constraint"));
+    try std.testing.expectEqualStrings("authority.key() == counter.authority", constraints.get("constraint").?.string);
 }

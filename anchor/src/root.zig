@@ -184,6 +184,12 @@ pub const constraints = @import("constraints.zig");
 /// ```
 pub const Constraints = constraints.Constraints;
 
+/// Constraint expression helper
+pub const constraint = constraints.constraint;
+
+/// Constraint expression descriptor
+pub const ConstraintExpr = constraints.ConstraintExpr;
+
 /// Validate constraints against an account
 pub const validateConstraints = constraints.validateConstraints;
 

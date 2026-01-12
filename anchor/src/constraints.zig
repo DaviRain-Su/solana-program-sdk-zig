@@ -28,6 +28,27 @@ const sol = @import("solana_program_sdk");
 const Account = sol.account.Account;
 const PublicKey = sol.PublicKey;
 
+/// Constraint expression descriptor
+///
+/// This is a lightweight placeholder for constraint expressions used
+/// in account configs. It is currently emitted to IDL only.
+pub const ConstraintExpr = struct {
+    expr: []const u8,
+};
+
+/// Define a constraint expression.
+///
+/// Example:
+/// ```zig
+/// .constraint = anchor.constraint("authority.key() == vault.authority")
+/// ```
+pub fn constraint(comptime expr: []const u8) ConstraintExpr {
+    if (expr.len == 0) {
+        @compileError("constraint expression cannot be empty");
+    }
+    return .{ .expr = expr };
+}
+
 /// Constraint specification for account validation
 ///
 /// Used to define validation rules for accounts in an instruction context.

@@ -37,6 +37,7 @@ const sol = anchor.sdk;
 | Client codegen | `anchor client` | `anchor.generateZigClient` | ✅ |
 | IDL file output | `anchor idl --out` | `anchor.idl.writeJsonFile` / `zig build idl` | ✅ |
 | RPC client wrapper | `AnchorClient` | `ProgramClient` (generated) | ✅ |
+| Constraint expr | `constraint = <expr>` | `anchor.constraint()` | ✅ |
 | Accounts derive | `#[derive(Accounts)]` | `anchor.Accounts(T)` | ✅ |
 | Event derive | `#[event]` | `anchor.Event(T)` | ✅ |
 

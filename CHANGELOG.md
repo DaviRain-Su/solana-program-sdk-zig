@@ -2,19 +2,20 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
-### Session 2026-01-12-005
+### Session 2026-01-12-006
 
 **Date**: 2026-01-12
-**Goal**: Add Anchor comptime derives
+**Goal**: Extend Anchor IDL sections
 
 #### Completed Work
-1. Added `anchor.Accounts` and `anchor.Event` DSL helpers
-2. Added DSL unit tests
-3. Updated README and Anchor compatibility docs
-4. Added ROADMAP entry for v3.0.5
+1. Added events/constants/metadata to IDL output
+2. Added account constraint hints to IDL
+3. Added tests covering new IDL sections
+4. Updated ROADMAP and compatibility docs
 
 #### Test Results
-- Anchor: `zig build test` 152 passed
+- Anchor: `zig build test` 153 passed
+
 
 ---
 

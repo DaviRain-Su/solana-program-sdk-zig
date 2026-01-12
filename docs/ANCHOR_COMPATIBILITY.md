@@ -33,7 +33,7 @@ const sol = anchor.sdk;
 | Constraints | `#[account(mut, signer, ...)]` | `constraints.zig` | ✅ |
 | PDA helpers | `Pubkey::find_program_address` | `anchor.pda` helpers | ✅ |
 | Init/close/realloc | `#[account(init/close/realloc)]` | `init.zig`, `close.zig`, `realloc.zig` | ✅ |
-| IDL | `anchor idl` | `anchor.generateIdlJson` | ✅ |
+| IDL | `anchor idl` | `anchor.generateIdlJson` (events/constants/metadata, constraint hints) | ✅ |
 | Client codegen | `anchor client` | `anchor.generateZigClient` | ✅ |
 | Accounts derive | `#[derive(Accounts)]` | `anchor.Accounts(T)` | ✅ |
 | Event derive | `#[event]` | `anchor.Event(T)` | ✅ |

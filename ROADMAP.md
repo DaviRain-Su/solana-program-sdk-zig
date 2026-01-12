@@ -1118,6 +1118,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.0.6 - Anchor IDL Extensions
+
+- [x] Add events/constants/metadata to IDL JSON
+- [x] Add constraint hints (seeds/bump/close/realloc/hasOne)
+- [x] Add IDL tests for new sections
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

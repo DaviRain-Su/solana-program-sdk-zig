@@ -9,12 +9,18 @@ const std = @import("std");
 const discriminator_mod = @import("discriminator.zig");
 const signer_mod = @import("signer.zig");
 const program_mod = @import("program.zig");
+const seeds_mod = @import("seeds.zig");
+const has_one_mod = @import("has_one.zig");
+const realloc_mod = @import("realloc.zig");
 
 const Allocator = std.mem.Allocator;
 
 const Signer = signer_mod.Signer;
 const SignerMut = signer_mod.SignerMut;
 const UncheckedProgram = program_mod.UncheckedProgram;
+const SeedSpec = seeds_mod.SeedSpec;
+const HasOneSpec = has_one_mod.HasOneSpec;
+const ReallocConfig = realloc_mod.ReallocConfig;
 
 pub const IdlConfig = struct {
     /// Force mutable account names
@@ -41,6 +47,17 @@ pub const AccountDescriptor = struct {
     is_mut: bool,
     is_signer: bool,
     is_program: bool,
+    constraints: ?ConstraintDescriptor = null,
+};
+
+pub const ConstraintDescriptor = struct {
+    seeds: ?[]const SeedSpec = null,
+    bump: bool = false,
+    init: bool = false,
+    payer: ?[]const u8 = null,
+    close: ?[]const u8 = null,
+    realloc: ?ReallocConfig = null,
+    has_one: ?[]const HasOneSpec = null,
 };
 
 /// Generate Anchor-compatible IDL JSON.
@@ -60,6 +77,9 @@ pub fn generateJson(allocator: Allocator, comptime program: anytype, comptime co
 
     const instructions = try buildInstructionsJson(a, program, config, &type_registry, &type_defs, &account_registry, &account_defs);
     const errors = try buildErrorsJson(a, program);
+    const constants = try buildConstantsJson(a, program, &type_registry, &type_defs);
+    const events = try buildEventsJson(a, program, &type_registry, &type_defs);
+    const metadata = try buildMetadataJson(a, program);
 
     var root = std.json.ObjectMap.init(a);
     try putString(a, &root, "version", "0.1.0");
@@ -69,6 +89,15 @@ pub fn generateJson(allocator: Allocator, comptime program: anytype, comptime co
     try root.put(try a.dupe(u8, "accounts"), .{ .array = account_defs });
     try root.put(try a.dupe(u8, "types"), .{ .array = type_defs });
     try root.put(try a.dupe(u8, "errors"), errors);
+    if (constants != null) {
+        try root.put(try a.dupe(u8, "constants"), constants.?);
+    }
+    if (events != null) {
+        try root.put(try a.dupe(u8, "events"), events.?);
+    }
+    if (metadata != null) {
+        try root.put(try a.dupe(u8, "metadata"), metadata.?);
+    }
 
     const json = std.json.Value{ .object = root };
     return std.json.stringifyAlloc(allocator, json, .{ .whitespace = .indent_2 });
@@ -141,6 +170,102 @@ fn buildErrorsJson(allocator: Allocator, comptime program: anytype) !std.json.Va
     return .{ .array = errors };
 }
 
+fn buildConstantsJson(
+    allocator: Allocator,
+    comptime program: anytype,
+    type_registry: *std.StringHashMap(void),
+    type_defs: *std.json.Array,
+) !?std.json.Value {
+    if (!@hasDecl(program, "constants")) {
+        return null;
+    }
+
+    const constants = program.constants;
+    const info = @typeInfo(@TypeOf(constants));
+    if (info != .@"struct") {
+        @compileError("Program constants must be a struct literal");
+    }
+
+    const fields = info.@"struct".fields;
+    var arr = std.json.Array.init(allocator);
+    try arr.ensureTotalCapacity(fields.len);
+
+    inline for (fields) |field| {
+        var obj = std.json.ObjectMap.init(allocator);
+        try putString(allocator, &obj, "name", field.name);
+        const type_value = try typeToJson(allocator, field.type, type_registry, type_defs);
+        const value = @field(constants, field.name);
+        const value_json = try valueToJson(allocator, field.type, value);
+        try obj.put(try allocator.dupe(u8, "type"), type_value);
+        try obj.put(try allocator.dupe(u8, "value"), value_json);
+        arr.appendAssumeCapacity(.{ .object = obj });
+    }
+
+    return .{ .array = arr };
+}
+
+fn buildEventsJson(
+    allocator: Allocator,
+    comptime program: anytype,
+    type_registry: *std.StringHashMap(void),
+    type_defs: *std.json.Array,
+) !?std.json.Value {
+    if (!@hasDecl(program, "events")) {
+        return null;
+    }
+
+    const events = program.events;
+    const info = @typeInfo(@TypeOf(events));
+    if (info != .@"struct") {
+        @compileError("Program events must be a struct");
+    }
+
+    const fields = info.@"struct".fields;
+    var arr = std.json.Array.init(allocator);
+    try arr.ensureTotalCapacity(fields.len);
+
+    inline for (fields) |field| {
+        const EventType = field.type;
+        if (@typeInfo(EventType) != .@"struct") {
+            @compileError("Event types must be structs");
+        }
+
+        var obj = std.json.ObjectMap.init(allocator);
+        try putString(allocator, &obj, "name", field.name);
+        try obj.put(try allocator.dupe(u8, "discriminator"), try eventDiscriminatorJson(allocator, field.name));
+        try obj.put(try allocator.dupe(u8, "fields"), try eventFieldsJson(allocator, EventType, type_registry, type_defs));
+        arr.appendAssumeCapacity(.{ .object = obj });
+    }
+
+    return .{ .array = arr };
+}
+
+fn buildMetadataJson(allocator: Allocator, comptime program: anytype) !?std.json.Value {
+    if (!@hasDecl(program, "metadata")) {
+        return null;
+    }
+
+    const metadata = program.metadata;
+    const info = @typeInfo(@TypeOf(metadata));
+    if (info != .@"struct") {
+        @compileError("Program metadata must be a struct literal");
+    }
+
+    const fields = info.@"struct".fields;
+    var obj = std.json.ObjectMap.init(allocator);
+
+    inline for (fields) |field| {
+        const value = @field(metadata, field.name);
+        if (@typeInfo(field.type) == .optional and value == null) {
+            continue;
+        }
+        const value_json = try valueToJson(allocator, field.type, value);
+        try obj.put(try allocator.dupe(u8, field.name), value_json);
+    }
+
+    return .{ .object = obj };
+}
+
 fn accountsJson(allocator: Allocator, accounts: []const AccountDescriptor) !std.json.Value {
     var arr = std.json.Array.init(allocator);
     try arr.ensureTotalCapacity(accounts.len);
@@ -150,6 +275,11 @@ fn accountsJson(allocator: Allocator, accounts: []const AccountDescriptor) !std.
         try putString(allocator, &obj, "name", account.name);
         try obj.put(try allocator.dupe(u8, "isMut"), .{ .bool = account.is_mut });
         try obj.put(try allocator.dupe(u8, "isSigner"), .{ .bool = account.is_signer });
+        if (account.constraints) |constraints| {
+            if (try constraintsJson(allocator, constraints)) |value| {
+                try obj.put(try allocator.dupe(u8, "constraints"), value);
+            }
+        }
         arr.appendAssumeCapacity(.{ .object = obj });
     }
 
@@ -194,6 +324,144 @@ fn discriminatorJson(allocator: Allocator, comptime name: []const u8) !std.json.
         arr.appendAssumeCapacity(.{ .integer = byte });
     }
     return .{ .array = arr };
+}
+
+fn eventDiscriminatorJson(allocator: Allocator, comptime name: []const u8) !std.json.Value {
+    const discriminator = discriminator_mod.eventDiscriminator(name);
+    return discriminatorArrayJson(allocator, discriminator);
+}
+
+fn eventFieldsJson(
+    allocator: Allocator,
+    comptime EventType: type,
+    type_registry: *std.StringHashMap(void),
+    type_defs: *std.json.Array,
+) !std.json.Value {
+    const fields = @typeInfo(EventType).@"struct".fields;
+    var arr = std.json.Array.init(allocator);
+    try arr.ensureTotalCapacity(fields.len);
+
+    inline for (fields) |field| {
+        var obj = std.json.ObjectMap.init(allocator);
+        try putString(allocator, &obj, "name", field.name);
+        const type_value = try typeToJson(allocator, field.type, type_registry, type_defs);
+        try obj.put(try allocator.dupe(u8, "type"), type_value);
+        try obj.put(try allocator.dupe(u8, "index"), .{ .bool = false });
+        arr.appendAssumeCapacity(.{ .object = obj });
+    }
+
+    return .{ .array = arr };
+}
+
+fn constraintsJson(allocator: Allocator, constraints: ConstraintDescriptor) !?std.json.Value {
+    var obj = std.json.ObjectMap.init(allocator);
+    var has_entries = false;
+
+    if (constraints.seeds) |seeds| {
+        try obj.put(try allocator.dupe(u8, "seeds"), try seedsJson(allocator, seeds));
+        has_entries = true;
+    }
+    if (constraints.bump) {
+        try obj.put(try allocator.dupe(u8, "bump"), .{ .bool = true });
+        has_entries = true;
+    }
+    if (constraints.init) {
+        try obj.put(try allocator.dupe(u8, "init"), .{ .bool = true });
+        has_entries = true;
+    }
+    if (constraints.payer) |payer| {
+        try obj.put(try allocator.dupe(u8, "payer"), jsonString(allocator, payer));
+        has_entries = true;
+    }
+    if (constraints.close) |close| {
+        try obj.put(try allocator.dupe(u8, "close"), jsonString(allocator, close));
+        has_entries = true;
+    }
+    if (constraints.realloc) |realloc| {
+        var realloc_obj = std.json.ObjectMap.init(allocator);
+        if (realloc.payer) |payer| {
+            try realloc_obj.put(try allocator.dupe(u8, "payer"), jsonString(allocator, payer));
+        }
+        try realloc_obj.put(try allocator.dupe(u8, "zeroInit"), .{ .bool = realloc.zero_init });
+        try obj.put(try allocator.dupe(u8, "realloc"), .{ .object = realloc_obj });
+        has_entries = true;
+    }
+    if (constraints.has_one) |has_one| {
+        var relations = std.json.Array.init(allocator);
+        try relations.ensureTotalCapacity(has_one.len);
+        for (has_one) |spec| {
+            relations.appendAssumeCapacity(jsonString(allocator, spec.target));
+        }
+        try obj.put(try allocator.dupe(u8, "hasOne"), .{ .array = relations });
+        has_entries = true;
+    }
+
+    if (!has_entries) {
+        return null;
+    }
+
+    return .{ .object = obj };
+}
+
+fn seedsJson(allocator: Allocator, seeds: []const SeedSpec) !std.json.Value {
+    var arr = std.json.Array.init(allocator);
+    try arr.ensureTotalCapacity(seeds.len);
+
+    for (seeds) |spec| {
+        var obj = std.json.ObjectMap.init(allocator);
+        switch (spec) {
+            .literal => |value| {
+                try putString(allocator, &obj, "kind", "const");
+                try obj.put(try allocator.dupe(u8, "value"), jsonString(allocator, value));
+            },
+            .account => |value| {
+                try putString(allocator, &obj, "kind", "account");
+                try obj.put(try allocator.dupe(u8, "value"), jsonString(allocator, value));
+            },
+            .field => |value| {
+                try putString(allocator, &obj, "kind", "field");
+                try obj.put(try allocator.dupe(u8, "value"), jsonString(allocator, value));
+            },
+            .bump => |value| {
+                try putString(allocator, &obj, "kind", "bump");
+                try obj.put(try allocator.dupe(u8, "value"), jsonString(allocator, value));
+            },
+        }
+        arr.appendAssumeCapacity(.{ .object = obj });
+    }
+
+    return .{ .array = arr };
+}
+
+fn valueToJson(allocator: Allocator, comptime T: type, value: T) !std.json.Value {
+    const info = @typeInfo(T);
+
+    if (info == .optional) {
+        if (value == null) {
+            return .{ .null = {} };
+        }
+        return valueToJson(allocator, info.optional.child, value.?);
+    }
+
+    if (isPublicKeyType(T)) {
+        var buffer: [44]u8 = undefined;
+        const encoded = value.toBase58(&buffer);
+        return jsonString(allocator, encoded);
+    }
+
+    switch (info) {
+        .bool => return .{ .bool = value },
+        .int => return .{ .integer = @intCast(value) },
+        .float => return .{ .float = @floatCast(value) },
+        .pointer => |ptr| {
+            if (ptr.size == .slice and ptr.child == u8) {
+                return jsonString(allocator, value);
+            }
+        },
+        else => {},
+    }
+
+    @compileError("Unsupported constant type for IDL: " ++ @typeName(T));
 }
 
 fn appendAccountDefsForAccounts(
@@ -432,6 +700,26 @@ fn isAccountWrapper(comptime T: type) bool {
     return @hasDecl(T, "DataType") and @hasDecl(T, "discriminator");
 }
 
+fn accountConstraints(comptime T: type) ?ConstraintDescriptor {
+    if (!isAccountWrapper(T)) return null;
+
+    const constraints = ConstraintDescriptor{
+        .seeds = T.SEEDS,
+        .bump = T.HAS_BUMP,
+        .init = T.IS_INIT,
+        .payer = T.PAYER,
+        .close = T.CLOSE,
+        .realloc = T.REALLOC,
+        .has_one = T.HAS_ONE,
+    };
+
+    if (constraints.seeds == null and !constraints.bump and !constraints.init and constraints.payer == null and constraints.close == null and constraints.realloc == null and constraints.has_one == null) {
+        return null;
+    }
+
+    return constraints;
+}
+
 pub fn extractAccounts(comptime Accounts: type, comptime config: IdlConfig) []const AccountDescriptor {
     const fields = @typeInfo(Accounts).@"struct".fields;
     comptime var result: [fields.len]AccountDescriptor = undefined;
@@ -453,6 +741,7 @@ pub fn extractAccounts(comptime Accounts: type, comptime config: IdlConfig) []co
             .is_mut = is_mut,
             .is_signer = is_signer,
             .is_program = isProgramType(FieldType),
+            .constraints = accountConstraints(FieldType),
         };
     }
 
@@ -477,6 +766,27 @@ pub fn shortTypeName(full: []const u8) []const u8 {
 pub const ExampleProgram = struct {
     pub const id = @import("solana_program_sdk").PublicKey.comptimeFromBase58("11111111111111111111111111111111");
 
+    pub const metadata = .{
+        .name = "example",
+        .version = "0.1.0",
+        .spec = "0.1.0",
+        .description = "Example program",
+        .repository = "https://example.com",
+    };
+
+    pub const constants = .{
+        .fee_bps = @as(u16, 5),
+        .enabled = true,
+        .label = "counter",
+    };
+
+    pub const events = struct {
+        pub const CounterEvent = struct {
+            amount: u64,
+            owner: @import("solana_program_sdk").PublicKey,
+        };
+    };
+
     pub const instructions = struct {
         pub const initialize = Instruction(.{ .Accounts = InitializeAccounts, .Args = InitializeArgs });
         pub const close = Instruction(.{ .Accounts = CloseAccounts, .Args = void });
@@ -487,9 +797,24 @@ pub const ExampleProgram = struct {
     };
 };
 
+const CounterData = struct {
+    amount: u64,
+    authority: @import("solana_program_sdk").PublicKey,
+};
+
+const Counter = @import("account.zig").Account(CounterData, .{
+    .discriminator = discriminator_mod.accountDiscriminator("Counter"),
+    .seeds = &.{ seeds_mod.seed("counter"), seeds_mod.seedAccount("authority") },
+    .bump = true,
+    .has_one = &.{.{ .field = "authority", .target = "authority" }},
+    .close = "authority",
+    .realloc = .{ .payer = "payer", .zero_init = true },
+});
+
 const InitializeAccounts = struct {
     authority: Signer,
     payer: SignerMut,
+    counter: Counter,
 };
 
 const InitializeArgs = struct {
@@ -523,6 +848,9 @@ test "idl: json generation has core sections" {
     try std.testing.expect(root.contains("accounts"));
     try std.testing.expect(root.contains("types"));
     try std.testing.expect(root.contains("errors"));
+    try std.testing.expect(root.contains("constants"));
+    try std.testing.expect(root.contains("events"));
+    try std.testing.expect(root.contains("metadata"));
 }
 
 test "idl: instruction args types" {
@@ -534,8 +862,16 @@ test "idl: instruction args types" {
     defer parsed.deinit();
 
     const instructions = parsed.value.object.get("instructions").?.array;
-    const initialize = instructions.items[0].object;
-    const args = initialize.get("args").?.array;
+    var initialize: ?std.json.ObjectMap = null;
+    for (instructions.items) |item| {
+        const obj = item.object;
+        if (std.mem.eql(u8, obj.get("name").?.string, "initialize")) {
+            initialize = obj;
+            break;
+        }
+    }
+    try std.testing.expect(initialize != null);
+    const args = initialize.?.get("args").?.array;
 
     try std.testing.expectEqualStrings("amount", args.items[0].object.get("name").?.string);
     try std.testing.expectEqualStrings("u64", args.items[0].object.get("type").?.string);
@@ -545,4 +881,49 @@ test "idl: instruction args types" {
 
     try std.testing.expectEqualStrings("owner", args.items[2].object.get("name").?.string);
     try std.testing.expectEqualStrings("publicKey", args.items[2].object.get("type").?.string);
+}
+
+test "idl: event and constraints details" {
+    const allocator = std.testing.allocator;
+    const json_bytes = try generateJson(allocator, ExampleProgram, .{});
+    defer allocator.free(json_bytes);
+
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_bytes, .{});
+    defer parsed.deinit();
+
+    const root = parsed.value.object;
+    const events = root.get("events").?.array;
+    try std.testing.expectEqualStrings("CounterEvent", events.items[0].object.get("name").?.string);
+
+    const constants = root.get("constants").?.array;
+    try std.testing.expectEqualStrings("fee_bps", constants.items[0].object.get("name").?.string);
+
+    const metadata = root.get("metadata").?.object;
+    try std.testing.expectEqualStrings("example", metadata.get("name").?.string);
+
+    const instructions = root.get("instructions").?.array;
+    var initialize: ?std.json.ObjectMap = null;
+    for (instructions.items) |item| {
+        const obj = item.object;
+        if (std.mem.eql(u8, obj.get("name").?.string, "initialize")) {
+            initialize = obj;
+            break;
+        }
+    }
+    try std.testing.expect(initialize != null);
+    const accounts = initialize.?.get("accounts").?.array;
+    var counter_account: ?std.json.ObjectMap = null;
+    for (accounts.items) |item| {
+        const obj = item.object;
+        if (std.mem.eql(u8, obj.get("name").?.string, "counter")) {
+            counter_account = obj;
+            break;
+        }
+    }
+    try std.testing.expect(counter_account != null);
+    const constraints = counter_account.?.get("constraints").?.object;
+    try std.testing.expect(constraints.contains("seeds"));
+    try std.testing.expect(constraints.contains("bump"));
+    try std.testing.expect(constraints.contains("close"));
+    try std.testing.expect(constraints.contains("realloc"));
 }

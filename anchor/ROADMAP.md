@@ -5,6 +5,11 @@
 - [x] IDL JSON generation
 - [x] Zig client codegen
 
+## ✅ v3.0.6 - Anchor IDL Extensions
+
+- [x] IDL events/constants/metadata
+- [x] Account constraint hints
+
 ## ✅ v3.0.5 - Anchor Comptime Derives
 
 - [x] Accounts/Event DSL helpers

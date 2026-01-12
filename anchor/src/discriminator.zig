@@ -42,6 +42,13 @@ pub fn instructionDiscriminator(comptime name: []const u8) Discriminator {
     return sighash("global", name);
 }
 
+/// Generate event discriminator at comptime
+///
+/// Format: `sha256("event:<name>")[0..8]`
+pub fn eventDiscriminator(comptime name: []const u8) Discriminator {
+    return sighash("event", name);
+}
+
 /// Generate sighash at comptime
 ///
 /// Format: `sha256("<namespace>:<name>")[0..8]`
@@ -106,6 +113,16 @@ test "instructionDiscriminator generates correct hash" {
     // Verify different instructions have different discriminators
     const increment_disc = comptime instructionDiscriminator("increment");
     try std.testing.expect(!std.mem.eql(u8, &init_disc, &increment_disc));
+}
+
+test "eventDiscriminator generates correct hash" {
+    const event_disc = comptime eventDiscriminator("CounterEvent");
+
+    // Discriminator should be 8 bytes
+    try std.testing.expectEqual(@as(usize, 8), event_disc.len);
+
+    const other = comptime eventDiscriminator("OtherEvent");
+    try std.testing.expect(!std.mem.eql(u8, &event_disc, &other));
 }
 
 test "sighash produces deterministic output" {

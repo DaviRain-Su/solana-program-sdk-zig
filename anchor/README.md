@@ -78,6 +78,35 @@ pub fn processInstruction(
 }
 ```
 
+## Interface + CPI Helpers
+
+```zig
+const ProgramIds = [_]sol.PublicKey{
+    sol.PublicKey.comptimeFromBase58("11111111111111111111111111111111"),
+    sol.PublicKey.comptimeFromBase58("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
+};
+
+const InterfaceProgram = anchor.InterfaceProgram(ProgramIds[0..]);
+
+const Accounts = struct {
+    authority: anchor.Signer,
+    target_program: InterfaceProgram,
+};
+
+const Program = struct {
+    pub const instructions = struct {
+        pub const deposit = anchor.Instruction(.{
+            .Accounts = Accounts,
+            .Args = struct { amount: u64 },
+        });
+    };
+};
+
+var iface = try anchor.Interface(Program, .{ .program_ids = ProgramIds[0..] }).init(allocator, program_id);
+const ix = try iface.instruction("deposit", accounts, .{ .amount = 1 });
+defer ix.deinit(allocator);
+```
+
 ## IDL Output (Build Step)
 
 ```bash

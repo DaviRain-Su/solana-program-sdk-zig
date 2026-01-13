@@ -199,6 +199,28 @@ pub const DispatchConfig = program_entry.DispatchConfig;
 pub const FallbackContext = program_entry.FallbackContext;
 
 // ============================================================================
+// Interface + CPI Helpers
+// ============================================================================
+
+/// Interface account/program helpers
+pub const interface = @import("interface.zig");
+
+/// Interface config
+pub const InterfaceConfig = interface.InterfaceConfig;
+
+/// Interface program wrapper with multiple allowed IDs
+pub const InterfaceProgram = interface.InterfaceProgram;
+
+/// Interface account wrapper with multiple owners
+pub const InterfaceAccount = interface.InterfaceAccount;
+
+/// Interface account config
+pub const InterfaceAccountConfig = interface.InterfaceAccountConfig;
+
+/// Interface CPI instruction builder
+pub const Interface = interface.Interface;
+
+// ============================================================================
 // Comptime Derives
 // ============================================================================
 

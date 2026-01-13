@@ -27,6 +27,7 @@ const sol = anchor.sdk;
 - Program entry dispatch with optional fallback/error mapping
 - AccountLoader zero-copy access
 - LazyAccount on-demand decoding
+- InterfaceProgram/InterfaceAccount wrappers and Interface CPI builder
 
 ## Not Implemented Yet
 
@@ -56,6 +57,7 @@ const sol = anchor.sdk;
 | Event derive | `#[event]` | `anchor.Event(T)` | ✅ |
 | Event index | `#[index]` | `anchor.eventField(..., .{ .index = true })` (<=4, bool/fixed-size int/pubkey only) | ✅ |
 | Program entry | `#[program]` dispatch | `anchor.ProgramEntry(Program)` | ✅ |
+| Interface/CPI | `#[interface]` + CPI | `anchor.InterfaceProgram`/`anchor.InterfaceAccount`/`anchor.Interface` | ✅ |
 | AccountLoader | `AccountLoader<T>` | `anchor.AccountLoader(T, config)` | ✅ |
 | LazyAccount | `LazyAccount<T>` | `anchor.LazyAccount(T, config)` | ✅ |
 

@@ -1,5 +1,11 @@
 # sol-anchor-zig Roadmap
 
+## ✅ v3.2.56 - Interface + CPI Helpers
+
+- [x] Add InterfaceProgram/InterfaceAccount wrappers
+- [x] Add Interface CPI instruction builder
+- [x] Update docs and tests
+
 ## ✅ v3.2.53 - Program Entry Dispatch
 
 - [x] Comptime dispatch by instruction discriminator

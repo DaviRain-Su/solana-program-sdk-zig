@@ -2,6 +2,19 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-13-077
+
+**Date**: 2026-01-13
+**Goal**: Anchor interface accounts and CPI helpers
+
+#### Completed Work
+1. Added `InterfaceProgram`/`InterfaceAccount` wrappers
+2. Added `Interface` CPI instruction builder
+3. Updated docs and roadmap tracking
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ZIG_LOCAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
 ### Session 2026-01-13-074
 
 **Date**: 2026-01-13

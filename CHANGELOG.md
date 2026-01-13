@@ -2,6 +2,21 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-13-067
+
+**Date**: 2026-01-13
+**Goal**: Expand program auto bindings in AccountsDerive
+
+#### Completed Work
+1. Added auto bindings for compute budget/address lookup table/ed25519/secp256/vote/feature gate programs
+2. Extended AccountsDerive auto-bind tests
+3. Updated docs, story, and roadmap
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ZIG_LOCAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-13-066
 
 **Date**: 2026-01-13

@@ -168,6 +168,9 @@ program fields (token_program/associated_token_program).
 Payer/close/realloc targets are validated to ensure they expose `toAccountInfo()`
 or are raw `AccountInfo` pointers.
 Rent exemption is enforced at runtime when `rent_exempt` is set.
+Common program aliases include `bpf_loader`, `bpf_loader_upgradeable`, `loader_v4`,
+`compute_budget_program`, `address_lookup_table_program`, `ed25519_program`,
+`secp256k1_program`, `secp256r1_program`, `vote_program`, and `feature_gate_program`.
 
 ```zig
 const TokenAccountData = struct {

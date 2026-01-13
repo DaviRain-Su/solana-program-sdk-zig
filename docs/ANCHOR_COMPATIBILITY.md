@@ -19,6 +19,7 @@ const sol = anchor.sdk;
 - Init/close/realloc helpers (`init.zig`, `close.zig`, `realloc.zig`)
 - Anchor error codes (`AnchorError`)
 - AccountsDerive auto inference for token/mint/ata shapes and common program aliases
+- AccountsDerive auto binding for compute budget/address lookup table/vote/ed25519/secp256 programs
 
 ## Not Implemented Yet
 

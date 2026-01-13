@@ -1332,6 +1332,27 @@ fn autoProgramAttrs(comptime name: []const u8, comptime FieldType: type) ?[]cons
     if (isLoaderV4ProgramName(name)) {
         return &.{ attr_mod.attr.address(sol.loader_v4.id), attr_mod.attr.executable() };
     }
+    if (isComputeBudgetProgramName(name)) {
+        return &.{ attr_mod.attr.address(sol.compute_budget.id), attr_mod.attr.executable() };
+    }
+    if (isAddressLookupTableProgramName(name)) {
+        return &.{ attr_mod.attr.address(sol.address_lookup_table.ID), attr_mod.attr.executable() };
+    }
+    if (isEd25519ProgramName(name)) {
+        return &.{ attr_mod.attr.address(sol.ed25519_program.id), attr_mod.attr.executable() };
+    }
+    if (isSecp256k1ProgramName(name)) {
+        return &.{ attr_mod.attr.address(sol.secp256k1_program.id), attr_mod.attr.executable() };
+    }
+    if (isSecp256r1ProgramName(name)) {
+        return &.{ attr_mod.attr.address(sol.secp256r1_program.id), attr_mod.attr.executable() };
+    }
+    if (isVoteProgramName(name)) {
+        return &.{ attr_mod.attr.address(sol.vote_interface.ID), attr_mod.attr.executable() };
+    }
+    if (isFeatureGateProgramName(name)) {
+        return &.{ attr_mod.attr.address(sol.feature_gate.ID), attr_mod.attr.executable() };
+    }
     return null;
 }
 
@@ -1478,6 +1499,91 @@ fn isLoaderV4ProgramName(comptime name: []const u8) bool {
     const aliases = [_][]const u8{
         "loader_v4",
         "loader_v4_program",
+    };
+    inline for (aliases) |alias| {
+        if (std.mem.eql(u8, name, alias)) return true;
+    }
+    return false;
+}
+
+fn isComputeBudgetProgramName(comptime name: []const u8) bool {
+    const aliases = [_][]const u8{
+        "compute_budget_program",
+        "compute_budget_program_id",
+        "compute_budget_program_account",
+    };
+    inline for (aliases) |alias| {
+        if (std.mem.eql(u8, name, alias)) return true;
+    }
+    return false;
+}
+
+fn isAddressLookupTableProgramName(comptime name: []const u8) bool {
+    const aliases = [_][]const u8{
+        "address_lookup_table_program",
+        "address_lookup_table_program_id",
+        "address_lookup_table_program_account",
+        "address_lookup_table",
+    };
+    inline for (aliases) |alias| {
+        if (std.mem.eql(u8, name, alias)) return true;
+    }
+    return false;
+}
+
+fn isEd25519ProgramName(comptime name: []const u8) bool {
+    const aliases = [_][]const u8{
+        "ed25519_program",
+        "ed25519_program_id",
+        "ed25519_program_account",
+    };
+    inline for (aliases) |alias| {
+        if (std.mem.eql(u8, name, alias)) return true;
+    }
+    return false;
+}
+
+fn isSecp256k1ProgramName(comptime name: []const u8) bool {
+    const aliases = [_][]const u8{
+        "secp256k1_program",
+        "secp256k1_program_id",
+        "secp256k1_program_account",
+    };
+    inline for (aliases) |alias| {
+        if (std.mem.eql(u8, name, alias)) return true;
+    }
+    return false;
+}
+
+fn isSecp256r1ProgramName(comptime name: []const u8) bool {
+    const aliases = [_][]const u8{
+        "secp256r1_program",
+        "secp256r1_program_id",
+        "secp256r1_program_account",
+    };
+    inline for (aliases) |alias| {
+        if (std.mem.eql(u8, name, alias)) return true;
+    }
+    return false;
+}
+
+fn isVoteProgramName(comptime name: []const u8) bool {
+    const aliases = [_][]const u8{
+        "vote_program",
+        "vote_program_id",
+        "vote_program_account",
+    };
+    inline for (aliases) |alias| {
+        if (std.mem.eql(u8, name, alias)) return true;
+    }
+    return false;
+}
+
+fn isFeatureGateProgramName(comptime name: []const u8) bool {
+    const aliases = [_][]const u8{
+        "feature_gate_program",
+        "feature_gate_program_id",
+        "feature_gate_program_account",
     };
     inline for (aliases) |alias| {
         if (std.mem.eql(u8, name, alias)) return true;
@@ -1842,6 +1948,13 @@ test "dsl: AccountsDerive auto-binds common program/sysvar fields" {
         bpf_loader: UncheckedProgram,
         bpf_loader_upgradeable: UncheckedProgram,
         loader_v4: UncheckedProgram,
+        compute_budget_program: UncheckedProgram,
+        address_lookup_table_program: UncheckedProgram,
+        ed25519_program: UncheckedProgram,
+        secp256k1_program: UncheckedProgram,
+        secp256r1_program: UncheckedProgram,
+        vote_program: UncheckedProgram,
+        feature_gate_program: UncheckedProgram,
         rent: *const AccountInfo,
         rent_sysvar: *const AccountInfo,
         clock: *const AccountInfo,
@@ -1880,6 +1993,20 @@ test "dsl: AccountsDerive auto-binds common program/sysvar fields" {
         @compileError("AccountsDerive failed to produce bpf_loader_upgradeable field");
     const loader_v4_index = std.meta.fieldIndex(AccountsType, "loader_v4") orelse
         @compileError("AccountsDerive failed to produce loader_v4 field");
+    const compute_budget_program_index = std.meta.fieldIndex(AccountsType, "compute_budget_program") orelse
+        @compileError("AccountsDerive failed to produce compute_budget_program field");
+    const address_lookup_table_program_index = std.meta.fieldIndex(AccountsType, "address_lookup_table_program") orelse
+        @compileError("AccountsDerive failed to produce address_lookup_table_program field");
+    const ed25519_program_index = std.meta.fieldIndex(AccountsType, "ed25519_program") orelse
+        @compileError("AccountsDerive failed to produce ed25519_program field");
+    const secp256k1_program_index = std.meta.fieldIndex(AccountsType, "secp256k1_program") orelse
+        @compileError("AccountsDerive failed to produce secp256k1_program field");
+    const secp256r1_program_index = std.meta.fieldIndex(AccountsType, "secp256r1_program") orelse
+        @compileError("AccountsDerive failed to produce secp256r1_program field");
+    const vote_program_index = std.meta.fieldIndex(AccountsType, "vote_program") orelse
+        @compileError("AccountsDerive failed to produce vote_program field");
+    const feature_gate_program_index = std.meta.fieldIndex(AccountsType, "feature_gate_program") orelse
+        @compileError("AccountsDerive failed to produce feature_gate_program field");
     const rent_index = std.meta.fieldIndex(AccountsType, "rent") orelse
         @compileError("AccountsDerive failed to produce rent field");
     const rent_sysvar_index = std.meta.fieldIndex(AccountsType, "rent_sysvar") orelse
@@ -1938,6 +2065,27 @@ test "dsl: AccountsDerive auto-binds common program/sysvar fields" {
     }
     if (!@hasField(fields[loader_v4_index].type, "base")) {
         @compileError("loader_v4 was not wrapped with ProgramField");
+    }
+    if (!@hasField(fields[compute_budget_program_index].type, "base")) {
+        @compileError("compute_budget_program was not wrapped with ProgramField");
+    }
+    if (!@hasField(fields[address_lookup_table_program_index].type, "base")) {
+        @compileError("address_lookup_table_program was not wrapped with ProgramField");
+    }
+    if (!@hasField(fields[ed25519_program_index].type, "base")) {
+        @compileError("ed25519_program was not wrapped with ProgramField");
+    }
+    if (!@hasField(fields[secp256k1_program_index].type, "base")) {
+        @compileError("secp256k1_program was not wrapped with ProgramField");
+    }
+    if (!@hasField(fields[secp256r1_program_index].type, "base")) {
+        @compileError("secp256r1_program was not wrapped with ProgramField");
+    }
+    if (!@hasField(fields[vote_program_index].type, "base")) {
+        @compileError("vote_program was not wrapped with ProgramField");
+    }
+    if (!@hasField(fields[feature_gate_program_index].type, "base")) {
+        @compileError("feature_gate_program was not wrapped with ProgramField");
     }
     if (!@hasDecl(fields[rent_index].type, "SYSVAR_TYPE")) {
         @compileError("rent was not wrapped with Sysvar");

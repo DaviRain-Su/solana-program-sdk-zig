@@ -1,5 +1,10 @@
 # sol-anchor-zig Roadmap
 
+## ✅ v3.2.47 - AccountsDerive Program Auto Bindings (Extended)
+
+- [x] Add auto bindings for compute budget/address lookup table/ed25519/secp256/vote/feature gate
+- [x] Extend AccountsDerive tests and docs
+
 ## ✅ v3.2.46 - Anchor Zero/Space/Dup Constraints
 
 - [x] Enforce zero constraint via discriminator check

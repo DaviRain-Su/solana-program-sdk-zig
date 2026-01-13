@@ -22,6 +22,30 @@ const SignerMut = signer_mod.SignerMut;
 const UncheckedProgram = program_mod.UncheckedProgram;
 const SeedSpec = seeds_mod.SeedSpec;
 
+const token_mint_aliases = [_][]const u8{
+    "mint",
+    "token_mint",
+    "mint_account",
+    "token_mint_account",
+};
+const token_authority_aliases = [_][]const u8{
+    "authority",
+    "token_authority",
+    "owner",
+    "wallet",
+    "authority_account",
+    "owner_account",
+};
+const mint_authority_aliases = [_][]const u8{
+    "mint_authority",
+    "authority",
+    "authority_account",
+};
+const mint_freeze_aliases = [_][]const u8{
+    "freeze_authority",
+    "freeze_authority_account",
+};
+
 /// Validate Accounts struct and return it unchanged.
 pub fn Accounts(comptime T: type) type {
     comptime validateAccounts(T);
@@ -1296,12 +1320,12 @@ fn autoAccountAttrs(comptime AccountsType: type, comptime FieldType: type) ?[]co
     const has_ata_program = autoAssociatedTokenProgramName(AccountsType) != null;
     if (CleanType.ASSOCIATED_TOKEN == null and has_ata_program) {
         if (dataHasField(DataType, "mint") and dataHasField(DataType, "owner")) {
-            if (accountFieldName(AccountsType, &.{ "mint", "token_mint" })) |name| {
+            if (accountFieldName(AccountsType, token_mint_aliases[0..])) |name| {
                 config.associated_token_mint = name;
                 has_any = true;
                 inferred_associated = true;
             }
-            if (accountFieldName(AccountsType, &.{ "authority", "token_authority", "owner" })) |name| {
+            if (accountFieldName(AccountsType, token_authority_aliases[0..])) |name| {
                 config.associated_token_authority = name;
                 has_any = true;
                 inferred_associated = true;
@@ -1325,11 +1349,11 @@ fn autoAccountAttrs(comptime AccountsType: type, comptime FieldType: type) ?[]co
         const has_mint = dataHasPublicKeyField(DataType, "mint");
         const has_owner = dataHasPublicKeyField(DataType, "owner") or dataHasPublicKeyField(DataType, "authority");
         if (has_mint and has_owner) {
-            if (accountFieldName(AccountsType, &.{ "mint", "token_mint" })) |name| {
+            if (accountFieldName(AccountsType, token_mint_aliases[0..])) |name| {
                 config.token_mint = name;
                 has_any = true;
             }
-            if (accountFieldName(AccountsType, &.{ "authority", "token_authority", "owner" })) |name| {
+            if (accountFieldName(AccountsType, token_authority_aliases[0..])) |name| {
                 config.token_authority = name;
                 has_any = true;
             }
@@ -1342,13 +1366,13 @@ fn autoAccountAttrs(comptime AccountsType: type, comptime FieldType: type) ?[]co
         const is_mint_shape = has_mint_authority or has_freeze or has_decimals;
 
         if (is_mint_shape and (has_mint_authority or dataHasPublicKeyField(DataType, "authority"))) {
-            if (accountFieldName(AccountsType, &.{ "mint_authority", "authority" })) |name| {
+            if (accountFieldName(AccountsType, mint_authority_aliases[0..])) |name| {
                 config.mint_authority = name;
                 has_any = true;
             }
         }
         if (is_mint_shape and has_freeze) {
-            if (accountFieldName(AccountsType, &.{ "freeze_authority" })) |name| {
+            if (accountFieldName(AccountsType, mint_freeze_aliases[0..])) |name| {
                 config.mint_freeze_authority = name;
                 has_any = true;
             }
@@ -1790,6 +1814,60 @@ test "dsl: AccountsDerive infers associated token from account shape" {
 
     const TokenFieldType = @TypeOf(@field(@as(AccountsType, undefined), "token_account"));
     try std.testing.expect(TokenFieldType.ASSOCIATED_TOKEN != null);
+}
+
+test "dsl: AccountsDerive infers token mint/authority from alias fields" {
+    const TokenData = struct {
+        mint: sol.PublicKey,
+        owner: sol.PublicKey,
+    };
+
+    const MintData = struct {
+        mint_authority: sol.PublicKey,
+        decimals: u8,
+    };
+
+    const TokenAccount = account_mod.Account(TokenData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("TokenAccountAlias"),
+    });
+
+    const MintAccount = account_mod.Account(MintData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("MintAccountAlias"),
+        .mint_decimals = 9,
+    });
+
+    const AccountsType = AccountsDerive(struct {
+        wallet: Signer,
+        mint_account: MintAccount,
+        token_program: UncheckedProgram,
+        token_account: TokenAccount,
+    });
+
+    const TokenFieldType = @TypeOf(@field(@as(AccountsType, undefined), "token_account"));
+    try std.testing.expectEqualStrings("mint_account", TokenFieldType.TOKEN_MINT.?);
+    try std.testing.expectEqualStrings("wallet", TokenFieldType.TOKEN_AUTHORITY.?);
+}
+
+test "dsl: AccountsDerive infers associated token from alias fields" {
+    const TokenData = struct {
+        mint: sol.PublicKey,
+        owner: sol.PublicKey,
+    };
+
+    const TokenAccount = account_mod.Account(TokenData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("AssociatedTokenAlias"),
+    });
+
+    const AccountsType = AccountsDerive(struct {
+        wallet: Signer,
+        mint_account: TokenAccount,
+        ata_program: UncheckedProgram,
+        ata_account: TokenAccount,
+    });
+
+    const TokenFieldType = @TypeOf(@field(@as(AccountsType, undefined), "ata_account"));
+    try std.testing.expectEqualStrings("mint_account", TokenFieldType.ASSOCIATED_TOKEN.?.mint);
+    try std.testing.expectEqualStrings("wallet", TokenFieldType.ASSOCIATED_TOKEN.?.authority);
 }
 
 test "dsl: AccountsDerive infers mint constraints from account shape" {

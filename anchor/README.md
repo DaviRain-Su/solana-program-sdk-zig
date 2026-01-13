@@ -149,6 +149,8 @@ or `sol.PublicKey`. `usize/isize` are rejected to keep IDL stable across targets
 
 AccountsDerive can auto-infer common token/mint/ata constraints when the
 account data shape and field names match expected patterns.
+It recognizes common aliases like `mint_account`, `token_mint_account`, and
+`wallet` for authority fields.
 
 ```zig
 const TokenAccountData = struct {

@@ -1490,6 +1490,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.34 - AccountsDerive Alias Inference
+
+- [x] Expand token/mint/ata inference alias lists (mint_account, wallet, etc.)
+- [x] Add alias-based AccountsDerive tests
+- [x] Update docs
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

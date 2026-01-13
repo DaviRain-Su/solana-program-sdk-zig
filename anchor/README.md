@@ -211,7 +211,9 @@ Supported aliases:
   `associated_token_program_account`, `ata_program`, `ata_program_id`
 - token mint/authority: `mint` or `token_mint`, `authority` or `token_authority`
 - token mint extended: `mint_pubkey`, `token_mint_pubkey`, `mint_key`, `token_mint_key`
-- token authority extended: `owner_pubkey`, `wallet_pubkey`
+- token mint extended: `mint_address`, `token_mint_address`, `mint_pk`, `token_mint_pk`
+- token authority extended: `owner_pubkey`, `wallet_pubkey`, `authority_key`, `authority_address`,
+  `owner_key`, `owner_address`, `wallet_address`
 
 Constraint rules:
 

@@ -33,6 +33,10 @@ const token_mint_aliases = [_][]const u8{
     "token_mint_pubkey",
     "mint_key",
     "token_mint_key",
+    "mint_address",
+    "token_mint_address",
+    "mint_pk",
+    "token_mint_pk",
 };
 const token_authority_aliases = [_][]const u8{
     "authority",
@@ -46,6 +50,11 @@ const token_authority_aliases = [_][]const u8{
     "token_owner_account",
     "owner_pubkey",
     "wallet_pubkey",
+    "authority_key",
+    "authority_address",
+    "owner_key",
+    "owner_address",
+    "wallet_address",
 };
 const mint_authority_aliases = [_][]const u8{
     "mint_authority",
@@ -54,12 +63,16 @@ const mint_authority_aliases = [_][]const u8{
     "mint_authority_account",
     "mint_authority_info",
     "mint_authority_pubkey",
+    "mint_authority_key",
+    "mint_authority_address",
 };
 const mint_freeze_aliases = [_][]const u8{
     "freeze_authority",
     "freeze_authority_account",
     "freeze_authority_info",
     "freeze_authority_pubkey",
+    "freeze_authority_key",
+    "freeze_authority_address",
 };
 
 /// Validate Accounts struct and return it unchanged.
@@ -2308,6 +2321,29 @@ test "dsl: AccountsDerive supports extended token aliases" {
 
     try std.testing.expect(std.mem.eql(u8, TokenFieldType.TOKEN_MINT.?, "mint_pubkey"));
     try std.testing.expect(std.mem.eql(u8, TokenFieldType.TOKEN_AUTHORITY.?, "owner_pubkey"));
+}
+
+test "dsl: AccountsDerive supports token key/address aliases" {
+    const TokenData = struct {
+        mint: sol.PublicKey,
+        owner: sol.PublicKey,
+    };
+
+    const TokenAccount = account_mod.Account(TokenData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("TokenAccountAliasKeys"),
+    });
+
+    const AccountsType = AccountsDerive(struct {
+        mint_address: *const AccountInfo,
+        authority_key: *const AccountInfo,
+        token_program: UncheckedProgram,
+        token: TokenAccount,
+    });
+
+    const TokenFieldType = @TypeOf(@field(@as(AccountsType, undefined), "token"));
+
+    try std.testing.expect(std.mem.eql(u8, TokenFieldType.TOKEN_MINT.?, "mint_address"));
+    try std.testing.expect(std.mem.eql(u8, TokenFieldType.TOKEN_AUTHORITY.?, "authority_key"));
 }
 
 test "dsl: AccountsDerive supports associated token program aliases" {

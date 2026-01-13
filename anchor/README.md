@@ -142,6 +142,48 @@ const CounterEvent = anchor.Event(struct {
 });
 ```
 
+## AccountsDerive Auto Inference (Token/Mint/ATA)
+
+AccountsDerive can auto-infer common token/mint/ata constraints when the
+account data shape and field names match expected patterns.
+
+```zig
+const TokenAccountData = struct {
+    mint: sol.PublicKey,
+    owner: sol.PublicKey,
+};
+
+const MintData = struct {
+    mint_authority: sol.PublicKey,
+    freeze_authority: sol.PublicKey,
+
+    pub const DECIMALS: u8 = 6;
+};
+
+const TokenAccount = anchor.Account(TokenAccountData, .{
+    .discriminator = anchor.accountDiscriminator("TokenAccount"),
+});
+
+const MintAccount = anchor.Account(MintData, .{
+    .discriminator = anchor.accountDiscriminator("MintAccount"),
+});
+
+const AccountsAuto = anchor.AccountsDerive(struct {
+    authority: anchor.Signer,
+    mint: *const anchor.sdk.account.Account.Info,
+    token_program: anchor.UncheckedProgram,
+    ata_program: anchor.UncheckedProgram,
+    token_account: TokenAccount,
+    mint_account: MintAccount,
+});
+```
+
+Supported aliases:
+
+- token program: `token_program`, `spl_token_program`, `token_program_id`, `token_program_account`
+- associated token program: `associated_token_program`, `associated_token_program_id`,
+  `associated_token_program_account`, `ata_program`, `ata_program_id`
+
 ## Build & Test
 
 ```bash

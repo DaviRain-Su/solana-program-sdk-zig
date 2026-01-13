@@ -18,6 +18,7 @@ const sol = anchor.sdk;
 - PDA helpers (`pda.zig`, `seeds.zig`)
 - Init/close/realloc helpers (`init.zig`, `close.zig`, `realloc.zig`)
 - Anchor error codes (`AnchorError`)
+- AccountsDerive auto inference for token/mint/ata shapes and common program aliases
 
 ## Not Implemented Yet
 

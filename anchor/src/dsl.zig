@@ -849,6 +849,17 @@ fn dataHasField(comptime DataType: type, comptime name: []const u8) bool {
     return std.meta.fieldIndex(DataType, name) != null;
 }
 
+fn dataDeclU8(comptime DataType: type, comptime name: []const u8) ?u8 {
+    if (!@hasDecl(DataType, name)) return null;
+    const value = @field(DataType, name);
+    const ValueType = @TypeOf(value);
+    switch (@typeInfo(ValueType)) {
+        .int, .comptime_int => {},
+        else => @compileError("Expected integer constant for " ++ name),
+    }
+    return @intCast(value);
+}
+
 fn validateKeyTarget(comptime AccountsType: type, comptime name: []const u8) void {
     const fields = @typeInfo(AccountsType).@"struct".fields;
     const target_index = fieldIndexByName(AccountsType, name);
@@ -1224,9 +1235,21 @@ fn isProgramFieldType(comptime FieldType: type) bool {
 }
 
 fn autoTokenProgramName(comptime AccountsType: type) ?[]const u8 {
+    @setEvalBranchQuota(20000);
     const fields = @typeInfo(AccountsType).@"struct".fields;
     inline for (fields) |field| {
         if (!isTokenProgramName(field.name)) continue;
+        if (!isProgramFieldType(field.type)) continue;
+        return field.name;
+    }
+    return null;
+}
+
+fn autoAssociatedTokenProgramName(comptime AccountsType: type) ?[]const u8 {
+    @setEvalBranchQuota(20000);
+    const fields = @typeInfo(AccountsType).@"struct".fields;
+    inline for (fields) |field| {
+        if (!isAssociatedTokenProgramName(field.name)) continue;
         if (!isProgramFieldType(field.type)) continue;
         return field.name;
     }
@@ -1280,7 +1303,8 @@ fn autoAccountAttrs(comptime AccountsType: type, comptime FieldType: type) ?[]co
             }
         }
     }
-    if (CleanType.ASSOCIATED_TOKEN == null) {
+    const has_ata_program = autoAssociatedTokenProgramName(AccountsType) != null;
+    if (CleanType.ASSOCIATED_TOKEN == null and has_ata_program) {
         if (dataHasField(DataType, "mint") and dataHasField(DataType, "owner")) {
             if (accountFieldHasKey(AccountsType, "mint")) {
                 config.associated_token_mint = "mint";
@@ -1311,8 +1335,8 @@ fn autoAccountAttrs(comptime AccountsType: type, comptime FieldType: type) ?[]co
                 has_any = true;
             }
         }
-        if (dataHasField(DataType, "decimals")) {
-            config.mint_decimals = 0;
+        if (dataDeclU8(DataType, "DECIMALS")) |decimals| {
+            config.mint_decimals = decimals;
             has_any = true;
         }
     }
@@ -1731,7 +1755,8 @@ test "dsl: AccountsDerive infers mint constraints from account shape" {
     const MintData = struct {
         mint_authority: sol.PublicKey,
         freeze_authority: sol.PublicKey,
-        decimals: u8,
+
+        pub const DECIMALS: u8 = 6;
     };
 
     const MintAccount = account_mod.Account(MintData, .{
@@ -1748,7 +1773,7 @@ test "dsl: AccountsDerive infers mint constraints from account shape" {
     const MintFieldType = @TypeOf(@field(@as(AccountsType, undefined), "mint"));
     try std.testing.expect(MintFieldType.MINT_AUTHORITY != null);
     try std.testing.expect(MintFieldType.MINT_FREEZE_AUTHORITY != null);
-    try std.testing.expect(MintFieldType.MINT_DECIMALS != null);
+    try std.testing.expectEqual(@as(u8, 6), MintFieldType.MINT_DECIMALS.?);
 }
 
 test "dsl: AccountsDerive infers init/payer/realloc mut/signer" {

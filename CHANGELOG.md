@@ -84,8 +84,9 @@ All notable changes to the Solana SDK Zig implementation will be documented in t
 
 #### Completed Work
 1. Added associated token and mint shape inference for AccountsDerive
-2. Added AccountsDerive tests for token/mint/ata shape inference
-3. Updated roadmap/story
+2. Added DECIMALS constant inference for mint shape
+3. Added AccountsDerive tests for token/mint/ata shape inference
+4. Updated roadmap/story and docs
 
 #### Test Results
 - `ZIG_GLOBAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`

@@ -170,7 +170,7 @@ const MintAccount = anchor.Account(MintData, .{
 
 const AccountsAuto = anchor.AccountsDerive(struct {
     authority: anchor.Signer,
-    mint: *const anchor.sdk.account.Account.Info,
+    token_mint: *const anchor.sdk.account.Account.Info,
     token_program: anchor.UncheckedProgram,
     ata_program: anchor.UncheckedProgram,
     token_account: TokenAccount,
@@ -183,6 +183,7 @@ Supported aliases:
 - token program: `token_program`, `spl_token_program`, `token_program_id`, `token_program_account`
 - associated token program: `associated_token_program`, `associated_token_program_id`,
   `associated_token_program_account`, `ata_program`, `ata_program_id`
+- token mint/authority: `mint` or `token_mint`, `authority` or `token_authority`
 
 ## Build & Test
 

@@ -648,6 +648,7 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
     if (merged.attrs) |attrs| {
         merged = applyAttrs(merged, attrs);
     }
+    merged.attrs = null;
     if (merged.space_expr != null and merged.space != null) {
         @compileError("space and space_expr are mutually exclusive");
     }
@@ -1069,7 +1070,7 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
         /// try vault.validateHasOneConstraints(accounts);
         /// ```
         pub fn validateHasOneConstraints(self: Self, accounts: anytype) !void {
-            if (config.has_one) |specs| {
+            if (merged.has_one) |specs| {
                 inline for (specs) |spec| {
                     // Get the target account from the accounts struct
                     const target = @field(accounts, spec.target);
@@ -1099,7 +1100,7 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
         /// Checks that the close destination account is writable.
         /// Call this before executing a close operation.
         pub fn validateCloseConstraint(self: Self, accounts: anytype) !void {
-            if (config.close) |dest_field| {
+            if (merged.close) |dest_field| {
                 const dest = @field(accounts, dest_field);
 
                 // Get destination AccountInfo
@@ -1126,7 +1127,7 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
         ///
         /// Checks that the payer account is a signer (required for growing).
         pub fn validateReallocConstraint(self: Self, accounts: anytype) !void {
-            if (config.realloc) |realloc_config| {
+            if (merged.realloc) |realloc_config| {
                 if (realloc_config.payer) |payer_field| {
                     const payer = @field(accounts, payer_field);
                     const PayerType = @TypeOf(payer);

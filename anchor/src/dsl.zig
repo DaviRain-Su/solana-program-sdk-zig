@@ -860,6 +860,16 @@ fn dataDeclU8(comptime DataType: type, comptime name: []const u8) ?u8 {
     return @intCast(value);
 }
 
+fn accountFieldName(
+    comptime AccountsType: type,
+    comptime names: []const []const u8,
+) ?[]const u8 {
+    inline for (names) |name| {
+        if (accountFieldHasKey(AccountsType, name)) return name;
+    }
+    return null;
+}
+
 fn validateKeyTarget(comptime AccountsType: type, comptime name: []const u8) void {
     const fields = @typeInfo(AccountsType).@"struct".fields;
     const target_index = fieldIndexByName(AccountsType, name);
@@ -995,25 +1005,29 @@ fn mergeAttrs(
     const skip_mut = hasAttrMut(base_attrs);
     const skip_signer = hasAttrSigner(base_attrs);
 
-    comptime var merged: [base_attrs.len + derived.len]attr_mod.Attr = undefined;
-    comptime var index: usize = 0;
+    const merged = comptime blk: {
+        var tmp: [base_attrs.len + derived.len]attr_mod.Attr = undefined;
+        var index: usize = 0;
 
-    inline for (base_attrs) |attr| {
-        merged[index] = attr;
-        index += 1;
-    }
-
-    inline for (derived) |attr| {
-        switch (attr) {
-            .mut => if (skip_mut) continue,
-            .signer => if (skip_signer) continue,
-            else => {},
+        for (base_attrs) |attr| {
+            tmp[index] = attr;
+            index += 1;
         }
-        merged[index] = attr;
-        index += 1;
-    }
 
-    return merged[0..index];
+        for (derived) |attr| {
+            switch (attr) {
+                .mut => if (skip_mut) continue,
+                .signer => if (skip_signer) continue,
+                else => {},
+            }
+            tmp[index] = attr;
+            index += 1;
+        }
+
+        break :blk tmp[0..index];
+    };
+
+    return merged;
 }
 
 fn derivedAttrsForField(
@@ -1289,16 +1303,15 @@ fn autoAccountAttrs(comptime AccountsType: type, comptime FieldType: type) ?[]co
         }
     }
     if (CleanType.TOKEN_MINT == null and CleanType.TOKEN_AUTHORITY == null) {
-        if (dataHasPublicKeyField(DataType, "mint") and dataHasPublicKeyField(DataType, "owner")) {
-            if (accountFieldHasKey(AccountsType, "mint")) {
-                config.token_mint = "mint";
+        const has_mint = dataHasPublicKeyField(DataType, "mint");
+        const has_owner = dataHasPublicKeyField(DataType, "owner") or dataHasPublicKeyField(DataType, "authority");
+        if (has_mint and has_owner) {
+            if (accountFieldName(AccountsType, &.{ "mint", "token_mint" })) |name| {
+                config.token_mint = name;
                 has_any = true;
             }
-            if (accountFieldHasKey(AccountsType, "authority")) {
-                config.token_authority = "authority";
-                has_any = true;
-            } else if (accountFieldHasKey(AccountsType, "owner")) {
-                config.token_authority = "owner";
+            if (accountFieldName(AccountsType, &.{ "authority", "token_authority", "owner" })) |name| {
+                config.token_authority = name;
                 has_any = true;
             }
         }
@@ -1306,36 +1319,30 @@ fn autoAccountAttrs(comptime AccountsType: type, comptime FieldType: type) ?[]co
     const has_ata_program = autoAssociatedTokenProgramName(AccountsType) != null;
     if (CleanType.ASSOCIATED_TOKEN == null and has_ata_program) {
         if (dataHasField(DataType, "mint") and dataHasField(DataType, "owner")) {
-            if (accountFieldHasKey(AccountsType, "mint")) {
-                config.associated_token_mint = "mint";
+            if (accountFieldName(AccountsType, &.{ "mint", "token_mint" })) |name| {
+                config.associated_token_mint = name;
                 has_any = true;
             }
-            if (accountFieldHasKey(AccountsType, "authority")) {
-                config.associated_token_authority = "authority";
-                has_any = true;
-            } else if (accountFieldHasKey(AccountsType, "owner")) {
-                config.associated_token_authority = "owner";
+            if (accountFieldName(AccountsType, &.{ "authority", "token_authority", "owner" })) |name| {
+                config.associated_token_authority = name;
                 has_any = true;
             }
         }
     }
     if (CleanType.MINT_AUTHORITY == null and CleanType.MINT_DECIMALS == null) {
-        if (dataHasPublicKeyField(DataType, "mint_authority")) {
-            if (accountFieldHasKey(AccountsType, "mint_authority")) {
-                config.mint_authority = "mint_authority";
-                has_any = true;
-            } else if (accountFieldHasKey(AccountsType, "authority")) {
-                config.mint_authority = "authority";
+        if (dataHasPublicKeyField(DataType, "mint_authority") or dataHasPublicKeyField(DataType, "authority")) {
+            if (accountFieldName(AccountsType, &.{ "mint_authority", "authority" })) |name| {
+                config.mint_authority = name;
                 has_any = true;
             }
         }
         if (dataHasPublicKeyField(DataType, "freeze_authority")) {
-            if (accountFieldHasKey(AccountsType, "freeze_authority")) {
-                config.mint_freeze_authority = "freeze_authority";
+            if (accountFieldName(AccountsType, &.{ "freeze_authority" })) |name| {
+                config.mint_freeze_authority = name;
                 has_any = true;
             }
         }
-        if (dataDeclU8(DataType, "DECIMALS")) |decimals| {
+        if (dataDeclU8(DataType, "DECIMALS") orelse dataDeclU8(DataType, "MINT_DECIMALS")) |decimals| {
             config.mint_decimals = decimals;
             has_any = true;
         }
@@ -1719,8 +1726,8 @@ test "dsl: AccountsDerive infers token mint/authority from account shape" {
     });
 
     const AccountsType = AccountsDerive(struct {
-        mint: *const AccountInfo,
-        authority: Signer,
+        token_mint: *const AccountInfo,
+        token_authority: Signer,
         token_program: UncheckedProgram,
         token_account: TokenAccount,
     });
@@ -1741,8 +1748,8 @@ test "dsl: AccountsDerive infers associated token from account shape" {
     });
 
     const AccountsType = AccountsDerive(struct {
-        mint: *const AccountInfo,
-        authority: Signer,
+        token_mint: *const AccountInfo,
+        token_authority: Signer,
         ata_program: UncheckedProgram,
         token_account: TokenAccount,
     });
@@ -1753,10 +1760,10 @@ test "dsl: AccountsDerive infers associated token from account shape" {
 
 test "dsl: AccountsDerive infers mint constraints from account shape" {
     const MintData = struct {
-        mint_authority: sol.PublicKey,
+        authority: sol.PublicKey,
         freeze_authority: sol.PublicKey,
 
-        pub const DECIMALS: u8 = 6;
+        pub const MINT_DECIMALS: u8 = 6;
     };
 
     const MintAccount = account_mod.Account(MintData, .{
@@ -1764,7 +1771,7 @@ test "dsl: AccountsDerive infers mint constraints from account shape" {
     });
 
     const AccountsType = AccountsDerive(struct {
-        mint_authority: *const AccountInfo,
+        authority: *const AccountInfo,
         freeze_authority: *const AccountInfo,
         mint: MintAccount,
         token_program: UncheckedProgram,

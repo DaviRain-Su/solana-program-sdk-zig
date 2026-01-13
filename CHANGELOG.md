@@ -93,6 +93,23 @@ All notable changes to the Solana SDK Zig implementation will be documented in t
 
 ---
 
+### Session 2026-01-13-049
+
+**Date**: 2026-01-13
+**Goal**: Expand AccountsDerive alias-based inference
+
+#### Completed Work
+1. Added alias-based inference for token/ata account fields
+2. Added mint authority/decimals alias support
+3. Added tests for alias-based inference
+4. Applied merged constraint config for runtime validation
+5. Updated roadmap/story and anchor docs
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-13-042
 
 **Date**: 2026-01-13

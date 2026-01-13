@@ -66,6 +66,21 @@ pub fn AttrsFor(comptime AccountsType: type, comptime DataType: type, comptime c
     return Attrs(resolved);
 }
 
+/// Typed seed spec for Accounts/Data field enums.
+pub fn SeedSpecFor(comptime AccountsType: type, comptime DataType: type) type {
+    return union(enum) {
+        literal: []const u8,
+        account: std.meta.FieldEnum(AccountsType),
+        field: std.meta.FieldEnum(DataType),
+        bump: std.meta.FieldEnum(AccountsType),
+    };
+}
+
+/// Typed seed spec builder that resolves field enums.
+pub fn seedSpecsFor(comptime AccountsType: type, comptime DataType: type, comptime specs: anytype) []const SeedSpec {
+    return resolveSeedSpecs(AccountsType, DataType, specs);
+}
+
 /// Event field configuration.
 pub const EventField = struct {
     /// Mark this field as indexed in the IDL.
@@ -288,9 +303,9 @@ fn resolveTypedAttrConfig(
         } else if (std.mem.eql(u8, field.name, "mint_token_program")) {
             resolved.mint_token_program = resolveAccountFieldNameOpt(AccountsType, value);
         } else if (std.mem.eql(u8, field.name, "seeds_program")) {
-            resolved.seeds_program = value;
+            resolved.seeds_program = resolveSeedSpecSingle(AccountsType, DataType, value);
         } else if (std.mem.eql(u8, field.name, "seeds")) {
-            resolved.seeds = value;
+            resolved.seeds = resolveSeedSpecs(AccountsType, DataType, value);
         } else if (std.mem.eql(u8, field.name, "has_one")) {
             resolved.has_one = value;
         } else if (std.mem.eql(u8, field.name, "realloc")) {
@@ -333,6 +348,76 @@ fn resolveTypedAttrConfig(
     }
 
     return resolved;
+}
+
+fn resolveSeedSpecSingle(
+    comptime AccountsType: type,
+    comptime DataType: type,
+    comptime value: anytype,
+) SeedSpec {
+    const ValueType = @TypeOf(value);
+    if (ValueType == SeedSpec) return value;
+    const TypedSeed = SeedSpecFor(AccountsType, DataType);
+    if (ValueType == TypedSeed) return seedSpecFromTyped(AccountsType, DataType, value);
+    @compileError("expected SeedSpec or typed seed spec");
+}
+
+fn resolveSeedSpecs(
+    comptime AccountsType: type,
+    comptime DataType: type,
+    comptime value: anytype,
+) []const SeedSpec {
+    const ValueType = @TypeOf(value);
+    if (ValueType == []const SeedSpec) return value;
+    const TypedSeed = SeedSpecFor(AccountsType, DataType);
+    if (ValueType == []const TypedSeed) {
+        const specs = comptime blk: {
+            var tmp: [value.len]SeedSpec = undefined;
+            for (value, 0..) |seed, index| {
+                tmp[index] = seedSpecFromTyped(AccountsType, DataType, seed);
+            }
+            break :blk tmp;
+        };
+        return specs[0..];
+    }
+    const info = @typeInfo(ValueType);
+    if (info == .pointer and info.pointer.size == .one) {
+        const child_info = @typeInfo(info.pointer.child);
+        if (child_info == .array and child_info.array.child == TypedSeed) {
+            const specs = comptime blk: {
+                var tmp: [child_info.array.len]SeedSpec = undefined;
+                for (value.*, 0..) |seed, index| {
+                    tmp[index] = seedSpecFromTyped(AccountsType, DataType, seed);
+                }
+                break :blk tmp;
+            };
+            return specs[0..];
+        }
+    }
+    if (info == .array and info.array.child == TypedSeed) {
+        const specs = comptime blk: {
+            var tmp: [info.array.len]SeedSpec = undefined;
+            for (value, 0..) |seed, index| {
+                tmp[index] = seedSpecFromTyped(AccountsType, DataType, seed);
+            }
+            break :blk tmp;
+        };
+        return specs[0..];
+    }
+    @compileError("expected SeedSpec list or typed seed spec list");
+}
+
+fn seedSpecFromTyped(
+    comptime AccountsType: type,
+    comptime DataType: type,
+    comptime seed: SeedSpecFor(AccountsType, DataType),
+) SeedSpec {
+    return switch (seed) {
+        .literal => |value| seeds_mod.seed(value),
+        .account => |field| seeds_mod.seedAccount(@tagName(field)),
+        .field => |field| seeds_mod.seedField(@tagName(field)),
+        .bump => |field| seeds_mod.seedBump(@tagName(field)),
+    };
 }
 
 fn hasKeyOrAccountInfo(comptime T: type) bool {
@@ -1042,6 +1127,45 @@ test "dsl: AttrsFor resolves typed field enums" {
 
     try std.testing.expect(fields[payer_index].type == SignerMut);
     try std.testing.expect(fields[counter_index].type.HAS_ONE != null);
+}
+
+test "dsl: AttrsFor resolves typed seed specs" {
+    const Data = struct {
+        authority: sol.PublicKey,
+    };
+
+    const Counter = account_mod.Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("CounterSeeds"),
+    });
+
+    const AccountsRef = struct {
+        payer: Signer,
+        authority: Signer,
+        counter: Counter,
+    };
+
+    const TypedSeed = SeedSpecFor(AccountsRef, Data);
+    const seeds = &[_]TypedSeed{
+        .{ .literal = "counter" },
+        .{ .account = .authority },
+        .{ .field = .authority },
+        .{ .bump = .counter },
+    };
+
+    const AccountsType = AccountsDerive(struct {
+        payer: Signer,
+        authority: Signer,
+        counter: AttrsFor(AccountsRef, Data, .{
+            .seeds = seeds,
+            .bump = true,
+        }).apply(Counter),
+    });
+
+    const fields = @typeInfo(AccountsType).@"struct".fields;
+    const counter_index = std.meta.fieldIndex(AccountsType, "counter") orelse
+        @compileError("AccountsDerive failed to produce counter field");
+
+    try std.testing.expect(fields[counter_index].type.HAS_SEEDS);
 }
 
 test "dsl: event validation accepts struct" {

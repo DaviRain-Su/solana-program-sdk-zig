@@ -2,6 +2,21 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-13-037
+
+**Date**: 2026-01-13
+**Goal**: Add typed seed specs for AttrsFor
+
+#### Completed Work
+1. Added SeedSpecFor/seedSpecsFor typed seed builders
+2. Enabled AttrsFor to accept typed seeds for seeds/seeds_program
+3. Added tests and updated roadmap/story
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-13-036
 
 **Date**: 2026-01-13

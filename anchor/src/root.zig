@@ -173,6 +173,10 @@ pub const Attrs = @import("dsl.zig").Attrs;
 pub const AttrsWith = @import("dsl.zig").AttrsWith;
 /// Typed account field attr helper with field enum resolution.
 pub const AttrsFor = @import("dsl.zig").AttrsFor;
+/// Typed seed spec for Accounts/Data field enums.
+pub const SeedSpecFor = @import("dsl.zig").SeedSpecFor;
+/// Typed seed spec builder that resolves field enums.
+pub const seedSpecsFor = @import("dsl.zig").seedSpecsFor;
 
 /// Comptime Event validator
 pub const Event = @import("dsl.zig").Event;

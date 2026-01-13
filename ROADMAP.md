@@ -1353,6 +1353,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.17 - Anchor Derive Typed Seeds
+
+- [x] Add typed seed specs for Accounts/Data enums
+- [x] Allow AttrsFor to accept typed seeds for seeds/seeds_program
+- [x] Update docs and tests
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

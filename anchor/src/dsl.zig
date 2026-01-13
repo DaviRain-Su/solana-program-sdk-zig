@@ -1043,15 +1043,21 @@ fn applyAccountAttrs(comptime T: type, comptime config: anytype, comptime enable
         if (auto_sysvar_type) |sysvar_type| {
             field_type = sysvar_type;
         }
-        const auto_attrs = if (!explicit and enable_auto and auto_sysvar_type == null)
+        const auto_program_attrs = if (!explicit and enable_auto and auto_sysvar_type == null)
             autoProgramAttrs(field.name, field_type)
+        else
+            null;
+        const auto_account_attrs = if (!explicit and enable_auto and auto_sysvar_type == null)
+            autoAccountAttrs(T, field_type)
         else
             null;
         const merged_attrs = mergeAttrs(
             if (explicit)
                 resolveAttrs(@field(config, field.name))
-            else if (auto_attrs != null)
-                auto_attrs.?
+            else if (auto_program_attrs != null)
+                auto_program_attrs.?
+            else if (auto_account_attrs != null)
+                auto_account_attrs.?
             else
                 null,
             derived_attrs,
@@ -1149,6 +1155,50 @@ fn autoSysvarType(comptime name: []const u8, comptime FieldType: type) ?type {
         return sysvar_account.Sysvar(sysvar_account.SysvarId(sol.LAST_RESTART_SLOT_ID));
     }
     return null;
+}
+
+fn isProgramFieldType(comptime FieldType: type) bool {
+    const CleanType = unwrapOptionalType(FieldType);
+    return CleanType == UncheckedProgram or @hasDecl(CleanType, "ID");
+}
+
+fn autoTokenProgramName(comptime AccountsType: type) ?[]const u8 {
+    const index = std.meta.fieldIndex(AccountsType, "token_program") orelse return null;
+    const fields = @typeInfo(AccountsType).@"struct".fields;
+    if (!isProgramFieldType(fields[index].type)) return null;
+    return "token_program";
+}
+
+fn autoAccountAttrs(comptime AccountsType: type, comptime FieldType: type) ?[]const attr_mod.Attr {
+    const CleanType = unwrapOptionalType(FieldType);
+    if (!isAccountWrapper(CleanType)) return null;
+    if (CleanType != FieldType) return null;
+
+    const token_program = autoTokenProgramName(AccountsType) orelse return null;
+
+    comptime var config: attr_mod.AccountAttrConfig = .{};
+    comptime var has_any = false;
+
+    if (CleanType.ASSOCIATED_TOKEN) |cfg| {
+        if (cfg.token_program == null) {
+            config.associated_token_token_program = token_program;
+            has_any = true;
+        }
+    }
+    if ((CleanType.TOKEN_MINT != null or CleanType.TOKEN_AUTHORITY != null) and CleanType.TOKEN_PROGRAM == null) {
+        config.token_program = token_program;
+        has_any = true;
+    }
+    if ((CleanType.MINT_AUTHORITY != null or
+        CleanType.MINT_FREEZE_AUTHORITY != null or
+        CleanType.MINT_DECIMALS != null) and CleanType.MINT_TOKEN_PROGRAM == null)
+    {
+        config.mint_token_program = token_program;
+        has_any = true;
+    }
+
+    if (!has_any) return null;
+    return attr_mod.attr.account(config);
 }
 
 fn isEventFieldWrapper(comptime T: type) bool {
@@ -1405,6 +1455,56 @@ test "dsl: AccountsDerive auto-binds common program/sysvar fields" {
     try std.testing.expect(fields[instructions_index].type.ID.equals(sol.INSTRUCTIONS_ID));
     try std.testing.expect(fields[epoch_rewards_index].type.ID.equals(sol.EPOCH_REWARDS_ID));
     try std.testing.expect(fields[last_restart_slot_index].type.ID.equals(sol.LAST_RESTART_SLOT_ID));
+}
+
+test "dsl: AccountsDerive auto-fills token program for token/mint/ata" {
+    const TokenData = struct {
+        mint: sol.PublicKey,
+        authority: sol.PublicKey,
+    };
+
+    const MintData = struct {
+        authority: sol.PublicKey,
+        decimals: u8,
+    };
+
+    const TokenAccount = account_mod.Account(TokenData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("TokenAccountAutoProgram"),
+        .token_mint = "mint",
+        .token_authority = "authority",
+    });
+
+    const MintAccount = account_mod.Account(MintData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("MintAccountAutoProgram"),
+        .mint_authority = "authority",
+        .mint_decimals = 6,
+    });
+
+    const AtaAccount = account_mod.Account(TokenData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("AtaAccountAutoProgram"),
+        .associated_token = .{ .mint = "mint", .authority = "authority" },
+    });
+
+    const AccountsType = AccountsDerive(struct {
+        authority: Signer,
+        mint: MintAccount,
+        token_program: UncheckedProgram,
+        token_account: TokenAccount,
+        mint_account: MintAccount,
+        ata_account: AtaAccount,
+    });
+
+    const fields = @typeInfo(AccountsType).@"struct".fields;
+    const token_index = std.meta.fieldIndex(AccountsType, "token_account") orelse
+        @compileError("AccountsDerive failed to produce token_account field");
+    const mint_index = std.meta.fieldIndex(AccountsType, "mint_account") orelse
+        @compileError("AccountsDerive failed to produce mint_account field");
+    const ata_index = std.meta.fieldIndex(AccountsType, "ata_account") orelse
+        @compileError("AccountsDerive failed to produce ata_account field");
+
+    try std.testing.expect(fields[token_index].type.TOKEN_PROGRAM != null);
+    try std.testing.expect(fields[mint_index].type.MINT_TOKEN_PROGRAM != null);
+    try std.testing.expect(fields[ata_index].type.ASSOCIATED_TOKEN.?.token_program != null);
 }
 
 test "dsl: AccountsDerive infers init/payer/realloc mut/signer" {

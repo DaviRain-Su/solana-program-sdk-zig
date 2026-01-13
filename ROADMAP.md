@@ -1400,6 +1400,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.23 - AccountsDerive Auto Token Program
+
+- [x] Auto-fill token_program for token/mint/associated token constraints
+- [x] Add AccountsDerive tests for auto token program inference
+- [x] Update docs and tests
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

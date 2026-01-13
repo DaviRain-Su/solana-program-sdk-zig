@@ -2,6 +2,21 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-13-055
+
+**Date**: 2026-01-13
+**Goal**: Expand AccountsDerive sysvar defaults
+
+#### Completed Work
+1. Added auto-wrapping for epoch_schedule/recent_blockhashes/fees sysvar fields
+2. Expanded AccountsDerive tests for sysvar defaults
+3. Updated docs, story, and roadmap
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ZIG_LOCAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-13-054
 
 **Date**: 2026-01-13

@@ -1237,6 +1237,19 @@ fn autoSysvarType(comptime name: []const u8, comptime FieldType: type) ?type {
     if (std.mem.eql(u8, name, "last_restart_slot")) {
         return sysvar_account.Sysvar(sysvar_account.SysvarId(sol.LAST_RESTART_SLOT_ID));
     }
+    if (std.mem.eql(u8, name, "epoch_schedule") or std.mem.eql(u8, name, "epoch_schedule_sysvar")) {
+        return sysvar_account.Sysvar(sol.epoch_schedule.EpochSchedule);
+    }
+    if (std.mem.eql(u8, name, "recent_blockhashes") or std.mem.eql(u8, name, "recent_blockhashes_sysvar")) {
+        const recent_blockhashes_id = sol.PublicKey.comptimeFromBase58(
+            "SysvarRecentB1ockHashes11111111111111111111",
+        );
+        return sysvar_account.Sysvar(sysvar_account.SysvarId(recent_blockhashes_id));
+    }
+    if (std.mem.eql(u8, name, "fees") or std.mem.eql(u8, name, "fees_sysvar")) {
+        const fees_id = sol.PublicKey.comptimeFromBase58("SysvarFees111111111111111111111111111111111");
+        return sysvar_account.Sysvar(sysvar_account.SysvarId(fees_id));
+    }
     return null;
 }
 
@@ -1596,6 +1609,9 @@ test "dsl: AccountsDerive auto-binds common program/sysvar fields" {
         instructions: *const AccountInfo,
         epoch_rewards: *const AccountInfo,
         last_restart_slot: *const AccountInfo,
+        epoch_schedule: *const AccountInfo,
+        recent_blockhashes: *const AccountInfo,
+        fees: *const AccountInfo,
     });
 
     const fields = @typeInfo(AccountsType).@"struct".fields;
@@ -1627,6 +1643,12 @@ test "dsl: AccountsDerive auto-binds common program/sysvar fields" {
         @compileError("AccountsDerive failed to produce epoch_rewards field");
     const last_restart_slot_index = std.meta.fieldIndex(AccountsType, "last_restart_slot") orelse
         @compileError("AccountsDerive failed to produce last_restart_slot field");
+    const epoch_schedule_index = std.meta.fieldIndex(AccountsType, "epoch_schedule") orelse
+        @compileError("AccountsDerive failed to produce epoch_schedule field");
+    const recent_blockhashes_index = std.meta.fieldIndex(AccountsType, "recent_blockhashes") orelse
+        @compileError("AccountsDerive failed to produce recent_blockhashes field");
+    const fees_index = std.meta.fieldIndex(AccountsType, "fees") orelse
+        @compileError("AccountsDerive failed to produce fees field");
     if (!@hasField(fields[system_index].type, "base")) {
         @compileError("system_program was not wrapped with ProgramField");
     }
@@ -1678,10 +1700,29 @@ test "dsl: AccountsDerive auto-binds common program/sysvar fields" {
     if (!@hasDecl(fields[last_restart_slot_index].type, "ID")) {
         @compileError("last_restart_slot was not wrapped with Sysvar");
     }
+    if (!@hasDecl(fields[epoch_schedule_index].type, "SYSVAR_TYPE") or
+        fields[epoch_schedule_index].type.SYSVAR_TYPE != sol.epoch_schedule.EpochSchedule)
+    {
+        @compileError("epoch_schedule sysvar type mismatch");
+    }
+    if (!@hasDecl(fields[recent_blockhashes_index].type, "ID")) {
+        @compileError("recent_blockhashes was not wrapped with Sysvar");
+    }
+    if (!@hasDecl(fields[fees_index].type, "ID")) {
+        @compileError("fees was not wrapped with Sysvar");
+    }
     try std.testing.expect(fields[stake_history_index].type.ID.equals(sol.STAKE_HISTORY_ID));
     try std.testing.expect(fields[instructions_index].type.ID.equals(sol.INSTRUCTIONS_ID));
     try std.testing.expect(fields[epoch_rewards_index].type.ID.equals(sol.EPOCH_REWARDS_ID));
     try std.testing.expect(fields[last_restart_slot_index].type.ID.equals(sol.LAST_RESTART_SLOT_ID));
+    const recent_blockhashes_id = comptime sol.PublicKey.comptimeFromBase58(
+        "SysvarRecentB1ockHashes11111111111111111111",
+    );
+    const fees_id = comptime sol.PublicKey.comptimeFromBase58(
+        "SysvarFees111111111111111111111111111111111",
+    );
+    try std.testing.expect(fields[recent_blockhashes_index].type.ID.equals(recent_blockhashes_id));
+    try std.testing.expect(fields[fees_index].type.ID.equals(fees_id));
 }
 
 test "dsl: AccountsDerive auto-fills token program for token/mint/ata" {

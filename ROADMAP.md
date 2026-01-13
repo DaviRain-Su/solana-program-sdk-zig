@@ -1498,6 +1498,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.35 - AccountsDerive Sysvar Defaults
+
+- [x] Auto-wrap epoch_schedule/recent_blockhashes/fees sysvar fields
+- [x] Add AccountsDerive tests for sysvar defaults
+- [x] Update docs
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

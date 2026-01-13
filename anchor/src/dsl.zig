@@ -1118,7 +1118,7 @@ fn autoProgramAttrs(comptime name: []const u8, comptime FieldType: type) ?[]cons
     if (std.mem.eql(u8, name, "system_program")) {
         return &.{ attr_mod.attr.address(sol.system_program.id), attr_mod.attr.executable() };
     }
-    if (std.mem.eql(u8, name, "token_program")) {
+    if (isTokenProgramName(name)) {
         return &.{ attr_mod.attr.address(sol.spl.TOKEN_PROGRAM_ID), attr_mod.attr.executable() };
     }
     if (std.mem.eql(u8, name, "associated_token_program")) {
@@ -1166,16 +1166,32 @@ fn autoSysvarType(comptime name: []const u8, comptime FieldType: type) ?type {
     return null;
 }
 
+fn isTokenProgramName(comptime name: []const u8) bool {
+    const aliases = [_][]const u8{
+        "token_program",
+        "spl_token_program",
+        "token_program_id",
+        "token_program_account",
+    };
+    inline for (aliases) |alias| {
+        if (std.mem.eql(u8, name, alias)) return true;
+    }
+    return false;
+}
+
 fn isProgramFieldType(comptime FieldType: type) bool {
     const CleanType = unwrapOptionalType(FieldType);
     return CleanType == UncheckedProgram or @hasDecl(CleanType, "ID");
 }
 
 fn autoTokenProgramName(comptime AccountsType: type) ?[]const u8 {
-    const index = std.meta.fieldIndex(AccountsType, "token_program") orelse return null;
     const fields = @typeInfo(AccountsType).@"struct".fields;
-    if (!isProgramFieldType(fields[index].type)) return null;
-    return "token_program";
+    inline for (fields) |field| {
+        if (!isTokenProgramName(field.name)) continue;
+        if (!isProgramFieldType(field.type)) continue;
+        return field.name;
+    }
+    return null;
 }
 
 fn autoAccountAttrs(comptime AccountsType: type, comptime FieldType: type) ?[]const attr_mod.Attr {
@@ -1532,6 +1548,35 @@ test "dsl: AccountsDerive auto-fills token program for token/mint/ata" {
     try std.testing.expect(fields[token_index].type.TOKEN_PROGRAM != null);
     try std.testing.expect(fields[mint_index].type.MINT_TOKEN_PROGRAM != null);
     try std.testing.expect(fields[ata_index].type.ASSOCIATED_TOKEN.?.token_program != null);
+}
+
+test "dsl: AccountsDerive supports token program aliases" {
+    const TokenData = struct {
+        mint: sol.PublicKey,
+        authority: sol.PublicKey,
+    };
+
+    const TokenAccount = account_mod.Account(TokenData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("TokenAccountAlias"),
+        .token_mint = "mint",
+        .token_authority = "authority",
+    });
+
+    const AccountsType = AccountsDerive(struct {
+        spl_token_program: UncheckedProgram,
+        token_account: TokenAccount,
+    });
+
+    const fields = @typeInfo(AccountsType).@"struct".fields;
+    const program_index = std.meta.fieldIndex(AccountsType, "spl_token_program") orelse
+        @compileError("AccountsDerive failed to produce spl_token_program field");
+    const token_index = std.meta.fieldIndex(AccountsType, "token_account") orelse
+        @compileError("AccountsDerive failed to produce token_account field");
+
+    if (!@hasField(fields[program_index].type, "base")) {
+        @compileError("spl_token_program was not wrapped with ProgramField");
+    }
+    try std.testing.expect(fields[token_index].type.TOKEN_PROGRAM != null);
 }
 
 test "dsl: AccountsDerive infers init/payer/realloc mut/signer" {

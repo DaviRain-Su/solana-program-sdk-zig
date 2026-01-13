@@ -1416,6 +1416,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.25 - AccountsDerive Token Program Aliases
+
+- [x] Recognize token program alias field names
+- [x] Add AccountsDerive tests for token program aliases
+- [x] Update docs and tests
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

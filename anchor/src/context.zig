@@ -417,10 +417,53 @@ pub fn loadAccountsWithPda(
         }
     }
 
+    try validateDuplicateMutableAccounts(Accounts, &accounts);
+
     // Phase 3: Validate constraints after all accounts are loaded
     try validatePhase3Constraints(Accounts, &accounts);
 
     return .{ .accounts = accounts, .bumps = bumps };
+}
+
+fn validateDuplicateMutableAccounts(comptime Accounts: type, accounts: *const Accounts) !void {
+    const fields = @typeInfo(Accounts).@"struct".fields;
+
+    var seen_keys: [fields.len]PublicKey = undefined;
+    var seen_count: usize = 0;
+
+    inline for (fields) |field| {
+        const FieldType = field.type;
+
+        if (!@hasDecl(FieldType, "HAS_MUT") or !FieldType.HAS_MUT) {
+            continue;
+        }
+        if (@hasDecl(FieldType, "IS_DUP") and FieldType.IS_DUP) {
+            continue;
+        }
+        if (@hasDecl(FieldType, "IS_INIT") and FieldType.IS_INIT) {
+            continue;
+        }
+        if (@hasDecl(FieldType, "IS_INIT_IF_NEEDED") and FieldType.IS_INIT_IF_NEEDED) {
+            continue;
+        }
+        if (!@hasDecl(FieldType, "toAccountInfo")) {
+            continue;
+        }
+
+        const account = @field(accounts.*, field.name);
+        const info = account.toAccountInfo();
+        const key = info.id.*;
+
+        var idx: usize = 0;
+        while (idx < seen_count) : (idx += 1) {
+            if (seen_keys[idx].equals(key)) {
+                return error.ConstraintDuplicateMutableAccount;
+            }
+        }
+
+        seen_keys[seen_count] = key;
+        seen_count += 1;
+    }
 }
 
 /// Validate Phase 3 constraints (has_one, close, realloc, constraint) for all accounts
@@ -534,6 +577,10 @@ pub const ContextError = error{
 
 const signer_mod = @import("signer.zig");
 const Signer = signer_mod.Signer;
+const account_mod = @import("account.zig");
+const Account = account_mod.Account;
+const discriminator_mod = @import("discriminator.zig");
+const DISCRIMINATOR_LENGTH = discriminator_mod.DISCRIMINATOR_LENGTH;
 
 test "Context creation" {
     const TestAccounts = struct {
@@ -818,6 +865,92 @@ test "loadAccountsWithPda returns accounts and empty bumps for non-PDA accounts"
 
     // Check no bumps for non-PDA accounts
     try std.testing.expectEqual(@as(usize, 0), result.bumps.count());
+}
+
+test "loadAccountsWithPda rejects duplicate mutable accounts without dup" {
+    const Data = struct {
+        value: u64,
+    };
+
+    const Mutable = Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("DupMutable"),
+        .mut = true,
+    });
+
+    const Accounts = struct {
+        first: Mutable,
+        second: Mutable,
+    };
+
+    var program_id = PublicKey.default();
+    var account_id = PublicKey.default();
+    var owner = PublicKey.default();
+    var lamports: u64 = 1_000_000;
+
+    var buffer: [DISCRIMINATOR_LENGTH + @sizeOf(Data)]u8 align(@alignOf(Data)) = undefined;
+    @memset(&buffer, 0);
+    @memcpy(buffer[0..DISCRIMINATOR_LENGTH], &Mutable.discriminator);
+
+    const info = AccountInfo{
+        .id = &account_id,
+        .owner_id = &owner,
+        .lamports = &lamports,
+        .data_len = buffer.len,
+        .data = buffer[0..].ptr,
+        .is_signer = 0,
+        .is_writable = 1,
+        .is_executable = 0,
+    };
+
+    const infos = [_]AccountInfo{ info, info };
+
+    try std.testing.expectError(error.ConstraintDuplicateMutableAccount, loadAccountsWithPda(Accounts, &program_id, &infos));
+}
+
+test "loadAccountsWithPda allows duplicate mutable accounts with dup" {
+    const Data = struct {
+        value: u64,
+    };
+
+    const Mutable = Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("DupMutableOk"),
+        .mut = true,
+    });
+
+    const MutableDup = Account(Data, .{
+        .discriminator = Mutable.discriminator,
+        .mut = true,
+        .dup = true,
+    });
+
+    const Accounts = struct {
+        first: Mutable,
+        second: MutableDup,
+    };
+
+    var program_id = PublicKey.default();
+    var account_id = PublicKey.default();
+    var owner = PublicKey.default();
+    var lamports: u64 = 1_000_000;
+
+    var buffer: [DISCRIMINATOR_LENGTH + @sizeOf(Data)]u8 align(@alignOf(Data)) = undefined;
+    @memset(&buffer, 0);
+    @memcpy(buffer[0..DISCRIMINATOR_LENGTH], &Mutable.discriminator);
+
+    const info = AccountInfo{
+        .id = &account_id,
+        .owner_id = &owner,
+        .lamports = &lamports,
+        .data_len = buffer.len,
+        .data = buffer[0..].ptr,
+        .is_signer = 0,
+        .is_writable = 1,
+        .is_executable = 0,
+    };
+
+    const infos = [_]AccountInfo{ info, info };
+
+    _ = try loadAccountsWithPda(Accounts, &program_id, &infos);
 }
 
 test "parseContextBasic creates context without PDA validation" {

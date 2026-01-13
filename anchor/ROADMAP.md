@@ -1,5 +1,11 @@
 # sol-anchor-zig Roadmap
 
+## ✅ v3.2.46 - Anchor Zero/Space/Dup Constraints
+
+- [x] Enforce zero constraint via discriminator check
+- [x] Enforce explicit space constraint with exact size
+- [x] Reject duplicate mutable accounts without dup
+
 ## ✅ v3.0.4 - Anchor IDL + Zig Client
 
 - [x] IDL JSON generation

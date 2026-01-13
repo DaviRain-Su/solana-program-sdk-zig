@@ -2,6 +2,21 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-13-066
+
+**Date**: 2026-01-13
+**Goal**: Add zero/space/dup constraint validation
+
+#### Completed Work
+1. Enforced `zero` discriminator checks and explicit `space` validation
+2. Added duplicate mutable account checks with `dup` escape hatch
+3. Added tests and updated Anchor docs/story/roadmap
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ZIG_LOCAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-13-065
 
 **Date**: 2026-01-13

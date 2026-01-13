@@ -41,6 +41,7 @@ const sol = anchor.sdk;
 | Constraint expr | `constraint = <expr>` | `anchor.constraint()` | ✅ |
 | Constraint runtime | `constraint = <expr>` | Runtime eval (==/!=, key(), field access) | ✅ |
 | Rent exempt | `#[account(rent_exempt)]` | Runtime rent exemption check | ✅ |
+| Zero/Space/Dup constraints | `#[account(zero/space/dup)]` | Zeroed discriminator check, exact space check, duplicate mutable account check | ✅ |
 | Account attrs | `#[account(...)]` | `anchor.attr.*` + `.attrs` / `anchor.attr.account(...)` / `anchor.AccountField(...)` / `anchor.AccountsWith(...)` | ✅ |
 | Token constraints | `token::mint/authority`, `associated_token::*` | `anchor.attr.tokenMint/tokenAuthority/associatedToken*` | ✅ |
 | Accounts derive | `#[derive(Accounts)]` | `anchor.Accounts(T)` / `anchor.AccountsDerive(T)` | ✅ |

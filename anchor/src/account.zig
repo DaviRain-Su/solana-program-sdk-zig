@@ -771,6 +771,9 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
         /// Space expression (if any)
         pub const SPACE_EXPR: ?[]const u8 = merged.space_expr;
 
+        /// Whether space was explicitly configured
+        pub const HAS_SPACE_CONSTRAINT: bool = merged.space != null or merged.space_expr != null;
+
         /// The inner data type
         pub const DataType = T;
 
@@ -895,10 +898,18 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
                 return error.AccountDiscriminatorNotFound;
             }
 
-            // Validate discriminator
             const data_slice = info.data[0..DISCRIMINATOR_LENGTH];
-            if (!std.mem.eql(u8, data_slice, &discriminator)) {
-                return error.AccountDiscriminatorMismatch;
+            if (IS_ZERO) {
+                for (data_slice) |byte| {
+                    if (byte != 0) {
+                        return error.ConstraintZero;
+                    }
+                }
+            } else {
+                // Validate discriminator
+                if (!std.mem.eql(u8, data_slice, &discriminator)) {
+                    return error.AccountDiscriminatorMismatch;
+                }
             }
 
             // Validate owner constraint if specified
@@ -1270,6 +1281,17 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
             try self.validateInitConstraint(accounts);
             try self.validateCloseConstraint(accounts);
             try self.validateReallocConstraint(accounts);
+            if (HAS_SPACE_CONSTRAINT and self.info.data_len != SPACE) {
+                return error.ConstraintSpace;
+            }
+            if (IS_ZERO) {
+                const data_slice = self.info.data[0..DISCRIMINATOR_LENGTH];
+                for (data_slice) |byte| {
+                    if (byte != 0) {
+                        return error.ConstraintZero;
+                    }
+                }
+            }
             if (RENT_EXEMPT) {
                 const rent = sol.rent.Rent.getOrDefault();
                 if (!rent.isExempt(self.info.lamports.*, self.info.data_len)) {
@@ -1292,7 +1314,7 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
         /// Check if account requires constraint validation
         pub fn requiresConstraintValidation() bool {
             return HAS_HAS_ONE or IS_INIT or HAS_CLOSE or HAS_REALLOC or RENT_EXEMPT or
-                CONSTRAINT != null or OWNER_EXPR != null or ADDRESS_EXPR != null;
+                IS_ZERO or HAS_SPACE_CONSTRAINT or CONSTRAINT != null or OWNER_EXPR != null or ADDRESS_EXPR != null;
         }
     };
 }
@@ -1314,6 +1336,8 @@ pub const AccountError = error{
     ConstraintClose,
     ConstraintRealloc,
     ConstraintRentExempt,
+    ConstraintZero,
+    ConstraintSpace,
 };
 
 // ============================================================================
@@ -2054,9 +2078,109 @@ test "Account rent_exempt constraint validates at runtime" {
     try accounts.rent_account.validateAllConstraints("rent_account", accounts);
 }
 
+test "Account zero constraint validates discriminator is zero" {
+    const Data = struct {
+        value: u64,
+    };
+
+    const ZeroAccount = Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("ZeroAccount"),
+        .zero = true,
+    });
+
+    const Accounts = struct {
+        zero_account: ZeroAccount,
+    };
+
+    var account_id = PublicKey.default();
+    var owner = PublicKey.default();
+    var lamports: u64 = 1_000_000;
+
+    var buffer: [DISCRIMINATOR_LENGTH + @sizeOf(Data)]u8 align(@alignOf(Data)) = undefined;
+    @memset(&buffer, 0);
+
+    const info = AccountInfo{
+        .id = &account_id,
+        .owner_id = &owner,
+        .lamports = &lamports,
+        .data_len = buffer.len,
+        .data = buffer[0..].ptr,
+        .is_signer = 0,
+        .is_writable = 1,
+        .is_executable = 0,
+    };
+
+    var accounts = Accounts{
+        .zero_account = try ZeroAccount.load(&info),
+    };
+    try accounts.zero_account.validateAllConstraints("zero_account", accounts);
+
+    @memcpy(buffer[0..DISCRIMINATOR_LENGTH], &ZeroAccount.discriminator);
+    try std.testing.expectError(error.ConstraintZero, ZeroAccount.load(&info));
+}
+
+test "Account space constraint validates exact size" {
+    const Data = struct {
+        value: u64,
+    };
+
+    const SpaceAccount = Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("SpaceAccount"),
+        .space = DISCRIMINATOR_LENGTH + @sizeOf(Data),
+    });
+
+    const Accounts = struct {
+        account: SpaceAccount,
+    };
+
+    var account_id = PublicKey.default();
+    var owner = PublicKey.default();
+    var lamports: u64 = 1_000_000;
+
+    var exact_buffer: [SpaceAccount.SPACE]u8 align(@alignOf(Data)) = undefined;
+    @memset(&exact_buffer, 0);
+    @memcpy(exact_buffer[0..DISCRIMINATOR_LENGTH], &SpaceAccount.discriminator);
+
+    const exact_info = AccountInfo{
+        .id = &account_id,
+        .owner_id = &owner,
+        .lamports = &lamports,
+        .data_len = exact_buffer.len,
+        .data = exact_buffer[0..].ptr,
+        .is_signer = 0,
+        .is_writable = 1,
+        .is_executable = 0,
+    };
+
+    var accounts = Accounts{
+        .account = try SpaceAccount.load(&exact_info),
+    };
+    try accounts.account.validateAllConstraints("account", accounts);
+
+    var large_buffer: [SpaceAccount.SPACE + 8]u8 align(@alignOf(Data)) = undefined;
+    @memset(&large_buffer, 0);
+    @memcpy(large_buffer[0..DISCRIMINATOR_LENGTH], &SpaceAccount.discriminator);
+
+    const large_info = AccountInfo{
+        .id = &account_id,
+        .owner_id = &owner,
+        .lamports = &lamports,
+        .data_len = large_buffer.len,
+        .data = large_buffer[0..].ptr,
+        .is_signer = 0,
+        .is_writable = 1,
+        .is_executable = 0,
+    };
+
+    accounts = Accounts{
+        .account = try SpaceAccount.load(&large_info),
+    };
+    try std.testing.expectError(error.ConstraintSpace, accounts.account.validateAllConstraints("account", accounts));
+}
+
 test "Account owner/address expressions validate at runtime" {
     const Data = struct {
-        pub const INIT_SPACE: usize = 0;
+        pub const INIT_SPACE: usize = @sizeOf(@This());
         authority: PublicKey,
     };
 
@@ -2708,9 +2832,21 @@ test "requiresConstraintValidation returns correct value" {
         .owner_expr = "authority.key()",
     });
 
+    const WithZero = Account(TestData, .{
+        .discriminator = base_disc,
+        .zero = true,
+    });
+
+    const WithSpace = Account(TestData, .{
+        .discriminator = base_disc,
+        .space = DISCRIMINATOR_LENGTH + @sizeOf(TestData),
+    });
+
     try std.testing.expect(!NoConstraints.requiresConstraintValidation());
     try std.testing.expect(WithHasOne.requiresConstraintValidation());
     try std.testing.expect(WithClose.requiresConstraintValidation());
     try std.testing.expect(WithRealloc.requiresConstraintValidation());
     try std.testing.expect(WithOwnerExpr.requiresConstraintValidation());
+    try std.testing.expect(WithZero.requiresConstraintValidation());
+    try std.testing.expect(WithSpace.requiresConstraintValidation());
 }

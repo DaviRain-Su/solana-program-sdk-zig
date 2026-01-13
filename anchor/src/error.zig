@@ -102,6 +102,9 @@ pub const AnchorError = enum(u32) {
     /// 2020 - A required account is not owned by this program
     ConstraintAccountIsNone = 2020,
 
+    /// 2040 - A duplicate mutable account constraint was violated
+    ConstraintDuplicateMutableAccount = 2040,
+
     // ========================================================================
     // Account errors (3000-3999)
     // ========================================================================
@@ -192,6 +195,7 @@ pub const AnchorError = enum(u32) {
             .ConstraintMintDecimals => "A mint decimals constraint was violated",
             .ConstraintSpace => "A space constraint was violated",
             .ConstraintAccountIsNone => "A required account is not owned by this program",
+            .ConstraintDuplicateMutableAccount => "A duplicate mutable account constraint was violated",
             .AccountDiscriminatorMismatch => "Account discriminator did not match",
             .AccountDiscriminatorNotFound => "Account discriminator not found",
             .AccountNotInitialized => "Account was not initialized",

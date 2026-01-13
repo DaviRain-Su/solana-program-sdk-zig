@@ -213,6 +213,9 @@ Constraint rules:
 - `token::*` constraints cannot be combined with `mint::*` constraints.
 - `init`/`init_if_needed` validates account is writable and uninitialized; payer must be signer + writable.
 - `executable` cannot be combined with `mut`, `signer`, `init`, `close`, or `realloc`.
+- `zero` requires the discriminator bytes to be all zero.
+- `space` enforces exact account data length when explicitly set.
+- Duplicate mutable accounts are rejected unless the duplicated field uses `dup`.
 
 ## Build & Test
 

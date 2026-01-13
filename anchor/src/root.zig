@@ -223,6 +223,9 @@ pub const InterfaceAccountConfig = interface.InterfaceAccountConfig;
 /// Interface account info config
 pub const InterfaceAccountInfoConfig = interface.InterfaceAccountInfoConfig;
 
+/// Interface CPI AccountMeta override wrapper
+pub const AccountMetaOverride = interface.AccountMetaOverride;
+
 /// Interface CPI instruction builder
 pub const Interface = interface.Interface;
 

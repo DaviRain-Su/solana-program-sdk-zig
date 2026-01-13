@@ -10,6 +10,7 @@ const AccountInfo = sol.account.Account.Info;
 const PublicKey = sol.PublicKey;
 const AccountMeta = sol.instruction.AccountMeta;
 const Instruction = sol.instruction.Instruction;
+const AccountParam = sol.account.Account.Param;
 
 const Discriminator = discriminator_mod.Discriminator;
 const DISCRIMINATOR_LENGTH = discriminator_mod.DISCRIMINATOR_LENGTH;
@@ -57,6 +58,7 @@ pub const InterfaceAccountConfig = struct {
     discriminator: ?Discriminator = null,
     owners: ?[]const PublicKey = null,
     address: ?PublicKey = null,
+    executable: bool = false,
     mut: bool = false,
     signer: bool = false,
 };
@@ -65,8 +67,30 @@ pub const InterfaceAccountConfig = struct {
 pub const InterfaceAccountInfoConfig = struct {
     owners: ?[]const PublicKey = null,
     address: ?PublicKey = null,
+    executable: bool = false,
     mut: bool = false,
     signer: bool = false,
+};
+
+/// Override AccountMeta flags for CPI when AccountInfo flags differ.
+pub const AccountMetaOverride = struct {
+    info: *const AccountInfo,
+    is_signer: ?bool = null,
+    is_writable: ?bool = null,
+
+    pub fn init(info: *const AccountInfo) AccountMetaOverride {
+        return .{ .info = info };
+    }
+
+    pub fn toAccountMeta(self: AccountMetaOverride) AccountMeta {
+        const signer = self.is_signer orelse (self.info.is_signer != 0);
+        const writable = self.is_writable orelse (self.info.is_writable != 0);
+        return AccountMeta.init(self.info.id.*, signer, writable);
+    }
+
+    pub fn toAccountInfo(self: AccountMetaOverride) *const AccountInfo {
+        return self.info;
+    }
 };
 
 /// Interface account wrapper that accepts multiple owner programs.
@@ -87,11 +111,12 @@ pub fn InterfaceAccount(comptime T: type, comptime config: InterfaceAccountConfi
         pub const DISCRIMINATOR: ?Discriminator = config.discriminator;
         pub const OWNERS: ?[]const PublicKey = config.owners;
         pub const ADDRESS: ?PublicKey = config.address;
+        pub const HAS_EXECUTABLE: bool = config.executable;
         pub const HAS_MUT: bool = config.mut;
         pub const HAS_SIGNER: bool = config.signer;
 
         pub fn load(info: *const AccountInfo) !Self {
-            try validateAccess(info, config.owners, config.address, config.mut, config.signer);
+            try validateAccess(info, config.owners, config.address, config.executable, config.mut, config.signer);
 
             const offset = if (config.discriminator != null) DISCRIMINATOR_LENGTH else 0;
             if (info.data_len < offset + @sizeOf(T)) {
@@ -134,11 +159,12 @@ pub fn InterfaceAccountInfo(comptime config: InterfaceAccountInfoConfig) type {
 
         pub const OWNERS: ?[]const PublicKey = config.owners;
         pub const ADDRESS: ?PublicKey = config.address;
+        pub const HAS_EXECUTABLE: bool = config.executable;
         pub const HAS_MUT: bool = config.mut;
         pub const HAS_SIGNER: bool = config.signer;
 
         pub fn load(info: *const AccountInfo) !Self {
-            try validateAccess(info, config.owners, config.address, config.mut, config.signer);
+            try validateAccess(info, config.owners, config.address, config.executable, config.mut, config.signer);
             return Self{ .info = info };
         }
 
@@ -227,6 +253,68 @@ pub fn Interface(comptime Program: type, comptime config: InterfaceConfig) type 
             return try buildInstruction(self, name, accounts, args, remaining);
         }
 
+        pub fn invokeNoArgs(
+            self: *Self,
+            comptime name: []const u8,
+            accounts: anytype,
+            remaining: anytype,
+        ) !sol.ProgramResult {
+            const instr = getInstructionType(name);
+            if (instr.Args != void) {
+                @compileError("invokeNoArgs used with non-void Args");
+            }
+            return try invokeInternal(self, name, accounts, null, remaining, null);
+        }
+
+        pub fn invoke(
+            self: *Self,
+            comptime name: []const u8,
+            accounts: anytype,
+            args: anytype,
+            remaining: anytype,
+        ) !sol.ProgramResult {
+            const instr = getInstructionType(name);
+            if (instr.Args == void) {
+                @compileError("invoke used with void Args; use invokeNoArgs");
+            }
+            if (@TypeOf(args) != instr.Args) {
+                @compileError("invoke args must match instruction Args");
+            }
+            return try invokeInternal(self, name, accounts, args, remaining, null);
+        }
+
+        pub fn invokeSignedNoArgs(
+            self: *Self,
+            comptime name: []const u8,
+            accounts: anytype,
+            remaining: anytype,
+            signer_seeds: []const []const []const u8,
+        ) !sol.ProgramResult {
+            const instr = getInstructionType(name);
+            if (instr.Args != void) {
+                @compileError("invokeSignedNoArgs used with non-void Args");
+            }
+            return try invokeInternal(self, name, accounts, null, remaining, signer_seeds);
+        }
+
+        pub fn invokeSigned(
+            self: *Self,
+            comptime name: []const u8,
+            accounts: anytype,
+            args: anytype,
+            remaining: anytype,
+            signer_seeds: []const []const []const u8,
+        ) !sol.ProgramResult {
+            const instr = getInstructionType(name);
+            if (instr.Args == void) {
+                @compileError("invokeSigned used with void Args; use invokeSignedNoArgs");
+            }
+            if (@TypeOf(args) != instr.Args) {
+                @compileError("invokeSigned args must match instruction Args");
+            }
+            return try invokeInternal(self, name, accounts, args, remaining, signer_seeds);
+        }
+
         fn getInstructionType(comptime name: []const u8) type {
             if (!@hasDecl(Program, "instructions")) {
                 @compileError("Program is missing instructions");
@@ -267,6 +355,71 @@ pub fn Interface(comptime Program: type, comptime config: InterfaceConfig) type 
             @memcpy(data[DISCRIMINATOR_LENGTH..], args_bytes);
             return Instruction.newWithBytes(self.allocator, self.program_id, data, metas.items);
         }
+
+        fn invokeInternal(
+            self: *Self,
+            comptime name: []const u8,
+            accounts: anytype,
+            args: anytype,
+            remaining: anytype,
+            signer_seeds: ?[]const []const []const u8,
+        ) !sol.ProgramResult {
+            if (!@hasDecl(Instruction, "invoke") or !@hasDecl(Instruction, "from")) {
+                @compileError("Interface invoke helpers require solana_program_sdk.instruction.Instruction");
+            }
+
+            const instr = getInstructionType(name);
+            if (@TypeOf(accounts) != instr.Accounts) {
+                @compileError("invoke accounts must match instruction Accounts");
+            }
+
+            var metas = std.ArrayList(AccountMeta).init(self.allocator);
+            defer metas.deinit();
+            try buildAccountMetas(instr.Accounts, accounts, &metas);
+            try appendRemainingAccounts(&metas, remaining);
+
+            var params = std.ArrayList(AccountParam).init(self.allocator);
+            defer params.deinit();
+            try params.ensureTotalCapacity(metas.items.len);
+            for (metas.items) |*meta| {
+                params.appendAssumeCapacity(sol.instruction.accountMetaToParam(meta));
+            }
+
+            var infos = std.ArrayList(AccountInfo).init(self.allocator);
+            defer infos.deinit();
+            try buildAccountInfos(instr.Accounts, accounts, &infos);
+            try appendRemainingAccountInfos(&infos, remaining);
+
+            const disc = discriminator_mod.instructionDiscriminator(name);
+            if (instr.Args == void) {
+                const cpi = Instruction.from(.{
+                    .program_id = &self.program_id,
+                    .accounts = params.items,
+                    .data = disc[0..],
+                });
+                if (signer_seeds) |seeds| {
+                    return cpi.invokeSigned(infos.items, seeds);
+                }
+                return cpi.invoke(infos.items);
+            }
+
+            const args_bytes = try sol.borsh.serializeAlloc(self.allocator, instr.Args, args);
+            defer self.allocator.free(args_bytes);
+            const data = try self.allocator.alloc(u8, DISCRIMINATOR_LENGTH + args_bytes.len);
+            defer self.allocator.free(data);
+            @memcpy(data[0..DISCRIMINATOR_LENGTH], &disc);
+            @memcpy(data[DISCRIMINATOR_LENGTH..], args_bytes);
+
+            const cpi = Instruction.from(.{
+                .program_id = &self.program_id,
+                .accounts = params.items,
+                .data = data,
+            });
+            if (signer_seeds) |seeds| {
+                return cpi.invokeSigned(infos.items, seeds);
+            }
+            return cpi.invoke(infos.items);
+        }
     };
 }
 
@@ -278,8 +431,22 @@ fn buildAccountMetas(
     const fields = @typeInfo(Accounts).@"struct".fields;
     inline for (fields) |field| {
         const value = @field(accounts, field.name);
-        if (try accountInfoFromValue(value)) |info| {
-            try metas.append(AccountMeta.init(info.id.*, info.is_signer != 0, info.is_writable != 0));
+        if (try accountMetaFromValue(value)) |meta| {
+            try metas.append(meta);
+        }
+    }
+}
+
+fn buildAccountInfos(
+    comptime Accounts: type,
+    accounts: Accounts,
+    infos: *std.ArrayList(AccountInfo),
+) !void {
+    const fields = @typeInfo(Accounts).@"struct".fields;
+    inline for (fields) |field| {
+        const value = @field(accounts, field.name);
+        if (try accountInfoValueFromValue(value)) |info| {
+            try infos.append(info);
         }
     }
 }
@@ -295,60 +462,89 @@ fn appendRemainingAccounts(metas: *std.ArrayList(AccountMeta), remaining: anytyp
     if (info != .pointer or info.pointer.size != .slice) {
         @compileError("remaining accounts must be a slice");
     }
-
-    const Child = info.pointer.child;
-    if (Child == *const AccountInfo or Child == *AccountInfo) {
-        for (remaining) |info_ptr| {
-            const account_info: *const AccountInfo = if (Child == *AccountInfo)
-                @ptrCast(info_ptr)
-            else
-                info_ptr;
-            try metas.append(AccountMeta.init(
-                account_info.id.*,
-                account_info.is_signer != 0,
-                account_info.is_writable != 0,
-            ));
+    for (remaining) |item| {
+        if (try accountMetaFromValue(item)) |meta| {
+            try metas.append(meta);
         }
-        return;
     }
-
-    if (@hasDecl(Child, "toAccountInfo")) {
-        for (remaining) |item| {
-            const account_info = item.toAccountInfo();
-            try metas.append(AccountMeta.init(
-                account_info.id.*,
-                account_info.is_signer != 0,
-                account_info.is_writable != 0,
-            ));
-        }
-        return;
-    }
-
-    @compileError("remaining accounts must be []const *AccountInfo, []const *const AccountInfo, or slice of types with toAccountInfo()");
 }
 
-fn accountInfoFromValue(value: anytype) !?*const AccountInfo {
+fn appendRemainingAccountInfos(infos: *std.ArrayList(AccountInfo), remaining: anytype) !void {
+    const T = @TypeOf(remaining);
+    if (@typeInfo(T) == .optional) {
+        if (remaining == null) return;
+        return try appendRemainingAccountInfos(infos, remaining.?);
+    }
+
+    const info = @typeInfo(T);
+    if (info != .pointer or info.pointer.size != .slice) {
+        @compileError("remaining accounts must be a slice");
+    }
+
+    for (remaining) |item| {
+        if (try accountInfoValueFromValue(item)) |value| {
+            try infos.append(value);
+        }
+    }
+}
+
+fn accountMetaFromValue(value: anytype) !?AccountMeta {
     const T = @TypeOf(value);
     if (@typeInfo(T) == .optional) {
         if (value == null) return null;
-        return try accountInfoFromValue(value.?);
+        return try accountMetaFromValue(value.?);
+    }
+    if (@hasDecl(T, "toAccountMeta")) {
+        return value.toAccountMeta();
+    }
+    if (T == AccountMeta) {
+        return value;
+    }
+    if (T == *const AccountMeta or T == *AccountMeta) {
+        return value.*;
+    }
+    if (T == AccountInfo) {
+        return AccountMeta.init(value.id.*, value.is_signer != 0, value.is_writable != 0);
     }
     if (T == *AccountInfo) {
-        return value;
+        return AccountMeta.init(value.id.*, value.is_signer != 0, value.is_writable != 0);
     }
     if (T == *const AccountInfo) {
-        return value;
+        return AccountMeta.init(value.id.*, value.is_signer != 0, value.is_writable != 0);
     }
     if (@hasDecl(T, "toAccountInfo")) {
-        return value.toAccountInfo();
+        const info_ptr = value.toAccountInfo();
+        return AccountMeta.init(info_ptr.id.*, info_ptr.is_signer != 0, info_ptr.is_writable != 0);
     }
-    @compileError("interface accounts must provide toAccountInfo() or AccountInfo");
+    @compileError("interface accounts must provide AccountMeta, AccountInfo, or toAccountInfo()");
+}
+
+fn accountInfoValueFromValue(value: anytype) !?AccountInfo {
+    const T = @TypeOf(value);
+    if (@typeInfo(T) == .optional) {
+        if (value == null) return null;
+        return try accountInfoValueFromValue(value.?);
+    }
+    if (T == AccountMeta or T == *const AccountMeta or T == *AccountMeta) {
+        @compileError("invoke helpers require AccountInfo or toAccountInfo()");
+    }
+    if (T == AccountInfo) {
+        return value;
+    }
+    if (T == *AccountInfo or T == *const AccountInfo) {
+        return value.*;
+    }
+    if (@hasDecl(T, "toAccountInfo")) {
+        return value.toAccountInfo().*;
+    }
+    @compileError("invoke helpers require AccountInfo or toAccountInfo()");
 }
 
 fn validateAccess(
     info: *const AccountInfo,
     owners: ?[]const PublicKey,
     address: ?PublicKey,
+    require_executable: bool,
     require_mut: bool,
     require_signer: bool,
 ) !void {
@@ -361,6 +557,9 @@ fn validateAccess(
         if (!info.id.equals(expected_address)) {
             return error.ConstraintAddress;
         }
+    }
+    if (require_executable and info.is_executable == 0) {
+        return error.ConstraintExecutable;
     }
     if (require_mut and info.is_writable == 0) {
         return error.ConstraintMut;
@@ -462,6 +661,28 @@ test "InterfaceAccountInfo validates access rules" {
     _ = try RawInfo.load(&info);
 }
 
+test "InterfaceAccountInfo enforces executable" {
+    const RawInfo = InterfaceAccountInfo(.{ .executable = true });
+
+    var owner = PublicKey.default();
+    var id = PublicKey.default();
+    var lamports: u64 = 1;
+    var data: [0]u8 = .{};
+    const info = AccountInfo{
+        .id = &id,
+        .owner_id = &owner,
+        .lamports = &lamports,
+        .data_len = data.len,
+        .data = data[0..].ptr,
+        .is_signer = 0,
+        .is_writable = 0,
+        .is_executable = 0,
+        .rent_epoch = 0,
+    };
+
+    try std.testing.expectError(error.ConstraintExecutable, RawInfo.load(&info));
+}
+
 test "Interface builds CPI instruction" {
     const Accounts = struct {
         authority: *const sol.account.Account.Info,
@@ -497,6 +718,75 @@ test "Interface builds CPI instruction" {
     defer ix.deinit(allocator);
 
     try std.testing.expectEqual(@as(usize, 1), ix.accounts.len);
+}
+
+test "Interface builds CPI instruction with AccountMeta fields" {
+    const Accounts = struct {
+        authority: AccountMeta,
+    };
+    const Args = struct { amount: u64 };
+
+    const Program = struct {
+        pub const instructions = struct {
+            pub const deposit = @import("idl.zig").Instruction(.{ .Accounts = Accounts, .Args = Args });
+        };
+    };
+
+    const allocator = std.testing.allocator;
+    const key = PublicKey.default();
+    const accounts = Accounts{ .authority = AccountMeta.init(key, true, false) };
+
+    var iface = try Interface(Program, .{}).init(allocator, PublicKey.default());
+    const ix = try iface.instruction("deposit", accounts, Args{ .amount = 7 });
+    defer ix.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 1), ix.accounts.len);
+    try std.testing.expect(ix.accounts[0].pubkey.equals(key));
+    try std.testing.expect(ix.accounts[0].is_signer);
+    try std.testing.expect(!ix.accounts[0].is_writable);
+}
+
+test "Interface builds CPI instruction with AccountMetaOverride" {
+    const Accounts = struct {
+        authority: AccountMetaOverride,
+    };
+    const Args = struct { amount: u64 };
+
+    const Program = struct {
+        pub const instructions = struct {
+            pub const deposit = @import("idl.zig").Instruction(.{ .Accounts = Accounts, .Args = Args });
+        };
+    };
+
+    const allocator = std.testing.allocator;
+    var key = PublicKey.default();
+    var owner = PublicKey.default();
+    var lamports: u64 = 1;
+    var data: [0]u8 = .{};
+    const info = AccountInfo{
+        .id = &key,
+        .owner_id = &owner,
+        .lamports = &lamports,
+        .data_len = data.len,
+        .data = data[0..].ptr,
+        .is_signer = 0,
+        .is_writable = 0,
+        .is_executable = 0,
+        .rent_epoch = 0,
+    };
+    const override = AccountMetaOverride{
+        .info = &info,
+        .is_signer = true,
+        .is_writable = true,
+    };
+    const accounts = Accounts{ .authority = override };
+
+    var iface = try Interface(Program, .{}).init(allocator, PublicKey.default());
+    const ix = try iface.instruction("deposit", accounts, Args{ .amount = 7 });
+    defer ix.deinit(allocator);
+
+    try std.testing.expect(ix.accounts[0].is_signer);
+    try std.testing.expect(ix.accounts[0].is_writable);
 }
 
 test "Interface builds CPI instruction with remaining accounts" {
@@ -550,4 +840,45 @@ test "Interface builds CPI instruction with remaining accounts" {
     defer ix.deinit(allocator);
 
     try std.testing.expectEqual(@as(usize, 2), ix.accounts.len);
+}
+
+test "Interface builds CPI instruction with remaining AccountMeta" {
+    const Accounts = struct {
+        authority: *const sol.account.Account.Info,
+    };
+    const Args = struct { amount: u64 };
+
+    const Program = struct {
+        pub const instructions = struct {
+            pub const deposit = @import("idl.zig").Instruction(.{ .Accounts = Accounts, .Args = Args });
+        };
+    };
+
+    const allocator = std.testing.allocator;
+    var key = PublicKey.default();
+    var owner = PublicKey.default();
+    var lamports: u64 = 1;
+    var data: [0]u8 = .{};
+    const info = AccountInfo{
+        .id = &key,
+        .owner_id = &owner,
+        .lamports = &lamports,
+        .data_len = data.len,
+        .data = data[0..].ptr,
+        .is_signer = 1,
+        .is_writable = 1,
+        .is_executable = 0,
+        .rent_epoch = 0,
+    };
+    const accounts = Accounts{ .authority = &info };
+
+    const meta = AccountMeta.init(PublicKey.default(), false, false);
+    const remaining = [_]AccountMeta{ meta };
+
+    var iface = try Interface(Program, .{}).init(allocator, PublicKey.default());
+    const ix = try iface.instructionWithRemaining("deposit", accounts, Args{ .amount = 7 }, remaining[0..]);
+    defer ix.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 2), ix.accounts.len);
+    try std.testing.expect(ix.accounts[1].pubkey.equals(meta.pubkey));
 }

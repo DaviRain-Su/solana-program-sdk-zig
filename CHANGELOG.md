@@ -2,6 +2,32 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-13-080
+
+**Date**: 2026-01-13
+**Goal**: Extend anchor interface CPI invoke helpers
+
+#### Completed Work
+1. Added executable checks for InterfaceAccount/InterfaceAccountInfo
+2. Added AccountMeta override wrapper for CPI metas
+3. Added invoke/invokeSigned helpers and updated docs
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ZIG_LOCAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+### Session 2026-01-13-079
+
+**Date**: 2026-01-13
+**Goal**: Add AccountMeta support to anchor interface CPI
+
+#### Completed Work
+1. Allowed AccountMeta inputs for Interface CPI accounts
+2. Allowed AccountMeta slices for remaining accounts
+3. Updated docs and roadmap tracking
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ZIG_LOCAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
 ### Session 2026-01-13-078
 
 **Date**: 2026-01-13

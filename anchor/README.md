@@ -113,6 +113,11 @@ const ix_with_remaining = try iface.instructionWithRemaining("deposit", accounts
 defer ix_with_remaining.deinit(allocator);
 ```
 
+Interface CPI accounts accept `AccountMeta`, `AccountInfo`, or types with `toAccountInfo()`.
+Remaining accounts can be provided as `[]AccountMeta` or `[]*const AccountInfo`.
+Use `anchor.AccountMetaOverride` to override signer/writable flags when needed.
+`anchor.Interface` provides `invoke`/`invokeSigned` helpers for CPI.
+
 ## IDL Output (Build Step)
 
 ```bash

@@ -1,5 +1,17 @@
 # sol-anchor-zig Roadmap
 
+## ✅ v3.2.59 - Interface/CPI Invoke + Executable + Overrides
+
+- [x] Add executable checks for InterfaceAccount/InterfaceAccountInfo
+- [x] Add AccountMeta override wrapper
+- [x] Add invoke/invokeSigned helpers
+- [x] Update docs and tests
+
+## ✅ v3.2.58 - Interface/CPI AccountMeta Support
+
+- [x] Accept AccountMeta inputs for Interface CPI
+- [x] Update docs and tests
+
 ## ✅ v3.2.57 - Interface/CPI Extensions
 
 - [x] Add InterfaceAccountInfo wrapper

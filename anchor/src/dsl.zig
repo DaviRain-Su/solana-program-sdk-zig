@@ -1410,7 +1410,8 @@ fn autoSysvarType(comptime name: []const u8, comptime FieldType: type) ?type {
 
 fn isSysvarName(comptime name: []const u8, comptime base: []const u8) bool {
     if (std.mem.eql(u8, name, base)) return true;
-    return std.mem.eql(u8, name, base ++ "_sysvar");
+    if (std.mem.eql(u8, name, base ++ "_sysvar")) return true;
+    return std.mem.eql(u8, name, "sysvar_" ++ base);
 }
 
 fn isSystemProgramName(comptime name: []const u8) bool {
@@ -1967,8 +1968,10 @@ test "dsl: AccountsDerive auto-binds common program/sysvar fields" {
         feature_gate_program: UncheckedProgram,
         rent: *const AccountInfo,
         rent_sysvar: *const AccountInfo,
+        sysvar_rent: *const AccountInfo,
         clock: *const AccountInfo,
         clock_sysvar: *const AccountInfo,
+        sysvar_clock: *const AccountInfo,
         slot_hashes: *const AccountInfo,
         slot_history: *const AccountInfo,
         stake_history: *const AccountInfo,
@@ -2021,10 +2024,14 @@ test "dsl: AccountsDerive auto-binds common program/sysvar fields" {
         @compileError("AccountsDerive failed to produce rent field");
     const rent_sysvar_index = std.meta.fieldIndex(AccountsType, "rent_sysvar") orelse
         @compileError("AccountsDerive failed to produce rent_sysvar field");
+    const sysvar_rent_index = std.meta.fieldIndex(AccountsType, "sysvar_rent") orelse
+        @compileError("AccountsDerive failed to produce sysvar_rent field");
     const clock_index = std.meta.fieldIndex(AccountsType, "clock") orelse
         @compileError("AccountsDerive failed to produce clock field");
     const clock_sysvar_index = std.meta.fieldIndex(AccountsType, "clock_sysvar") orelse
         @compileError("AccountsDerive failed to produce clock_sysvar field");
+    const sysvar_clock_index = std.meta.fieldIndex(AccountsType, "sysvar_clock") orelse
+        @compileError("AccountsDerive failed to produce sysvar_clock field");
     const slot_hashes_index = std.meta.fieldIndex(AccountsType, "slot_hashes") orelse
         @compileError("AccountsDerive failed to produce slot_hashes field");
     const slot_history_index = std.meta.fieldIndex(AccountsType, "slot_history") orelse
@@ -2103,11 +2110,17 @@ test "dsl: AccountsDerive auto-binds common program/sysvar fields" {
     if (!@hasDecl(fields[rent_sysvar_index].type, "SYSVAR_TYPE")) {
         @compileError("rent_sysvar was not wrapped with Sysvar");
     }
+    if (!@hasDecl(fields[sysvar_rent_index].type, "SYSVAR_TYPE")) {
+        @compileError("sysvar_rent was not wrapped with Sysvar");
+    }
     if (fields[rent_index].type.SYSVAR_TYPE != sol.rent.Rent) {
         @compileError("rent sysvar type mismatch");
     }
     if (fields[rent_sysvar_index].type.SYSVAR_TYPE != sol.rent.Rent) {
         @compileError("rent_sysvar type mismatch");
+    }
+    if (fields[sysvar_rent_index].type.SYSVAR_TYPE != sol.rent.Rent) {
+        @compileError("sysvar_rent type mismatch");
     }
     if (!@hasDecl(fields[clock_index].type, "SYSVAR_TYPE") or
         fields[clock_index].type.SYSVAR_TYPE != sol.clock.Clock)
@@ -2118,6 +2131,11 @@ test "dsl: AccountsDerive auto-binds common program/sysvar fields" {
         fields[clock_sysvar_index].type.SYSVAR_TYPE != sol.clock.Clock)
     {
         @compileError("clock_sysvar type mismatch");
+    }
+    if (!@hasDecl(fields[sysvar_clock_index].type, "SYSVAR_TYPE") or
+        fields[sysvar_clock_index].type.SYSVAR_TYPE != sol.clock.Clock)
+    {
+        @compileError("sysvar_clock type mismatch");
     }
     if (!@hasDecl(fields[slot_hashes_index].type, "SYSVAR_TYPE") or
         fields[slot_hashes_index].type.SYSVAR_TYPE != sol.slot_hashes.SlotHashes)

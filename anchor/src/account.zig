@@ -1323,7 +1323,7 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
                     resolve_key(field_name, accounts).*
                 else
                     sol.spl.TOKEN_PROGRAM_ID;
-                if (cfg.token_program != null and !self.info.owner_id.equals(token_program_key)) {
+                if (!self.info.owner_id.equals(token_program_key)) {
                     return error.ConstraintOwner;
                 }
                 const token_slice = blk: {
@@ -2391,6 +2391,92 @@ test "Account associated_token constraints validate at runtime" {
         .token = try TokenAccount.load(&token_info),
     };
     try std.testing.expectError(error.ConstraintAssociated, accounts.token.validateAllConstraints("token", accounts));
+}
+
+test "Account associated_token enforces token program owner by default" {
+    const token_state = sol.spl.token.state;
+
+    const Data = struct {
+        value: u64,
+    };
+
+    const TokenAccount = Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("AssociatedTokenOwnerConstraint"),
+        .associated_token = .{
+            .mint = "mint",
+            .authority = "authority",
+        },
+    });
+
+    const Accounts = struct {
+        authority: Signer,
+        mint: *const AccountInfo,
+        token: TokenAccount,
+    };
+
+    const mint_key = comptime PublicKey.comptimeFromBase58("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+    const authority_key = comptime PublicKey.comptimeFromBase58("SysvarRent111111111111111111111111111111111");
+    const token_program_key = sol.spl.TOKEN_PROGRAM_ID;
+    const associated_token_program_id = comptime sol.PublicKey.comptimeFromBase58(
+        "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+    );
+
+    const seeds = .{ &authority_key.bytes, &token_program_key.bytes, &mint_key.bytes };
+    const pda = try sol.PublicKey.findProgramAddress(seeds, associated_token_program_id);
+
+    var mint_id = mint_key;
+    var authority_id = authority_key;
+    var token_id = pda.address;
+    var owner = PublicKey.default();
+    var lamports: u64 = 1_000_000;
+
+    var token_buffer: [DISCRIMINATOR_LENGTH + token_state.Account.SIZE]u8 align(@alignOf(Data)) = undefined;
+    @memset(&token_buffer, 0);
+    @memcpy(token_buffer[0..DISCRIMINATOR_LENGTH], &TokenAccount.discriminator);
+    @memcpy(token_buffer[DISCRIMINATOR_LENGTH .. DISCRIMINATOR_LENGTH + 32], &mint_key.bytes);
+    @memcpy(token_buffer[DISCRIMINATOR_LENGTH + 32 .. DISCRIMINATOR_LENGTH + 64], &authority_key.bytes);
+    token_buffer[DISCRIMINATOR_LENGTH + token_state.Account.STATE_OFFSET] = 1;
+
+    const token_info = AccountInfo{
+        .id = &token_id,
+        .owner_id = &owner,
+        .lamports = &lamports,
+        .data_len = token_buffer.len,
+        .data = token_buffer[0..].ptr,
+        .is_signer = 0,
+        .is_writable = 1,
+        .is_executable = 0,
+    };
+
+    const mint_info = AccountInfo{
+        .id = &mint_id,
+        .owner_id = &owner,
+        .lamports = &lamports,
+        .data_len = 0,
+        .data = undefined,
+        .is_signer = 0,
+        .is_writable = 0,
+        .is_executable = 0,
+    };
+
+    const authority_info = AccountInfo{
+        .id = &authority_id,
+        .owner_id = &owner,
+        .lamports = &lamports,
+        .data_len = 0,
+        .data = undefined,
+        .is_signer = 1,
+        .is_writable = 0,
+        .is_executable = 0,
+    };
+
+    const accounts = Accounts{
+        .authority = try Signer.load(&authority_info),
+        .mint = &mint_info,
+        .token = try TokenAccount.load(&token_info),
+    };
+
+    try std.testing.expectError(error.ConstraintOwner, accounts.token.validateAllConstraints("token", accounts));
 }
 
 test "Account accepts token/ata/mint constraints independently" {

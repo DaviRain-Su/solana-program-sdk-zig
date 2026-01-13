@@ -151,7 +151,7 @@ AccountsDerive can auto-infer common token/mint/ata constraints when the
 account data shape and field names match expected patterns.
 It recognizes common aliases like `mint_account`, `token_mint_account`, and
 `wallet`/`token_owner` for authority fields, and auto-wraps sysvars like `epoch_schedule`,
-`recent_blockhashes`, and `fees`, plus program aliases like `bpf_loader`,
+`recent_blockhashes`, and `fees` (including `sysvar_*` prefix), plus program aliases like `bpf_loader`,
 `bpf_loader_upgradeable`, and `loader_v4`.
 Associated token inference accepts either `owner` or `authority` fields in the
 account data shape.
@@ -223,7 +223,7 @@ Constraint rules:
 - Duplicate mutable accounts are rejected unless the duplicated field uses `dup`.
 - `token::mint/authority` validates the token account state against target accounts.
 - `mint::authority/freeze_authority/decimals` validates the mint state against target accounts.
-- `associated_token` validates the derived ATA address and token owner field.
+- `associated_token` validates the derived ATA address, token owner field, and token program owner.
 
 ## Build & Test
 

@@ -29,6 +29,10 @@ const token_mint_aliases = [_][]const u8{
     "token_mint_account",
     "mint_info",
     "token_mint_info",
+    "mint_pubkey",
+    "token_mint_pubkey",
+    "mint_key",
+    "token_mint_key",
 };
 const token_authority_aliases = [_][]const u8{
     "authority",
@@ -40,16 +44,22 @@ const token_authority_aliases = [_][]const u8{
     "wallet_account",
     "token_owner",
     "token_owner_account",
+    "owner_pubkey",
+    "wallet_pubkey",
 };
 const mint_authority_aliases = [_][]const u8{
     "mint_authority",
     "authority",
     "authority_account",
     "mint_authority_account",
+    "mint_authority_info",
+    "mint_authority_pubkey",
 };
 const mint_freeze_aliases = [_][]const u8{
     "freeze_authority",
     "freeze_authority_account",
+    "freeze_authority_info",
+    "freeze_authority_pubkey",
 };
 
 /// Validate Accounts struct and return it unchanged.
@@ -2232,6 +2242,29 @@ test "dsl: AccountsDerive supports token program aliases" {
         @compileError("spl_token_program was not wrapped with ProgramField");
     }
     try std.testing.expect(fields[token_index].type.TOKEN_PROGRAM != null);
+}
+
+test "dsl: AccountsDerive supports extended token aliases" {
+    const TokenData = struct {
+        mint: sol.PublicKey,
+        owner: sol.PublicKey,
+    };
+
+    const TokenAccount = account_mod.Account(TokenData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("TokenAccountExtendedAliases"),
+    });
+
+    const AccountsType = AccountsDerive(struct {
+        mint_pubkey: *const AccountInfo,
+        owner_pubkey: *const AccountInfo,
+        token_program: UncheckedProgram,
+        token: TokenAccount,
+    });
+
+    const TokenFieldType = @TypeOf(@field(@as(AccountsType, undefined), "token"));
+
+    try std.testing.expect(std.mem.eql(u8, TokenFieldType.TOKEN_MINT.?, "mint_pubkey"));
+    try std.testing.expect(std.mem.eql(u8, TokenFieldType.TOKEN_AUTHORITY.?, "owner_pubkey"));
 }
 
 test "dsl: AccountsDerive supports associated token program aliases" {

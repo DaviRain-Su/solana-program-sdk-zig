@@ -1,5 +1,9 @@
 # sol-anchor-zig Roadmap
 
+## ✅ v3.2.50 - AccountsDerive Token Alias Expansion
+
+- [x] Expand token/mint authority alias inference
+
 ## ✅ v3.2.49 - Anchor Associated Token Constraint Runtime
 
 - [x] Validate ATA address derivation and token owner

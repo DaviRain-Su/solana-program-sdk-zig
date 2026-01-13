@@ -157,6 +157,9 @@ comptime to ensure referenced Accounts fields exist and provide `key()`. Program
 references (token_program/mint_token_program) are also checked to be Program or
 UncheckedProgram fields.
 The AccessFor owner reference must target a Program/UncheckedProgram field.
+AccountsDerive also enforces that init/init_if_needed include a `system_program`
+field, and token/mint/associated token constraints include the required
+program fields (token_program/associated_token_program).
 
 ```zig
 const TokenAccountData = struct {

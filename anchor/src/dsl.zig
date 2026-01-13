@@ -945,16 +945,35 @@ fn validateSeedRef(comptime AccountsType: type, seed: SeedSpec) void {
 
 fn validateDerivedRefs(comptime AccountsType: type) void {
     const fields = @typeInfo(AccountsType).@"struct".fields;
+    const has_token_program = autoTokenProgramName(AccountsType) != null;
+    const has_associated_token_program = autoAssociatedTokenProgramName(AccountsType) != null;
+    const has_system_program = comptime blk: {
+        for (fields) |field| {
+            if (!std.mem.eql(u8, field.name, "system_program")) continue;
+            if (isProgramFieldType(field.type)) break :blk true;
+        }
+        break :blk false;
+    };
 
     inline for (fields) |field| {
         const FieldType = unwrapOptionalType(field.type);
         if (!isAccountWrapper(FieldType)) continue;
+
+        const has_token_constraints = FieldType.TOKEN_MINT != null or FieldType.TOKEN_AUTHORITY != null;
+        const has_mint_constraints = FieldType.MINT_AUTHORITY != null or
+            FieldType.MINT_FREEZE_AUTHORITY != null or
+            FieldType.MINT_DECIMALS != null;
 
         if (FieldType.ASSOCIATED_TOKEN) |cfg| {
             validateKeyTarget(AccountsType, cfg.mint);
             validateKeyTarget(AccountsType, cfg.authority);
             if (cfg.token_program) |name| {
                 validateProgramTarget(AccountsType, name);
+            } else if (!has_token_program) {
+                @compileError("associated_token requires token_program field");
+            }
+            if (!has_associated_token_program) {
+                @compileError("associated_token requires associated_token_program field");
             }
         }
         if (FieldType.TOKEN_MINT) |name| {
@@ -965,6 +984,8 @@ fn validateDerivedRefs(comptime AccountsType: type) void {
         }
         if (FieldType.TOKEN_PROGRAM) |name| {
             validateProgramTarget(AccountsType, name);
+        } else if (has_token_constraints and !has_token_program) {
+            @compileError("token constraints require token_program field");
         }
         if (FieldType.MINT_AUTHORITY) |name| {
             validateKeyTarget(AccountsType, name);
@@ -974,6 +995,8 @@ fn validateDerivedRefs(comptime AccountsType: type) void {
         }
         if (FieldType.MINT_TOKEN_PROGRAM) |name| {
             validateProgramTarget(AccountsType, name);
+        } else if (has_mint_constraints and !has_token_program) {
+            @compileError("mint constraints require token_program field");
         }
         if (FieldType.HAS_ONE) |list| {
             inline for (list) |spec| {
@@ -987,6 +1010,9 @@ fn validateDerivedRefs(comptime AccountsType: type) void {
         }
         if (FieldType.SEEDS_PROGRAM) |seed| {
             validateSeedRef(AccountsType, seed);
+        }
+        if ((FieldType.IS_INIT or FieldType.IS_INIT_IF_NEEDED) and !has_system_program) {
+            @compileError("init/init_if_needed requires system_program field");
         }
     }
 }
@@ -1805,6 +1831,7 @@ test "dsl: AccountsDerive auto-fills token program for token/mint/ata" {
         authority: Signer,
         mint: MintAccount,
         token_program: UncheckedProgram,
+        ata_program: UncheckedProgram,
         token_account: TokenAccount,
         mint_account: MintAccount,
         ata_account: AtaAccount,
@@ -2039,6 +2066,7 @@ test "dsl: AccountsDerive infers init/payer/realloc mut/signer" {
 
     const AccountsType = AccountsDerive(struct {
         payer: Signer,
+        system_program: UncheckedProgram,
         counter: Counter,
         dynamic: Dynamic,
     });
@@ -2091,6 +2119,7 @@ test "dsl: AccountsDerive supports Attrs marker" {
 
     const AccountsType = AccountsDerive(struct {
         payer: Signer,
+        system_program: UncheckedProgram,
         counter: Attrs(.{ .init = true, .payer = "payer" }).apply(Counter),
     });
 
@@ -2124,6 +2153,7 @@ test "dsl: AttrsFor resolves typed field enums" {
     const AccountsType = AccountsDerive(struct {
         payer: Signer,
         authority: Signer,
+        system_program: UncheckedProgram,
         counter: AttrsFor(AccountsRef, Data, .{
             .init = true,
             .payer = .payer,
@@ -2255,6 +2285,7 @@ test "dsl: AttrsFor resolves typed associated token configs" {
         mint: *const AccountInfo,
         authority: Signer,
         token_program: UncheckedProgram,
+        associated_token_program: UncheckedProgram,
         token_account: TokenAccount,
     };
 
@@ -2262,6 +2293,7 @@ test "dsl: AttrsFor resolves typed associated token configs" {
         mint: *const AccountInfo,
         authority: Signer,
         token_program: UncheckedProgram,
+        associated_token_program: UncheckedProgram,
         token_account: AttrsFor(AccountsRef, Data, .{
             .associated_token = AssociatedTokenFor(AccountsRef).withTokenProgram(.mint, .authority, .token_program),
         }).apply(TokenAccount),
@@ -2323,6 +2355,7 @@ test "dsl: AttrsFor resolves init/close/realloc helpers" {
     const AccountsType = AccountsDerive(struct {
         payer: Signer,
         destination: Signer,
+        system_program: UncheckedProgram,
         account: AttrsFor(AccountsRef, Data, .{
             .init_with = InitFor(AccountsRef).init(.payer),
             .close_to = CloseFor(AccountsRef).init(.destination),

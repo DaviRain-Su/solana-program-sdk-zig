@@ -1528,6 +1528,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.39 - AccountsDerive Cross-Field Program Checks
+
+- [x] Enforce system_program for init/init_if_needed
+- [x] Enforce token/mint/associated token program fields
+- [x] Update docs
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

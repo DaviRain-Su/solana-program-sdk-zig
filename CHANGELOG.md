@@ -2,6 +2,21 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-13-059
+
+**Date**: 2026-01-13
+**Goal**: Enforce AccountsDerive cross-field program requirements
+
+#### Completed Work
+1. Added system_program requirement for init/init_if_needed
+2. Added token/mint/associated token program field requirements
+3. Updated docs, story, and roadmap
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ZIG_LOCAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-13-058
 
 **Date**: 2026-01-13

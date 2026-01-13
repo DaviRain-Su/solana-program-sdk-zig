@@ -207,6 +207,84 @@ pub fn HasOneSpecFor(comptime AccountsType: type, comptime DataType: type) type 
     };
 }
 
+/// Typed associated token config for Accounts field enums.
+pub fn AssociatedTokenFor(comptime AccountsType: type) type {
+    return struct {
+        mint: std.meta.FieldEnum(AccountsType),
+        authority: std.meta.FieldEnum(AccountsType),
+        token_program: ?std.meta.FieldEnum(AccountsType) = null,
+
+        pub fn init(
+            comptime mint: std.meta.FieldEnum(AccountsType),
+            comptime authority: std.meta.FieldEnum(AccountsType),
+        ) @This() {
+            return .{ .mint = mint, .authority = authority };
+        }
+
+        pub fn withTokenProgram(
+            comptime mint: std.meta.FieldEnum(AccountsType),
+            comptime authority: std.meta.FieldEnum(AccountsType),
+            comptime token_program: std.meta.FieldEnum(AccountsType),
+        ) @This() {
+            return .{ .mint = mint, .authority = authority, .token_program = token_program };
+        }
+    };
+}
+
+/// Typed token constraint config for Accounts field enums.
+pub fn TokenFor(comptime AccountsType: type) type {
+    return struct {
+        mint: std.meta.FieldEnum(AccountsType),
+        authority: std.meta.FieldEnum(AccountsType),
+        program: ?std.meta.FieldEnum(AccountsType) = null,
+
+        pub fn init(
+            comptime mint: std.meta.FieldEnum(AccountsType),
+            comptime authority: std.meta.FieldEnum(AccountsType),
+        ) @This() {
+            return .{ .mint = mint, .authority = authority };
+        }
+
+        pub fn withProgram(
+            comptime mint: std.meta.FieldEnum(AccountsType),
+            comptime authority: std.meta.FieldEnum(AccountsType),
+            comptime program: std.meta.FieldEnum(AccountsType),
+        ) @This() {
+            return .{ .mint = mint, .authority = authority, .program = program };
+        }
+    };
+}
+
+/// Typed mint constraint config for Accounts field enums.
+pub fn MintFor(comptime AccountsType: type) type {
+    return struct {
+        authority: std.meta.FieldEnum(AccountsType),
+        freeze_authority: ?std.meta.FieldEnum(AccountsType) = null,
+        decimals: ?u8 = null,
+        program: ?std.meta.FieldEnum(AccountsType) = null,
+
+        pub fn init(
+            comptime authority: std.meta.FieldEnum(AccountsType),
+        ) @This() {
+            return .{ .authority = authority };
+        }
+
+        pub fn withFreeze(
+            comptime authority: std.meta.FieldEnum(AccountsType),
+            comptime freeze_authority: std.meta.FieldEnum(AccountsType),
+        ) @This() {
+            return .{ .authority = authority, .freeze_authority = freeze_authority };
+        }
+
+        pub fn withProgram(
+            comptime authority: std.meta.FieldEnum(AccountsType),
+            comptime program: std.meta.FieldEnum(AccountsType),
+        ) @This() {
+            return .{ .authority = authority, .program = program };
+        }
+    };
+}
+
 /// Event field configuration.
 pub const EventField = struct {
     /// Mark this field as indexed in the IDL.
@@ -416,18 +494,31 @@ fn resolveTypedAttrConfig(
             resolved.associated_token_authority = resolveAccountFieldNameOpt(AccountsType, value);
         } else if (std.mem.eql(u8, field.name, "associated_token_token_program")) {
             resolved.associated_token_token_program = resolveAccountFieldNameOpt(AccountsType, value);
+        } else if (std.mem.eql(u8, field.name, "associated_token")) {
+            resolved.associated_token_mint = resolveAccountFieldNameOpt(AccountsType, @field(value, "mint"));
+            resolved.associated_token_authority = resolveAccountFieldNameOpt(AccountsType, @field(value, "authority"));
+            resolved.associated_token_token_program = resolveAccountFieldNameOpt(AccountsType, @field(value, "token_program"));
         } else if (std.mem.eql(u8, field.name, "token_mint")) {
             resolved.token_mint = resolveAccountFieldNameOpt(AccountsType, value);
         } else if (std.mem.eql(u8, field.name, "token_authority")) {
             resolved.token_authority = resolveAccountFieldNameOpt(AccountsType, value);
         } else if (std.mem.eql(u8, field.name, "token_program")) {
             resolved.token_program = resolveAccountFieldNameOpt(AccountsType, value);
+        } else if (std.mem.eql(u8, field.name, "token")) {
+            resolved.token_mint = resolveAccountFieldNameOpt(AccountsType, @field(value, "mint"));
+            resolved.token_authority = resolveAccountFieldNameOpt(AccountsType, @field(value, "authority"));
+            resolved.token_program = resolveAccountFieldNameOpt(AccountsType, @field(value, "program"));
         } else if (std.mem.eql(u8, field.name, "mint_authority")) {
             resolved.mint_authority = resolveAccountFieldNameOpt(AccountsType, value);
         } else if (std.mem.eql(u8, field.name, "mint_freeze_authority")) {
             resolved.mint_freeze_authority = resolveAccountFieldNameOpt(AccountsType, value);
         } else if (std.mem.eql(u8, field.name, "mint_token_program")) {
             resolved.mint_token_program = resolveAccountFieldNameOpt(AccountsType, value);
+        } else if (std.mem.eql(u8, field.name, "mint")) {
+            resolved.mint_authority = resolveAccountFieldNameOpt(AccountsType, @field(value, "authority"));
+            resolved.mint_freeze_authority = resolveAccountFieldNameOpt(AccountsType, @field(value, "freeze_authority"));
+            resolved.mint_decimals = @field(value, "decimals");
+            resolved.mint_token_program = resolveAccountFieldNameOpt(AccountsType, @field(value, "program"));
         } else if (std.mem.eql(u8, field.name, "seeds_program")) {
             resolved.seeds_program = resolveSeedSpecSingle(AccountsType, DataType, value);
         } else if (std.mem.eql(u8, field.name, "seeds")) {
@@ -1376,6 +1467,71 @@ test "dsl: AttrsFor resolves typed has_one specs" {
         @compileError("AccountsDerive failed to produce counter field");
 
     try std.testing.expect(fields[counter_index].type.HAS_HAS_ONE);
+}
+
+test "dsl: AttrsFor resolves typed token configs" {
+    const Data = struct {
+        authority: sol.PublicKey,
+    };
+
+    const TokenAccount = account_mod.Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("TokenAccountTyped"),
+    });
+
+    const AccountsRef = struct {
+        mint: *const AccountInfo,
+        authority: Signer,
+        token_program: UncheckedProgram,
+        token_account: TokenAccount,
+    };
+
+    const AccountsType = AccountsDerive(struct {
+        mint: *const AccountInfo,
+        authority: Signer,
+        token_program: UncheckedProgram,
+        token_account: AttrsFor(AccountsRef, Data, .{
+            .token = TokenFor(AccountsRef).withProgram(.mint, .authority, .token_program),
+            .associated_token = AssociatedTokenFor(AccountsRef).withTokenProgram(.mint, .authority, .token_program),
+        }).apply(TokenAccount),
+    });
+
+    const fields = @typeInfo(AccountsType).@"struct".fields;
+    const token_index = std.meta.fieldIndex(AccountsType, "token_account") orelse
+        @compileError("AccountsDerive failed to produce token_account field");
+
+    try std.testing.expect(fields[token_index].type.TOKEN_MINT != null);
+    try std.testing.expect(fields[token_index].type.ASSOCIATED_TOKEN != null);
+}
+
+test "dsl: AttrsFor resolves typed mint configs" {
+    const Data = struct {
+        authority: sol.PublicKey,
+    };
+
+    const MintAccount = account_mod.Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("MintAccountTyped"),
+    });
+
+    const AccountsRef = struct {
+        authority: Signer,
+        mint_program: UncheckedProgram,
+        mint_account: MintAccount,
+    };
+
+    const AccountsType = AccountsDerive(struct {
+        authority: Signer,
+        mint_program: UncheckedProgram,
+        mint_account: AttrsFor(AccountsRef, Data, .{
+            .mint = MintFor(AccountsRef).withProgram(.authority, .mint_program),
+        }).apply(MintAccount),
+    });
+
+    const fields = @typeInfo(AccountsType).@"struct".fields;
+    const mint_index = std.meta.fieldIndex(AccountsType, "mint_account") orelse
+        @compileError("AccountsDerive failed to produce mint_account field");
+
+    try std.testing.expect(fields[mint_index].type.MINT_AUTHORITY != null);
+    try std.testing.expect(fields[mint_index].type.MINT_TOKEN_PROGRAM != null);
 }
 
 test "dsl: event validation accepts struct" {

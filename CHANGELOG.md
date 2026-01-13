@@ -2,6 +2,21 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-13-040
+
+**Date**: 2026-01-13
+**Goal**: Add typed token helpers for AttrsFor
+
+#### Completed Work
+1. Added AssociatedTokenFor/TokenFor/MintFor helpers
+2. Enabled AttrsFor typed token configs and added tests
+3. Updated roadmap/story
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-13-039
 
 **Date**: 2026-01-13

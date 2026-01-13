@@ -179,6 +179,12 @@ pub const SeedSpecFor = @import("dsl.zig").SeedSpecFor;
 pub const seedSpecsFor = @import("dsl.zig").seedSpecsFor;
 /// Typed has_one spec for Accounts/Data field enums.
 pub const HasOneSpecFor = @import("dsl.zig").HasOneSpecFor;
+/// Typed associated token config for Accounts field enums.
+pub const AssociatedTokenFor = @import("dsl.zig").AssociatedTokenFor;
+/// Typed token constraint config for Accounts field enums.
+pub const TokenFor = @import("dsl.zig").TokenFor;
+/// Typed mint constraint config for Accounts field enums.
+pub const MintFor = @import("dsl.zig").MintFor;
 
 /// Comptime Event validator
 pub const Event = @import("dsl.zig").Event;

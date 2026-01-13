@@ -1376,6 +1376,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.20 - Anchor Typed Token Helpers
+
+- [x] Add typed token/associated-token/mint helpers for AttrsFor
+- [x] Export typed token helpers
+- [x] Update docs and tests
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

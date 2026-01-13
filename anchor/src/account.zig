@@ -32,11 +32,13 @@ const init_mod = @import("init.zig");
 const pda_mod = @import("pda.zig");
 const has_one_mod = @import("has_one.zig");
 const realloc_mod = @import("realloc.zig");
+const program_mod = @import("program.zig");
 const sol = @import("solana_program_sdk");
 
 // Import from parent SDK
 const sdk_account = sol.account;
 const PublicKey = sol.PublicKey;
+const UncheckedProgram = program_mod.UncheckedProgram;
 
 const Discriminator = discriminator_mod.Discriminator;
 const DISCRIMINATOR_LENGTH = discriminator_mod.DISCRIMINATOR_LENGTH;
@@ -1277,6 +1279,25 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
         ///
         /// Convenience method to validate all configured constraints.
         pub fn validateAllConstraints(self: Self, comptime account_name: []const u8, accounts: anytype) !void {
+            const token_state = sol.spl.token.state;
+
+            const resolve_key = struct {
+                fn get(comptime field_name: []const u8, all_accounts: anytype) *const PublicKey {
+                    const target = @field(all_accounts, field_name);
+                    const TargetType = @TypeOf(target);
+                    if (TargetType == *const AccountInfo) {
+                        return target.id;
+                    }
+                    if (@hasDecl(TargetType, "key")) {
+                        return target.key();
+                    }
+                    if (@typeInfo(TargetType) == .pointer and @hasDecl(@typeInfo(TargetType).pointer.child, "key")) {
+                        return target.*.key();
+                    }
+                    @compileError("constraint target must have key() or be AccountInfo: " ++ field_name);
+                }
+            }.get;
+
             try self.validateHasOneConstraints(accounts);
             try self.validateInitConstraint(accounts);
             try self.validateCloseConstraint(accounts);
@@ -1289,6 +1310,80 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
                 for (data_slice) |byte| {
                     if (byte != 0) {
                         return error.ConstraintZero;
+                    }
+                }
+            }
+            if (TOKEN_PROGRAM) |field_name| {
+                const program_key = resolve_key(field_name, accounts).*;
+                if (!self.info.owner_id.equals(program_key)) {
+                    return error.ConstraintOwner;
+                }
+            }
+            if (TOKEN_MINT != null or TOKEN_AUTHORITY != null) {
+                const token_slice = blk: {
+                    if (self.info.data_len >= DISCRIMINATOR_LENGTH + token_state.Account.SIZE and
+                        std.mem.eql(u8, self.info.data[0..DISCRIMINATOR_LENGTH], &discriminator))
+                    {
+                        break :blk self.info.data[DISCRIMINATOR_LENGTH..self.info.data_len];
+                    }
+                    break :blk self.info.data[0..self.info.data_len];
+                };
+                const token_account = token_state.Account.unpackUnchecked(token_slice) catch {
+                    if (TOKEN_MINT != null) return error.ConstraintTokenMint;
+                    return error.ConstraintTokenOwner;
+                };
+                if (TOKEN_MINT) |field_name| {
+                    const mint_key = resolve_key(field_name, accounts).*;
+                    if (!token_account.mint.equals(mint_key)) {
+                        return error.ConstraintTokenMint;
+                    }
+                }
+                if (TOKEN_AUTHORITY) |field_name| {
+                    const owner_key = resolve_key(field_name, accounts).*;
+                    if (!token_account.owner.equals(owner_key)) {
+                        return error.ConstraintTokenOwner;
+                    }
+                }
+            }
+            if (MINT_TOKEN_PROGRAM) |field_name| {
+                const program_key = resolve_key(field_name, accounts).*;
+                if (!self.info.owner_id.equals(program_key)) {
+                    return error.ConstraintOwner;
+                }
+            }
+            if (MINT_AUTHORITY != null or MINT_FREEZE_AUTHORITY != null or MINT_DECIMALS != null) {
+                const mint_slice = blk: {
+                    if (self.info.data_len >= DISCRIMINATOR_LENGTH + token_state.Mint.SIZE and
+                        std.mem.eql(u8, self.info.data[0..DISCRIMINATOR_LENGTH], &discriminator))
+                    {
+                        break :blk self.info.data[DISCRIMINATOR_LENGTH..self.info.data_len];
+                    }
+                    break :blk self.info.data[0..self.info.data_len];
+                };
+                const mint_account = token_state.Mint.unpackUnchecked(mint_slice) catch {
+                    if (MINT_DECIMALS != null) return error.ConstraintMintDecimals;
+                    if (MINT_FREEZE_AUTHORITY != null) return error.ConstraintMintFreezeAuthority;
+                    return error.ConstraintMintMintAuthority;
+                };
+                if (MINT_AUTHORITY) |field_name| {
+                    const authority_key = resolve_key(field_name, accounts).*;
+                    if (!mint_account.mint_authority.isSome() or
+                        !mint_account.mint_authority.unwrap().equals(authority_key))
+                    {
+                        return error.ConstraintMintMintAuthority;
+                    }
+                }
+                if (MINT_FREEZE_AUTHORITY) |field_name| {
+                    const authority_key = resolve_key(field_name, accounts).*;
+                    if (!mint_account.freeze_authority.isSome() or
+                        !mint_account.freeze_authority.unwrap().equals(authority_key))
+                    {
+                        return error.ConstraintMintFreezeAuthority;
+                    }
+                }
+                if (MINT_DECIMALS) |expected_decimals| {
+                    if (mint_account.decimals != expected_decimals) {
+                        return error.ConstraintMintDecimals;
                     }
                 }
             }
@@ -1314,7 +1409,10 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
         /// Check if account requires constraint validation
         pub fn requiresConstraintValidation() bool {
             return HAS_HAS_ONE or IS_INIT or HAS_CLOSE or HAS_REALLOC or RENT_EXEMPT or
-                IS_ZERO or HAS_SPACE_CONSTRAINT or CONSTRAINT != null or OWNER_EXPR != null or ADDRESS_EXPR != null;
+                IS_ZERO or HAS_SPACE_CONSTRAINT or TOKEN_MINT != null or TOKEN_AUTHORITY != null or
+                TOKEN_PROGRAM != null or MINT_AUTHORITY != null or MINT_FREEZE_AUTHORITY != null or
+                MINT_DECIMALS != null or MINT_TOKEN_PROGRAM != null or CONSTRAINT != null or
+                OWNER_EXPR != null or ADDRESS_EXPR != null;
         }
     };
 }
@@ -1338,6 +1436,11 @@ pub const AccountError = error{
     ConstraintRentExempt,
     ConstraintZero,
     ConstraintSpace,
+    ConstraintTokenMint,
+    ConstraintTokenOwner,
+    ConstraintMintMintAuthority,
+    ConstraintMintFreezeAuthority,
+    ConstraintMintDecimals,
 };
 
 // ============================================================================
@@ -1933,6 +2036,214 @@ test "Account attrs support associated token constraints" {
     try std.testing.expect(TokenAccount.ASSOCIATED_TOKEN != null);
     try std.testing.expect(std.mem.eql(u8, TokenAccount.ASSOCIATED_TOKEN.?.mint, "mint"));
     try std.testing.expect(std.mem.eql(u8, TokenAccount.ASSOCIATED_TOKEN.?.authority, "authority"));
+}
+
+test "Account token constraints validate at runtime" {
+    const token_state = sol.spl.token.state;
+
+    const Data = struct {
+        value: u64,
+    };
+
+    const TokenAccount = Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("TokenConstraint"),
+        .token_mint = "mint",
+        .token_authority = "authority",
+        .token_program = "token_program",
+    });
+
+    const Accounts = struct {
+        authority: Signer,
+        mint: *const AccountInfo,
+        token_program: UncheckedProgram,
+        token: TokenAccount,
+    };
+
+    const mint_key = comptime PublicKey.comptimeFromBase58("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+    const authority_key = comptime PublicKey.comptimeFromBase58("SysvarRent111111111111111111111111111111111");
+    const token_program_key = sol.spl.TOKEN_PROGRAM_ID;
+
+    var mint_id = mint_key;
+    var authority_id = authority_key;
+    var token_program_id = token_program_key;
+    var token_id = PublicKey.default();
+    var owner = token_program_key;
+    var lamports: u64 = 1_000_000;
+
+    var token_buffer: [DISCRIMINATOR_LENGTH + token_state.Account.SIZE]u8 align(@alignOf(Data)) = undefined;
+    @memset(&token_buffer, 0);
+    @memcpy(token_buffer[0..DISCRIMINATOR_LENGTH], &TokenAccount.discriminator);
+    @memcpy(token_buffer[DISCRIMINATOR_LENGTH .. DISCRIMINATOR_LENGTH + 32], &mint_key.bytes);
+    @memcpy(token_buffer[DISCRIMINATOR_LENGTH + 32 .. DISCRIMINATOR_LENGTH + 64], &authority_key.bytes);
+    token_buffer[DISCRIMINATOR_LENGTH + token_state.Account.STATE_OFFSET] = 1;
+
+    const token_info = AccountInfo{
+        .id = &token_id,
+        .owner_id = &owner,
+        .lamports = &lamports,
+        .data_len = token_buffer.len,
+        .data = token_buffer[0..].ptr,
+        .is_signer = 0,
+        .is_writable = 1,
+        .is_executable = 0,
+    };
+
+    const mint_info = AccountInfo{
+        .id = &mint_id,
+        .owner_id = &owner,
+        .lamports = &lamports,
+        .data_len = 0,
+        .data = undefined,
+        .is_signer = 0,
+        .is_writable = 0,
+        .is_executable = 0,
+    };
+
+    const authority_info = AccountInfo{
+        .id = &authority_id,
+        .owner_id = &owner,
+        .lamports = &lamports,
+        .data_len = 0,
+        .data = undefined,
+        .is_signer = 1,
+        .is_writable = 0,
+        .is_executable = 0,
+    };
+
+    const token_program_info = AccountInfo{
+        .id = &token_program_id,
+        .owner_id = &owner,
+        .lamports = &lamports,
+        .data_len = 0,
+        .data = undefined,
+        .is_signer = 0,
+        .is_writable = 0,
+        .is_executable = 1,
+    };
+
+    var accounts = Accounts{
+        .authority = try Signer.load(&authority_info),
+        .mint = &mint_info,
+        .token_program = try UncheckedProgram.load(&token_program_info),
+        .token = try TokenAccount.load(&token_info),
+    };
+
+    try accounts.token.validateAllConstraints("token", accounts);
+
+    @memcpy(token_buffer[DISCRIMINATOR_LENGTH .. DISCRIMINATOR_LENGTH + 32], &authority_key.bytes);
+    accounts = Accounts{
+        .authority = try Signer.load(&authority_info),
+        .mint = &mint_info,
+        .token_program = try UncheckedProgram.load(&token_program_info),
+        .token = try TokenAccount.load(&token_info),
+    };
+    try std.testing.expectError(error.ConstraintTokenMint, accounts.token.validateAllConstraints("token", accounts));
+}
+
+test "Account mint constraints validate at runtime" {
+    const token_state = sol.spl.token.state;
+
+    const Data = struct {
+        value: u64,
+    };
+
+    const MintAccount = Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("MintConstraint"),
+        .mint_authority = "mint_authority",
+        .mint_freeze_authority = "freeze_authority",
+        .mint_decimals = 6,
+        .mint_token_program = "token_program",
+    });
+
+    const Accounts = struct {
+        mint_authority: Signer,
+        freeze_authority: Signer,
+        token_program: UncheckedProgram,
+        mint: MintAccount,
+    };
+
+    const authority_key = comptime PublicKey.comptimeFromBase58("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+    const freeze_key = comptime PublicKey.comptimeFromBase58("SysvarRent111111111111111111111111111111111");
+    const token_program_key = sol.spl.TOKEN_PROGRAM_ID;
+
+    var authority_id = authority_key;
+    var freeze_id = freeze_key;
+    var token_program_id = token_program_key;
+    var mint_id = PublicKey.default();
+    var owner = token_program_key;
+    var lamports: u64 = 1_000_000;
+
+    var mint_buffer: [DISCRIMINATOR_LENGTH + token_state.Mint.SIZE]u8 align(@alignOf(Data)) = undefined;
+    @memset(&mint_buffer, 0);
+    @memcpy(mint_buffer[0..DISCRIMINATOR_LENGTH], &MintAccount.discriminator);
+    std.mem.writeInt(u32, mint_buffer[DISCRIMINATOR_LENGTH .. DISCRIMINATOR_LENGTH + 4], 1, .little);
+    @memcpy(mint_buffer[DISCRIMINATOR_LENGTH + 4 .. DISCRIMINATOR_LENGTH + 36], &authority_key.bytes);
+    mint_buffer[DISCRIMINATOR_LENGTH + 44] = 6;
+    mint_buffer[DISCRIMINATOR_LENGTH + 45] = 1;
+    std.mem.writeInt(u32, mint_buffer[DISCRIMINATOR_LENGTH + 46 .. DISCRIMINATOR_LENGTH + 50], 1, .little);
+    @memcpy(mint_buffer[DISCRIMINATOR_LENGTH + 50 .. DISCRIMINATOR_LENGTH + 82], &freeze_key.bytes);
+
+    const mint_info = AccountInfo{
+        .id = &mint_id,
+        .owner_id = &owner,
+        .lamports = &lamports,
+        .data_len = mint_buffer.len,
+        .data = mint_buffer[0..].ptr,
+        .is_signer = 0,
+        .is_writable = 1,
+        .is_executable = 0,
+    };
+
+    const authority_info = AccountInfo{
+        .id = &authority_id,
+        .owner_id = &owner,
+        .lamports = &lamports,
+        .data_len = 0,
+        .data = undefined,
+        .is_signer = 1,
+        .is_writable = 0,
+        .is_executable = 0,
+    };
+
+    const freeze_info = AccountInfo{
+        .id = &freeze_id,
+        .owner_id = &owner,
+        .lamports = &lamports,
+        .data_len = 0,
+        .data = undefined,
+        .is_signer = 1,
+        .is_writable = 0,
+        .is_executable = 0,
+    };
+
+    const token_program_info = AccountInfo{
+        .id = &token_program_id,
+        .owner_id = &owner,
+        .lamports = &lamports,
+        .data_len = 0,
+        .data = undefined,
+        .is_signer = 0,
+        .is_writable = 0,
+        .is_executable = 1,
+    };
+
+    var accounts = Accounts{
+        .mint_authority = try Signer.load(&authority_info),
+        .freeze_authority = try Signer.load(&freeze_info),
+        .token_program = try UncheckedProgram.load(&token_program_info),
+        .mint = try MintAccount.load(&mint_info),
+    };
+
+    try accounts.mint.validateAllConstraints("mint", accounts);
+
+    mint_buffer[DISCRIMINATOR_LENGTH + 44] = 9;
+    accounts = Accounts{
+        .mint_authority = try Signer.load(&authority_info),
+        .freeze_authority = try Signer.load(&freeze_info),
+        .token_program = try UncheckedProgram.load(&token_program_info),
+        .mint = try MintAccount.load(&mint_info),
+    };
+    try std.testing.expectError(error.ConstraintMintDecimals, accounts.mint.validateAllConstraints("mint", accounts));
 }
 
 test "Account accepts token/ata/mint constraints independently" {

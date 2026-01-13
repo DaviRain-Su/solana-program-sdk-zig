@@ -1,5 +1,11 @@
 # sol-anchor-zig Roadmap
 
+## ✅ v3.2.48 - Anchor Token/Mint Constraint Runtime
+
+- [x] Validate token account state for token constraints
+- [x] Validate mint state for mint constraints
+- [x] Validate token/mint program owner constraints
+
 ## ✅ v3.2.47 - AccountsDerive Program Auto Bindings (Extended)
 
 - [x] Add auto bindings for compute budget/address lookup table/ed25519/secp256/vote/feature gate

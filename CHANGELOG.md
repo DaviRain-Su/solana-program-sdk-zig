@@ -2,6 +2,21 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-13-068
+
+**Date**: 2026-01-13
+**Goal**: Add runtime validation for token/mint constraints
+
+#### Completed Work
+1. Validated token account mint/authority and token program owner at runtime
+2. Validated mint authority/freeze/decimals and mint program owner at runtime
+3. Added tests and updated docs/story/roadmap
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ZIG_LOCAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-13-067
 
 **Date**: 2026-01-13

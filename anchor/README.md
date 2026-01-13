@@ -219,6 +219,8 @@ Constraint rules:
 - `zero` requires the discriminator bytes to be all zero.
 - `space` enforces exact account data length when explicitly set.
 - Duplicate mutable accounts are rejected unless the duplicated field uses `dup`.
+- `token::mint/authority` validates the token account state against target accounts.
+- `mint::authority/freeze_authority/decimals` validates the mint state against target accounts.
 
 ## Build & Test
 

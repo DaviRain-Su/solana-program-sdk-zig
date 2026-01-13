@@ -185,6 +185,12 @@ Supported aliases:
   `associated_token_program_account`, `ata_program`, `ata_program_id`
 - token mint/authority: `mint` or `token_mint`, `authority` or `token_authority`
 
+Constraint rules:
+
+- `associated_token` cannot be combined with `token::*` or `mint::*` constraints.
+- `token::*` constraints cannot be combined with `mint::*` constraints.
+- `init`/`init_if_needed` validates account is writable and uninitialized; payer must be signer + writable.
+
 ## Build & Test
 
 ```bash

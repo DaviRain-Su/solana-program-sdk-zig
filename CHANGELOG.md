@@ -110,6 +110,37 @@ All notable changes to the Solana SDK Zig implementation will be documented in t
 
 ---
 
+### Session 2026-01-13-050
+
+**Date**: 2026-01-13
+**Goal**: Enforce token/mint/ata constraint combinations
+
+#### Completed Work
+1. Added compile-time checks for conflicting token/mint/ata constraints
+2. Added tests for valid token/ata/mint combinations
+3. Updated docs and roadmap/story
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+---
+
+### Session 2026-01-13-051
+
+**Date**: 2026-01-13
+**Goal**: Extend init/close/realloc runtime checks
+
+#### Completed Work
+1. Added validateInitConstraint for init/init_if_needed runtime validation
+2. Enforced writable checks for close/realloc constraints
+3. Added init constraint tests
+4. Updated docs and roadmap/story
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-13-042
 
 **Date**: 2026-01-13

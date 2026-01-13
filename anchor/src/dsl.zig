@@ -1280,12 +1280,31 @@ fn autoAccountAttrs(comptime AccountsType: type, comptime FieldType: type) ?[]co
 
     comptime var config: attr_mod.AccountAttrConfig = .{};
     comptime var has_any = false;
+    comptime var inferred_associated = false;
 
+    if (CleanType.ASSOCIATED_TOKEN != null) {
+        inferred_associated = true;
+    }
     if (CleanType.ASSOCIATED_TOKEN) |cfg| {
         if (cfg.token_program == null) {
             if (token_program) |name| {
                 config.associated_token_token_program = name;
                 has_any = true;
+            }
+        }
+    }
+    const has_ata_program = autoAssociatedTokenProgramName(AccountsType) != null;
+    if (CleanType.ASSOCIATED_TOKEN == null and has_ata_program) {
+        if (dataHasField(DataType, "mint") and dataHasField(DataType, "owner")) {
+            if (accountFieldName(AccountsType, &.{ "mint", "token_mint" })) |name| {
+                config.associated_token_mint = name;
+                has_any = true;
+                inferred_associated = true;
+            }
+            if (accountFieldName(AccountsType, &.{ "authority", "token_authority", "owner" })) |name| {
+                config.associated_token_authority = name;
+                has_any = true;
+                inferred_associated = true;
             }
         }
     }
@@ -1302,7 +1321,7 @@ fn autoAccountAttrs(comptime AccountsType: type, comptime FieldType: type) ?[]co
             has_any = true;
         }
     }
-    if (CleanType.TOKEN_MINT == null and CleanType.TOKEN_AUTHORITY == null) {
+    if (CleanType.TOKEN_MINT == null and CleanType.TOKEN_AUTHORITY == null and !inferred_associated) {
         const has_mint = dataHasPublicKeyField(DataType, "mint");
         const has_owner = dataHasPublicKeyField(DataType, "owner") or dataHasPublicKeyField(DataType, "authority");
         if (has_mint and has_owner) {
@@ -1316,35 +1335,29 @@ fn autoAccountAttrs(comptime AccountsType: type, comptime FieldType: type) ?[]co
             }
         }
     }
-    const has_ata_program = autoAssociatedTokenProgramName(AccountsType) != null;
-    if (CleanType.ASSOCIATED_TOKEN == null and has_ata_program) {
-        if (dataHasField(DataType, "mint") and dataHasField(DataType, "owner")) {
-            if (accountFieldName(AccountsType, &.{ "mint", "token_mint" })) |name| {
-                config.associated_token_mint = name;
-                has_any = true;
-            }
-            if (accountFieldName(AccountsType, &.{ "authority", "token_authority", "owner" })) |name| {
-                config.associated_token_authority = name;
-                has_any = true;
-            }
-        }
-    }
     if (CleanType.MINT_AUTHORITY == null and CleanType.MINT_DECIMALS == null) {
-        if (dataHasPublicKeyField(DataType, "mint_authority") or dataHasPublicKeyField(DataType, "authority")) {
+        const has_decimals = dataDeclU8(DataType, "DECIMALS") != null or dataDeclU8(DataType, "MINT_DECIMALS") != null;
+        const has_freeze = dataHasPublicKeyField(DataType, "freeze_authority");
+        const has_mint_authority = dataHasPublicKeyField(DataType, "mint_authority");
+        const is_mint_shape = has_mint_authority or has_freeze or has_decimals;
+
+        if (is_mint_shape and (has_mint_authority or dataHasPublicKeyField(DataType, "authority"))) {
             if (accountFieldName(AccountsType, &.{ "mint_authority", "authority" })) |name| {
                 config.mint_authority = name;
                 has_any = true;
             }
         }
-        if (dataHasPublicKeyField(DataType, "freeze_authority")) {
+        if (is_mint_shape and has_freeze) {
             if (accountFieldName(AccountsType, &.{ "freeze_authority" })) |name| {
                 config.mint_freeze_authority = name;
                 has_any = true;
             }
         }
-        if (dataDeclU8(DataType, "DECIMALS") orelse dataDeclU8(DataType, "MINT_DECIMALS")) |decimals| {
-            config.mint_decimals = decimals;
-            has_any = true;
+        if (is_mint_shape) {
+            if (dataDeclU8(DataType, "DECIMALS") orelse dataDeclU8(DataType, "MINT_DECIMALS")) |decimals| {
+                config.mint_decimals = decimals;
+                has_any = true;
+            }
         }
     }
 
@@ -1994,7 +2007,6 @@ test "dsl: AttrsFor resolves typed token configs" {
         token_program: UncheckedProgram,
         token_account: AttrsFor(AccountsRef, Data, .{
             .token = TokenFor(AccountsRef).withProgram(.mint, .authority, .token_program),
-            .associated_token = AssociatedTokenFor(AccountsRef).withTokenProgram(.mint, .authority, .token_program),
         }).apply(TokenAccount),
     });
 
@@ -2003,6 +2015,37 @@ test "dsl: AttrsFor resolves typed token configs" {
         @compileError("AccountsDerive failed to produce token_account field");
 
     try std.testing.expect(fields[token_index].type.TOKEN_MINT != null);
+}
+
+test "dsl: AttrsFor resolves typed associated token configs" {
+    const Data = struct {
+        authority: sol.PublicKey,
+    };
+
+    const TokenAccount = account_mod.Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("TokenAccountTypedAta"),
+    });
+
+    const AccountsRef = struct {
+        mint: *const AccountInfo,
+        authority: Signer,
+        token_program: UncheckedProgram,
+        token_account: TokenAccount,
+    };
+
+    const AccountsType = AccountsDerive(struct {
+        mint: *const AccountInfo,
+        authority: Signer,
+        token_program: UncheckedProgram,
+        token_account: AttrsFor(AccountsRef, Data, .{
+            .associated_token = AssociatedTokenFor(AccountsRef).withTokenProgram(.mint, .authority, .token_program),
+        }).apply(TokenAccount),
+    });
+
+    const fields = @typeInfo(AccountsType).@"struct".fields;
+    const token_index = std.meta.fieldIndex(AccountsType, "token_account") orelse
+        @compileError("AccountsDerive failed to produce token_account field");
+
     try std.testing.expect(fields[token_index].type.ASSOCIATED_TOKEN != null);
 }
 

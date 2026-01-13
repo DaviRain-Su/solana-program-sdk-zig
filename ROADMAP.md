@@ -1458,6 +1458,22 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.30 - Token/Mint/ATA Constraint Combos
+
+- [x] Enforce token/ata/mint constraint combination rules
+- [x] Add tests for valid token/ata/mint combinations
+- [x] Update docs
+
+---
+
+### ✅ v3.2.31 - Init/Close/Realloc Runtime Constraints
+
+- [x] Extend init/close/realloc runtime checks
+- [x] Add tests for init constraint validation
+- [x] Update docs
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

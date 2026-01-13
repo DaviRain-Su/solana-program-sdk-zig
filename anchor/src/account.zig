@@ -28,6 +28,7 @@ const ConstraintExpr = constraints_mod.ConstraintExpr;
 const attr_mod = @import("attr.zig");
 const Attr = attr_mod.Attr;
 const seeds_mod = @import("seeds.zig");
+const init_mod = @import("init.zig");
 const pda_mod = @import("pda.zig");
 const has_one_mod = @import("has_one.zig");
 const realloc_mod = @import("realloc.zig");
@@ -717,6 +718,24 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
             if (merged.seeds != null) {
                 @compileError("associated_token cannot be used with seeds");
             }
+            if (merged.token_mint != null or merged.token_authority != null or merged.token_program != null) {
+                @compileError("associated_token cannot be combined with token constraints");
+            }
+            if (merged.mint_authority != null or
+                merged.mint_freeze_authority != null or
+                merged.mint_decimals != null or
+                merged.mint_token_program != null)
+            {
+                @compileError("associated_token cannot be combined with mint constraints");
+            }
+        }
+        if ((merged.token_mint != null or merged.token_authority != null or merged.token_program != null) and
+            (merged.mint_authority != null or
+            merged.mint_freeze_authority != null or
+            merged.mint_decimals != null or
+            merged.mint_token_program != null))
+        {
+            @compileError("token constraints cannot be combined with mint constraints");
         }
     }
 
@@ -1095,12 +1114,66 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
             return true;
         }
 
+        /// Validate init/init_if_needed constraints
+        ///
+        /// Ensures the account is writable, uninitialized (for init), and payer
+        /// is a signer + writable when specified.
+        pub fn validateInitConstraint(self: Self, accounts: anytype) !void {
+            if (!IS_INIT) return;
+
+            if (IS_INIT_IF_NEEDED) {
+                if (!init_mod.isUninitialized(self.info)) {
+                    return;
+                }
+            } else {
+                if (!init_mod.isUninitialized(self.info)) {
+                    return init_mod.InitError.AccountAlreadyInitialized;
+                }
+            }
+
+            if (self.info.is_writable == 0) {
+                return error.ConstraintMut;
+            }
+
+            if (PAYER) |payer_field| {
+                const payer = @field(accounts, payer_field);
+                const PayerType = @TypeOf(payer);
+
+                const payer_info: *const AccountInfo = blk: {
+                    if (@typeInfo(PayerType) == .pointer) {
+                        const ChildType = @typeInfo(PayerType).pointer.child;
+                        if (ChildType == AccountInfo) {
+                            break :blk payer;
+                        } else if (@hasDecl(ChildType, "toAccountInfo")) {
+                            break :blk payer.toAccountInfo();
+                        } else {
+                            @compileError("init payer pointer must point to AccountInfo or type with toAccountInfo()");
+                        }
+                    } else if (@hasDecl(PayerType, "toAccountInfo")) {
+                        break :blk payer.toAccountInfo();
+                    } else {
+                        @compileError("init payer must have toAccountInfo() method or be *const AccountInfo");
+                    }
+                };
+
+                if (payer_info.is_signer == 0) {
+                    return error.ConstraintSigner;
+                }
+                if (payer_info.is_writable == 0) {
+                    return error.ConstraintMut;
+                }
+            }
+        }
+
         /// Validate close constraint preconditions
         ///
         /// Checks that the close destination account is writable.
         /// Call this before executing a close operation.
         pub fn validateCloseConstraint(self: Self, accounts: anytype) !void {
             if (merged.close) |dest_field| {
+                if (self.info.is_writable == 0) {
+                    return error.ConstraintMut;
+                }
                 const dest = @field(accounts, dest_field);
 
                 // Get destination AccountInfo
@@ -1174,6 +1247,7 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
         /// Convenience method to validate all configured constraints.
         pub fn validateAllConstraints(self: Self, comptime account_name: []const u8, accounts: anytype) !void {
             try self.validateHasOneConstraints(accounts);
+            try self.validateInitConstraint(accounts);
             try self.validateCloseConstraint(accounts);
             try self.validateReallocConstraint(accounts);
             if (OWNER_EXPR) |expr| {
@@ -1191,7 +1265,7 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
 
         /// Check if account requires constraint validation
         pub fn requiresConstraintValidation() bool {
-            return HAS_HAS_ONE or HAS_CLOSE or HAS_REALLOC or CONSTRAINT != null or OWNER_EXPR != null or ADDRESS_EXPR != null;
+            return HAS_HAS_ONE or IS_INIT or HAS_CLOSE or HAS_REALLOC or CONSTRAINT != null or OWNER_EXPR != null or ADDRESS_EXPR != null;
         }
     };
 }
@@ -1780,8 +1854,6 @@ test "Account attrs support init_if_needed and token constraints" {
             attr_mod.attr.payer("payer"),
             attr_mod.attr.tokenMint("mint"),
             attr_mod.attr.tokenAuthority("authority"),
-            attr_mod.attr.associatedTokenMint("mint"),
-            attr_mod.attr.associatedTokenAuthority("authority"),
         },
     });
 
@@ -1789,9 +1861,56 @@ test "Account attrs support init_if_needed and token constraints" {
     try std.testing.expect(TokenAccount.PAYER != null);
     try std.testing.expect(TokenAccount.TOKEN_MINT != null);
     try std.testing.expect(TokenAccount.TOKEN_AUTHORITY != null);
+}
+
+test "Account attrs support associated token constraints" {
+    const Data = struct {
+        authority: PublicKey,
+    };
+
+    const TokenAccount = Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("TokenAccountAta"),
+        .attrs = &.{
+            attr_mod.attr.initIfNeeded(),
+            attr_mod.attr.payer("payer"),
+            attr_mod.attr.associatedTokenMint("mint"),
+            attr_mod.attr.associatedTokenAuthority("authority"),
+        },
+    });
+
+    try std.testing.expect(TokenAccount.IS_INIT_IF_NEEDED);
+    try std.testing.expect(TokenAccount.PAYER != null);
     try std.testing.expect(TokenAccount.ASSOCIATED_TOKEN != null);
     try std.testing.expect(std.mem.eql(u8, TokenAccount.ASSOCIATED_TOKEN.?.mint, "mint"));
     try std.testing.expect(std.mem.eql(u8, TokenAccount.ASSOCIATED_TOKEN.?.authority, "authority"));
+}
+
+test "Account accepts token/ata/mint constraints independently" {
+    const Data = struct {
+        authority: PublicKey,
+        mint: PublicKey,
+    };
+
+    const TokenOnly = Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("TokenOnly"),
+        .token_mint = "mint",
+        .token_authority = "authority",
+    });
+
+    const AtaOnly = Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("AtaOnly"),
+        .associated_token = .{ .mint = "mint", .authority = "authority" },
+    });
+
+    const MintOnly = Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("MintOnly"),
+        .mint_authority = "authority",
+        .mint_decimals = 6,
+    });
+
+    try std.testing.expect(TokenOnly.TOKEN_MINT != null);
+    try std.testing.expect(AtaOnly.ASSOCIATED_TOKEN != null);
+    try std.testing.expect(MintOnly.MINT_AUTHORITY != null);
 }
 
 test "Account constraint expression evaluates at runtime" {
@@ -2134,6 +2253,115 @@ test "validateHasOneConstraints fails when field does not match target" {
 
     // Should fail - authority doesn't match stored value
     try std.testing.expectError(error.ConstraintHasOne, vault.validateHasOneConstraints(accounts));
+}
+
+test "validateInitConstraint succeeds when payer is signer and writable" {
+    const Data = struct {
+        value: u64,
+    };
+
+    const InitAccount = Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("InitConstraint"),
+        .init = true,
+        .payer = "payer",
+    });
+
+    var account_id = comptime PublicKey.comptimeFromBase58("SysvarRent111111111111111111111111111111111");
+    var owner = PublicKey.default();
+    var lamports: u64 = 0;
+    var data: [DISCRIMINATOR_LENGTH + @sizeOf(Data)]u8 align(@alignOf(Data)) = [_]u8{0} ** (DISCRIMINATOR_LENGTH + @sizeOf(Data));
+
+    const info = AccountInfo{
+        .id = &account_id,
+        .owner_id = &owner,
+        .lamports = &lamports,
+        .data_len = data.len,
+        .data = &data,
+        .is_signer = 0,
+        .is_writable = 1,
+        .is_executable = 0,
+    };
+
+    var payer_id = comptime PublicKey.comptimeFromBase58("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+    var payer_owner = PublicKey.default();
+    var payer_lamports: u64 = 1_000_000;
+    var payer_data: [0]u8 = .{};
+    const payer_info = AccountInfo{
+        .id = &payer_id,
+        .owner_id = &payer_owner,
+        .lamports = &payer_lamports,
+        .data_len = payer_data.len,
+        .data = &payer_data,
+        .is_signer = 1,
+        .is_writable = 1,
+        .is_executable = 0,
+    };
+
+    const payer = try SignerMut.load(&payer_info);
+    const Accounts = struct {
+        payer: SignerMut,
+        account: InitAccount,
+    };
+
+    const data_ptr: *Data = @ptrCast(@alignCast(info.data + DISCRIMINATOR_LENGTH));
+    const account = InitAccount{ .info = &info, .data = data_ptr };
+    const accounts = Accounts{ .payer = payer, .account = account };
+
+    try account.validateInitConstraint(accounts);
+}
+
+test "validateInitConstraint fails when payer is not signer" {
+    const Data = struct {
+        value: u64,
+    };
+
+    const InitAccount = Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("InitConstraintNoSigner"),
+        .init = true,
+        .payer = "payer",
+    });
+
+    var account_id = comptime PublicKey.comptimeFromBase58("SysvarRent111111111111111111111111111111111");
+    var owner = PublicKey.default();
+    var lamports: u64 = 0;
+    var data: [DISCRIMINATOR_LENGTH + @sizeOf(Data)]u8 align(@alignOf(Data)) = [_]u8{0} ** (DISCRIMINATOR_LENGTH + @sizeOf(Data));
+
+    const info = AccountInfo{
+        .id = &account_id,
+        .owner_id = &owner,
+        .lamports = &lamports,
+        .data_len = data.len,
+        .data = &data,
+        .is_signer = 0,
+        .is_writable = 1,
+        .is_executable = 0,
+    };
+
+    var payer_id = comptime PublicKey.comptimeFromBase58("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+    var payer_owner = PublicKey.default();
+    var payer_lamports: u64 = 1_000_000;
+    var payer_data: [0]u8 = .{};
+    const payer_info = AccountInfo{
+        .id = &payer_id,
+        .owner_id = &payer_owner,
+        .lamports = &payer_lamports,
+        .data_len = payer_data.len,
+        .data = &payer_data,
+        .is_signer = 0,
+        .is_writable = 1,
+        .is_executable = 0,
+    };
+
+    const Accounts = struct {
+        payer: *const AccountInfo,
+        account: InitAccount,
+    };
+
+    const data_ptr: *Data = @ptrCast(@alignCast(info.data + DISCRIMINATOR_LENGTH));
+    const account = InitAccount{ .info = &info, .data = data_ptr };
+    const accounts = Accounts{ .payer = &payer_info, .account = account };
+
+    try std.testing.expectError(error.ConstraintSigner, account.validateInitConstraint(accounts));
 }
 
 test "validateCloseConstraint succeeds when destination is writable" {

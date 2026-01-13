@@ -13,11 +13,13 @@ const signer_mod = @import("signer.zig");
 const program_mod = @import("program.zig");
 const sysvar_account = @import("sysvar_account.zig");
 const discriminator_mod = @import("discriminator.zig");
+const seeds_mod = @import("seeds.zig");
 
 const AccountInfo = sol.account.Account.Info;
 const Signer = signer_mod.Signer;
 const SignerMut = signer_mod.SignerMut;
 const UncheckedProgram = program_mod.UncheckedProgram;
+const SeedSpec = seeds_mod.SeedSpec;
 
 /// Validate Accounts struct and return it unchanged.
 pub fn Accounts(comptime T: type) type {
@@ -113,6 +115,61 @@ fn fieldIndexByName(comptime T: type, comptime name: []const u8) usize {
     return std.meta.fieldIndex(T, name) orelse {
         @compileError("account constraint references unknown Accounts field: " ++ name);
     };
+}
+
+fn hasKeyOrAccountInfo(comptime T: type) bool {
+    const Clean = unwrapOptionalType(T);
+    if (Clean == *const AccountInfo) return true;
+    return @hasDecl(Clean, "key");
+}
+
+fn validateKeyTarget(comptime AccountsType: type, comptime name: []const u8) void {
+    const fields = @typeInfo(AccountsType).@"struct".fields;
+    const target_index = fieldIndexByName(AccountsType, name);
+    const target_type = fields[target_index].type;
+    if (!hasKeyOrAccountInfo(target_type)) {
+        @compileError("account constraint target must have key() or be AccountInfo: " ++ name);
+    }
+}
+
+fn validateBumpTarget(comptime AccountsType: type, comptime name: []const u8) void {
+    const fields = @typeInfo(AccountsType).@"struct".fields;
+    const target_index = fieldIndexByName(AccountsType, name);
+    const target_type = unwrapOptionalType(fields[target_index].type);
+    if (!@hasDecl(target_type, "HAS_SEEDS") or !target_type.HAS_SEEDS) {
+        @compileError("bump seed must reference an account with seeds: " ++ name);
+    }
+}
+
+fn validateSeedRef(comptime AccountsType: type, seed: SeedSpec) void {
+    switch (seed) {
+        .account => |name| validateKeyTarget(AccountsType, name),
+        .bump => |name| validateBumpTarget(AccountsType, name),
+        else => {},
+    }
+}
+
+fn validateDerivedRefs(comptime AccountsType: type) void {
+    const fields = @typeInfo(AccountsType).@"struct".fields;
+
+    inline for (fields) |field| {
+        const FieldType = unwrapOptionalType(field.type);
+        if (!isAccountWrapper(FieldType)) continue;
+
+        if (FieldType.HAS_ONE) |list| {
+            inline for (list) |spec| {
+                validateKeyTarget(AccountsType, spec.target);
+            }
+        }
+        if (FieldType.SEEDS) |seeds| {
+            inline for (seeds) |seed| {
+                validateSeedRef(AccountsType, seed);
+            }
+        }
+        if (FieldType.SEEDS_PROGRAM) |seed| {
+            validateSeedRef(AccountsType, seed);
+        }
+    }
 }
 
 fn resolveAttrs(comptime value: anytype) []const attr_mod.Attr {
@@ -263,7 +320,10 @@ fn applyAccountAttrs(comptime T: type, comptime config: anytype, comptime enable
     }
 
     const fields = info.@"struct".fields;
-    const derived_flags: ?DerivedFlags = if (enable_auto) deriveAccountFlags(T) else null;
+    const derived_flags: ?DerivedFlags = if (enable_auto) blk: {
+        validateDerivedRefs(T);
+        break :blk deriveAccountFlags(T);
+    } else null;
     comptime var new_fields: [fields.len]std.builtin.Type.StructField = undefined;
 
     inline for (fields, 0..) |field, index| {
@@ -679,6 +739,30 @@ test "dsl: AccountsDerive infers init/payer/realloc mut/signer" {
     try std.testing.expect(fields[payer_index].type == SignerMut);
     try std.testing.expect(fields[counter_index].type.HAS_MUT);
     try std.testing.expect(fields[dynamic_index].type.HAS_MUT);
+}
+
+test "dsl: AccountsDerive validates has_one/seeds references" {
+    const Data = struct {
+        authority: sol.PublicKey,
+    };
+
+    const Vault = account_mod.Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("Vault"),
+        .seeds = &.{
+            seeds_mod.seed("vault"),
+            seeds_mod.seedAccount("authority"),
+            seeds_mod.seedBump("vault"),
+        },
+        .bump = true,
+        .has_one = &.{.{ .field = "authority", .target = "authority" }},
+    });
+
+    const AccountsType = AccountsDerive(struct {
+        authority: Signer,
+        vault: Vault,
+    });
+
+    _ = AccountsType;
 }
 
 test "dsl: event validation accepts struct" {

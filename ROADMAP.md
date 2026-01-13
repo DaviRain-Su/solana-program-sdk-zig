@@ -1329,6 +1329,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.14 - Anchor Derive HasOne/Seeds Ref Validation
+
+- [x] Validate has_one target field types
+- [x] Validate seedAccount/seedBump references
+- [x] Update docs and tests
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

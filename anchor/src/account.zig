@@ -737,6 +737,26 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
         {
             @compileError("token constraints cannot be combined with mint constraints");
         }
+        if (merged.owner != null and merged.owner_expr != null) {
+            @compileError("owner and owner_expr are mutually exclusive");
+        }
+        if (merged.address != null and merged.address_expr != null) {
+            @compileError("address and address_expr are mutually exclusive");
+        }
+        if (merged.executable) {
+            if (merged.mut) {
+                @compileError("executable accounts cannot be mutable");
+            }
+            if (merged.signer) {
+                @compileError("executable accounts cannot be signers");
+            }
+            if (merged.init or merged.init_if_needed) {
+                @compileError("executable accounts cannot be initialized");
+            }
+            if (merged.close != null or merged.realloc != null) {
+                @compileError("executable accounts cannot be closed or reallocated");
+            }
+        }
     }
 
     return struct {
@@ -1790,7 +1810,6 @@ test "Account attributes DSL merges config" {
             attr_mod.attr.constraint("authority.key() == full.authority"),
             attr_mod.attr.owner(owner_key),
             attr_mod.attr.address(address_key),
-            attr_mod.attr.executable(),
             attr_mod.attr.space(128),
         },
     });
@@ -1808,7 +1827,6 @@ test "Account attributes DSL merges config" {
     try std.testing.expect(Full.CONSTRAINT != null);
     try std.testing.expect(Full.OWNER != null);
     try std.testing.expect(Full.ADDRESS != null);
-    try std.testing.expect(Full.EXECUTABLE);
     try std.testing.expectEqual(@as(usize, 128), Full.SPACE);
 }
 
@@ -2061,7 +2079,6 @@ test "Account attribute sugar maps macro fields" {
             .constraint = "authority.key() == full.authority",
             .owner = owner_key,
             .address = address_key,
-            .executable = true,
             .space = 128,
         }),
     });
@@ -2081,10 +2098,24 @@ test "Account attribute sugar maps macro fields" {
     try std.testing.expect(Full.CONSTRAINT != null);
     try std.testing.expect(Full.OWNER != null);
     try std.testing.expect(Full.ADDRESS != null);
-    try std.testing.expect(Full.EXECUTABLE);
     try std.testing.expectEqual(@as(usize, 128), Full.SPACE);
     try std.testing.expect(std.mem.eql(u8, Full.HAS_ONE.?[0].field, "authority"));
     try std.testing.expect(std.mem.eql(u8, Full.HAS_ONE.?[0].target, "authority"));
+}
+
+test "Account supports executable constraint alone" {
+    const Data = struct {
+        value: u64,
+    };
+
+    const Executable = Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("ExecutableOnly"),
+        .executable = true,
+    });
+
+    try std.testing.expect(Executable.EXECUTABLE);
+    try std.testing.expect(!Executable.HAS_MUT);
+    try std.testing.expect(!Executable.HAS_SIGNER);
 }
 
 test "Account attribute sugar maps seeds program" {

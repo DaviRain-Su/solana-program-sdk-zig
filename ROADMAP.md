@@ -1474,6 +1474,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.32 - Owner/Address/Executable Combos
+
+- [x] Enforce owner/address/executable combination rules
+- [x] Add tests for executable-only configs
+- [x] Update docs
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

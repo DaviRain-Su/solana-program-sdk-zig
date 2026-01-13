@@ -190,6 +190,7 @@ Constraint rules:
 - `associated_token` cannot be combined with `token::*` or `mint::*` constraints.
 - `token::*` constraints cannot be combined with `mint::*` constraints.
 - `init`/`init_if_needed` validates account is writable and uninitialized; payer must be signer + writable.
+- `executable` cannot be combined with `mut`, `signer`, `init`, `close`, or `realloc`.
 
 ## Build & Test
 

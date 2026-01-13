@@ -141,6 +141,22 @@ All notable changes to the Solana SDK Zig implementation will be documented in t
 
 ---
 
+### Session 2026-01-13-052
+
+**Date**: 2026-01-13
+**Goal**: Enforce owner/address/executable combination rules
+
+#### Completed Work
+1. Added owner/address expression conflict checks in Account config
+2. Enforced executable constraint combination rules
+3. Added executable-only test coverage
+4. Updated docs and roadmap/story
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-13-042
 
 **Date**: 2026-01-13

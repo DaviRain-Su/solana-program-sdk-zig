@@ -2,6 +2,22 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-13-053
+
+**Date**: 2026-01-13
+**Goal**: Enhance event index semantics validation
+
+#### Completed Work
+1. Restricted indexed event fields to bool, fixed-size ints, or PublicKey (reject usize/isize)
+2. Added clearer compile-time errors for invalid index types and index overflow
+3. Added tests for fixed-size indexed event fields
+4. Updated docs, story, and roadmap
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ZIG_LOCAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-13-043
 
 **Date**: 2026-01-13

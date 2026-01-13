@@ -142,6 +142,9 @@ const CounterEvent = anchor.Event(struct {
 });
 ```
 
+Indexed event fields must be `bool`, fixed-size integers (`u8/u16/u32/u64/u128/u256` and signed),
+or `sol.PublicKey`. `usize/isize` are rejected to keep IDL stable across targets.
+
 ## AccountsDerive Auto Inference (Token/Mint/ATA)
 
 AccountsDerive can auto-infer common token/mint/ata constraints when the

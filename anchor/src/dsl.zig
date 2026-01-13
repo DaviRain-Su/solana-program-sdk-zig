@@ -1395,30 +1395,51 @@ fn validateEvent(comptime T: type) void {
     }
 
     comptime var index_count: usize = 0;
+    comptime var index_names: []const u8 = "";
     inline for (fields) |field| {
         const field_type = unwrapEventField(field.type);
         const config = eventFieldConfig(field.type);
         if (config.index) {
             if (!isIndexableEventFieldType(field_type)) {
-                @compileError("Indexed event fields must be scalar or PublicKey types");
+                @compileError(std.fmt.comptimePrint(
+                    "Indexed event field '{s}' must be bool, integer (8/16/32/64/128/256-bit), or PublicKey, got: {s}",
+                    .{ field.name, @typeName(field_type) },
+                ));
+            }
+            if (index_names.len == 0) {
+                index_names = field.name;
+            } else {
+                index_names = index_names ++ ", " ++ field.name;
             }
             index_count += 1;
         }
     }
 
     if (index_count > 4) {
-        @compileError("Event struct cannot have more than 4 indexed fields");
+        @compileError(std.fmt.comptimePrint(
+            "Event struct cannot have more than 4 indexed fields (found {d}: {s})",
+            .{ index_count, index_names },
+        ));
     }
 }
 
 fn isIndexableEventFieldType(comptime T: type) bool {
+    if (T == sol.PublicKey) {
+        return true;
+    }
+    if (T == usize or T == isize) {
+        return false;
+    }
+
     const info = @typeInfo(T);
     switch (info) {
         .bool => return true,
-        .int => return true,
-        else => {},
+        .int => |int_info| {
+            return int_info.bits == 8 or int_info.bits == 16 or int_info.bits == 32 or
+                int_info.bits == 64 or int_info.bits == 128 or int_info.bits == 256;
+        },
+        else => return false,
     }
-    return T == sol.PublicKey;
 }
 
 // Ensure account wrappers expose load()
@@ -2165,6 +2186,17 @@ test "dsl: event supports multiple indexed fields" {
         owner: eventField(sol.PublicKey, .{ .index = true }),
         slot: eventField(u64, .{ .index = true }),
         nonce: eventField(u64, .{ .index = true }),
+    });
+
+    _ = EventType;
+}
+
+test "dsl: event index accepts fixed-size ints" {
+    const EventType = Event(struct {
+        flag: eventField(bool, .{ .index = true }),
+        small: eventField(u8, .{ .index = true }),
+        big: eventField(i128, .{ .index = true }),
+        key: eventField(sol.PublicKey, .{ .index = true }),
     });
 
     _ = EventType;

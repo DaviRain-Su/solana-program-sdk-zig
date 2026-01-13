@@ -1482,6 +1482,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.33 - Anchor Event Index Semantics
+
+- [x] Restrict indexed event fields to bool/fixed-size ints/PublicKey (no usize/isize)
+- [x] Improve compile-time errors for invalid index types and index overflow
+- [x] Update docs
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

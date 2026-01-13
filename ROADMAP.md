@@ -1321,6 +1321,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.13 - Anchor Derive Constraint Inference
+
+- [x] Auto-apply mut on init/realloc/close account fields
+- [x] Auto-apply signer+mut on payer/realloc payer fields
+- [x] Update docs and tests
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

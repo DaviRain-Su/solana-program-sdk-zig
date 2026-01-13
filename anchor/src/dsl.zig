@@ -12,6 +12,7 @@ const attr_mod = @import("attr.zig");
 const signer_mod = @import("signer.zig");
 const program_mod = @import("program.zig");
 const sysvar_account = @import("sysvar_account.zig");
+const discriminator_mod = @import("discriminator.zig");
 
 const AccountInfo = sol.account.Account.Info;
 const Signer = signer_mod.Signer;
@@ -94,6 +95,26 @@ fn validateAccountsWith(comptime T: type, comptime config: anytype) void {
     }
 }
 
+fn unwrapOptionalType(comptime T: type) type {
+    const info = @typeInfo(T);
+    if (info == .optional) {
+        return info.optional.child;
+    }
+    return T;
+}
+
+fn isAccountWrapper(comptime T: type) bool {
+    const info = @typeInfo(T);
+    if (info != .@"struct") return false;
+    return @hasDecl(T, "DataType") and @hasDecl(T, "discriminator");
+}
+
+fn fieldIndexByName(comptime T: type, comptime name: []const u8) usize {
+    return std.meta.fieldIndex(T, name) orelse {
+        @compileError("account constraint references unknown Accounts field: " ++ name);
+    };
+}
+
 fn resolveAttrs(comptime value: anytype) []const attr_mod.Attr {
     const ValueType = @TypeOf(value);
     if (ValueType == []const attr_mod.Attr) {
@@ -110,6 +131,131 @@ fn resolveAttrs(comptime value: anytype) []const attr_mod.Attr {
     @compileError("AccountsWith expects Attr, []const Attr, or AccountAttrConfig");
 }
 
+const DerivedFlags = struct {
+    mut: []const bool,
+    signer: []const bool,
+};
+
+fn deriveAccountFlags(comptime T: type) DerivedFlags {
+    const fields = @typeInfo(T).@"struct".fields;
+    comptime var mut_flags: [fields.len]bool = [_]bool{false} ** fields.len;
+    comptime var signer_flags: [fields.len]bool = [_]bool{false} ** fields.len;
+
+    inline for (fields, 0..) |field, index| {
+        const FieldType = unwrapOptionalType(field.type);
+        if (!isAccountWrapper(FieldType)) continue;
+
+        if (FieldType.IS_INIT or FieldType.IS_INIT_IF_NEEDED or FieldType.HAS_REALLOC or FieldType.CLOSE != null) {
+            mut_flags[index] = true;
+        }
+
+        if (FieldType.PAYER) |name| {
+            const target = fieldIndexByName(T, name);
+            mut_flags[target] = true;
+            signer_flags[target] = true;
+        }
+
+        if (FieldType.REALLOC) |cfg| {
+            if (cfg.payer) |name| {
+                const target = fieldIndexByName(T, name);
+                mut_flags[target] = true;
+                signer_flags[target] = true;
+            }
+        }
+
+        if (FieldType.CLOSE) |name| {
+            const target = fieldIndexByName(T, name);
+            mut_flags[target] = true;
+        }
+    }
+
+    return .{
+        .mut = &mut_flags,
+        .signer = &signer_flags,
+    };
+}
+
+fn hasAttrMut(comptime attrs: []const attr_mod.Attr) bool {
+    inline for (attrs) |attr| {
+        if (attr == .mut) return true;
+    }
+    return false;
+}
+
+fn hasAttrSigner(comptime attrs: []const attr_mod.Attr) bool {
+    inline for (attrs) |attr| {
+        if (attr == .signer) return true;
+    }
+    return false;
+}
+
+fn mergeAttrs(
+    comptime base: ?[]const attr_mod.Attr,
+    comptime derived: []const attr_mod.Attr,
+) ?[]const attr_mod.Attr {
+    if (base == null and derived.len == 0) return null;
+    if (base == null) return derived;
+    if (derived.len == 0) return base;
+
+    const base_attrs = base.?;
+    const skip_mut = hasAttrMut(base_attrs);
+    const skip_signer = hasAttrSigner(base_attrs);
+
+    comptime var merged: [base_attrs.len + derived.len]attr_mod.Attr = undefined;
+    comptime var index: usize = 0;
+
+    inline for (base_attrs) |attr| {
+        merged[index] = attr;
+        index += 1;
+    }
+
+    inline for (derived) |attr| {
+        switch (attr) {
+            .mut => if (skip_mut) continue,
+            .signer => if (skip_signer) continue,
+            else => {},
+        }
+        merged[index] = attr;
+        index += 1;
+    }
+
+    return merged[0..index];
+}
+
+fn derivedAttrsForField(
+    comptime FieldType: type,
+    comptime needs_mut: bool,
+    comptime needs_signer: bool,
+) []const attr_mod.Attr {
+    if (!needs_mut and !needs_signer) return &.{};
+
+    if (needs_signer and FieldType != Signer and FieldType != SignerMut) {
+        @compileError("payer/realloc payer fields must be Signer or SignerMut");
+    }
+
+    if (needs_signer and needs_mut) {
+        return &.{ attr_mod.attr.signer(), attr_mod.attr.mut() };
+    }
+    if (needs_signer) {
+        return &.{attr_mod.attr.signer()};
+    }
+    return &.{attr_mod.attr.mut()};
+}
+
+fn applyFieldAttrs(
+    comptime FieldType: type,
+    comptime attrs: []const attr_mod.Attr,
+) type {
+    if (@hasDecl(FieldType, "DataType")) {
+        return account_mod.AccountField(FieldType, attrs);
+    }
+    if (FieldType == Signer or FieldType == SignerMut) {
+        return applySignerAttrs(FieldType, attrs);
+    }
+
+    @compileError("Derived attrs only support Account or Signer fields");
+}
+
 fn applyAccountAttrs(comptime T: type, comptime config: anytype, comptime enable_auto: bool) type {
     const info = @typeInfo(T);
     if (info != .@"struct") {
@@ -117,10 +263,20 @@ fn applyAccountAttrs(comptime T: type, comptime config: anytype, comptime enable
     }
 
     const fields = info.@"struct".fields;
+    const derived_flags: ?DerivedFlags = if (enable_auto) deriveAccountFlags(T) else null;
     comptime var new_fields: [fields.len]std.builtin.Type.StructField = undefined;
 
     inline for (fields, 0..) |field, index| {
         var field_type = field.type;
+        const derived_target_type = unwrapOptionalType(field_type);
+        const derived_attrs = if (derived_flags) |flags|
+            derivedAttrsForField(
+                derived_target_type,
+                flags.mut[index],
+                flags.signer[index],
+            )
+        else
+            &.{};
         const explicit = @hasField(@TypeOf(config), field.name);
         const auto_sysvar_type = if (!explicit and enable_auto) autoSysvarType(field.name, field_type) else null;
         if (auto_sysvar_type) |sysvar_type| {
@@ -130,12 +286,16 @@ fn applyAccountAttrs(comptime T: type, comptime config: anytype, comptime enable
             autoProgramAttrs(field.name, field_type)
         else
             null;
-        if (explicit or auto_attrs != null) {
-            const attrs = if (explicit)
+        const merged_attrs = mergeAttrs(
+            if (explicit)
                 resolveAttrs(@field(config, field.name))
+            else if (auto_attrs != null)
+                auto_attrs.?
             else
-                auto_attrs.?;
-
+                null,
+            derived_attrs,
+        );
+        if (merged_attrs) |attrs| {
             if (@hasDecl(field_type, "DataType")) {
                 field_type = account_mod.AccountField(field_type, attrs);
             } else if (field_type == UncheckedProgram or @hasDecl(field_type, "ID")) {
@@ -145,6 +305,11 @@ fn applyAccountAttrs(comptime T: type, comptime config: anytype, comptime enable
             } else {
                 @compileError("AccountsWith only supports Account, Program, or Signer fields");
             }
+        } else if (derived_attrs.len != 0) {
+            if (field_type != derived_target_type) {
+                @compileError("Derived attrs do not support optional fields");
+            }
+            field_type = applyFieldAttrs(derived_target_type, derived_attrs);
         }
 
         new_fields[index] = .{
@@ -479,6 +644,41 @@ test "dsl: AccountsDerive auto-binds common program/sysvar fields" {
     try std.testing.expect(fields[instructions_index].type.ID.equals(sol.INSTRUCTIONS_ID));
     try std.testing.expect(fields[epoch_rewards_index].type.ID.equals(sol.EPOCH_REWARDS_ID));
     try std.testing.expect(fields[last_restart_slot_index].type.ID.equals(sol.LAST_RESTART_SLOT_ID));
+}
+
+test "dsl: AccountsDerive infers init/payer/realloc mut/signer" {
+    const Data = struct {
+        value: u64,
+    };
+
+    const Counter = account_mod.Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("Counter"),
+        .init = true,
+        .payer = "payer",
+    });
+
+    const Dynamic = account_mod.Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("Dynamic"),
+        .realloc = .{ .payer = "payer", .zero_init = true },
+    });
+
+    const AccountsType = AccountsDerive(struct {
+        payer: Signer,
+        counter: Counter,
+        dynamic: Dynamic,
+    });
+
+    const fields = @typeInfo(AccountsType).@"struct".fields;
+    const payer_index = std.meta.fieldIndex(AccountsType, "payer") orelse
+        @compileError("AccountsDerive failed to produce payer field");
+    const counter_index = std.meta.fieldIndex(AccountsType, "counter") orelse
+        @compileError("AccountsDerive failed to produce counter field");
+    const dynamic_index = std.meta.fieldIndex(AccountsType, "dynamic") orelse
+        @compileError("AccountsDerive failed to produce dynamic field");
+
+    try std.testing.expect(fields[payer_index].type == SignerMut);
+    try std.testing.expect(fields[counter_index].type.HAS_MUT);
+    try std.testing.expect(fields[dynamic_index].type.HAS_MUT);
 }
 
 test "dsl: event validation accepts struct" {

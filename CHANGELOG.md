@@ -2,6 +2,20 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-13-033
+
+**Date**: 2026-01-13
+**Goal**: Infer init/payer/realloc/close constraints in AccountsDerive
+
+#### Completed Work
+1. Added derived mut/signer inference for init/realloc/close/payer fields
+2. Added tests and updated roadmap/story
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-13-032
 
 **Date**: 2026-01-13

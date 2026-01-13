@@ -1125,6 +1125,15 @@ fn autoProgramAttrs(comptime name: []const u8, comptime FieldType: type) ?[]cons
         const program_id = sol.PublicKey.comptimeFromBase58("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
         return &.{ attr_mod.attr.address(program_id), attr_mod.attr.executable() };
     }
+    if (std.mem.eql(u8, name, "memo_program")) {
+        return &.{ attr_mod.attr.address(sol.spl.MEMO_PROGRAM_ID), attr_mod.attr.executable() };
+    }
+    if (std.mem.eql(u8, name, "stake_program")) {
+        return &.{ attr_mod.attr.address(sol.spl.STAKE_PROGRAM_ID), attr_mod.attr.executable() };
+    }
+    if (std.mem.eql(u8, name, "stake_config_program")) {
+        return &.{ attr_mod.attr.address(sol.spl.stake.STAKE_CONFIG_PROGRAM_ID), attr_mod.attr.executable() };
+    }
     return null;
 }
 
@@ -1376,6 +1385,9 @@ test "dsl: AccountsDerive auto-binds common program/sysvar fields" {
         system_program: UncheckedProgram,
         token_program: UncheckedProgram,
         associated_token_program: UncheckedProgram,
+        memo_program: UncheckedProgram,
+        stake_program: UncheckedProgram,
+        stake_config_program: UncheckedProgram,
         rent: *const AccountInfo,
         clock: *const AccountInfo,
         slot_hashes: *const AccountInfo,
@@ -1393,6 +1405,12 @@ test "dsl: AccountsDerive auto-binds common program/sysvar fields" {
         @compileError("AccountsDerive failed to produce token_program field");
     const ata_index = std.meta.fieldIndex(AccountsType, "associated_token_program") orelse
         @compileError("AccountsDerive failed to produce associated_token_program field");
+    const memo_index = std.meta.fieldIndex(AccountsType, "memo_program") orelse
+        @compileError("AccountsDerive failed to produce memo_program field");
+    const stake_program_index = std.meta.fieldIndex(AccountsType, "stake_program") orelse
+        @compileError("AccountsDerive failed to produce stake_program field");
+    const stake_config_program_index = std.meta.fieldIndex(AccountsType, "stake_config_program") orelse
+        @compileError("AccountsDerive failed to produce stake_config_program field");
     const rent_index = std.meta.fieldIndex(AccountsType, "rent") orelse
         @compileError("AccountsDerive failed to produce rent field");
     const clock_index = std.meta.fieldIndex(AccountsType, "clock") orelse
@@ -1417,6 +1435,15 @@ test "dsl: AccountsDerive auto-binds common program/sysvar fields" {
     }
     if (!@hasField(fields[ata_index].type, "base")) {
         @compileError("associated_token_program was not wrapped with ProgramField");
+    }
+    if (!@hasField(fields[memo_index].type, "base")) {
+        @compileError("memo_program was not wrapped with ProgramField");
+    }
+    if (!@hasField(fields[stake_program_index].type, "base")) {
+        @compileError("stake_program was not wrapped with ProgramField");
+    }
+    if (!@hasField(fields[stake_config_program_index].type, "base")) {
+        @compileError("stake_config_program was not wrapped with ProgramField");
     }
     if (!@hasDecl(fields[rent_index].type, "SYSVAR_TYPE")) {
         @compileError("rent was not wrapped with Sysvar");

@@ -1408,6 +1408,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.24 - AccountsDerive Common Program Auto Bindings
+
+- [x] Auto-bind memo_program/stake_program/stake_config_program
+- [x] Add AccountsDerive tests for common program auto bindings
+- [x] Update docs and tests
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

@@ -27,6 +27,8 @@ const token_mint_aliases = [_][]const u8{
     "token_mint",
     "mint_account",
     "token_mint_account",
+    "mint_account_info",
+    "token_mint_account_info",
     "mint_info",
     "token_mint_info",
     "mint_pubkey",
@@ -37,28 +39,43 @@ const token_mint_aliases = [_][]const u8{
     "token_mint_address",
     "mint_pk",
     "token_mint_pk",
+    "mint_pda",
+    "token_mint_pda",
 };
 const token_authority_aliases = [_][]const u8{
     "authority",
     "token_authority",
     "owner",
     "wallet",
+    "user",
+    "user_authority",
+    "user_signer",
     "authority_account",
     "owner_account",
     "wallet_account",
     "token_owner",
     "token_owner_account",
+    "authority_info",
+    "owner_info",
+    "wallet_info",
     "owner_pubkey",
     "wallet_pubkey",
+    "authority_pubkey",
+    "user_pubkey",
     "authority_key",
     "authority_address",
     "owner_key",
     "owner_address",
     "wallet_address",
+    "user_key",
+    "user_address",
 };
 const mint_authority_aliases = [_][]const u8{
     "mint_authority",
     "authority",
+    "authority_info",
+    "authority_pubkey",
+    "authority_key",
     "authority_account",
     "mint_authority_account",
     "mint_authority_info",
@@ -496,6 +513,13 @@ fn unwrapOptionalType(comptime T: type) type {
         return info.optional.child;
     }
     return T;
+}
+
+fn wrapOptionalType(comptime T: type, comptime Child: type) type {
+    if (@typeInfo(T) == .optional) {
+        return @Type(.{ .optional = .{ .child = Child } });
+    }
+    return Child;
 }
 
 fn isAccountWrapper(comptime T: type) bool {
@@ -1226,16 +1250,19 @@ fn applyAccountAttrs(comptime T: type, comptime config: anytype, comptime enable
         else
             &.{};
         const explicit = @hasField(@TypeOf(config), field.name);
-        const auto_sysvar_type = if (!explicit and enable_auto) autoSysvarType(field.name, field_type) else null;
+        const auto_sysvar_type = if (!explicit and enable_auto)
+            autoSysvarType(field.name, derived_target_type)
+        else
+            null;
         if (auto_sysvar_type) |sysvar_type| {
-            field_type = sysvar_type;
+            field_type = wrapOptionalType(field_type, sysvar_type);
         }
         const auto_program_attrs = if (!explicit and enable_auto and auto_sysvar_type == null)
-            autoProgramAttrs(field.name, field_type)
+            autoProgramAttrs(field.name, derived_target_type)
         else
             null;
         const auto_account_attrs = if (!explicit and enable_auto and auto_sysvar_type == null)
-            autoAccountAttrs(T, field_type)
+            autoAccountAttrs(T, derived_target_type)
         else
             null;
         const merged_attrs = mergeAttrs(
@@ -1250,20 +1277,17 @@ fn applyAccountAttrs(comptime T: type, comptime config: anytype, comptime enable
             derived_attrs,
         );
         if (merged_attrs) |attrs| {
-            if (@hasDecl(field_type, "DataType")) {
-                field_type = account_mod.AccountField(field_type, attrs);
-            } else if (field_type == UncheckedProgram or @hasDecl(field_type, "ID")) {
-                field_type = program_mod.ProgramField(field_type, attrs);
-            } else if (field_type == Signer or field_type == SignerMut) {
-                field_type = applySignerAttrs(field_type, attrs);
+            if (@hasDecl(derived_target_type, "DataType")) {
+                field_type = wrapOptionalType(field_type, account_mod.AccountField(derived_target_type, attrs));
+            } else if (derived_target_type == UncheckedProgram or @hasDecl(derived_target_type, "ID")) {
+                field_type = wrapOptionalType(field_type, program_mod.ProgramField(derived_target_type, attrs));
+            } else if (derived_target_type == Signer or derived_target_type == SignerMut) {
+                field_type = wrapOptionalType(field_type, applySignerAttrs(derived_target_type, attrs));
             } else {
                 @compileError("AccountsWith only supports Account, Program, or Signer fields");
             }
         } else if (derived_attrs.len != 0) {
-            if (field_type != derived_target_type) {
-                @compileError("Derived attrs do not support optional fields");
-            }
-            field_type = applyFieldAttrs(derived_target_type, derived_attrs);
+            field_type = wrapOptionalType(field_type, applyFieldAttrs(derived_target_type, derived_attrs));
         }
 
         new_fields[index] = .{
@@ -1658,7 +1682,6 @@ fn autoAssociatedTokenProgramName(comptime AccountsType: type) ?[]const u8 {
 fn autoAccountAttrs(comptime AccountsType: type, comptime FieldType: type) ?[]const attr_mod.Attr {
     const CleanType = unwrapOptionalType(FieldType);
     if (!isAccountWrapper(CleanType)) return null;
-    if (CleanType != FieldType) return null;
 
     const token_program = autoTokenProgramName(AccountsType);
     const DataType = CleanType.DataType;
@@ -2503,6 +2526,27 @@ test "dsl: AccountsDerive infers associated token from alias fields" {
     try std.testing.expectEqualStrings("wallet", TokenFieldType.ASSOCIATED_TOKEN.?.authority);
 }
 
+test "dsl: AccountsDerive supports token authority user alias" {
+    const TokenData = struct {
+        mint: sol.PublicKey,
+        owner: sol.PublicKey,
+    };
+
+    const TokenAccount = account_mod.Account(TokenData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("TokenAliasUser"),
+    });
+
+    const AccountsType = AccountsDerive(struct {
+        user: Signer,
+        mint_account: TokenAccount,
+        token_program: UncheckedProgram,
+        token_account: TokenAccount,
+    });
+
+    const TokenFieldType = @TypeOf(@field(@as(AccountsType, undefined), "token_account"));
+    try std.testing.expectEqualStrings("user", TokenFieldType.TOKEN_AUTHORITY.?);
+}
+
 test "dsl: AccountsDerive infers mint constraints from account shape" {
     const MintData = struct {
         authority: sol.PublicKey,
@@ -2670,6 +2714,52 @@ test "dsl: AccountsDerive allows associated token without program fields" {
 
     const TokenFieldType = @TypeOf(@field(@as(AccountsType, undefined), "token"));
     try std.testing.expect(TokenFieldType.ASSOCIATED_TOKEN != null);
+}
+
+test "dsl: AccountsDerive supports optional token account inference" {
+    const TokenData = struct {
+        mint: sol.PublicKey,
+        owner: sol.PublicKey,
+    };
+
+    const TokenAccount = account_mod.Account(TokenData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("TokenOptional"),
+    });
+
+    const AccountsType = AccountsDerive(struct {
+        mint: *const AccountInfo,
+        authority: Signer,
+        token_program: UncheckedProgram,
+        token_account: ?TokenAccount,
+    });
+
+    const TokenFieldType = @TypeOf(@field(@as(AccountsType, undefined), "token_account"));
+    try std.testing.expect(@typeInfo(TokenFieldType) == .optional);
+    const TokenChild = @typeInfo(TokenFieldType).optional.child;
+    try std.testing.expect(TokenChild.TOKEN_MINT != null);
+    try std.testing.expect(TokenChild.TOKEN_AUTHORITY != null);
+}
+
+test "dsl: AccountsDerive supports optional program auto binding" {
+    const AccountsType = AccountsDerive(struct {
+        system_program: ?UncheckedProgram,
+    });
+
+    const ProgramFieldType = @TypeOf(@field(@as(AccountsType, undefined), "system_program"));
+    try std.testing.expect(@typeInfo(ProgramFieldType) == .optional);
+    const ProgramChild = @typeInfo(ProgramFieldType).optional.child;
+    try std.testing.expect(@hasDecl(ProgramChild, "key"));
+}
+
+test "dsl: AccountsDerive supports optional sysvar auto binding" {
+    const AccountsType = AccountsDerive(struct {
+        clock: ?*const AccountInfo,
+    });
+
+    const SysvarFieldType = @TypeOf(@field(@as(AccountsType, undefined), "clock"));
+    try std.testing.expect(@typeInfo(SysvarFieldType) == .optional);
+    const SysvarChild = @typeInfo(SysvarFieldType).optional.child;
+    try std.testing.expect(@hasDecl(SysvarChild, "load"));
 }
 
 test "dsl: AccountsDerive infers init/payer/realloc mut/signer" {

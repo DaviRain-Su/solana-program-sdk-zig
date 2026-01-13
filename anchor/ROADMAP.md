@@ -1,5 +1,11 @@
 # sol-anchor-zig Roadmap
 
+## ✅ v3.2.53 - Program Entry Dispatch
+
+- [x] Comptime dispatch by instruction discriminator
+- [x] Fallback handler support
+- [x] Optional error mapping to ProgramError
+
 ## ✅ v3.2.52 - Constraint Expr Expansion
 
 - [x] Expand constraint expression parsing for boolean/comparison ops

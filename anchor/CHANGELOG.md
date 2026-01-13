@@ -2,6 +2,19 @@
 
 All notable changes to sol-anchor-zig will be documented in this file.
 
+### Session 2026-01-13-002
+
+**Date**: 2026-01-13
+**Goal**: Add typed program entry dispatch
+
+#### Completed Work
+1. Added `ProgramEntry` for discriminator-based dispatch
+2. Added fallback handler support and optional error mapping
+3. Added tests and documentation updates
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ZIG_LOCAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
 ### Session 2026-01-13-001
 
 **Date**: 2026-01-13

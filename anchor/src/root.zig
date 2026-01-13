@@ -157,6 +157,22 @@ pub const generateIdlJson = idl.generateJson;
 pub const generateZigClient = codegen.generateZigClient;
 
 // ============================================================================
+// Program Entry
+// ============================================================================
+
+/// Program dispatch helpers (Anchor-style entry)
+pub const program_entry = @import("program_entry.zig");
+
+/// Typed program dispatcher
+pub const ProgramEntry = program_entry.ProgramEntry;
+
+/// Program dispatch configuration
+pub const DispatchConfig = program_entry.DispatchConfig;
+
+/// Fallback handler context
+pub const FallbackContext = program_entry.FallbackContext;
+
+// ============================================================================
 // Comptime Derives
 // ============================================================================
 

@@ -24,6 +24,7 @@ const sol = anchor.sdk;
 - Runtime validation for token/mint constraints (token account + mint state checks, program owner validation)
 - Runtime validation for associated token constraints (ATA address + owner checks)
 - Constraint expressions support boolean/comparison operators
+- Program entry dispatch with optional fallback/error mapping
 
 ## Not Implemented Yet
 
@@ -52,6 +53,7 @@ const sol = anchor.sdk;
 | Accounts derive | `#[derive(Accounts)]` | `anchor.Accounts(T)` / `anchor.AccountsDerive(T)` | ✅ |
 | Event derive | `#[event]` | `anchor.Event(T)` | ✅ |
 | Event index | `#[index]` | `anchor.eventField(..., .{ .index = true })` (<=4, bool/fixed-size int/pubkey only) | ✅ |
+| Program entry | `#[program]` dispatch | `anchor.ProgramEntry(Program)` | ✅ |
 
 ## Example
 

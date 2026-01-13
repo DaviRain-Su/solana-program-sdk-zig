@@ -41,6 +41,43 @@ const idl_json = try anchor.generateIdlJson(allocator, MyProgram, .{});
 const client_src = try anchor.generateZigClient(allocator, MyProgram, .{});
 ```
 
+## Program Entry (Typed Dispatch)
+
+```zig
+const anchor = @import("sol_anchor_zig");
+const sol = anchor.sdk;
+
+const Program = struct {
+    pub const id = sol.PublicKey.comptimeFromBase58("11111111111111111111111111111111");
+
+    pub const instructions = struct {
+        pub const initialize = anchor.Instruction(.{
+            .Accounts = InitializeAccounts,
+            .Args = InitializeArgs,
+        });
+    };
+
+    pub fn initialize(ctx: anchor.Context(InitializeAccounts), args: InitializeArgs) !void {
+        _ = ctx;
+        _ = args;
+    }
+
+    pub fn fallback(ctx: anchor.FallbackContext) !void {
+        _ = ctx;
+    }
+};
+
+pub fn processInstruction(
+    program_id: *const sol.PublicKey,
+    accounts: []const sol.account.Account.Info,
+    data: []const u8,
+) !void {
+    try anchor.ProgramEntry(Program).dispatchWithConfig(program_id, accounts, data, .{
+        .fallback = Program.fallback,
+    });
+}
+```
+
 ## IDL Output (Build Step)
 
 ```bash

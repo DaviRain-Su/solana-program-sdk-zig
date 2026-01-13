@@ -14,6 +14,7 @@ const program_mod = @import("program.zig");
 const sysvar_account = @import("sysvar_account.zig");
 const discriminator_mod = @import("discriminator.zig");
 const seeds_mod = @import("seeds.zig");
+const has_one_mod = @import("has_one.zig");
 
 const AccountInfo = sol.account.Account.Info;
 const Signer = signer_mod.Signer;
@@ -79,6 +80,21 @@ pub fn SeedSpecFor(comptime AccountsType: type, comptime DataType: type) type {
 /// Typed seed spec builder that resolves field enums.
 pub fn seedSpecsFor(comptime AccountsType: type, comptime DataType: type, comptime specs: anytype) []const SeedSpec {
     return resolveSeedSpecs(AccountsType, DataType, specs);
+}
+
+/// Typed has_one spec for Accounts/Data field enums.
+pub fn HasOneSpecFor(comptime AccountsType: type, comptime DataType: type) type {
+    return struct {
+        field: std.meta.FieldEnum(DataType),
+        target: std.meta.FieldEnum(AccountsType),
+
+        pub fn init(
+            comptime field: std.meta.FieldEnum(DataType),
+            comptime target: std.meta.FieldEnum(AccountsType),
+        ) @This() {
+            return .{ .field = field, .target = target };
+        }
+    };
 }
 
 /// Event field configuration.
@@ -307,7 +323,7 @@ fn resolveTypedAttrConfig(
         } else if (std.mem.eql(u8, field.name, "seeds")) {
             resolved.seeds = resolveSeedSpecs(AccountsType, DataType, value);
         } else if (std.mem.eql(u8, field.name, "has_one")) {
-            resolved.has_one = value;
+            resolved.has_one = resolveHasOneSpecs(AccountsType, DataType, value);
         } else if (std.mem.eql(u8, field.name, "realloc")) {
             resolved.realloc = value;
         } else if (std.mem.eql(u8, field.name, "init")) {
@@ -348,6 +364,60 @@ fn resolveTypedAttrConfig(
     }
 
     return resolved;
+}
+
+fn resolveHasOneSpecs(
+    comptime AccountsType: type,
+    comptime DataType: type,
+    comptime value: anytype,
+) []const has_one_mod.HasOneSpec {
+    const ValueType = @TypeOf(value);
+    if (ValueType == []const has_one_mod.HasOneSpec) return value;
+    const TypedHasOne = HasOneSpecFor(AccountsType, DataType);
+    if (ValueType == []const TypedHasOne) {
+        const specs = comptime blk: {
+            var tmp: [value.len]has_one_mod.HasOneSpec = undefined;
+            for (value, 0..) |spec, index| {
+                tmp[index] = .{
+                    .field = @tagName(spec.field),
+                    .target = @tagName(spec.target),
+                };
+            }
+            break :blk tmp;
+        };
+        return specs[0..];
+    }
+    const info = @typeInfo(ValueType);
+    if (info == .pointer and info.pointer.size == .one) {
+        const child_info = @typeInfo(info.pointer.child);
+        if (child_info == .array and child_info.array.child == TypedHasOne) {
+            const specs = comptime blk: {
+                var tmp: [child_info.array.len]has_one_mod.HasOneSpec = undefined;
+                for (value.*, 0..) |spec, index| {
+                    tmp[index] = .{
+                        .field = @tagName(spec.field),
+                        .target = @tagName(spec.target),
+                    };
+                }
+                break :blk tmp;
+            };
+            return specs[0..];
+        }
+    }
+    if (info == .array and info.array.child == TypedHasOne) {
+        const specs = comptime blk: {
+            var tmp: [info.array.len]has_one_mod.HasOneSpec = undefined;
+            for (value, 0..) |spec, index| {
+                tmp[index] = .{
+                    .field = @tagName(spec.field),
+                    .target = @tagName(spec.target),
+                };
+            }
+            break :blk tmp;
+        };
+        return specs[0..];
+    }
+    @compileError("expected HasOneSpec list or typed has_one spec list");
 }
 
 fn resolveSeedSpecSingle(
@@ -1166,6 +1236,36 @@ test "dsl: AttrsFor resolves typed seed specs" {
         @compileError("AccountsDerive failed to produce counter field");
 
     try std.testing.expect(fields[counter_index].type.HAS_SEEDS);
+}
+
+test "dsl: AttrsFor resolves typed has_one specs" {
+    const Data = struct {
+        authority: sol.PublicKey,
+    };
+
+    const Counter = account_mod.Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("CounterHasOne"),
+    });
+
+    const AccountsRef = struct {
+        authority: Signer,
+        counter: Counter,
+    };
+
+    const AccountsType = AccountsDerive(struct {
+        authority: Signer,
+        counter: AttrsFor(AccountsRef, Data, .{
+            .has_one = &[_]HasOneSpecFor(AccountsRef, Data){
+                HasOneSpecFor(AccountsRef, Data).init(.authority, .authority),
+            },
+        }).apply(Counter),
+    });
+
+    const fields = @typeInfo(AccountsType).@"struct".fields;
+    const counter_index = std.meta.fieldIndex(AccountsType, "counter") orelse
+        @compileError("AccountsDerive failed to produce counter field");
+
+    try std.testing.expect(fields[counter_index].type.HAS_HAS_ONE);
 }
 
 test "dsl: event validation accepts struct" {

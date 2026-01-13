@@ -177,6 +177,8 @@ pub const AttrsFor = @import("dsl.zig").AttrsFor;
 pub const SeedSpecFor = @import("dsl.zig").SeedSpecFor;
 /// Typed seed spec builder that resolves field enums.
 pub const seedSpecsFor = @import("dsl.zig").seedSpecsFor;
+/// Typed has_one spec for Accounts/Data field enums.
+pub const HasOneSpecFor = @import("dsl.zig").HasOneSpecFor;
 
 /// Comptime Event validator
 pub const Event = @import("dsl.zig").Event;

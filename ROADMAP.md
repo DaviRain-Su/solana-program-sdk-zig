@@ -1361,6 +1361,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.18 - Anchor Derive Typed HasOne
+
+- [x] Add typed has_one specs for Accounts/Data enums
+- [x] Allow AttrsFor to accept typed has_one specs for has_one
+- [x] Update docs and tests
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

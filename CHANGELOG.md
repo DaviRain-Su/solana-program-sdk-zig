@@ -2,6 +2,21 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-13-038
+
+**Date**: 2026-01-13
+**Goal**: Add typed has_one specs for AttrsFor
+
+#### Completed Work
+1. Added HasOneSpecFor typed builder
+2. Enabled AttrsFor to accept typed has_one specs
+3. Added tests and updated roadmap/story
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-13-037
 
 **Date**: 2026-01-13

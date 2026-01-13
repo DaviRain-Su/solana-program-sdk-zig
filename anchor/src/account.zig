@@ -1270,6 +1270,12 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
             try self.validateInitConstraint(accounts);
             try self.validateCloseConstraint(accounts);
             try self.validateReallocConstraint(accounts);
+            if (RENT_EXEMPT) {
+                const rent = sol.rent.Rent.getOrDefault();
+                if (!rent.isExempt(self.info.lamports.*, self.info.data_len)) {
+                    return error.ConstraintRentExempt;
+                }
+            }
             if (OWNER_EXPR) |expr| {
                 const full = comptime std.fmt.comptimePrint("{s}.__owner == {s}", .{ account_name, expr });
                 try constraints_mod.validateConstraintExpr(full, account_name, accounts);
@@ -1285,7 +1291,8 @@ pub fn Account(comptime T: type, comptime config: AccountConfig) type {
 
         /// Check if account requires constraint validation
         pub fn requiresConstraintValidation() bool {
-            return HAS_HAS_ONE or IS_INIT or HAS_CLOSE or HAS_REALLOC or CONSTRAINT != null or OWNER_EXPR != null or ADDRESS_EXPR != null;
+            return HAS_HAS_ONE or IS_INIT or HAS_CLOSE or HAS_REALLOC or RENT_EXEMPT or
+                CONSTRAINT != null or OWNER_EXPR != null or ADDRESS_EXPR != null;
         }
     };
 }
@@ -1306,6 +1313,7 @@ pub const AccountError = error{
     ConstraintHasOne,
     ConstraintClose,
     ConstraintRealloc,
+    ConstraintRentExempt,
 };
 
 // ============================================================================
@@ -1989,6 +1997,61 @@ test "Account constraint expression evaluates at runtime" {
 
     data_ptr.authority = PublicKey.default();
     try std.testing.expectError(error.ConstraintRaw, accounts.counter.validateAllConstraints("counter", accounts));
+}
+
+test "Account rent_exempt constraint validates at runtime" {
+    const Data = struct {
+        value: u64,
+    };
+
+    const RentAccount = Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("RentExempt"),
+        .rent_exempt = true,
+    });
+
+    const Accounts = struct {
+        rent_account: RentAccount,
+    };
+
+    var rent_account_id = comptime PublicKey.comptimeFromBase58("SysvarRent111111111111111111111111111111111");
+    var owner = PublicKey.default();
+    var rent_account_lamports: u64 = 0;
+
+    var rent_buffer: [DISCRIMINATOR_LENGTH + @sizeOf(Data)]u8 align(@alignOf(Data)) = undefined;
+    @memcpy(rent_buffer[0..DISCRIMINATOR_LENGTH], &RentAccount.discriminator);
+    const data_ptr: *Data = @ptrCast(@alignCast(rent_buffer[DISCRIMINATOR_LENGTH..].ptr));
+    data_ptr.* = .{ .value = 1 };
+
+    const rent = sol.rent.Rent.getOrDefault();
+    const min_balance = rent.getMinimumBalance(rent_buffer.len);
+    if (min_balance > 0) {
+        rent_account_lamports = min_balance - 1;
+    }
+
+    const rent_info = AccountInfo{
+        .id = &rent_account_id,
+        .owner_id = &owner,
+        .lamports = &rent_account_lamports,
+        .data_len = rent_buffer.len,
+        .data = rent_buffer[0..].ptr,
+        .is_signer = 0,
+        .is_writable = 1,
+        .is_executable = 0,
+    };
+
+    var accounts = Accounts{
+        .rent_account = try RentAccount.load(&rent_info),
+    };
+
+    if (min_balance > 0) {
+        try std.testing.expectError(error.ConstraintRentExempt, accounts.rent_account.validateAllConstraints("rent_account", accounts));
+    }
+
+    rent_account_lamports = min_balance;
+    accounts = Accounts{
+        .rent_account = try RentAccount.load(&rent_info),
+    };
+    try accounts.rent_account.validateAllConstraints("rent_account", accounts);
 }
 
 test "Account owner/address expressions validate at runtime" {

@@ -40,6 +40,7 @@ const sol = anchor.sdk;
 | RPC client wrapper | `AnchorClient` | `ProgramClient` (generated) | ✅ |
 | Constraint expr | `constraint = <expr>` | `anchor.constraint()` | ✅ |
 | Constraint runtime | `constraint = <expr>` | Runtime eval (==/!=, key(), field access) | ✅ |
+| Rent exempt | `#[account(rent_exempt)]` | Runtime rent exemption check | ✅ |
 | Account attrs | `#[account(...)]` | `anchor.attr.*` + `.attrs` / `anchor.attr.account(...)` / `anchor.AccountField(...)` / `anchor.AccountsWith(...)` | ✅ |
 | Token constraints | `token::mint/authority`, `associated_token::*` | `anchor.attr.tokenMint/tokenAuthority/associatedToken*` | ✅ |
 | Accounts derive | `#[derive(Accounts)]` | `anchor.Accounts(T)` / `anchor.AccountsDerive(T)` | ✅ |

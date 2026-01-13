@@ -162,6 +162,7 @@ field, and token/mint/associated token constraints include the required
 program fields (token_program/associated_token_program).
 Payer/close/realloc targets are validated to ensure they expose `toAccountInfo()`
 or are raw `AccountInfo` pointers.
+Rent exemption is enforced at runtime when `rent_exempt` is set.
 
 ```zig
 const TokenAccountData = struct {

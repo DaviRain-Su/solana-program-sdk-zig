@@ -1543,6 +1543,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.41 - Account Rent Exempt Constraint
+
+- [x] Enforce rent_exempt constraint at runtime
+- [x] Add tests for rent exemption validation
+- [x] Update docs
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

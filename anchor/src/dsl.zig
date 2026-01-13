@@ -989,8 +989,6 @@ fn validateSeedRef(comptime AccountsType: type, seed: SeedSpec) void {
 
 fn validateDerivedRefs(comptime AccountsType: type) void {
     const fields = @typeInfo(AccountsType).@"struct".fields;
-    const has_token_program = autoTokenProgramName(AccountsType) != null;
-    const has_associated_token_program = autoAssociatedTokenProgramName(AccountsType) != null;
     const has_system_program = comptime blk: {
         for (fields) |field| {
             if (!std.mem.eql(u8, field.name, "system_program")) continue;
@@ -1003,21 +1001,11 @@ fn validateDerivedRefs(comptime AccountsType: type) void {
         const FieldType = unwrapOptionalType(field.type);
         if (!isAccountWrapper(FieldType)) continue;
 
-        const has_token_constraints = FieldType.TOKEN_MINT != null or FieldType.TOKEN_AUTHORITY != null;
-        const has_mint_constraints = FieldType.MINT_AUTHORITY != null or
-            FieldType.MINT_FREEZE_AUTHORITY != null or
-            FieldType.MINT_DECIMALS != null;
-
         if (FieldType.ASSOCIATED_TOKEN) |cfg| {
             validateKeyTarget(AccountsType, cfg.mint);
             validateKeyTarget(AccountsType, cfg.authority);
             if (cfg.token_program) |name| {
                 validateProgramTarget(AccountsType, name);
-            } else if (!has_token_program) {
-                @compileError("associated_token requires token_program field");
-            }
-            if (!has_associated_token_program) {
-                @compileError("associated_token requires associated_token_program field");
             }
         }
         if (FieldType.PAYER) |name| {
@@ -1039,8 +1027,6 @@ fn validateDerivedRefs(comptime AccountsType: type) void {
         }
         if (FieldType.TOKEN_PROGRAM) |name| {
             validateProgramTarget(AccountsType, name);
-        } else if (has_token_constraints and !has_token_program) {
-            @compileError("token constraints require token_program field");
         }
         if (FieldType.MINT_AUTHORITY) |name| {
             validateKeyTarget(AccountsType, name);
@@ -1050,8 +1036,6 @@ fn validateDerivedRefs(comptime AccountsType: type) void {
         }
         if (FieldType.MINT_TOKEN_PROGRAM) |name| {
             validateProgramTarget(AccountsType, name);
-        } else if (has_mint_constraints and !has_token_program) {
-            @compileError("mint constraints require token_program field");
         }
         if (FieldType.HAS_ONE) |list| {
             inline for (list) |spec| {
@@ -1695,7 +1679,7 @@ fn autoAccountAttrs(comptime AccountsType: type, comptime FieldType: type) ?[]co
         }
     }
     const has_ata_program = autoAssociatedTokenProgramName(AccountsType) != null;
-    if (CleanType.ASSOCIATED_TOKEN == null and has_ata_program and token_program != null and
+    if (CleanType.ASSOCIATED_TOKEN == null and has_ata_program and
         CleanType.TOKEN_MINT == null and CleanType.TOKEN_AUTHORITY == null)
     {
         const has_mint = dataHasPublicKeyField(DataType, "mint");
@@ -1708,6 +1692,11 @@ fn autoAccountAttrs(comptime AccountsType: type, comptime FieldType: type) ?[]co
             }
             if (accountFieldName(AccountsType, token_authority_aliases[0..])) |name| {
                 config.associated_token_authority = name;
+                has_any = true;
+                inferred_associated = true;
+            }
+            if (token_program) |name| {
+                config.associated_token_token_program = name;
                 has_any = true;
                 inferred_associated = true;
             }
@@ -2613,6 +2602,74 @@ test "dsl: AccountsDerive validates token/mint refs" {
     });
 
     _ = AccountsType;
+}
+
+test "dsl: AccountsDerive allows token constraints without token program field" {
+    const TokenData = struct {
+        mint: sol.PublicKey,
+        owner: sol.PublicKey,
+    };
+
+    const TokenAccount = account_mod.Account(TokenData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("TokenNoProgram"),
+        .token_mint = "mint",
+        .token_authority = "authority",
+    });
+
+    const AccountsType = AccountsDerive(struct {
+        mint: *const AccountInfo,
+        authority: Signer,
+        token: TokenAccount,
+    });
+
+    const TokenFieldType = @TypeOf(@field(@as(AccountsType, undefined), "token"));
+    try std.testing.expect(TokenFieldType.TOKEN_MINT != null);
+    try std.testing.expect(TokenFieldType.TOKEN_AUTHORITY != null);
+}
+
+test "dsl: AccountsDerive allows mint constraints without token program field" {
+    const MintData = struct {
+        mint_authority: sol.PublicKey,
+
+        pub const MINT_DECIMALS: u8 = 6;
+    };
+
+    const MintAccount = account_mod.Account(MintData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("MintNoProgram"),
+        .mint_authority = "authority",
+    });
+
+    const AccountsType = AccountsDerive(struct {
+        authority: Signer,
+        mint: MintAccount,
+    });
+
+    const MintFieldType = @TypeOf(@field(@as(AccountsType, undefined), "mint"));
+    try std.testing.expectEqual(@as(u8, 6), MintFieldType.MINT_DECIMALS.?);
+}
+
+test "dsl: AccountsDerive allows associated token without program fields" {
+    const TokenData = struct {
+        mint: sol.PublicKey,
+        owner: sol.PublicKey,
+    };
+
+    const TokenAccount = account_mod.Account(TokenData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("AssociatedNoProgram"),
+        .associated_token = .{
+            .mint = "mint",
+            .authority = "authority",
+        },
+    });
+
+    const AccountsType = AccountsDerive(struct {
+        mint: *const AccountInfo,
+        authority: Signer,
+        token: TokenAccount,
+    });
+
+    const TokenFieldType = @TypeOf(@field(@as(AccountsType, undefined), "token"));
+    try std.testing.expect(TokenFieldType.ASSOCIATED_TOKEN != null);
 }
 
 test "dsl: AccountsDerive infers init/payer/realloc mut/signer" {

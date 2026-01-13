@@ -1514,6 +1514,13 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.37 - AccountsDerive Program Ref Checks
+
+- [x] Validate token/mint/associated token program references
+- [x] Update docs
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

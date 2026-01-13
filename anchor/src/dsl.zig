@@ -903,6 +903,15 @@ fn validateKeyTarget(comptime AccountsType: type, comptime name: []const u8) voi
     }
 }
 
+fn validateProgramTarget(comptime AccountsType: type, comptime name: []const u8) void {
+    const fields = @typeInfo(AccountsType).@"struct".fields;
+    const target_index = fieldIndexByName(AccountsType, name);
+    const target_type = fields[target_index].type;
+    if (!isProgramFieldType(target_type)) {
+        @compileError("account constraint program target must be Program or UncheckedProgram: " ++ name);
+    }
+}
+
 fn validateBumpTarget(comptime AccountsType: type, comptime name: []const u8) void {
     const fields = @typeInfo(AccountsType).@"struct".fields;
     const target_index = fieldIndexByName(AccountsType, name);
@@ -931,7 +940,7 @@ fn validateDerivedRefs(comptime AccountsType: type) void {
             validateKeyTarget(AccountsType, cfg.mint);
             validateKeyTarget(AccountsType, cfg.authority);
             if (cfg.token_program) |name| {
-                validateKeyTarget(AccountsType, name);
+                validateProgramTarget(AccountsType, name);
             }
         }
         if (FieldType.TOKEN_MINT) |name| {
@@ -941,7 +950,7 @@ fn validateDerivedRefs(comptime AccountsType: type) void {
             validateKeyTarget(AccountsType, name);
         }
         if (FieldType.TOKEN_PROGRAM) |name| {
-            validateKeyTarget(AccountsType, name);
+            validateProgramTarget(AccountsType, name);
         }
         if (FieldType.MINT_AUTHORITY) |name| {
             validateKeyTarget(AccountsType, name);
@@ -950,7 +959,7 @@ fn validateDerivedRefs(comptime AccountsType: type) void {
             validateKeyTarget(AccountsType, name);
         }
         if (FieldType.MINT_TOKEN_PROGRAM) |name| {
-            validateKeyTarget(AccountsType, name);
+            validateProgramTarget(AccountsType, name);
         }
         if (FieldType.HAS_ONE) |list| {
             inline for (list) |spec| {

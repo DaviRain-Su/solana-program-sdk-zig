@@ -824,6 +824,27 @@ fn hasKeyOrAccountInfo(comptime T: type) bool {
     return @hasDecl(Clean, "key");
 }
 
+fn hasAccountField(comptime AccountsType: type, comptime name: []const u8) bool {
+    return std.meta.fieldIndex(AccountsType, name) != null;
+}
+
+fn accountFieldHasKey(comptime AccountsType: type, comptime name: []const u8) bool {
+    const index = std.meta.fieldIndex(AccountsType, name) orelse return false;
+    const fields = @typeInfo(AccountsType).@"struct".fields;
+    return hasKeyOrAccountInfo(fields[index].type);
+}
+
+fn isPublicKeyType(comptime T: type) bool {
+    const Clean = unwrapOptionalType(T);
+    return Clean == sol.PublicKey;
+}
+
+fn dataHasPublicKeyField(comptime DataType: type, comptime name: []const u8) bool {
+    const index = std.meta.fieldIndex(DataType, name) orelse return false;
+    const fields = @typeInfo(DataType).@"struct".fields;
+    return isPublicKeyType(fields[index].type);
+}
+
 fn validateKeyTarget(comptime AccountsType: type, comptime name: []const u8) void {
     const fields = @typeInfo(AccountsType).@"struct".fields;
     const target_index = fieldIndexByName(AccountsType, name);
@@ -1214,6 +1235,7 @@ fn autoAccountAttrs(comptime AccountsType: type, comptime FieldType: type) ?[]co
     if (CleanType != FieldType) return null;
 
     const token_program = autoTokenProgramName(AccountsType) orelse return null;
+    const DataType = CleanType.DataType;
 
     comptime var config: attr_mod.AccountAttrConfig = .{};
     comptime var has_any = false;
@@ -1234,6 +1256,21 @@ fn autoAccountAttrs(comptime AccountsType: type, comptime FieldType: type) ?[]co
     {
         config.mint_token_program = token_program;
         has_any = true;
+    }
+    if (CleanType.TOKEN_MINT == null and CleanType.TOKEN_AUTHORITY == null) {
+        if (dataHasPublicKeyField(DataType, "mint") and dataHasPublicKeyField(DataType, "owner")) {
+            if (accountFieldHasKey(AccountsType, "mint")) {
+                config.token_mint = "mint";
+                has_any = true;
+            }
+            if (accountFieldHasKey(AccountsType, "authority")) {
+                config.token_authority = "authority";
+                has_any = true;
+            } else if (accountFieldHasKey(AccountsType, "owner")) {
+                config.token_authority = "owner";
+                has_any = true;
+            }
+        }
     }
 
     if (!has_any) return null;
@@ -1605,6 +1642,31 @@ test "dsl: AccountsDerive supports associated token program aliases" {
     if (!@hasField(fields[program_index].type, "base")) {
         @compileError("ata_program was not wrapped with ProgramField");
     }
+}
+
+test "dsl: AccountsDerive infers token mint/authority from account shape" {
+    const TokenData = struct {
+        mint: sol.PublicKey,
+        owner: sol.PublicKey,
+    };
+
+    const TokenAccount = account_mod.Account(TokenData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("TokenAccountShape"),
+    });
+
+    const AccountsType = AccountsDerive(struct {
+        mint: *const AccountInfo,
+        authority: Signer,
+        token_program: UncheckedProgram,
+        token_account: TokenAccount,
+    });
+
+    const fields = @typeInfo(AccountsType).@"struct".fields;
+    const token_index = std.meta.fieldIndex(AccountsType, "token_account") orelse
+        @compileError("AccountsDerive failed to produce token_account field");
+
+    try std.testing.expect(fields[token_index].type.TOKEN_MINT != null);
+    try std.testing.expect(fields[token_index].type.TOKEN_AUTHORITY != null);
 }
 
 test "dsl: AccountsDerive infers init/payer/realloc mut/signer" {

@@ -1432,6 +1432,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.27 - AccountsDerive Token Shape Inference
+
+- [x] Infer token mint/authority from token account data shape
+- [x] Add AccountsDerive tests for token shape inference
+- [x] Update docs and tests
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

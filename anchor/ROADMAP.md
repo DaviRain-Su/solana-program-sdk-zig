@@ -1,5 +1,9 @@
 # sol-anchor-zig Roadmap
 
+## ✅ v3.2.51 - AccountsDerive Program Auto Bindings (Typed)
+
+- [x] Auto-bind Program fields by alias name
+
 ## ✅ v3.2.50 - AccountsDerive Token Alias Expansion
 
 - [x] Expand token/mint authority alias inference

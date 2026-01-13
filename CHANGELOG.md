@@ -2,6 +2,21 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-13-071
+
+**Date**: 2026-01-13
+**Goal**: Auto-bind Program fields by alias name
+
+#### Completed Work
+1. Applied program auto binding to Program fields
+2. Added AccountsDerive test coverage
+3. Updated docs, story, and roadmap
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ZIG_LOCAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-13-070
 
 **Date**: 2026-01-13

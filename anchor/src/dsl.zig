@@ -1304,7 +1304,9 @@ fn applySignerAttrs(comptime FieldType: type, comptime attrs: []const attr_mod.A
 }
 
 fn autoProgramAttrs(comptime name: []const u8, comptime FieldType: type) ?[]const attr_mod.Attr {
-    if (FieldType != UncheckedProgram) return null;
+    if (FieldType != UncheckedProgram and (@typeInfo(FieldType) != .@"struct" or !@hasDecl(FieldType, "ID"))) {
+        return null;
+    }
     if (isSystemProgramName(name)) {
         return &.{ attr_mod.attr.address(sol.system_program.id), attr_mod.attr.executable() };
     }
@@ -2182,6 +2184,29 @@ test "dsl: AccountsDerive auto-binds common program/sysvar fields" {
     );
     try std.testing.expect(fields[recent_blockhashes_index].type.ID.equals(recent_blockhashes_id));
     try std.testing.expect(fields[fees_index].type.ID.equals(fees_id));
+}
+
+test "dsl: AccountsDerive auto-binds Program fields by name" {
+    const SystemProgram = program_mod.Program(sol.system_program.id);
+    const TokenProgram = program_mod.Program(sol.spl.TOKEN_PROGRAM_ID);
+
+    const AccountsType = AccountsDerive(struct {
+        system_program: SystemProgram,
+        token_program: TokenProgram,
+    });
+
+    const fields = @typeInfo(AccountsType).@"struct".fields;
+    const system_index = std.meta.fieldIndex(AccountsType, "system_program") orelse
+        @compileError("AccountsDerive failed to produce system_program field");
+    const token_index = std.meta.fieldIndex(AccountsType, "token_program") orelse
+        @compileError("AccountsDerive failed to produce token_program field");
+
+    if (!@hasField(fields[system_index].type, "base")) {
+        @compileError("system_program was not wrapped with ProgramField");
+    }
+    if (!@hasField(fields[token_index].type, "base")) {
+        @compileError("token_program was not wrapped with ProgramField");
+    }
 }
 
 test "dsl: AccountsDerive auto-fills token program for token/mint/ata" {

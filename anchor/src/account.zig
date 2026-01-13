@@ -447,6 +447,7 @@ pub fn AccountField(comptime Base: type, comptime attrs: []const Attr) type {
 
 fn applyAttrs(comptime base: AccountConfig, comptime attrs: []const Attr) AccountConfig {
     comptime var result = base;
+    comptime var space_config_set = false;
 
     inline for (attrs) |attr| {
         switch (attr) {
@@ -608,13 +609,15 @@ fn applyAttrs(comptime base: AccountConfig, comptime attrs: []const Attr) Accoun
                 result.executable = true;
             },
             .space => |value| {
-                if (result.space != null) @compileError("space already set");
+                if (space_config_set) @compileError("space already set");
+                space_config_set = true;
                 result.space = value;
+                result.space_expr = null;
             },
             .space_expr => |value| {
-                if (result.space_expr != null or result.space != null) {
-                    @compileError("space already set");
-                }
+                if (space_config_set) @compileError("space already set");
+                space_config_set = true;
+                result.space = null;
                 result.space_expr = value;
             },
         }

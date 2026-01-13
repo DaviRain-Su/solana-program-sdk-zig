@@ -191,6 +191,8 @@ pub const InitFor = @import("dsl.zig").InitFor;
 pub const CloseFor = @import("dsl.zig").CloseFor;
 /// Typed realloc helper for Accounts field enums.
 pub const ReallocFor = @import("dsl.zig").ReallocFor;
+/// Typed owner/address/executable/space helper for Accounts field enums.
+pub const AccessFor = @import("dsl.zig").AccessFor;
 
 /// Comptime Event validator
 pub const Event = @import("dsl.zig").Event;

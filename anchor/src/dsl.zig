@@ -340,6 +340,47 @@ pub fn ReallocFor(comptime AccountsType: type) type {
     };
 }
 
+/// Typed owner/address/executable/space helper for Accounts field enums.
+pub fn AccessFor(comptime AccountsType: type, comptime DataType: type) type {
+    _ = DataType;
+    return struct {
+        owner: ?std.meta.FieldEnum(AccountsType) = null,
+        address: ?std.meta.FieldEnum(AccountsType) = null,
+        executable: bool = false,
+        space: ?usize = null,
+
+        pub fn ownerOnly(comptime owner: std.meta.FieldEnum(AccountsType)) @This() {
+            return .{ .owner = owner };
+        }
+
+        pub fn addressOnly(comptime address: std.meta.FieldEnum(AccountsType)) @This() {
+            return .{ .address = address };
+        }
+
+        pub fn executableOnly() @This() {
+            return .{ .executable = true };
+        }
+
+        pub fn withSpace(comptime space: usize) @This() {
+            return .{ .space = space };
+        }
+
+        pub fn ownerAndSpace(
+            comptime owner: std.meta.FieldEnum(AccountsType),
+            comptime space: usize,
+        ) @This() {
+            return .{ .owner = owner, .space = space };
+        }
+
+        pub fn addressAndSpace(
+            comptime address: std.meta.FieldEnum(AccountsType),
+            comptime space: usize,
+        ) @This() {
+            return .{ .address = address, .space = space };
+        }
+    };
+}
+
 /// Event field configuration.
 pub const EventField = struct {
     /// Mark this field as indexed in the IDL.
@@ -432,6 +473,20 @@ fn resolveAccountFieldNameOpt(comptime AccountsType: type, comptime value: anyty
         return resolveAccountFieldName(AccountsType, value.?);
     }
     return resolveAccountFieldName(AccountsType, value);
+}
+
+fn resolveAccountFieldKey(
+    comptime AccountsType: type,
+    comptime value: anytype,
+) ?sol.PublicKey {
+    const name = resolveAccountFieldNameOpt(AccountsType, value) orelse return null;
+    const field_index = fieldIndexByName(AccountsType, name);
+    const field_type = @typeInfo(AccountsType).@"struct".fields[field_index].type;
+    const CleanType = unwrapOptionalType(field_type);
+    if (@hasDecl(CleanType, "ID")) {
+        return CleanType.ID;
+    }
+    @compileError("access helper requires field with static ID: " ++ name);
 }
 
 fn resolveDataFieldName(comptime DataType: type, comptime value: anytype) []const u8 {
@@ -626,6 +681,11 @@ fn resolveTypedAttrConfig(
                 .payer = resolveAccountFieldNameOpt(AccountsType, @field(value, "payer")),
                 .zero_init = @field(value, "zero_init"),
             };
+        } else if (std.mem.eql(u8, field.name, "access")) {
+            resolved.owner = resolveAccountFieldKey(AccountsType, @field(value, "owner"));
+            resolved.address = resolveAccountFieldKey(AccountsType, @field(value, "address"));
+            resolved.executable = @field(value, "executable");
+            resolved.space = @field(value, "space");
         } else {
             @compileError("unsupported AttrsFor field: " ++ field.name);
         }
@@ -1633,6 +1693,42 @@ test "dsl: AttrsFor resolves init/close/realloc helpers" {
     try std.testing.expect(fields[account_index].type.IS_INIT);
     try std.testing.expect(fields[account_index].type.HAS_CLOSE);
     try std.testing.expect(fields[account_index].type.HAS_REALLOC);
+}
+
+test "dsl: AttrsFor resolves access helper" {
+    const owner_id = comptime sol.PublicKey.comptimeFromBase58("11111111111111111111111111111111");
+    const address_id = comptime sol.PublicKey.comptimeFromBase58("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+    const OwnerProgram = program_mod.Program(owner_id);
+    const AddressProgram = program_mod.Program(address_id);
+
+    const Data = struct {
+        value: u64,
+    };
+
+    const AccountType = account_mod.Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("AccessTyped"),
+    });
+
+    const AccountsRef = struct {
+        owner: OwnerProgram,
+        address: AddressProgram,
+        account: AccountType,
+    };
+
+    const AccountsType = AccountsDerive(struct {
+        owner: Signer,
+        address: Signer,
+        account: AttrsFor(AccountsRef, Data, .{
+            .access = AccessFor(AccountsRef, Data).ownerAndSpace(.owner, AccountType.SPACE),
+        }).apply(AccountType),
+    });
+
+    const fields = @typeInfo(AccountsType).@"struct".fields;
+    const account_index = std.meta.fieldIndex(AccountsType, "account") orelse
+        @compileError("AccountsDerive failed to produce account field");
+
+    try std.testing.expect(fields[account_index].type.OWNER != null);
+    try std.testing.expect(fields[account_index].type.SPACE == AccountType.SPACE);
 }
 
 test "dsl: event validation accepts struct" {

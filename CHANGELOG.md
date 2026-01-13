@@ -2,6 +2,21 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-13-042
+
+**Date**: 2026-01-13
+**Goal**: Add typed access helper for AttrsFor
+
+#### Completed Work
+1. Added AccessFor helper and AttrsFor support
+2. Allowed space attr overrides for AccountField-based helpers
+3. Added tests and updated roadmap/story
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-13-041
 
 **Date**: 2026-01-13

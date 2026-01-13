@@ -1392,6 +1392,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.22 - Anchor Typed Access Helper
+
+- [x] Add typed access helper for AttrsFor
+- [x] Export AccessFor
+- [x] Update docs and tests
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

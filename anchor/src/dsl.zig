@@ -60,6 +60,12 @@ pub fn AttrsWith(comptime config: attr_mod.AccountAttrConfig, comptime Base: typ
     return Attrs(config).apply(Base);
 }
 
+/// Typed attribute helper that resolves field enums into AccountAttrConfig.
+pub fn AttrsFor(comptime AccountsType: type, comptime DataType: type, comptime config: anytype) type {
+    const resolved = resolveTypedAttrConfig(AccountsType, DataType, config);
+    return Attrs(resolved);
+}
+
 /// Event field configuration.
 pub const EventField = struct {
     /// Mark this field as indexed in the IDL.
@@ -134,6 +140,199 @@ fn fieldIndexByName(comptime T: type, comptime name: []const u8) usize {
     return std.meta.fieldIndex(T, name) orelse {
         @compileError("account constraint references unknown Accounts field: " ++ name);
     };
+}
+
+fn resolveAccountFieldName(comptime AccountsType: type, comptime value: anytype) []const u8 {
+    const ValueType = @TypeOf(value);
+    if (ValueType == []const u8) return value;
+    if (@typeInfo(ValueType) == .enum_literal) return @tagName(value);
+    if (ValueType == std.meta.FieldEnum(AccountsType)) return @tagName(value);
+    @compileError("expected account field name or field enum");
+}
+
+fn resolveAccountFieldNameOpt(comptime AccountsType: type, comptime value: anytype) ?[]const u8 {
+    const ValueType = @TypeOf(value);
+    if (ValueType == ?[]const u8) return value;
+    if (@typeInfo(ValueType) == .optional) {
+        if (value == null) return null;
+        return resolveAccountFieldName(AccountsType, value.?);
+    }
+    return resolveAccountFieldName(AccountsType, value);
+}
+
+fn resolveDataFieldName(comptime DataType: type, comptime value: anytype) []const u8 {
+    const ValueType = @TypeOf(value);
+    if (ValueType == []const u8) return value;
+    if (@typeInfo(ValueType) == .enum_literal) return @tagName(value);
+    if (ValueType == std.meta.FieldEnum(DataType)) return @tagName(value);
+    @compileError("expected data field name or field enum");
+}
+
+fn resolveDataFieldNameOpt(comptime DataType: type, comptime value: anytype) ?[]const u8 {
+    const ValueType = @TypeOf(value);
+    if (ValueType == ?[]const u8) return value;
+    if (@typeInfo(ValueType) == .optional) {
+        if (value == null) return null;
+        return resolveDataFieldName(DataType, value.?);
+    }
+    return resolveDataFieldName(DataType, value);
+}
+
+fn resolveDataFieldList(comptime DataType: type, comptime value: anytype) []const []const u8 {
+    const ValueType = @TypeOf(value);
+    if (ValueType == []const []const u8) return value;
+    if (ValueType == []const std.meta.FieldEnum(DataType)) {
+        const names = comptime blk: {
+            var tmp: [value.len][]const u8 = undefined;
+            for (value, 0..) |field, index| {
+                tmp[index] = @tagName(field);
+            }
+            break :blk tmp;
+        };
+        return names[0..];
+    }
+    const info = @typeInfo(ValueType);
+    if (info == .pointer and info.pointer.size == .slice) {
+        if (value.len > 0) {
+            const elem_info = @typeInfo(@TypeOf(value[0]));
+            if (elem_info == .enum_literal or elem_info == .@"enum") {
+                const names = comptime blk: {
+                    var tmp: [value.len][]const u8 = undefined;
+                    for (value, 0..) |field, index| {
+                        tmp[index] = @tagName(field);
+                    }
+                    break :blk tmp;
+                };
+                return names[0..];
+            }
+        }
+    }
+    if (info == .pointer and info.pointer.size == .one) {
+        const child_info = @typeInfo(info.pointer.child);
+        if (child_info == .array) {
+            const elem_info = @typeInfo(child_info.array.child);
+            if (elem_info == .enum_literal or elem_info == .@"enum") {
+                const names = comptime blk: {
+                    var tmp: [child_info.array.len][]const u8 = undefined;
+                    for (value.*, 0..) |field, index| {
+                        tmp[index] = @tagName(field);
+                    }
+                    break :blk tmp;
+                };
+                return names[0..];
+            }
+        }
+    }
+    if (info == .array) {
+        const elem_info = @typeInfo(info.array.child);
+        if (elem_info == .enum_literal or elem_info == .@"enum") {
+            const names = comptime blk: {
+                var tmp: [info.array.len][]const u8 = undefined;
+                for (value, 0..) |field, index| {
+                    tmp[index] = @tagName(field);
+                }
+                break :blk tmp;
+            };
+            return names[0..];
+        }
+    }
+    @compileError("expected data field list or field enum list");
+}
+
+fn resolveDataFieldListOpt(comptime DataType: type, comptime value: anytype) ?[]const []const u8 {
+    const ValueType = @TypeOf(value);
+    if (ValueType == ?[]const []const u8) return value;
+    if (@typeInfo(ValueType) == .optional) {
+        if (value == null) return null;
+        return resolveDataFieldList(DataType, value.?);
+    }
+    return resolveDataFieldList(DataType, value);
+}
+
+fn resolveTypedAttrConfig(
+    comptime AccountsType: type,
+    comptime DataType: type,
+    comptime config: anytype,
+) attr_mod.AccountAttrConfig {
+    if (@typeInfo(@TypeOf(config)) != .@"struct") {
+        @compileError("AttrsFor config must be a struct");
+    }
+
+    var resolved: attr_mod.AccountAttrConfig = .{};
+    inline for (@typeInfo(@TypeOf(config)).@"struct".fields) |field| {
+        const value = @field(config, field.name);
+        if (std.mem.eql(u8, field.name, "payer")) {
+            resolved.payer = resolveAccountFieldNameOpt(AccountsType, value);
+        } else if (std.mem.eql(u8, field.name, "close")) {
+            resolved.close = resolveAccountFieldNameOpt(AccountsType, value);
+        } else if (std.mem.eql(u8, field.name, "bump_field")) {
+            resolved.bump_field = resolveDataFieldNameOpt(DataType, value);
+        } else if (std.mem.eql(u8, field.name, "has_one_fields")) {
+            resolved.has_one_fields = resolveDataFieldListOpt(DataType, value);
+        } else if (std.mem.eql(u8, field.name, "associated_token_mint")) {
+            resolved.associated_token_mint = resolveAccountFieldNameOpt(AccountsType, value);
+        } else if (std.mem.eql(u8, field.name, "associated_token_authority")) {
+            resolved.associated_token_authority = resolveAccountFieldNameOpt(AccountsType, value);
+        } else if (std.mem.eql(u8, field.name, "associated_token_token_program")) {
+            resolved.associated_token_token_program = resolveAccountFieldNameOpt(AccountsType, value);
+        } else if (std.mem.eql(u8, field.name, "token_mint")) {
+            resolved.token_mint = resolveAccountFieldNameOpt(AccountsType, value);
+        } else if (std.mem.eql(u8, field.name, "token_authority")) {
+            resolved.token_authority = resolveAccountFieldNameOpt(AccountsType, value);
+        } else if (std.mem.eql(u8, field.name, "token_program")) {
+            resolved.token_program = resolveAccountFieldNameOpt(AccountsType, value);
+        } else if (std.mem.eql(u8, field.name, "mint_authority")) {
+            resolved.mint_authority = resolveAccountFieldNameOpt(AccountsType, value);
+        } else if (std.mem.eql(u8, field.name, "mint_freeze_authority")) {
+            resolved.mint_freeze_authority = resolveAccountFieldNameOpt(AccountsType, value);
+        } else if (std.mem.eql(u8, field.name, "mint_token_program")) {
+            resolved.mint_token_program = resolveAccountFieldNameOpt(AccountsType, value);
+        } else if (std.mem.eql(u8, field.name, "seeds_program")) {
+            resolved.seeds_program = value;
+        } else if (std.mem.eql(u8, field.name, "seeds")) {
+            resolved.seeds = value;
+        } else if (std.mem.eql(u8, field.name, "has_one")) {
+            resolved.has_one = value;
+        } else if (std.mem.eql(u8, field.name, "realloc")) {
+            resolved.realloc = value;
+        } else if (std.mem.eql(u8, field.name, "init")) {
+            resolved.init = value;
+        } else if (std.mem.eql(u8, field.name, "init_if_needed")) {
+            resolved.init_if_needed = value;
+        } else if (std.mem.eql(u8, field.name, "bump")) {
+            resolved.bump = value;
+        } else if (std.mem.eql(u8, field.name, "mut")) {
+            resolved.mut = value;
+        } else if (std.mem.eql(u8, field.name, "signer")) {
+            resolved.signer = value;
+        } else if (std.mem.eql(u8, field.name, "zero")) {
+            resolved.zero = value;
+        } else if (std.mem.eql(u8, field.name, "dup")) {
+            resolved.dup = value;
+        } else if (std.mem.eql(u8, field.name, "rent_exempt")) {
+            resolved.rent_exempt = value;
+        } else if (std.mem.eql(u8, field.name, "space")) {
+            resolved.space = value;
+        } else if (std.mem.eql(u8, field.name, "space_expr")) {
+            resolved.space_expr = value;
+        } else if (std.mem.eql(u8, field.name, "constraint")) {
+            resolved.constraint = value;
+        } else if (std.mem.eql(u8, field.name, "owner")) {
+            resolved.owner = value;
+        } else if (std.mem.eql(u8, field.name, "owner_expr")) {
+            resolved.owner_expr = value;
+        } else if (std.mem.eql(u8, field.name, "address")) {
+            resolved.address = value;
+        } else if (std.mem.eql(u8, field.name, "address_expr")) {
+            resolved.address_expr = value;
+        } else if (std.mem.eql(u8, field.name, "executable")) {
+            resolved.executable = value;
+        } else {
+            @compileError("unsupported AttrsFor field: " ++ field.name);
+        }
+    }
+
+    return resolved;
 }
 
 fn hasKeyOrAccountInfo(comptime T: type) bool {
@@ -806,6 +1005,43 @@ test "dsl: AccountsDerive supports Attrs marker" {
 
     try std.testing.expect(fields[payer_index].type == SignerMut);
     try std.testing.expect(fields[counter_index].type.IS_INIT);
+}
+
+test "dsl: AttrsFor resolves typed field enums" {
+    const Data = struct {
+        authority: sol.PublicKey,
+    };
+
+    const Counter = account_mod.Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("Counter"),
+    });
+
+    const AccountsRef = struct {
+        payer: Signer,
+        authority: Signer,
+        counter: Counter,
+    };
+
+    const has_one_fields = &[_]std.meta.FieldEnum(Data){ .authority };
+
+    const AccountsType = AccountsDerive(struct {
+        payer: Signer,
+        authority: Signer,
+        counter: AttrsFor(AccountsRef, Data, .{
+            .init = true,
+            .payer = .payer,
+            .has_one_fields = has_one_fields[0..],
+        }).apply(Counter),
+    });
+
+    const fields = @typeInfo(AccountsType).@"struct".fields;
+    const payer_index = std.meta.fieldIndex(AccountsType, "payer") orelse
+        @compileError("AccountsDerive failed to produce payer field");
+    const counter_index = std.meta.fieldIndex(AccountsType, "counter") orelse
+        @compileError("AccountsDerive failed to produce counter field");
+
+    try std.testing.expect(fields[payer_index].type == SignerMut);
+    try std.testing.expect(fields[counter_index].type.HAS_ONE != null);
 }
 
 test "dsl: event validation accepts struct" {

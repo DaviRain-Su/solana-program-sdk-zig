@@ -1345,6 +1345,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.16 - Anchor Derive Typed Attrs For
+
+- [x] Add AttrsFor to resolve field enums into AccountAttrConfig
+- [x] Export AttrsFor
+- [x] Update docs and tests
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

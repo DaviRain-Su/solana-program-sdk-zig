@@ -171,6 +171,8 @@ pub const AccountsDerive = @import("dsl.zig").AccountsDerive;
 pub const Attrs = @import("dsl.zig").Attrs;
 /// Typed account field attr helper.
 pub const AttrsWith = @import("dsl.zig").AttrsWith;
+/// Typed account field attr helper with field enum resolution.
+pub const AttrsFor = @import("dsl.zig").AttrsFor;
 
 /// Comptime Event validator
 pub const Event = @import("dsl.zig").Event;

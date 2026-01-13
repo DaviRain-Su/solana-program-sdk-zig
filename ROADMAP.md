@@ -1337,6 +1337,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.15 - Anchor Derive Typed Attrs Marker
+
+- [x] Add Attrs/AttrsWith helpers for typed field annotations
+- [x] Export Attrs/AttrsWith
+- [x] Update docs and tests
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

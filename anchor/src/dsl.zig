@@ -41,6 +41,25 @@ pub fn AccountsDerive(comptime T: type) type {
     return applyAccountAttrs(T, @field(T, "attrs"), true);
 }
 
+/// Typed attribute marker for account fields.
+///
+/// Use with `.apply(Base)` since Zig doesn't support custom type annotations.
+pub fn Attrs(comptime config: attr_mod.AccountAttrConfig) type {
+    return struct {
+        pub fn apply(comptime Base: type) type {
+            if (!@hasDecl(Base, "DataType")) {
+                @compileError("Attrs can only be applied to Account types");
+            }
+            return account_mod.AccountField(Base, attr_mod.attr.account(config));
+        }
+    };
+}
+
+/// Typed attribute helper for account fields.
+pub fn AttrsWith(comptime config: attr_mod.AccountAttrConfig, comptime Base: type) type {
+    return Attrs(config).apply(Base);
+}
+
 /// Event field configuration.
 pub const EventField = struct {
     /// Mark this field as indexed in the IDL.
@@ -763,6 +782,30 @@ test "dsl: AccountsDerive validates has_one/seeds references" {
     });
 
     _ = AccountsType;
+}
+
+test "dsl: AccountsDerive supports Attrs marker" {
+    const Data = struct {
+        value: u64,
+    };
+
+    const Counter = account_mod.Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("Counter"),
+    });
+
+    const AccountsType = AccountsDerive(struct {
+        payer: Signer,
+        counter: Attrs(.{ .init = true, .payer = "payer" }).apply(Counter),
+    });
+
+    const fields = @typeInfo(AccountsType).@"struct".fields;
+    const payer_index = std.meta.fieldIndex(AccountsType, "payer") orelse
+        @compileError("AccountsDerive failed to produce payer field");
+    const counter_index = std.meta.fieldIndex(AccountsType, "counter") orelse
+        @compileError("AccountsDerive failed to produce counter field");
+
+    try std.testing.expect(fields[payer_index].type == SignerMut);
+    try std.testing.expect(fields[counter_index].type.IS_INIT);
 }
 
 test "dsl: event validation accepts struct" {

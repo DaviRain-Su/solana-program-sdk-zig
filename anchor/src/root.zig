@@ -167,6 +167,10 @@ pub const Accounts = @import("dsl.zig").Accounts;
 pub const AccountsWith = @import("dsl.zig").AccountsWith;
 /// Comptime Accounts validator with embedded field attrs.
 pub const AccountsDerive = @import("dsl.zig").AccountsDerive;
+/// Typed account field attr marker.
+pub const Attrs = @import("dsl.zig").Attrs;
+/// Typed account field attr helper.
+pub const AttrsWith = @import("dsl.zig").AttrsWith;
 
 /// Comptime Event validator
 pub const Event = @import("dsl.zig").Event;

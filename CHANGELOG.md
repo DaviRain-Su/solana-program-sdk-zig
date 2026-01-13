@@ -2,6 +2,21 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-13-035
+
+**Date**: 2026-01-13
+**Goal**: Add typed Attrs marker for AccountsDerive fields
+
+#### Completed Work
+1. Added Attrs/AttrsWith helpers for typed field annotations
+2. Added Attrs marker tests and exports
+3. Updated roadmap/story
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-13-034
 
 **Date**: 2026-01-13

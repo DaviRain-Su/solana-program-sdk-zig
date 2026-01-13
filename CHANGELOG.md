@@ -77,6 +77,21 @@ All notable changes to the Solana SDK Zig implementation will be documented in t
 
 ---
 
+### Session 2026-01-13-048
+
+**Date**: 2026-01-13
+**Goal**: Expand token/mint/ata shape inference in AccountsDerive
+
+#### Completed Work
+1. Added associated token and mint shape inference for AccountsDerive
+2. Added AccountsDerive tests for token/mint/ata shape inference
+3. Updated roadmap/story
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-13-042
 
 **Date**: 2026-01-13

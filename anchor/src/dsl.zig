@@ -845,6 +845,10 @@ fn dataHasPublicKeyField(comptime DataType: type, comptime name: []const u8) boo
     return isPublicKeyType(fields[index].type);
 }
 
+fn dataHasField(comptime DataType: type, comptime name: []const u8) bool {
+    return std.meta.fieldIndex(DataType, name) != null;
+}
+
 fn validateKeyTarget(comptime AccountsType: type, comptime name: []const u8) void {
     const fields = @typeInfo(AccountsType).@"struct".fields;
     const target_index = fieldIndexByName(AccountsType, name);
@@ -1234,7 +1238,7 @@ fn autoAccountAttrs(comptime AccountsType: type, comptime FieldType: type) ?[]co
     if (!isAccountWrapper(CleanType)) return null;
     if (CleanType != FieldType) return null;
 
-    const token_program = autoTokenProgramName(AccountsType) orelse return null;
+    const token_program = autoTokenProgramName(AccountsType);
     const DataType = CleanType.DataType;
 
     comptime var config: attr_mod.AccountAttrConfig = .{};
@@ -1242,20 +1246,24 @@ fn autoAccountAttrs(comptime AccountsType: type, comptime FieldType: type) ?[]co
 
     if (CleanType.ASSOCIATED_TOKEN) |cfg| {
         if (cfg.token_program == null) {
-            config.associated_token_token_program = token_program;
-            has_any = true;
+            if (token_program) |name| {
+                config.associated_token_token_program = name;
+                has_any = true;
+            }
         }
     }
-    if ((CleanType.TOKEN_MINT != null or CleanType.TOKEN_AUTHORITY != null) and CleanType.TOKEN_PROGRAM == null) {
-        config.token_program = token_program;
-        has_any = true;
-    }
-    if ((CleanType.MINT_AUTHORITY != null or
-        CleanType.MINT_FREEZE_AUTHORITY != null or
-        CleanType.MINT_DECIMALS != null) and CleanType.MINT_TOKEN_PROGRAM == null)
-    {
-        config.mint_token_program = token_program;
-        has_any = true;
+    if (token_program) |name| {
+        if ((CleanType.TOKEN_MINT != null or CleanType.TOKEN_AUTHORITY != null) and CleanType.TOKEN_PROGRAM == null) {
+            config.token_program = name;
+            has_any = true;
+        }
+        if ((CleanType.MINT_AUTHORITY != null or
+            CleanType.MINT_FREEZE_AUTHORITY != null or
+            CleanType.MINT_DECIMALS != null) and CleanType.MINT_TOKEN_PROGRAM == null)
+        {
+            config.mint_token_program = name;
+            has_any = true;
+        }
     }
     if (CleanType.TOKEN_MINT == null and CleanType.TOKEN_AUTHORITY == null) {
         if (dataHasPublicKeyField(DataType, "mint") and dataHasPublicKeyField(DataType, "owner")) {
@@ -1270,6 +1278,42 @@ fn autoAccountAttrs(comptime AccountsType: type, comptime FieldType: type) ?[]co
                 config.token_authority = "owner";
                 has_any = true;
             }
+        }
+    }
+    if (CleanType.ASSOCIATED_TOKEN == null) {
+        if (dataHasField(DataType, "mint") and dataHasField(DataType, "owner")) {
+            if (accountFieldHasKey(AccountsType, "mint")) {
+                config.associated_token_mint = "mint";
+                has_any = true;
+            }
+            if (accountFieldHasKey(AccountsType, "authority")) {
+                config.associated_token_authority = "authority";
+                has_any = true;
+            } else if (accountFieldHasKey(AccountsType, "owner")) {
+                config.associated_token_authority = "owner";
+                has_any = true;
+            }
+        }
+    }
+    if (CleanType.MINT_AUTHORITY == null and CleanType.MINT_DECIMALS == null) {
+        if (dataHasPublicKeyField(DataType, "mint_authority")) {
+            if (accountFieldHasKey(AccountsType, "mint_authority")) {
+                config.mint_authority = "mint_authority";
+                has_any = true;
+            } else if (accountFieldHasKey(AccountsType, "authority")) {
+                config.mint_authority = "authority";
+                has_any = true;
+            }
+        }
+        if (dataHasPublicKeyField(DataType, "freeze_authority")) {
+            if (accountFieldHasKey(AccountsType, "freeze_authority")) {
+                config.mint_freeze_authority = "freeze_authority";
+                has_any = true;
+            }
+        }
+        if (dataHasField(DataType, "decimals")) {
+            config.mint_decimals = 0;
+            has_any = true;
         }
     }
 
@@ -1588,17 +1632,13 @@ test "dsl: AccountsDerive auto-fills token program for token/mint/ata" {
         ata_account: AtaAccount,
     });
 
-    const fields = @typeInfo(AccountsType).@"struct".fields;
-    const token_index = std.meta.fieldIndex(AccountsType, "token_account") orelse
-        @compileError("AccountsDerive failed to produce token_account field");
-    const mint_index = std.meta.fieldIndex(AccountsType, "mint_account") orelse
-        @compileError("AccountsDerive failed to produce mint_account field");
-    const ata_index = std.meta.fieldIndex(AccountsType, "ata_account") orelse
-        @compileError("AccountsDerive failed to produce ata_account field");
+    const TokenFieldType = @TypeOf(@field(@as(AccountsType, undefined), "token_account"));
+    const MintFieldType = @TypeOf(@field(@as(AccountsType, undefined), "mint_account"));
+    const AtaFieldType = @TypeOf(@field(@as(AccountsType, undefined), "ata_account"));
 
-    try std.testing.expect(fields[token_index].type.TOKEN_PROGRAM != null);
-    try std.testing.expect(fields[mint_index].type.MINT_TOKEN_PROGRAM != null);
-    try std.testing.expect(fields[ata_index].type.ASSOCIATED_TOKEN.?.token_program != null);
+    try std.testing.expect(TokenFieldType.TOKEN_PROGRAM != null);
+    try std.testing.expect(MintFieldType.MINT_TOKEN_PROGRAM != null);
+    try std.testing.expect(AtaFieldType.ASSOCIATED_TOKEN.?.token_program != null);
 }
 
 test "dsl: AccountsDerive supports token program aliases" {
@@ -1661,12 +1701,54 @@ test "dsl: AccountsDerive infers token mint/authority from account shape" {
         token_account: TokenAccount,
     });
 
-    const fields = @typeInfo(AccountsType).@"struct".fields;
-    const token_index = std.meta.fieldIndex(AccountsType, "token_account") orelse
-        @compileError("AccountsDerive failed to produce token_account field");
+    const TokenFieldType = @TypeOf(@field(@as(AccountsType, undefined), "token_account"));
+    try std.testing.expect(TokenFieldType.TOKEN_MINT != null);
+    try std.testing.expect(TokenFieldType.TOKEN_AUTHORITY != null);
+}
 
-    try std.testing.expect(fields[token_index].type.TOKEN_MINT != null);
-    try std.testing.expect(fields[token_index].type.TOKEN_AUTHORITY != null);
+test "dsl: AccountsDerive infers associated token from account shape" {
+    const TokenData = struct {
+        mint: sol.PublicKey,
+        owner: sol.PublicKey,
+    };
+
+    const TokenAccount = account_mod.Account(TokenData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("AssociatedTokenShape"),
+    });
+
+    const AccountsType = AccountsDerive(struct {
+        mint: *const AccountInfo,
+        authority: Signer,
+        ata_program: UncheckedProgram,
+        token_account: TokenAccount,
+    });
+
+    const TokenFieldType = @TypeOf(@field(@as(AccountsType, undefined), "token_account"));
+    try std.testing.expect(TokenFieldType.ASSOCIATED_TOKEN != null);
+}
+
+test "dsl: AccountsDerive infers mint constraints from account shape" {
+    const MintData = struct {
+        mint_authority: sol.PublicKey,
+        freeze_authority: sol.PublicKey,
+        decimals: u8,
+    };
+
+    const MintAccount = account_mod.Account(MintData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("MintShape"),
+    });
+
+    const AccountsType = AccountsDerive(struct {
+        mint_authority: *const AccountInfo,
+        freeze_authority: *const AccountInfo,
+        mint: MintAccount,
+        token_program: UncheckedProgram,
+    });
+
+    const MintFieldType = @TypeOf(@field(@as(AccountsType, undefined), "mint"));
+    try std.testing.expect(MintFieldType.MINT_AUTHORITY != null);
+    try std.testing.expect(MintFieldType.MINT_FREEZE_AUTHORITY != null);
+    try std.testing.expect(MintFieldType.MINT_DECIMALS != null);
 }
 
 test "dsl: AccountsDerive infers init/payer/realloc mut/signer" {

@@ -1440,6 +1440,15 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.28 - AccountsDerive Token/Mint/ATA Shape Inference
+
+- [x] Infer associated token constraints from account data shape
+- [x] Infer mint authority/freeze/decimals from account data shape
+- [x] Add AccountsDerive tests for token/mint/ata shape inference
+- [x] Update docs and tests
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

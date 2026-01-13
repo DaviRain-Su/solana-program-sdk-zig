@@ -152,6 +152,8 @@ account data shape and field names match expected patterns.
 It recognizes common aliases like `mint_account`, `token_mint_account`, and
 `wallet` for authority fields, and auto-wraps sysvars like `epoch_schedule`,
 `recent_blockhashes`, and `fees`.
+Cross-field constraints (token/mint/associated token refs) are validated at
+comptime to ensure referenced Accounts fields exist and provide `key()`.
 
 ```zig
 const TokenAccountData = struct {

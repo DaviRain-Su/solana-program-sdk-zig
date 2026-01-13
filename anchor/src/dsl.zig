@@ -927,6 +927,31 @@ fn validateDerivedRefs(comptime AccountsType: type) void {
         const FieldType = unwrapOptionalType(field.type);
         if (!isAccountWrapper(FieldType)) continue;
 
+        if (FieldType.ASSOCIATED_TOKEN) |cfg| {
+            validateKeyTarget(AccountsType, cfg.mint);
+            validateKeyTarget(AccountsType, cfg.authority);
+            if (cfg.token_program) |name| {
+                validateKeyTarget(AccountsType, name);
+            }
+        }
+        if (FieldType.TOKEN_MINT) |name| {
+            validateKeyTarget(AccountsType, name);
+        }
+        if (FieldType.TOKEN_AUTHORITY) |name| {
+            validateKeyTarget(AccountsType, name);
+        }
+        if (FieldType.TOKEN_PROGRAM) |name| {
+            validateKeyTarget(AccountsType, name);
+        }
+        if (FieldType.MINT_AUTHORITY) |name| {
+            validateKeyTarget(AccountsType, name);
+        }
+        if (FieldType.MINT_FREEZE_AUTHORITY) |name| {
+            validateKeyTarget(AccountsType, name);
+        }
+        if (FieldType.MINT_TOKEN_PROGRAM) |name| {
+            validateKeyTarget(AccountsType, name);
+        }
         if (FieldType.HAS_ONE) |list| {
             inline for (list) |spec| {
                 validateKeyTarget(AccountsType, spec.target);
@@ -1784,6 +1809,8 @@ test "dsl: AccountsDerive supports token program aliases" {
     });
 
     const AccountsType = AccountsDerive(struct {
+        mint: *const AccountInfo,
+        authority: Signer,
         spl_token_program: UncheckedProgram,
         token_account: TokenAccount,
     });
@@ -1934,6 +1961,41 @@ test "dsl: AccountsDerive infers mint constraints from account shape" {
     try std.testing.expect(MintFieldType.MINT_AUTHORITY != null);
     try std.testing.expect(MintFieldType.MINT_FREEZE_AUTHORITY != null);
     try std.testing.expectEqual(@as(u8, 6), MintFieldType.MINT_DECIMALS.?);
+}
+
+test "dsl: AccountsDerive validates token/mint refs" {
+    const TokenData = struct {
+        mint: sol.PublicKey,
+        owner: sol.PublicKey,
+    };
+
+    const TokenAccount = account_mod.Account(TokenData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("TokenRefValidation"),
+        .token_mint = "mint_account",
+        .token_authority = "authority",
+    });
+
+    const MintData = struct {
+        mint_authority: sol.PublicKey,
+        freeze_authority: sol.PublicKey,
+    };
+
+    const MintAccount = account_mod.Account(MintData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("MintRefValidation"),
+        .mint_authority = "mint_authority",
+        .mint_freeze_authority = "freeze_authority",
+    });
+
+    const AccountsType = AccountsDerive(struct {
+        authority: Signer,
+        mint_authority: Signer,
+        mint_account: MintAccount,
+        freeze_authority: *const AccountInfo,
+        token_program: UncheckedProgram,
+        token_account: TokenAccount,
+    });
+
+    _ = AccountsType;
 }
 
 test "dsl: AccountsDerive infers init/payer/realloc mut/signer" {

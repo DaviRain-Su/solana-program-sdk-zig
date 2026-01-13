@@ -1506,6 +1506,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.36 - AccountsDerive Ref Validation
+
+- [x] Validate cross-field token/mint/associated token references
+- [x] Add AccountsDerive tests for ref validation
+- [x] Update docs
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

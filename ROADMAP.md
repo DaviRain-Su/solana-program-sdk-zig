@@ -1536,6 +1536,13 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.40 - AccountsDerive AccountInfo Ref Checks
+
+- [x] Enforce payer/close/realloc targets expose toAccountInfo() or AccountInfo
+- [x] Update docs
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

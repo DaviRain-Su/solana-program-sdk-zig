@@ -160,6 +160,8 @@ The AccessFor owner reference must target a Program/UncheckedProgram field.
 AccountsDerive also enforces that init/init_if_needed include a `system_program`
 field, and token/mint/associated token constraints include the required
 program fields (token_program/associated_token_program).
+Payer/close/realloc targets are validated to ensure they expose `toAccountInfo()`
+or are raw `AccountInfo` pointers.
 
 ```zig
 const TokenAccountData = struct {

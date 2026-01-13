@@ -862,6 +862,12 @@ fn hasKeyOrAccountInfo(comptime T: type) bool {
     return @hasDecl(Clean, "key");
 }
 
+fn hasAccountInfoOrToAccountInfo(comptime T: type) bool {
+    const Clean = unwrapOptionalType(T);
+    if (Clean == *const AccountInfo) return true;
+    return @hasDecl(Clean, "toAccountInfo");
+}
+
 fn hasAccountField(comptime AccountsType: type, comptime name: []const u8) bool {
     return std.meta.fieldIndex(AccountsType, name) != null;
 }
@@ -914,6 +920,15 @@ fn validateKeyTarget(comptime AccountsType: type, comptime name: []const u8) voi
     const target_type = fields[target_index].type;
     if (!hasKeyOrAccountInfo(target_type)) {
         @compileError("account constraint target must have key() or be AccountInfo: " ++ name);
+    }
+}
+
+fn validateAccountInfoTarget(comptime AccountsType: type, comptime name: []const u8) void {
+    const fields = @typeInfo(AccountsType).@"struct".fields;
+    const target_index = fieldIndexByName(AccountsType, name);
+    const target_type = fields[target_index].type;
+    if (!hasAccountInfoOrToAccountInfo(target_type)) {
+        @compileError("account constraint target must have toAccountInfo() or be AccountInfo: " ++ name);
     }
 }
 
@@ -974,6 +989,17 @@ fn validateDerivedRefs(comptime AccountsType: type) void {
             }
             if (!has_associated_token_program) {
                 @compileError("associated_token requires associated_token_program field");
+            }
+        }
+        if (FieldType.PAYER) |name| {
+            validateAccountInfoTarget(AccountsType, name);
+        }
+        if (FieldType.CLOSE) |name| {
+            validateAccountInfoTarget(AccountsType, name);
+        }
+        if (FieldType.REALLOC) |cfg| {
+            if (cfg.payer) |name| {
+                validateAccountInfoTarget(AccountsType, name);
             }
         }
         if (FieldType.TOKEN_MINT) |name| {

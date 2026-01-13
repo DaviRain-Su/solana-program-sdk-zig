@@ -114,6 +114,14 @@ const Accounts = anchor.Accounts(struct {
     }),
 });
 
+const CounterLoader = anchor.AccountLoader(CounterData, .{
+    .discriminator = anchor.accountDiscriminator("Counter"),
+});
+
+const CounterLazy = anchor.LazyAccount(CounterData, .{
+    .discriminator = anchor.accountDiscriminator("Counter"),
+});
+
 const AccountsSugar = anchor.Accounts(struct {
     authority: anchor.Signer,
     counter: anchor.Account(CounterData, .{

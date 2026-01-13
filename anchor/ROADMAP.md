@@ -6,6 +6,14 @@
 - [x] Fallback handler support
 - [x] Optional error mapping to ProgramError
 
+## ✅ v3.2.54 - AccountLoader (Zero-Copy)
+
+- [x] Add AccountLoader API for zero-copy access
+
+## ✅ v3.2.55 - LazyAccount
+
+- [x] Add LazyAccount API for on-demand deserialization
+
 ## ✅ v3.2.52 - Constraint Expr Expansion
 
 - [x] Expand constraint expression parsing for boolean/comparison ops

@@ -157,6 +157,32 @@ pub const generateIdlJson = idl.generateJson;
 pub const generateZigClient = codegen.generateZigClient;
 
 // ============================================================================
+// AccountLoader (Zero-Copy)
+// ============================================================================
+
+/// AccountLoader for zero-copy account access
+pub const account_loader = @import("account_loader.zig");
+
+/// AccountLoader config
+pub const AccountLoaderConfig = account_loader.AccountLoaderConfig;
+
+/// Zero-copy account loader type
+pub const AccountLoader = account_loader.AccountLoader;
+
+// ============================================================================
+// LazyAccount
+// ============================================================================
+
+/// LazyAccount for on-demand deserialization
+pub const lazy_account = @import("lazy_account.zig");
+
+/// LazyAccount config
+pub const LazyAccountConfig = lazy_account.LazyAccountConfig;
+
+/// LazyAccount type
+pub const LazyAccount = lazy_account.LazyAccount;
+
+// ============================================================================
 // Program Entry
 // ============================================================================
 

@@ -15,6 +15,32 @@ All notable changes to the Solana SDK Zig implementation will be documented in t
 #### Test Results
 - `ZIG_GLOBAL_CACHE_DIR=.zig-cache ZIG_LOCAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
 
+### Session 2026-01-13-075
+
+**Date**: 2026-01-13
+**Goal**: Anchor AccountLoader zero-copy access
+
+#### Completed Work
+1. Added `AccountLoader` for zero-copy account access
+2. Exported loader from anchor root module
+3. Updated docs and roadmap tracking
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ZIG_LOCAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+### Session 2026-01-13-076
+
+**Date**: 2026-01-13
+**Goal**: Anchor LazyAccount on-demand decoding
+
+#### Completed Work
+1. Added `LazyAccount` with cached Borsh decoding
+2. Exported LazyAccount from anchor root module
+3. Updated docs and roadmap tracking
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ZIG_LOCAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
 ### Session 2026-01-13-073
 
 **Date**: 2026-01-13

@@ -25,6 +25,8 @@ const sol = anchor.sdk;
 - Runtime validation for associated token constraints (ATA address + owner checks)
 - Constraint expressions support boolean/comparison operators
 - Program entry dispatch with optional fallback/error mapping
+- AccountLoader zero-copy access
+- LazyAccount on-demand decoding
 
 ## Not Implemented Yet
 
@@ -54,6 +56,8 @@ const sol = anchor.sdk;
 | Event derive | `#[event]` | `anchor.Event(T)` | ✅ |
 | Event index | `#[index]` | `anchor.eventField(..., .{ .index = true })` (<=4, bool/fixed-size int/pubkey only) | ✅ |
 | Program entry | `#[program]` dispatch | `anchor.ProgramEntry(Program)` | ✅ |
+| AccountLoader | `AccountLoader<T>` | `anchor.AccountLoader(T, config)` | ✅ |
+| LazyAccount | `LazyAccount<T>` | `anchor.LazyAccount(T, config)` | ✅ |
 
 ## Example
 

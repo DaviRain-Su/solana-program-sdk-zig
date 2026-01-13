@@ -1121,7 +1121,7 @@ fn autoProgramAttrs(comptime name: []const u8, comptime FieldType: type) ?[]cons
     if (isTokenProgramName(name)) {
         return &.{ attr_mod.attr.address(sol.spl.TOKEN_PROGRAM_ID), attr_mod.attr.executable() };
     }
-    if (std.mem.eql(u8, name, "associated_token_program")) {
+    if (isAssociatedTokenProgramName(name)) {
         const program_id = sol.PublicKey.comptimeFromBase58("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
         return &.{ attr_mod.attr.address(program_id), attr_mod.attr.executable() };
     }
@@ -1172,6 +1172,20 @@ fn isTokenProgramName(comptime name: []const u8) bool {
         "spl_token_program",
         "token_program_id",
         "token_program_account",
+    };
+    inline for (aliases) |alias| {
+        if (std.mem.eql(u8, name, alias)) return true;
+    }
+    return false;
+}
+
+fn isAssociatedTokenProgramName(comptime name: []const u8) bool {
+    const aliases = [_][]const u8{
+        "associated_token_program",
+        "associated_token_program_id",
+        "associated_token_program_account",
+        "ata_program",
+        "ata_program_id",
     };
     inline for (aliases) |alias| {
         if (std.mem.eql(u8, name, alias)) return true;
@@ -1577,6 +1591,20 @@ test "dsl: AccountsDerive supports token program aliases" {
         @compileError("spl_token_program was not wrapped with ProgramField");
     }
     try std.testing.expect(fields[token_index].type.TOKEN_PROGRAM != null);
+}
+
+test "dsl: AccountsDerive supports associated token program aliases" {
+    const AccountsType = AccountsDerive(struct {
+        ata_program: UncheckedProgram,
+    });
+
+    const fields = @typeInfo(AccountsType).@"struct".fields;
+    const program_index = std.meta.fieldIndex(AccountsType, "ata_program") orelse
+        @compileError("AccountsDerive failed to produce ata_program field");
+
+    if (!@hasField(fields[program_index].type, "base")) {
+        @compileError("ata_program was not wrapped with ProgramField");
+    }
 }
 
 test "dsl: AccountsDerive infers init/payer/realloc mut/signer" {

@@ -47,6 +47,21 @@ All notable changes to the Solana SDK Zig implementation will be documented in t
 
 ---
 
+### Session 2026-01-13-046
+
+**Date**: 2026-01-13
+**Goal**: Add associated token program alias auto bindings in AccountsDerive
+
+#### Completed Work
+1. Added associated token program alias support for AccountsDerive auto bindings
+2. Added AccountsDerive tests for associated token program aliases
+3. Updated roadmap/story
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-13-042
 
 **Date**: 2026-01-13

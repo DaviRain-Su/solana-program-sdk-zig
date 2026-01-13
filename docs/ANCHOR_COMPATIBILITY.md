@@ -20,7 +20,7 @@ const sol = anchor.sdk;
 - Anchor error codes (`AnchorError`)
 - AccountsDerive auto inference for token/mint/ata shapes and common program aliases
 - AccountsDerive auto binding for compute budget/address lookup table/vote/ed25519/secp256 programs
-- Runtime validation for token/mint constraints (token account + mint state checks)
+- Runtime validation for token/mint constraints (token account + mint state checks, program owner validation)
 - Runtime validation for associated token constraints (ATA address + owner checks)
 
 ## Not Implemented Yet

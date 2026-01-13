@@ -87,6 +87,8 @@ const ProgramIds = [_]sol.PublicKey{
 };
 
 const InterfaceProgram = anchor.InterfaceProgram(ProgramIds[0..]);
+const AnyProgram = anchor.InterfaceProgramAny;
+const UncheckedProgram = anchor.InterfaceProgramUnchecked;
 const RawAccount = anchor.InterfaceAccountInfo(.{ .mut = true });
 
 const Accounts = struct {
@@ -117,6 +119,8 @@ Interface CPI accounts accept `AccountMeta`, `AccountInfo`, or types with `toAcc
 Remaining accounts can be provided as `[]AccountMeta` or `[]*const AccountInfo`.
 Use `anchor.AccountMetaOverride` to override signer/writable flags when needed.
 `anchor.Interface` provides `invoke`/`invokeSigned` helpers for CPI.
+Interface account configs support `rent_exempt` to enforce rent exemption.
+Use `InterfaceConfig.meta_merge` to merge duplicate AccountMeta entries when needed.
 
 ## IDL Output (Build Step)
 

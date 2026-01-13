@@ -1,5 +1,20 @@
 # sol-anchor-zig Roadmap
 
+## ✅ v3.2.62 - InterfaceProgram Unchecked
+
+- [x] Add InterfaceProgramAny/InterfaceProgramUnchecked helpers
+- [x] Update docs and tests
+
+## ✅ v3.2.61 - Interface Meta Merge
+
+- [x] Add duplicate meta merge strategy
+- [x] Update docs and tests
+
+## ✅ v3.2.60 - Interface Rent Exempt
+
+- [x] Add rent_exempt checks for InterfaceAccount/InterfaceAccountInfo
+- [x] Update docs and tests
+
 ## ✅ v3.2.59 - Interface/CPI Invoke + Executable + Overrides
 
 - [x] Add executable checks for InterfaceAccount/InterfaceAccountInfo

@@ -18,6 +18,14 @@ const DISCRIMINATOR_LENGTH = discriminator_mod.DISCRIMINATOR_LENGTH;
 /// Interface validation config
 pub const InterfaceConfig = struct {
     program_ids: ?[]const PublicKey = null,
+    meta_merge: MetaMergeStrategy = .keep_all,
+};
+
+/// Strategy for handling duplicate AccountMeta entries.
+pub const MetaMergeStrategy = enum {
+    keep_all,
+    merge_duplicates,
+    error_on_conflict,
 };
 
 /// Interface program account type with multiple allowed IDs.
@@ -53,12 +61,50 @@ pub fn InterfaceProgram(comptime program_ids: []const PublicKey) type {
     };
 }
 
+/// Interface program account type that accepts any executable program ID.
+pub const InterfaceProgramAny = struct {
+    info: *const AccountInfo,
+
+    pub fn load(info: *const AccountInfo) !InterfaceProgramAny {
+        if (info.is_executable == 0) {
+            return error.ConstraintExecutable;
+        }
+        return .{ .info = info };
+    }
+
+    pub fn key(self: InterfaceProgramAny) *const PublicKey {
+        return self.info.id;
+    }
+
+    pub fn toAccountInfo(self: InterfaceProgramAny) *const AccountInfo {
+        return self.info;
+    }
+};
+
+/// Interface program account type with no validation.
+pub const InterfaceProgramUnchecked = struct {
+    info: *const AccountInfo,
+
+    pub fn load(info: *const AccountInfo) !InterfaceProgramUnchecked {
+        return .{ .info = info };
+    }
+
+    pub fn key(self: InterfaceProgramUnchecked) *const PublicKey {
+        return self.info.id;
+    }
+
+    pub fn toAccountInfo(self: InterfaceProgramUnchecked) *const AccountInfo {
+        return self.info;
+    }
+};
+
 /// Interface account configuration.
 pub const InterfaceAccountConfig = struct {
     discriminator: ?Discriminator = null,
     owners: ?[]const PublicKey = null,
     address: ?PublicKey = null,
     executable: bool = false,
+    rent_exempt: bool = false,
     mut: bool = false,
     signer: bool = false,
 };
@@ -68,6 +114,7 @@ pub const InterfaceAccountInfoConfig = struct {
     owners: ?[]const PublicKey = null,
     address: ?PublicKey = null,
     executable: bool = false,
+    rent_exempt: bool = false,
     mut: bool = false,
     signer: bool = false,
 };
@@ -112,11 +159,20 @@ pub fn InterfaceAccount(comptime T: type, comptime config: InterfaceAccountConfi
         pub const OWNERS: ?[]const PublicKey = config.owners;
         pub const ADDRESS: ?PublicKey = config.address;
         pub const HAS_EXECUTABLE: bool = config.executable;
+        pub const HAS_RENT_EXEMPT: bool = config.rent_exempt;
         pub const HAS_MUT: bool = config.mut;
         pub const HAS_SIGNER: bool = config.signer;
 
         pub fn load(info: *const AccountInfo) !Self {
-            try validateAccess(info, config.owners, config.address, config.executable, config.mut, config.signer);
+            try validateAccess(
+                info,
+                config.owners,
+                config.address,
+                config.executable,
+                config.rent_exempt,
+                config.mut,
+                config.signer,
+            );
 
             const offset = if (config.discriminator != null) DISCRIMINATOR_LENGTH else 0;
             if (info.data_len < offset + @sizeOf(T)) {
@@ -160,11 +216,20 @@ pub fn InterfaceAccountInfo(comptime config: InterfaceAccountInfoConfig) type {
         pub const OWNERS: ?[]const PublicKey = config.owners;
         pub const ADDRESS: ?PublicKey = config.address;
         pub const HAS_EXECUTABLE: bool = config.executable;
+        pub const HAS_RENT_EXEMPT: bool = config.rent_exempt;
         pub const HAS_MUT: bool = config.mut;
         pub const HAS_SIGNER: bool = config.signer;
 
         pub fn load(info: *const AccountInfo) !Self {
-            try validateAccess(info, config.owners, config.address, config.executable, config.mut, config.signer);
+            try validateAccess(
+                info,
+                config.owners,
+                config.address,
+                config.executable,
+                config.rent_exempt,
+                config.mut,
+                config.signer,
+            );
             return Self{ .info = info };
         }
 
@@ -341,6 +406,7 @@ pub fn Interface(comptime Program: type, comptime config: InterfaceConfig) type 
             defer metas.deinit();
             try buildAccountMetas(instr.Accounts, accounts, &metas);
             try appendRemainingAccounts(&metas, remaining);
+            try applyMetaMerge(self.allocator, config.meta_merge, &metas);
 
             const disc = discriminator_mod.instructionDiscriminator(name);
             if (instr.Args == void) {
@@ -377,6 +443,7 @@ pub fn Interface(comptime Program: type, comptime config: InterfaceConfig) type 
             defer metas.deinit();
             try buildAccountMetas(instr.Accounts, accounts, &metas);
             try appendRemainingAccounts(&metas, remaining);
+            try applyMetaMerge(self.allocator, config.meta_merge, &metas);
 
             var params = std.ArrayList(AccountParam).init(self.allocator);
             defer params.deinit();
@@ -389,6 +456,7 @@ pub fn Interface(comptime Program: type, comptime config: InterfaceConfig) type 
             defer infos.deinit();
             try buildAccountInfos(instr.Accounts, accounts, &infos);
             try appendRemainingAccountInfos(&infos, remaining);
+            try applyInfoMerge(self.allocator, config.meta_merge, &metas, &infos);
 
             const disc = discriminator_mod.instructionDiscriminator(name);
             if (instr.Args == void) {
@@ -421,6 +489,72 @@ pub fn Interface(comptime Program: type, comptime config: InterfaceConfig) type 
             return cpi.invoke(infos.items);
         }
     };
+}
+
+fn applyMetaMerge(
+    allocator: std.mem.Allocator,
+    strategy: MetaMergeStrategy,
+    metas: *std.ArrayList(AccountMeta),
+) !void {
+    if (strategy == .keep_all) return;
+
+    var merged = std.ArrayList(AccountMeta).init(allocator);
+    defer merged.deinit();
+
+    var seen = std.AutoHashMap([PublicKey.length]u8, usize).init(allocator);
+    defer seen.deinit();
+
+    for (metas.items) |meta| {
+        if (seen.get(meta.pubkey.bytes)) |index| {
+            const existing = merged.items[index];
+            const conflict = (meta.is_signer != existing.is_signer) or (meta.is_writable != existing.is_writable);
+            if (strategy == .error_on_conflict and conflict) {
+                return error.DuplicateAccountMeta;
+            }
+            merged.items[index].is_signer = existing.is_signer or meta.is_signer;
+            merged.items[index].is_writable = existing.is_writable or meta.is_writable;
+            continue;
+        }
+        try seen.put(meta.pubkey.bytes, merged.items.len);
+        try merged.append(meta);
+    }
+
+    metas.clearRetainingCapacity();
+    try metas.appendSlice(merged.items);
+}
+
+fn applyInfoMerge(
+    allocator: std.mem.Allocator,
+    strategy: MetaMergeStrategy,
+    metas: *const std.ArrayList(AccountMeta),
+    infos: *std.ArrayList(AccountInfo),
+) !void {
+    if (strategy == .keep_all) return;
+
+    var merged = std.ArrayList(AccountInfo).init(allocator);
+    defer merged.deinit();
+
+    var seen = std.AutoHashMap([PublicKey.length]u8, void).init(allocator);
+    defer seen.deinit();
+
+    for (metas.items) |meta| {
+        if (seen.contains(meta.pubkey.bytes)) continue;
+        var found = false;
+        for (infos.items) |info| {
+            if (info.id.equals(meta.pubkey)) {
+                try merged.append(info);
+                try seen.put(meta.pubkey.bytes, {});
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            return error.MissingAccountInfo;
+        }
+    }
+
+    infos.clearRetainingCapacity();
+    try infos.appendSlice(merged.items);
 }
 
 fn buildAccountMetas(
@@ -545,6 +679,7 @@ fn validateAccess(
     owners: ?[]const PublicKey,
     address: ?PublicKey,
     require_executable: bool,
+    require_rent_exempt: bool,
     require_mut: bool,
     require_signer: bool,
 ) !void {
@@ -560,6 +695,12 @@ fn validateAccess(
     }
     if (require_executable and info.is_executable == 0) {
         return error.ConstraintExecutable;
+    }
+    if (require_rent_exempt) {
+        const rent = sol.rent.Rent.getOrDefault();
+        if (!rent.isExempt(info.lamports.*, info.data_len)) {
+            return error.ConstraintRentExempt;
+        }
     }
     if (require_mut and info.is_writable == 0) {
         return error.ConstraintMut;
@@ -599,6 +740,44 @@ test "InterfaceProgram accepts allowed ids" {
     };
 
     _ = try ProgramType.load(&info);
+}
+
+test "InterfaceProgramAny accepts executable program" {
+    var owner = PublicKey.default();
+    var id = PublicKey.default();
+    var lamports: u64 = 1;
+    const info = AccountInfo{
+        .id = &id,
+        .owner_id = &owner,
+        .lamports = &lamports,
+        .data_len = 0,
+        .data = undefined,
+        .is_signer = 0,
+        .is_writable = 0,
+        .is_executable = 1,
+        .rent_epoch = 0,
+    };
+
+    _ = try InterfaceProgramAny.load(&info);
+}
+
+test "InterfaceProgramUnchecked accepts non-executable" {
+    var owner = PublicKey.default();
+    var id = PublicKey.default();
+    var lamports: u64 = 1;
+    const info = AccountInfo{
+        .id = &id,
+        .owner_id = &owner,
+        .lamports = &lamports,
+        .data_len = 0,
+        .data = undefined,
+        .is_signer = 0,
+        .is_writable = 0,
+        .is_executable = 0,
+        .rent_epoch = 0,
+    };
+
+    _ = try InterfaceProgramUnchecked.load(&info);
 }
 
 test "InterfaceAccount validates owner list" {
@@ -681,6 +860,33 @@ test "InterfaceAccountInfo enforces executable" {
     };
 
     try std.testing.expectError(error.ConstraintExecutable, RawInfo.load(&info));
+}
+
+test "InterfaceAccountInfo enforces rent_exempt" {
+    const RawInfo = InterfaceAccountInfo(.{ .rent_exempt = true });
+
+    var owner = PublicKey.default();
+    var id = PublicKey.default();
+    var lamports: u64 = 1;
+    var data: [0]u8 = .{};
+    const info = AccountInfo{
+        .id = &id,
+        .owner_id = &owner,
+        .lamports = &lamports,
+        .data_len = data.len,
+        .data = data[0..].ptr,
+        .is_signer = 0,
+        .is_writable = 0,
+        .is_executable = 0,
+        .rent_epoch = 0,
+    };
+
+    const rent = sol.rent.Rent.getOrDefault();
+    lamports = rent.getMinimumBalance(info.data_len);
+    _ = try RawInfo.load(&info);
+
+    lamports = 0;
+    try std.testing.expectError(error.ConstraintRentExempt, RawInfo.load(&info));
 }
 
 test "Interface builds CPI instruction" {
@@ -881,4 +1087,84 @@ test "Interface builds CPI instruction with remaining AccountMeta" {
 
     try std.testing.expectEqual(@as(usize, 2), ix.accounts.len);
     try std.testing.expect(ix.accounts[1].pubkey.equals(meta.pubkey));
+}
+
+test "Interface merges duplicate metas" {
+    const Accounts = struct {
+        authority: AccountMeta,
+        authority_dup: AccountMeta,
+    };
+    const Args = struct { amount: u64 };
+
+    const Program = struct {
+        pub const instructions = struct {
+            pub const deposit = @import("idl.zig").Instruction(.{ .Accounts = Accounts, .Args = Args });
+        };
+    };
+
+    const allocator = std.testing.allocator;
+    const key = PublicKey.default();
+    const accounts = Accounts{
+        .authority = AccountMeta.init(key, false, false),
+        .authority_dup = AccountMeta.init(key, true, true),
+    };
+
+    var iface = try Interface(Program, .{ .meta_merge = .merge_duplicates }).init(allocator, PublicKey.default());
+    const ix = try iface.instruction("deposit", accounts, Args{ .amount = 7 });
+    defer ix.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 1), ix.accounts.len);
+    try std.testing.expect(ix.accounts[0].is_signer);
+    try std.testing.expect(ix.accounts[0].is_writable);
+}
+
+test "Interface merge rejects conflicting flags" {
+    const Accounts = struct {
+        authority: AccountMeta,
+        authority_dup: AccountMeta,
+    };
+    const Args = struct { amount: u64 };
+
+    const Program = struct {
+        pub const instructions = struct {
+            pub const deposit = @import("idl.zig").Instruction(.{ .Accounts = Accounts, .Args = Args });
+        };
+    };
+
+    const allocator = std.testing.allocator;
+    const key = PublicKey.default();
+    const accounts = Accounts{
+        .authority = AccountMeta.init(key, false, false),
+        .authority_dup = AccountMeta.init(key, true, true),
+    };
+
+    var iface = try Interface(Program, .{ .meta_merge = .error_on_conflict }).init(allocator, PublicKey.default());
+    try std.testing.expectError(error.DuplicateAccountMeta, iface.instruction("deposit", accounts, Args{ .amount = 7 }));
+}
+
+test "Interface merge keeps same flags without error" {
+    const Accounts = struct {
+        authority: AccountMeta,
+        authority_dup: AccountMeta,
+    };
+    const Args = struct { amount: u64 };
+
+    const Program = struct {
+        pub const instructions = struct {
+            pub const deposit = @import("idl.zig").Instruction(.{ .Accounts = Accounts, .Args = Args });
+        };
+    };
+
+    const allocator = std.testing.allocator;
+    const key = PublicKey.default();
+    const accounts = Accounts{
+        .authority = AccountMeta.init(key, true, false),
+        .authority_dup = AccountMeta.init(key, true, false),
+    };
+
+    var iface = try Interface(Program, .{ .meta_merge = .error_on_conflict }).init(allocator, PublicKey.default());
+    const ix = try iface.instruction("deposit", accounts, Args{ .amount = 7 });
+    defer ix.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 1), ix.accounts.len);
 }

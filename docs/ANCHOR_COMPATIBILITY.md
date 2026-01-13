@@ -27,7 +27,7 @@ const sol = anchor.sdk;
 - Program entry dispatch with optional fallback/error mapping
 - AccountLoader zero-copy access
 - LazyAccount on-demand decoding
-- InterfaceProgram/InterfaceAccount wrappers and Interface CPI builder (remaining accounts + AccountMeta support + invoke helpers)
+- InterfaceProgram/InterfaceAccount wrappers and Interface CPI builder (remaining accounts + AccountMeta support + invoke helpers + rent_exempt + meta merge + unchecked program variants)
 
 ## Not Implemented Yet
 

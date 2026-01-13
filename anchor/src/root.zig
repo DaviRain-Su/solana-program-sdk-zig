@@ -208,8 +208,17 @@ pub const interface = @import("interface.zig");
 /// Interface config
 pub const InterfaceConfig = interface.InterfaceConfig;
 
+/// Meta merge strategy for Interface CPI
+pub const MetaMergeStrategy = interface.MetaMergeStrategy;
+
 /// Interface program wrapper with multiple allowed IDs
 pub const InterfaceProgram = interface.InterfaceProgram;
+
+/// Interface program wrapper for any executable program
+pub const InterfaceProgramAny = interface.InterfaceProgramAny;
+
+/// Interface program wrapper without validation
+pub const InterfaceProgramUnchecked = interface.InterfaceProgramUnchecked;
 
 /// Interface account wrapper with multiple owners
 pub const InterfaceAccount = interface.InterfaceAccount;

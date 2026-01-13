@@ -2,6 +2,45 @@
 
 All notable changes to sol-anchor-zig will be documented in this file.
 
+### Session 2026-01-13-011
+
+**Date**: 2026-01-13
+**Goal**: Add InterfaceProgram unchecked variants
+
+#### Completed Work
+1. Added InterfaceProgramAny and InterfaceProgramUnchecked wrappers
+2. Exported helpers and updated docs
+3. Added tests for executable/unchecked behavior
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ZIG_LOCAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+### Session 2026-01-13-010
+
+**Date**: 2026-01-13
+**Goal**: Add meta merge strategy for interface CPI
+
+#### Completed Work
+1. Added meta merge strategy for Interface CPI builders
+2. Applied merge to instruction metas and invoke infos
+3. Updated docs and roadmap tracking
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ZIG_LOCAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+### Session 2026-01-13-009
+
+**Date**: 2026-01-13
+**Goal**: Add rent_exempt checks for interface accounts
+
+#### Completed Work
+1. Added rent_exempt config for InterfaceAccount/InterfaceAccountInfo
+2. Enforced rent exemption via Rent.getOrDefault
+3. Updated docs and roadmap tracking
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ZIG_LOCAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
 ### Session 2026-01-13-008
 
 **Date**: 2026-01-13

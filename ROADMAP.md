@@ -1565,6 +1565,13 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.44 - AccountsDerive Alias Expansion
+
+- [x] Expand token/mint alias lists for AccountsDerive inference
+- [x] Add tests and update docs
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

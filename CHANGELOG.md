@@ -2,6 +2,21 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-13-064
+
+**Date**: 2026-01-13
+**Goal**: Expand AccountsDerive alias coverage
+
+#### Completed Work
+1. Expanded token/mint alias lists for inference
+2. Added tests for alias-based inference
+3. Updated docs, story, and roadmap
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ZIG_LOCAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-13-063
 
 **Date**: 2026-01-13

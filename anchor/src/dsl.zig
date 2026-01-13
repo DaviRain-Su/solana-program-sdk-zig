@@ -27,6 +27,8 @@ const token_mint_aliases = [_][]const u8{
     "token_mint",
     "mint_account",
     "token_mint_account",
+    "mint_info",
+    "token_mint_info",
 };
 const token_authority_aliases = [_][]const u8{
     "authority",
@@ -35,11 +37,15 @@ const token_authority_aliases = [_][]const u8{
     "wallet",
     "authority_account",
     "owner_account",
+    "wallet_account",
+    "token_owner",
+    "token_owner_account",
 };
 const mint_authority_aliases = [_][]const u8{
     "mint_authority",
     "authority",
     "authority_account",
+    "mint_authority_account",
 };
 const mint_freeze_aliases = [_][]const u8{
     "freeze_authority",
@@ -2235,6 +2241,25 @@ test "dsl: AccountsDerive infers mint constraints from account shape" {
     try std.testing.expect(MintFieldType.MINT_AUTHORITY != null);
     try std.testing.expect(MintFieldType.MINT_FREEZE_AUTHORITY != null);
     try std.testing.expectEqual(@as(u8, 6), MintFieldType.MINT_DECIMALS.?);
+}
+
+test "dsl: AccountsDerive infers mint authority from alias field" {
+    const MintData = struct {
+        mint_authority: sol.PublicKey,
+    };
+
+    const MintAccount = account_mod.Account(MintData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("MintAlias"),
+    });
+
+    const AccountsType = AccountsDerive(struct {
+        mint_authority_account: Signer,
+        mint: MintAccount,
+        token_program: UncheckedProgram,
+    });
+
+    const MintFieldType = @TypeOf(@field(@as(AccountsType, undefined), "mint"));
+    try std.testing.expectEqualStrings("mint_authority_account", MintFieldType.MINT_AUTHORITY.?);
 }
 
 test "dsl: AccountsDerive validates token/mint refs" {

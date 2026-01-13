@@ -155,6 +155,8 @@ It recognizes common aliases like `mint_account`, `token_mint_account`, and
 `bpf_loader_upgradeable`, and `loader_v4`.
 Associated token inference accepts either `owner` or `authority` fields in the
 account data shape.
+Associated token inference requires both `associated_token_program` and
+`token_program` fields to be present in Accounts.
 Cross-field constraints (token/mint/associated token refs) are validated at
 comptime to ensure referenced Accounts fields exist and provide `key()`. Program
 references (token_program/mint_token_program) are also checked to be Program or

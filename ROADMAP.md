@@ -1572,6 +1572,13 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.45 - AccountsDerive ATA Token Program
+
+- [x] Require token_program for associated token inference
+- [x] Update docs
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

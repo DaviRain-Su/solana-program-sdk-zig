@@ -1563,7 +1563,7 @@ fn autoAccountAttrs(comptime AccountsType: type, comptime FieldType: type) ?[]co
         }
     }
     const has_ata_program = autoAssociatedTokenProgramName(AccountsType) != null;
-    if (CleanType.ASSOCIATED_TOKEN == null and has_ata_program and
+    if (CleanType.ASSOCIATED_TOKEN == null and has_ata_program and token_program != null and
         CleanType.TOKEN_MINT == null and CleanType.TOKEN_AUTHORITY == null)
     {
         const has_mint = dataHasPublicKeyField(DataType, "mint");
@@ -2135,6 +2135,7 @@ test "dsl: AccountsDerive infers associated token from account shape" {
     const AccountsType = AccountsDerive(struct {
         token_mint: *const AccountInfo,
         token_authority: Signer,
+        token_program: UncheckedProgram,
         ata_program: UncheckedProgram,
         token_account: TokenAccount,
     });
@@ -2156,6 +2157,7 @@ test "dsl: AccountsDerive infers associated token from authority field" {
     const AccountsType = AccountsDerive(struct {
         token_mint: *const AccountInfo,
         authority: Signer,
+        token_program: UncheckedProgram,
         ata_program: UncheckedProgram,
         token_account: TokenAccount,
     });
@@ -2209,6 +2211,7 @@ test "dsl: AccountsDerive infers associated token from alias fields" {
     const AccountsType = AccountsDerive(struct {
         wallet: Signer,
         mint_account: TokenAccount,
+        token_program: UncheckedProgram,
         ata_program: UncheckedProgram,
         ata_account: TokenAccount,
     });

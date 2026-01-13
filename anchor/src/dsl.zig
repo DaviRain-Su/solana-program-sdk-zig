@@ -51,6 +51,7 @@ pub fn Attrs(comptime config: attr_mod.AccountAttrConfig) type {
             if (!@hasDecl(Base, "DataType")) {
                 @compileError("Attrs can only be applied to Account types");
             }
+            validateAttrConflicts(Base, config);
             return account_mod.AccountField(Base, attr_mod.attr.account(config));
         }
     };
@@ -65,6 +66,115 @@ pub fn AttrsWith(comptime config: attr_mod.AccountAttrConfig, comptime Base: typ
 pub fn AttrsFor(comptime AccountsType: type, comptime DataType: type, comptime config: anytype) type {
     const resolved = resolveTypedAttrConfig(AccountsType, DataType, config);
     return Attrs(resolved);
+}
+
+fn accountDefaultSpace(comptime DataType: type) usize {
+    return discriminator_mod.DISCRIMINATOR_LENGTH + @sizeOf(DataType);
+}
+
+fn validateAttrConflicts(comptime Base: type, comptime config: attr_mod.AccountAttrConfig) void {
+    if (config.mut and Base.HAS_MUT) {
+        @compileError("Attrs conflict: mut already set on Account");
+    }
+    if (config.signer and Base.HAS_SIGNER) {
+        @compileError("Attrs conflict: signer already set on Account");
+    }
+    if (config.zero and Base.IS_ZERO) {
+        @compileError("Attrs conflict: zero already set on Account");
+    }
+    if (config.dup and Base.IS_DUP) {
+        @compileError("Attrs conflict: dup already set on Account");
+    }
+    if (config.seeds != null and Base.SEEDS != null) {
+        @compileError("Attrs conflict: seeds already set on Account");
+    }
+    if (config.bump and Base.HAS_BUMP) {
+        @compileError("Attrs conflict: bump already set on Account");
+    }
+    if (config.bump_field != null and Base.BUMP_FIELD != null) {
+        @compileError("Attrs conflict: bump_field already set on Account");
+    }
+    if (config.seeds_program != null and Base.SEEDS_PROGRAM != null) {
+        @compileError("Attrs conflict: seeds_program already set on Account");
+    }
+    if (config.init and Base.IS_INIT) {
+        @compileError("Attrs conflict: init already set on Account");
+    }
+    if (config.init_if_needed and Base.IS_INIT_IF_NEEDED) {
+        @compileError("Attrs conflict: init_if_needed already set on Account");
+    }
+    if (config.payer != null and Base.PAYER != null) {
+        @compileError("Attrs conflict: payer already set on Account");
+    }
+    if (config.close != null and Base.CLOSE != null) {
+        @compileError("Attrs conflict: close already set on Account");
+    }
+    if ((config.has_one != null or config.has_one_fields != null) and Base.HAS_ONE != null) {
+        @compileError("Attrs conflict: has_one already set on Account");
+    }
+    if (config.realloc != null and Base.REALLOC != null) {
+        @compileError("Attrs conflict: realloc already set on Account");
+    }
+    if (config.rent_exempt and Base.RENT_EXEMPT) {
+        @compileError("Attrs conflict: rent_exempt already set on Account");
+    }
+    if (config.constraint != null and Base.CONSTRAINT != null) {
+        @compileError("Attrs conflict: constraint already set on Account");
+    }
+    if (config.owner != null and Base.OWNER != null) {
+        @compileError("Attrs conflict: owner already set on Account");
+    }
+    if (config.owner_expr != null and Base.OWNER_EXPR != null) {
+        @compileError("Attrs conflict: owner_expr already set on Account");
+    }
+    if (config.address != null and Base.ADDRESS != null) {
+        @compileError("Attrs conflict: address already set on Account");
+    }
+    if (config.address_expr != null and Base.ADDRESS_EXPR != null) {
+        @compileError("Attrs conflict: address_expr already set on Account");
+    }
+    if (config.executable and Base.EXECUTABLE) {
+        @compileError("Attrs conflict: executable already set on Account");
+    }
+    if (config.space != null) {
+        const default_space = accountDefaultSpace(Base.DataType);
+        if (Base.SPACE_EXPR != null or Base.SPACE != default_space) {
+            @compileError("Attrs conflict: space already set on Account");
+        }
+    }
+    if (config.space_expr != null and Base.SPACE_EXPR != null) {
+        @compileError("Attrs conflict: space_expr already set on Account");
+    }
+    if (config.associated_token_mint != null and Base.ASSOCIATED_TOKEN != null) {
+        @compileError("Attrs conflict: associated_token already set on Account");
+    }
+    if (config.associated_token_authority != null and Base.ASSOCIATED_TOKEN != null) {
+        @compileError("Attrs conflict: associated_token already set on Account");
+    }
+    if (config.associated_token_token_program != null and Base.ASSOCIATED_TOKEN != null) {
+        @compileError("Attrs conflict: associated_token already set on Account");
+    }
+    if (config.token_mint != null and Base.TOKEN_MINT != null) {
+        @compileError("Attrs conflict: token_mint already set on Account");
+    }
+    if (config.token_authority != null and Base.TOKEN_AUTHORITY != null) {
+        @compileError("Attrs conflict: token_authority already set on Account");
+    }
+    if (config.token_program != null and Base.TOKEN_PROGRAM != null) {
+        @compileError("Attrs conflict: token_program already set on Account");
+    }
+    if (config.mint_authority != null and Base.MINT_AUTHORITY != null) {
+        @compileError("Attrs conflict: mint_authority already set on Account");
+    }
+    if (config.mint_freeze_authority != null and Base.MINT_FREEZE_AUTHORITY != null) {
+        @compileError("Attrs conflict: mint_freeze_authority already set on Account");
+    }
+    if (config.mint_decimals != null and Base.MINT_DECIMALS != null) {
+        @compileError("Attrs conflict: mint_decimals already set on Account");
+    }
+    if (config.mint_token_program != null and Base.MINT_TOKEN_PROGRAM != null) {
+        @compileError("Attrs conflict: mint_token_program already set on Account");
+    }
 }
 
 /// Typed seed spec for Accounts/Data field enums.

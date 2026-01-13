@@ -2,6 +2,20 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-13-039
+
+**Date**: 2026-01-13
+**Goal**: Detect Attrs/AttrsFor conflicts with Account config
+
+#### Completed Work
+1. Added conflict checks for Attrs vs Account config
+2. Updated roadmap/story
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-13-038
 
 **Date**: 2026-01-13

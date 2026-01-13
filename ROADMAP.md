@@ -1369,6 +1369,13 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.19 - Anchor Attrs Conflict Detection
+
+- [x] Add conflict detection for Attrs/AttrsFor vs Account config
+- [x] Update docs and tests
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

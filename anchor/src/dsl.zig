@@ -285,6 +285,61 @@ pub fn MintFor(comptime AccountsType: type) type {
     };
 }
 
+/// Typed init/payer/space helper for Accounts field enums.
+pub fn InitFor(comptime AccountsType: type) type {
+    return struct {
+        payer: std.meta.FieldEnum(AccountsType),
+        space: ?usize = null,
+        init_if_needed: bool = false,
+
+        pub fn init(
+            comptime payer: std.meta.FieldEnum(AccountsType),
+        ) @This() {
+            return .{ .payer = payer };
+        }
+
+        pub fn withSpace(
+            comptime payer: std.meta.FieldEnum(AccountsType),
+            comptime space: usize,
+        ) @This() {
+            return .{ .payer = payer, .space = space };
+        }
+
+        pub fn ifNeeded(
+            comptime payer: std.meta.FieldEnum(AccountsType),
+        ) @This() {
+            return .{ .payer = payer, .init_if_needed = true };
+        }
+    };
+}
+
+/// Typed close helper for Accounts field enums.
+pub fn CloseFor(comptime AccountsType: type) type {
+    return struct {
+        destination: std.meta.FieldEnum(AccountsType),
+
+        pub fn init(comptime destination: std.meta.FieldEnum(AccountsType)) @This() {
+            return .{ .destination = destination };
+        }
+    };
+}
+
+/// Typed realloc helper for Accounts field enums.
+pub fn ReallocFor(comptime AccountsType: type) type {
+    return struct {
+        payer: std.meta.FieldEnum(AccountsType),
+        zero_init: bool = false,
+
+        pub fn init(comptime payer: std.meta.FieldEnum(AccountsType)) @This() {
+            return .{ .payer = payer };
+        }
+
+        pub fn zeroed(comptime payer: std.meta.FieldEnum(AccountsType)) @This() {
+            return .{ .payer = payer, .zero_init = true };
+        }
+    };
+}
+
 /// Event field configuration.
 pub const EventField = struct {
     /// Mark this field as indexed in the IDL.
@@ -531,6 +586,11 @@ fn resolveTypedAttrConfig(
             resolved.init = value;
         } else if (std.mem.eql(u8, field.name, "init_if_needed")) {
             resolved.init_if_needed = value;
+        } else if (std.mem.eql(u8, field.name, "init_with")) {
+            resolved.init = true;
+            resolved.payer = resolveAccountFieldNameOpt(AccountsType, @field(value, "payer"));
+            resolved.init_if_needed = @field(value, "init_if_needed");
+            resolved.space = @field(value, "space");
         } else if (std.mem.eql(u8, field.name, "bump")) {
             resolved.bump = value;
         } else if (std.mem.eql(u8, field.name, "mut")) {
@@ -545,6 +605,8 @@ fn resolveTypedAttrConfig(
             resolved.rent_exempt = value;
         } else if (std.mem.eql(u8, field.name, "space")) {
             resolved.space = value;
+        } else if (std.mem.eql(u8, field.name, "close_to")) {
+            resolved.close = resolveAccountFieldNameOpt(AccountsType, @field(value, "destination"));
         } else if (std.mem.eql(u8, field.name, "space_expr")) {
             resolved.space_expr = value;
         } else if (std.mem.eql(u8, field.name, "constraint")) {
@@ -559,6 +621,11 @@ fn resolveTypedAttrConfig(
             resolved.address_expr = value;
         } else if (std.mem.eql(u8, field.name, "executable")) {
             resolved.executable = value;
+        } else if (std.mem.eql(u8, field.name, "realloc_with")) {
+            resolved.realloc = .{
+                .payer = resolveAccountFieldNameOpt(AccountsType, @field(value, "payer")),
+                .zero_init = @field(value, "zero_init"),
+            };
         } else {
             @compileError("unsupported AttrsFor field: " ++ field.name);
         }
@@ -1532,6 +1599,40 @@ test "dsl: AttrsFor resolves typed mint configs" {
 
     try std.testing.expect(fields[mint_index].type.MINT_AUTHORITY != null);
     try std.testing.expect(fields[mint_index].type.MINT_TOKEN_PROGRAM != null);
+}
+
+test "dsl: AttrsFor resolves init/close/realloc helpers" {
+    const Data = struct {
+        value: u64,
+    };
+
+    const AccountType = account_mod.Account(Data, .{
+        .discriminator = discriminator_mod.accountDiscriminator("InitCloseRealloc"),
+    });
+
+    const AccountsRef = struct {
+        payer: Signer,
+        destination: Signer,
+        account: AccountType,
+    };
+
+    const AccountsType = AccountsDerive(struct {
+        payer: Signer,
+        destination: Signer,
+        account: AttrsFor(AccountsRef, Data, .{
+            .init_with = InitFor(AccountsRef).init(.payer),
+            .close_to = CloseFor(AccountsRef).init(.destination),
+            .realloc_with = ReallocFor(AccountsRef).zeroed(.payer),
+        }).apply(AccountType),
+    });
+
+    const fields = @typeInfo(AccountsType).@"struct".fields;
+    const account_index = std.meta.fieldIndex(AccountsType, "account") orelse
+        @compileError("AccountsDerive failed to produce account field");
+
+    try std.testing.expect(fields[account_index].type.IS_INIT);
+    try std.testing.expect(fields[account_index].type.HAS_CLOSE);
+    try std.testing.expect(fields[account_index].type.HAS_REALLOC);
 }
 
 test "dsl: event validation accepts struct" {

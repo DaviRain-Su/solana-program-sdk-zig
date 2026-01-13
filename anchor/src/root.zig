@@ -185,6 +185,12 @@ pub const AssociatedTokenFor = @import("dsl.zig").AssociatedTokenFor;
 pub const TokenFor = @import("dsl.zig").TokenFor;
 /// Typed mint constraint config for Accounts field enums.
 pub const MintFor = @import("dsl.zig").MintFor;
+/// Typed init/payer/space helper for Accounts field enums.
+pub const InitFor = @import("dsl.zig").InitFor;
+/// Typed close helper for Accounts field enums.
+pub const CloseFor = @import("dsl.zig").CloseFor;
+/// Typed realloc helper for Accounts field enums.
+pub const ReallocFor = @import("dsl.zig").ReallocFor;
 
 /// Comptime Event validator
 pub const Event = @import("dsl.zig").Event;

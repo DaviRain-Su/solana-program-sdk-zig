@@ -1384,6 +1384,14 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.21 - Anchor Typed Init/Close/Realloc Helpers
+
+- [x] Add typed init/close/realloc helpers for AttrsFor
+- [x] Export InitFor/CloseFor/ReallocFor
+- [x] Update docs and tests
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

@@ -30,8 +30,7 @@ const PublicKey = sol.PublicKey;
 
 /// Constraint expression descriptor
 ///
-/// This is a lightweight placeholder for constraint expressions used
-/// in account configs. It is currently emitted to IDL only.
+/// Stored as a string literal and parsed at comptime for runtime validation.
 pub const ConstraintExpr = struct {
     expr: []const u8,
 };
@@ -63,9 +62,19 @@ const Value = union(ValueKind) {
     invalid: void,
 };
 
-const Op = enum {
+const UnaryOp = enum {
+    not,
+};
+
+const BinaryOp = enum {
     eq,
     ne,
+    gt,
+    ge,
+    lt,
+    le,
+    and_op,
+    or_op,
 };
 
 const Access = struct {
@@ -80,18 +89,39 @@ const Operand = union(enum) {
     bool: bool,
 };
 
-const Constraint = struct {
-    lhs: Operand,
-    op: Op,
-    rhs: Operand,
+const UnaryExpr = struct {
+    op: UnaryOp,
+    expr: usize,
 };
+
+const BinaryExpr = struct {
+    op: BinaryOp,
+    lhs: usize,
+    rhs: usize,
+};
+
+const Node = union(enum) {
+    value: Operand,
+    unary: UnaryExpr,
+    binary: BinaryExpr,
+};
+
+const ParsedExpr = struct {
+    nodes: [MAX_NODES]Node,
+    len: usize,
+    root: usize,
+};
+
+const MAX_NODES: usize = 64;
 
 const ExprParser = struct {
     input: []const u8,
     index: usize,
+    nodes: [MAX_NODES]Node,
+    len: usize,
 
     fn init(comptime input: []const u8) ExprParser {
-        return .{ .input = input, .index = 0 };
+        return .{ .input = input, .index = 0, .nodes = undefined, .len = 0 };
     }
 
     fn eof(self: *const ExprParser) bool {
@@ -116,6 +146,13 @@ const ExprParser = struct {
             return true;
         }
         return false;
+    }
+
+    fn consumeSlice(self: *ExprParser, comptime expected: []const u8) bool {
+        if (self.index + expected.len > self.input.len) return false;
+        if (!std.mem.eql(u8, self.input[self.index .. self.index + expected.len], expected)) return false;
+        self.index += expected.len;
+        return true;
     }
 
     fn expectChar(self: *ExprParser, comptime expected: u8) void {
@@ -160,6 +197,15 @@ const ExprParser = struct {
         };
     }
 
+    fn addNode(self: *ExprParser, node: Node) usize {
+        if (self.len >= self.nodes.len) {
+            @compileError("constraint parse error: expression too large");
+        }
+        self.nodes[self.len] = node;
+        self.len += 1;
+        return self.len - 1;
+    }
+
     fn parseOperand(self: *ExprParser) Operand {
         self.skipWs();
         if (self.peek()) |c| {
@@ -200,7 +246,28 @@ const ExprParser = struct {
         return .{ .access = .{ .parts = parts, .len = count, .use_key = use_key } };
     }
 
-    fn parseOp(self: *ExprParser) Op {
+    fn parsePrimary(self: *ExprParser) usize {
+        self.skipWs();
+        if (self.consumeChar('(')) {
+            const expr = self.parseExpr();
+            self.skipWs();
+            self.expectChar(')');
+            return expr;
+        }
+        const operand = self.parseOperand();
+        return self.addNode(.{ .value = operand });
+    }
+
+    fn parseUnary(self: *ExprParser) usize {
+        self.skipWs();
+        if (self.consumeChar('!')) {
+            const child = self.parseUnary();
+            return self.addNode(.{ .unary = .{ .op = .not, .expr = child } });
+        }
+        return self.parsePrimary();
+    }
+
+    fn parseCompareOp(self: *ExprParser) ?BinaryOp {
         self.skipWs();
         if (self.consumeChar('=')) {
             if (!self.consumeChar('=')) {
@@ -214,18 +281,60 @@ const ExprParser = struct {
             }
             return .ne;
         }
-        @compileError("constraint parse error: expected == or !=");
+        if (self.consumeChar('>')) {
+            if (self.consumeChar('=')) return .ge;
+            return .gt;
+        }
+        if (self.consumeChar('<')) {
+            if (self.consumeChar('=')) return .le;
+            return .lt;
+        }
+        return null;
+    }
+
+    fn parseCompare(self: *ExprParser) usize {
+        var left = self.parseUnary();
+        while (true) {
+            const op = self.parseCompareOp() orelse break;
+            const right = self.parseUnary();
+            left = self.addNode(.{ .binary = .{ .op = op, .lhs = left, .rhs = right } });
+        }
+        return left;
+    }
+
+    fn parseAnd(self: *ExprParser) usize {
+        var left = self.parseCompare();
+        while (true) {
+            self.skipWs();
+            if (!self.consumeSlice("&&")) break;
+            const right = self.parseCompare();
+            left = self.addNode(.{ .binary = .{ .op = .and_op, .lhs = left, .rhs = right } });
+        }
+        return left;
+    }
+
+    fn parseOr(self: *ExprParser) usize {
+        var left = self.parseAnd();
+        while (true) {
+            self.skipWs();
+            if (!self.consumeSlice("||")) break;
+            const right = self.parseAnd();
+            left = self.addNode(.{ .binary = .{ .op = .or_op, .lhs = left, .rhs = right } });
+        }
+        return left;
+    }
+
+    fn parseExpr(self: *ExprParser) usize {
+        return self.parseOr();
     }
 };
 
-fn parseConstraint(comptime expr: []const u8) Constraint {
+fn parseConstraint(comptime expr: []const u8) ParsedExpr {
     comptime var parser = ExprParser.init(expr);
-    const lhs = parser.parseOperand();
-    const op = parser.parseOp();
-    const rhs = parser.parseOperand();
+    const root = parser.parseExpr();
     parser.skipWs();
     parser.expectEof();
-    return .{ .lhs = lhs, .op = op, .rhs = rhs };
+    return .{ .nodes = parser.nodes, .len = parser.len, .root = root };
 }
 
 fn hasField(comptime T: type, comptime name: []const u8) bool {
@@ -348,20 +457,60 @@ fn operandKind(
     };
 }
 
+fn exprKind(
+    comptime expr: ParsedExpr,
+    comptime index: usize,
+    comptime account_name: []const u8,
+    comptime Accounts: type,
+) ValueKind {
+    return switch (expr.nodes[index]) {
+        .value => |operand| operandKind(operand, account_name, Accounts),
+        .unary => |unary| blk: {
+            const child_kind = exprKind(expr, unary.expr, account_name, Accounts);
+            if (child_kind != .bool) {
+                @compileError("constraint unary operator requires bool");
+            }
+            break :blk .bool;
+        },
+        .binary => |binary| blk: {
+            const lhs_kind = exprKind(expr, binary.lhs, account_name, Accounts);
+            const rhs_kind = exprKind(expr, binary.rhs, account_name, Accounts);
+
+            switch (binary.op) {
+                .and_op, .or_op => {
+                    if (lhs_kind != .bool or rhs_kind != .bool) {
+                        @compileError("constraint logical operator requires bool operands");
+                    }
+                    break :blk .bool;
+                },
+                .eq, .ne => {
+                    if (lhs_kind == .invalid or rhs_kind == .invalid) {
+                        @compileError("constraint contains invalid operand");
+                    }
+                    if (lhs_kind != rhs_kind) {
+                        @compileError("constraint operands must have matching types");
+                    }
+                    break :blk .bool;
+                },
+                .gt, .ge, .lt, .le => {
+                    if (lhs_kind != .int or rhs_kind != .int) {
+                        @compileError("constraint comparison requires integer operands");
+                    }
+                    break :blk .bool;
+                },
+            }
+        },
+    };
+}
+
 fn validateConstraintTypes(
-    comptime expr: Constraint,
+    comptime expr: ParsedExpr,
     comptime account_name: []const u8,
     comptime Accounts: type,
 ) void {
-    const lhs_kind = operandKind(expr.lhs, account_name, Accounts);
-    const rhs_kind = operandKind(expr.rhs, account_name, Accounts);
-
-    if (lhs_kind == .invalid or rhs_kind == .invalid) {
-        @compileError("constraint contains invalid operand");
-    }
-
-    if (lhs_kind != rhs_kind) {
-        @compileError("constraint operands must have matching types");
+    const kind = exprKind(expr, expr.root, account_name, Accounts);
+    if (kind != .bool) {
+        @compileError("constraint expression must evaluate to bool");
     }
 }
 
@@ -466,32 +615,74 @@ fn evalOperand(
     };
 }
 
-fn compareValues(lhs: Value, op: Op, rhs: Value) bool {
+fn compareValues(lhs: Value, op: BinaryOp, rhs: Value) bool {
     return switch (lhs) {
         .invalid => false,
         .pubkey => |l| switch (rhs) {
-            .pubkey => |r| (op == .eq) == std.mem.eql(u8, &l, &r),
+            .pubkey => |r| switch (op) {
+                .eq => std.mem.eql(u8, &l, &r),
+                .ne => !std.mem.eql(u8, &l, &r),
+                else => false,
+            },
             else => false,
         },
         .int => |l| switch (rhs) {
-            .int => |r| (op == .eq) == (l == r),
+            .int => |r| switch (op) {
+                .eq => l == r,
+                .ne => l != r,
+                .gt => l > r,
+                .ge => l >= r,
+                .lt => l < r,
+                .le => l <= r,
+                else => false,
+            },
             else => false,
         },
         .bool => |l| switch (rhs) {
-            .bool => |r| (op == .eq) == (l == r),
+            .bool => |r| switch (op) {
+                .eq => l == r,
+                .ne => l != r,
+                else => false,
+            },
             else => false,
         },
     };
 }
 
-fn evalConstraint(
-    comptime expr: Constraint,
+fn evalExpr(
+    comptime expr: ParsedExpr,
+    comptime index: usize,
     comptime account_name: []const u8,
     accounts: anytype,
-) bool {
-    const lhs = evalOperand(expr.lhs, account_name, accounts);
-    const rhs = evalOperand(expr.rhs, account_name, accounts);
-    return compareValues(lhs, expr.op, rhs);
+) Value {
+    return switch (expr.nodes[index]) {
+        .value => |operand| evalOperand(operand, account_name, accounts),
+        .unary => |unary| blk: {
+            const value = evalExpr(expr, unary.expr, account_name, accounts);
+            switch (value) {
+                .bool => |b| break :blk .{ .bool = !b },
+                else => return .{ .invalid = {} },
+            }
+        },
+        .binary => |binary| blk: {
+            if (binary.op == .and_op or binary.op == .or_op) {
+                const lhs = evalExpr(expr, binary.lhs, account_name, accounts);
+                const rhs = evalExpr(expr, binary.rhs, account_name, accounts);
+                const l = switch (lhs) {
+                    .bool => |value| value,
+                    else => return .{ .invalid = {} },
+                };
+                const r = switch (rhs) {
+                    .bool => |value| value,
+                    else => return .{ .invalid = {} },
+                };
+                break :blk .{ .bool = if (binary.op == .and_op) (l and r) else (l or r) };
+            }
+            const lhs = evalExpr(expr, binary.lhs, account_name, accounts);
+            const rhs = evalExpr(expr, binary.rhs, account_name, accounts);
+            return .{ .bool = compareValues(lhs, binary.op, rhs) };
+        },
+    };
 }
 
 pub fn validateConstraintExpr(
@@ -501,7 +692,8 @@ pub fn validateConstraintExpr(
 ) !void {
     const parsed = comptime parseConstraint(expr);
     comptime validateConstraintTypes(parsed, account_name, @TypeOf(accounts));
-    if (!evalConstraint(parsed, account_name, accounts)) {
+    const result = evalExpr(parsed, parsed.root, account_name, accounts);
+    if (result != .bool or !result.bool) {
         return error.ConstraintRaw;
     }
 }
@@ -809,4 +1001,27 @@ test "validateConstraints checks multiple constraints" {
         .signer = true,
     };
     try std.testing.expect(validateConstraints(&info, constraints) == null);
+}
+
+test "constraint expressions support comparisons and logic" {
+    const Accounts = struct {
+        a: struct {
+            value: i128,
+            flag: bool,
+        },
+        b: i128,
+        flag: bool,
+    };
+
+    const accounts = Accounts{
+        .a = .{ .value = 10, .flag = true },
+        .b = 3,
+        .flag = true,
+    };
+
+    try validateConstraintExpr("a.value > b && flag == true", "a", accounts);
+    try validateConstraintExpr("a.value >= b && a.flag == true", "a", accounts);
+    try validateConstraintExpr("a.value < 20 || flag == false", "a", accounts);
+    try validateConstraintExpr("!(a.value <= b)", "a", accounts);
+    try std.testing.expectError(error.ConstraintRaw, validateConstraintExpr("a.value < b", "a", accounts));
 }

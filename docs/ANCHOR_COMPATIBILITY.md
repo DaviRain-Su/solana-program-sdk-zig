@@ -23,10 +23,11 @@ const sol = anchor.sdk;
 - AccountsDerive auto binding for Program fields by alias name
 - Runtime validation for token/mint constraints (token account + mint state checks, program owner validation)
 - Runtime validation for associated token constraints (ATA address + owner checks)
+- Constraint expressions support boolean/comparison operators
 
 ## Not Implemented Yet
 
-- Full Rust macro parsing parity for `#[account(...)]`/`#[derive(Accounts)]` (typed DSL only; no string parser)
+- Full Rust proc macro parsing parity for `#[account(...)]`/`#[derive(Accounts)]`/`#[program]`
 
 ## Compatibility Table
 

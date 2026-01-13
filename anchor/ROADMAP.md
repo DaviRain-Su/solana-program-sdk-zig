@@ -1,5 +1,9 @@
 # sol-anchor-zig Roadmap
 
+## ✅ v3.2.52 - Constraint Expr Expansion
+
+- [x] Expand constraint expression parsing for boolean/comparison ops
+
 ## ✅ v3.2.51 - AccountsDerive Program Auto Bindings (Typed)
 
 - [x] Auto-bind Program fields by alias name

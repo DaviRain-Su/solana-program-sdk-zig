@@ -2,6 +2,20 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-13-073
+
+**Date**: 2026-01-13
+**Goal**: Anchor constraint expression expansion
+
+#### Completed Work
+1. Expanded constraint expression parser with boolean/comparison operators
+2. Updated docs and roadmap tracking
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ZIG_LOCAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-13-072
 
 **Date**: 2026-01-13

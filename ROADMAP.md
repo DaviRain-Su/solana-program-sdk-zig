@@ -1521,6 +1521,13 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.38 - AccountsDerive Owner Ref Checks
+
+- [x] Enforce Program/UncheckedProgram owner references for AccessFor
+- [x] Update docs
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

@@ -156,6 +156,7 @@ Cross-field constraints (token/mint/associated token refs) are validated at
 comptime to ensure referenced Accounts fields exist and provide `key()`. Program
 references (token_program/mint_token_program) are also checked to be Program or
 UncheckedProgram fields.
+The AccessFor owner reference must target a Program/UncheckedProgram field.
 
 ```zig
 const TokenAccountData = struct {

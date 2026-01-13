@@ -513,6 +513,20 @@ fn resolveAccountFieldKey(
     @compileError("access helper requires field with static ID: " ++ name);
 }
 
+fn resolveAccountFieldProgramKey(
+    comptime AccountsType: type,
+    comptime value: anytype,
+) ?sol.PublicKey {
+    const name = resolveAccountFieldNameOpt(AccountsType, value) orelse return null;
+    const field_index = fieldIndexByName(AccountsType, name);
+    const field_type = @typeInfo(AccountsType).@"struct".fields[field_index].type;
+    if (!isProgramFieldType(field_type)) {
+        @compileError("access helper owner requires Program or UncheckedProgram field: " ++ name);
+    }
+    const CleanType = unwrapOptionalType(field_type);
+    return CleanType.ID;
+}
+
 fn resolveDataFieldName(comptime DataType: type, comptime value: anytype) []const u8 {
     const ValueType = @TypeOf(value);
     if (ValueType == []const u8) return value;
@@ -706,7 +720,7 @@ fn resolveTypedAttrConfig(
                 .zero_init = @field(value, "zero_init"),
             };
         } else if (std.mem.eql(u8, field.name, "access")) {
-            resolved.owner = resolveAccountFieldKey(AccountsType, @field(value, "owner"));
+            resolved.owner = resolveAccountFieldProgramKey(AccountsType, @field(value, "owner"));
             resolved.address = resolveAccountFieldKey(AccountsType, @field(value, "address"));
             resolved.executable = @field(value, "executable");
             resolved.space = @field(value, "space");

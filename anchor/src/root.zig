@@ -214,8 +214,14 @@ pub const InterfaceProgram = interface.InterfaceProgram;
 /// Interface account wrapper with multiple owners
 pub const InterfaceAccount = interface.InterfaceAccount;
 
+/// Interface account info wrapper
+pub const InterfaceAccountInfo = interface.InterfaceAccountInfo;
+
 /// Interface account config
 pub const InterfaceAccountConfig = interface.InterfaceAccountConfig;
+
+/// Interface account info config
+pub const InterfaceAccountInfoConfig = interface.InterfaceAccountInfoConfig;
 
 /// Interface CPI instruction builder
 pub const Interface = interface.Interface;

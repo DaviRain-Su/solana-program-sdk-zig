@@ -87,10 +87,12 @@ const ProgramIds = [_]sol.PublicKey{
 };
 
 const InterfaceProgram = anchor.InterfaceProgram(ProgramIds[0..]);
+const RawAccount = anchor.InterfaceAccountInfo(.{ .mut = true });
 
 const Accounts = struct {
     authority: anchor.Signer,
     target_program: InterfaceProgram,
+    remaining_account: RawAccount,
 };
 
 const Program = struct {
@@ -105,6 +107,10 @@ const Program = struct {
 var iface = try anchor.Interface(Program, .{ .program_ids = ProgramIds[0..] }).init(allocator, program_id);
 const ix = try iface.instruction("deposit", accounts, .{ .amount = 1 });
 defer ix.deinit(allocator);
+
+const remaining = [_]*const sol.account.Account.Info{ &extra_info };
+const ix_with_remaining = try iface.instructionWithRemaining("deposit", accounts, .{ .amount = 1 }, remaining[0..]);
+defer ix_with_remaining.deinit(allocator);
 ```
 
 ## IDL Output (Build Step)

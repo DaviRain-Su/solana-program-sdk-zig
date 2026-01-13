@@ -1,5 +1,11 @@
 # sol-anchor-zig Roadmap
 
+## ✅ v3.2.57 - Interface/CPI Extensions
+
+- [x] Add InterfaceAccountInfo wrapper
+- [x] Add remaining accounts support in Interface CPI builder
+- [x] Update docs and tests
+
 ## ✅ v3.2.56 - Interface + CPI Helpers
 
 - [x] Add InterfaceProgram/InterfaceAccount wrappers

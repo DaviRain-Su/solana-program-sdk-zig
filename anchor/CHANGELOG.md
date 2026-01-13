@@ -2,6 +2,19 @@
 
 All notable changes to sol-anchor-zig will be documented in this file.
 
+### Session 2026-01-13-006
+
+**Date**: 2026-01-13
+**Goal**: Extend interface CPI helpers
+
+#### Completed Work
+1. Added `InterfaceAccountInfo` wrapper
+2. Added remaining accounts support in Interface CPI builder
+3. Updated docs and roadmap tracking
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ZIG_LOCAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
 ### Session 2026-01-13-005
 
 **Date**: 2026-01-13

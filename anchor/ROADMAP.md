@@ -1,5 +1,9 @@
 # sol-anchor-zig Roadmap
 
+## ✅ v3.2.49 - Anchor Associated Token Constraint Runtime
+
+- [x] Validate ATA address derivation and token owner
+
 ## ✅ v3.2.48 - Anchor Token/Mint Constraint Runtime
 
 - [x] Validate token account state for token constraints

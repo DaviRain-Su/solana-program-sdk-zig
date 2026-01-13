@@ -221,6 +221,7 @@ Constraint rules:
 - Duplicate mutable accounts are rejected unless the duplicated field uses `dup`.
 - `token::mint/authority` validates the token account state against target accounts.
 - `mint::authority/freeze_authority/decimals` validates the mint state against target accounts.
+- `associated_token` validates the derived ATA address and token owner field.
 
 ## Build & Test
 

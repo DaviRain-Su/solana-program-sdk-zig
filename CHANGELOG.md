@@ -2,6 +2,20 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-13-069
+
+**Date**: 2026-01-13
+**Goal**: Add runtime validation for associated token constraints
+
+#### Completed Work
+1. Validated associated token ATA address derivation and token owner field
+2. Added tests and updated docs/story/roadmap
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ZIG_LOCAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-13-068
 
 **Date**: 2026-01-13

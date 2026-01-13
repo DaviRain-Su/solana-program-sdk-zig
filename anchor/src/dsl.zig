@@ -1726,39 +1726,50 @@ fn autoAccountAttrs(comptime AccountsType: type, comptime FieldType: type) ?[]co
             has_any = true;
         }
     }
-    if (CleanType.TOKEN_MINT == null and CleanType.TOKEN_AUTHORITY == null and !inferred_associated) {
+    if (!inferred_associated) {
+        const wants_token_mint = CleanType.TOKEN_MINT == null;
+        const wants_token_authority = CleanType.TOKEN_AUTHORITY == null;
         const has_mint = dataHasPublicKeyField(DataType, "mint");
         const has_owner = dataHasPublicKeyField(DataType, "owner") or dataHasPublicKeyField(DataType, "authority");
-        if (has_mint and has_owner) {
-            if (accountFieldName(AccountsType, token_mint_aliases[0..])) |name| {
-                config.token_mint = name;
-                has_any = true;
+        if ((wants_token_mint or wants_token_authority) and has_mint and has_owner) {
+            if (wants_token_mint) {
+                if (accountFieldName(AccountsType, token_mint_aliases[0..])) |name| {
+                    config.token_mint = name;
+                    has_any = true;
+                }
             }
-            if (accountFieldName(AccountsType, token_authority_aliases[0..])) |name| {
-                config.token_authority = name;
-                has_any = true;
+            if (wants_token_authority) {
+                if (accountFieldName(AccountsType, token_authority_aliases[0..])) |name| {
+                    config.token_authority = name;
+                    has_any = true;
+                }
             }
         }
     }
-    if (CleanType.MINT_AUTHORITY == null and CleanType.MINT_DECIMALS == null) {
+    const wants_mint_authority = CleanType.MINT_AUTHORITY == null;
+    const wants_mint_freeze = CleanType.MINT_FREEZE_AUTHORITY == null;
+    const wants_mint_decimals = CleanType.MINT_DECIMALS == null;
+    if (wants_mint_authority or wants_mint_freeze or wants_mint_decimals) {
         const has_decimals = dataDeclU8(DataType, "DECIMALS") != null or dataDeclU8(DataType, "MINT_DECIMALS") != null;
         const has_freeze = dataHasPublicKeyField(DataType, "freeze_authority");
         const has_mint_authority = dataHasPublicKeyField(DataType, "mint_authority");
         const is_mint_shape = has_mint_authority or has_freeze or has_decimals;
 
         if (is_mint_shape and (has_mint_authority or dataHasPublicKeyField(DataType, "authority"))) {
-            if (accountFieldName(AccountsType, mint_authority_aliases[0..])) |name| {
-                config.mint_authority = name;
-                has_any = true;
+            if (wants_mint_authority) {
+                if (accountFieldName(AccountsType, mint_authority_aliases[0..])) |name| {
+                    config.mint_authority = name;
+                    has_any = true;
+                }
             }
         }
-        if (is_mint_shape and has_freeze) {
+        if (is_mint_shape and has_freeze and wants_mint_freeze) {
             if (accountFieldName(AccountsType, mint_freeze_aliases[0..])) |name| {
                 config.mint_freeze_authority = name;
                 has_any = true;
             }
         }
-        if (is_mint_shape) {
+        if (is_mint_shape and wants_mint_decimals) {
             if (dataDeclU8(DataType, "DECIMALS") orelse dataDeclU8(DataType, "MINT_DECIMALS")) |decimals| {
                 config.mint_decimals = decimals;
                 has_any = true;
@@ -2382,6 +2393,28 @@ test "dsl: AccountsDerive infers token mint/authority from account shape" {
     try std.testing.expect(TokenFieldType.TOKEN_AUTHORITY != null);
 }
 
+test "dsl: AccountsDerive infers missing token authority" {
+    const TokenData = struct {
+        mint: sol.PublicKey,
+        owner: sol.PublicKey,
+    };
+
+    const TokenAccount = account_mod.Account(TokenData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("TokenAccountExplicitMint"),
+        .token_mint = "token_mint",
+    });
+
+    const AccountsType = AccountsDerive(struct {
+        token_mint: *const AccountInfo,
+        authority: Signer,
+        token_program: UncheckedProgram,
+        token_account: TokenAccount,
+    });
+
+    const TokenFieldType = @TypeOf(@field(@as(AccountsType, undefined), "token_account"));
+    try std.testing.expectEqualStrings("authority", TokenFieldType.TOKEN_AUTHORITY.?);
+}
+
 test "dsl: AccountsDerive infers associated token from account shape" {
     const TokenData = struct {
         mint: sol.PublicKey,
@@ -2503,6 +2536,28 @@ test "dsl: AccountsDerive infers mint constraints from account shape" {
     const MintFieldType = @TypeOf(@field(@as(AccountsType, undefined), "mint"));
     try std.testing.expect(MintFieldType.MINT_AUTHORITY != null);
     try std.testing.expect(MintFieldType.MINT_FREEZE_AUTHORITY != null);
+    try std.testing.expectEqual(@as(u8, 6), MintFieldType.MINT_DECIMALS.?);
+}
+
+test "dsl: AccountsDerive infers mint decimals when authority is explicit" {
+    const MintData = struct {
+        mint_authority: sol.PublicKey,
+
+        pub const MINT_DECIMALS: u8 = 6;
+    };
+
+    const MintAccount = account_mod.Account(MintData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("MintShapeExplicitAuthority"),
+        .mint_authority = "mint_authority",
+    });
+
+    const AccountsType = AccountsDerive(struct {
+        mint_authority: Signer,
+        token_program: UncheckedProgram,
+        mint: MintAccount,
+    });
+
+    const MintFieldType = @TypeOf(@field(@as(AccountsType, undefined), "mint"));
     try std.testing.expectEqual(@as(u8, 6), MintFieldType.MINT_DECIMALS.?);
 }
 

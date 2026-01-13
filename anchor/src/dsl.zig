@@ -1289,7 +1289,7 @@ fn applySignerAttrs(comptime FieldType: type, comptime attrs: []const attr_mod.A
 
 fn autoProgramAttrs(comptime name: []const u8, comptime FieldType: type) ?[]const attr_mod.Attr {
     if (FieldType != UncheckedProgram) return null;
-    if (std.mem.eql(u8, name, "system_program")) {
+    if (isSystemProgramName(name)) {
         return &.{ attr_mod.attr.address(sol.system_program.id), attr_mod.attr.executable() };
     }
     if (isTokenProgramName(name)) {
@@ -1299,58 +1299,184 @@ fn autoProgramAttrs(comptime name: []const u8, comptime FieldType: type) ?[]cons
         const program_id = sol.PublicKey.comptimeFromBase58("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
         return &.{ attr_mod.attr.address(program_id), attr_mod.attr.executable() };
     }
-    if (std.mem.eql(u8, name, "memo_program")) {
+    if (isMemoProgramName(name)) {
         return &.{ attr_mod.attr.address(sol.spl.MEMO_PROGRAM_ID), attr_mod.attr.executable() };
+    }
+    if (isMemoV1ProgramName(name)) {
+        return &.{ attr_mod.attr.address(sol.spl.memo.MEMO_V1_PROGRAM_ID), attr_mod.attr.executable() };
     }
     if (std.mem.eql(u8, name, "stake_program")) {
         return &.{ attr_mod.attr.address(sol.spl.STAKE_PROGRAM_ID), attr_mod.attr.executable() };
     }
-    if (std.mem.eql(u8, name, "stake_config_program")) {
+    if (isStakeProgramName(name)) {
+        return &.{ attr_mod.attr.address(sol.spl.STAKE_PROGRAM_ID), attr_mod.attr.executable() };
+    }
+    if (isStakeConfigProgramName(name)) {
         return &.{ attr_mod.attr.address(sol.spl.stake.STAKE_CONFIG_PROGRAM_ID), attr_mod.attr.executable() };
+    }
+    if (isBpfLoaderProgramName(name)) {
+        return &.{ attr_mod.attr.address(sol.bpf_loader.bpf_loader_id), attr_mod.attr.executable() };
+    }
+    if (isBpfLoaderUpgradeableName(name)) {
+        return &.{ attr_mod.attr.address(sol.bpf_loader.bpf_loader_upgradeable_id), attr_mod.attr.executable() };
+    }
+    if (isBpfLoaderDeprecatedName(name)) {
+        return &.{ attr_mod.attr.address(sol.bpf_loader.bpf_loader_deprecated_id), attr_mod.attr.executable() };
+    }
+    if (isLoaderV4ProgramName(name)) {
+        return &.{ attr_mod.attr.address(sol.loader_v4.id), attr_mod.attr.executable() };
     }
     return null;
 }
 
 fn autoSysvarType(comptime name: []const u8, comptime FieldType: type) ?type {
     if (FieldType != *const AccountInfo) return null;
-    if (std.mem.eql(u8, name, "clock")) {
+    if (isSysvarName(name, "clock")) {
         return sysvar_account.Sysvar(sol.clock.Clock);
     }
-    if (std.mem.eql(u8, name, "rent")) {
+    if (isSysvarName(name, "rent")) {
         return sysvar_account.Sysvar(sol.rent.Rent);
     }
-    if (std.mem.eql(u8, name, "slot_hashes")) {
+    if (isSysvarName(name, "slot_hashes")) {
         return sysvar_account.Sysvar(sol.slot_hashes.SlotHashes);
     }
-    if (std.mem.eql(u8, name, "slot_history")) {
+    if (isSysvarName(name, "slot_history")) {
         return sysvar_account.Sysvar(sol.slot_history.SlotHistory);
     }
-    if (std.mem.eql(u8, name, "stake_history")) {
+    if (isSysvarName(name, "stake_history")) {
         return sysvar_account.Sysvar(sysvar_account.StakeHistory);
     }
-    if (std.mem.eql(u8, name, "instructions") or std.mem.eql(u8, name, "instructions_sysvar")) {
+    if (isSysvarName(name, "instructions")) {
         return sysvar_account.Sysvar(sysvar_account.Instructions);
     }
-    if (std.mem.eql(u8, name, "epoch_rewards")) {
+    if (isSysvarName(name, "epoch_rewards")) {
         return sysvar_account.Sysvar(sysvar_account.SysvarId(sol.EPOCH_REWARDS_ID));
     }
-    if (std.mem.eql(u8, name, "last_restart_slot")) {
+    if (isSysvarName(name, "last_restart_slot")) {
         return sysvar_account.Sysvar(sysvar_account.SysvarId(sol.LAST_RESTART_SLOT_ID));
     }
-    if (std.mem.eql(u8, name, "epoch_schedule") or std.mem.eql(u8, name, "epoch_schedule_sysvar")) {
+    if (isSysvarName(name, "epoch_schedule")) {
         return sysvar_account.Sysvar(sol.epoch_schedule.EpochSchedule);
     }
-    if (std.mem.eql(u8, name, "recent_blockhashes") or std.mem.eql(u8, name, "recent_blockhashes_sysvar")) {
+    if (isSysvarName(name, "recent_blockhashes")) {
         const recent_blockhashes_id = sol.PublicKey.comptimeFromBase58(
             "SysvarRecentB1ockHashes11111111111111111111",
         );
         return sysvar_account.Sysvar(sysvar_account.SysvarId(recent_blockhashes_id));
     }
-    if (std.mem.eql(u8, name, "fees") or std.mem.eql(u8, name, "fees_sysvar")) {
+    if (isSysvarName(name, "fees")) {
         const fees_id = sol.PublicKey.comptimeFromBase58("SysvarFees111111111111111111111111111111111");
         return sysvar_account.Sysvar(sysvar_account.SysvarId(fees_id));
     }
     return null;
+}
+
+fn isSysvarName(comptime name: []const u8, comptime base: []const u8) bool {
+    if (std.mem.eql(u8, name, base)) return true;
+    return std.mem.eql(u8, name, base ++ "_sysvar");
+}
+
+fn isSystemProgramName(comptime name: []const u8) bool {
+    const aliases = [_][]const u8{
+        "system_program",
+        "system_program_id",
+        "system_program_account",
+    };
+    inline for (aliases) |alias| {
+        if (std.mem.eql(u8, name, alias)) return true;
+    }
+    return false;
+}
+
+fn isMemoProgramName(comptime name: []const u8) bool {
+    const aliases = [_][]const u8{
+        "memo_program",
+        "memo_program_id",
+        "memo_program_account",
+    };
+    inline for (aliases) |alias| {
+        if (std.mem.eql(u8, name, alias)) return true;
+    }
+    return false;
+}
+
+fn isMemoV1ProgramName(comptime name: []const u8) bool {
+    const aliases = [_][]const u8{
+        "memo_v1_program",
+        "memo_program_v1",
+    };
+    inline for (aliases) |alias| {
+        if (std.mem.eql(u8, name, alias)) return true;
+    }
+    return false;
+}
+
+fn isStakeProgramName(comptime name: []const u8) bool {
+    const aliases = [_][]const u8{
+        "stake_program",
+        "stake_program_id",
+        "stake_program_account",
+    };
+    inline for (aliases) |alias| {
+        if (std.mem.eql(u8, name, alias)) return true;
+    }
+    return false;
+}
+
+fn isStakeConfigProgramName(comptime name: []const u8) bool {
+    const aliases = [_][]const u8{
+        "stake_config_program",
+        "stake_config_program_id",
+        "stake_config_program_account",
+    };
+    inline for (aliases) |alias| {
+        if (std.mem.eql(u8, name, alias)) return true;
+    }
+    return false;
+}
+
+fn isBpfLoaderProgramName(comptime name: []const u8) bool {
+    const aliases = [_][]const u8{
+        "bpf_loader",
+        "bpf_loader_program",
+    };
+    inline for (aliases) |alias| {
+        if (std.mem.eql(u8, name, alias)) return true;
+    }
+    return false;
+}
+
+fn isBpfLoaderUpgradeableName(comptime name: []const u8) bool {
+    const aliases = [_][]const u8{
+        "bpf_loader_upgradeable",
+        "bpf_loader_upgradeable_program",
+    };
+    inline for (aliases) |alias| {
+        if (std.mem.eql(u8, name, alias)) return true;
+    }
+    return false;
+}
+
+fn isBpfLoaderDeprecatedName(comptime name: []const u8) bool {
+    const aliases = [_][]const u8{
+        "bpf_loader_deprecated",
+        "bpf_loader_deprecated_program",
+    };
+    inline for (aliases) |alias| {
+        if (std.mem.eql(u8, name, alias)) return true;
+    }
+    return false;
+}
+
+fn isLoaderV4ProgramName(comptime name: []const u8) bool {
+    const aliases = [_][]const u8{
+        "loader_v4",
+        "loader_v4_program",
+    };
+    inline for (aliases) |alias| {
+        if (std.mem.eql(u8, name, alias)) return true;
+    }
+    return false;
 }
 
 fn isTokenProgramName(comptime name: []const u8) bool {
@@ -1696,13 +1822,20 @@ test "dsl: AccountsDerive applies program attrs" {
 test "dsl: AccountsDerive auto-binds common program/sysvar fields" {
     const AccountsType = AccountsDerive(struct {
         system_program: UncheckedProgram,
+        system_program_id: UncheckedProgram,
         token_program: UncheckedProgram,
         associated_token_program: UncheckedProgram,
         memo_program: UncheckedProgram,
+        memo_v1_program: UncheckedProgram,
         stake_program: UncheckedProgram,
         stake_config_program: UncheckedProgram,
+        bpf_loader: UncheckedProgram,
+        bpf_loader_upgradeable: UncheckedProgram,
+        loader_v4: UncheckedProgram,
         rent: *const AccountInfo,
+        rent_sysvar: *const AccountInfo,
         clock: *const AccountInfo,
+        clock_sysvar: *const AccountInfo,
         slot_hashes: *const AccountInfo,
         slot_history: *const AccountInfo,
         stake_history: *const AccountInfo,
@@ -1717,20 +1850,34 @@ test "dsl: AccountsDerive auto-binds common program/sysvar fields" {
     const fields = @typeInfo(AccountsType).@"struct".fields;
     const system_index = std.meta.fieldIndex(AccountsType, "system_program") orelse
         @compileError("AccountsDerive failed to produce system_program field");
+    const system_id_index = std.meta.fieldIndex(AccountsType, "system_program_id") orelse
+        @compileError("AccountsDerive failed to produce system_program_id field");
     const token_index = std.meta.fieldIndex(AccountsType, "token_program") orelse
         @compileError("AccountsDerive failed to produce token_program field");
     const ata_index = std.meta.fieldIndex(AccountsType, "associated_token_program") orelse
         @compileError("AccountsDerive failed to produce associated_token_program field");
     const memo_index = std.meta.fieldIndex(AccountsType, "memo_program") orelse
         @compileError("AccountsDerive failed to produce memo_program field");
+    const memo_v1_index = std.meta.fieldIndex(AccountsType, "memo_v1_program") orelse
+        @compileError("AccountsDerive failed to produce memo_v1_program field");
     const stake_program_index = std.meta.fieldIndex(AccountsType, "stake_program") orelse
         @compileError("AccountsDerive failed to produce stake_program field");
     const stake_config_program_index = std.meta.fieldIndex(AccountsType, "stake_config_program") orelse
         @compileError("AccountsDerive failed to produce stake_config_program field");
+    const bpf_loader_index = std.meta.fieldIndex(AccountsType, "bpf_loader") orelse
+        @compileError("AccountsDerive failed to produce bpf_loader field");
+    const bpf_loader_upgradeable_index = std.meta.fieldIndex(AccountsType, "bpf_loader_upgradeable") orelse
+        @compileError("AccountsDerive failed to produce bpf_loader_upgradeable field");
+    const loader_v4_index = std.meta.fieldIndex(AccountsType, "loader_v4") orelse
+        @compileError("AccountsDerive failed to produce loader_v4 field");
     const rent_index = std.meta.fieldIndex(AccountsType, "rent") orelse
         @compileError("AccountsDerive failed to produce rent field");
+    const rent_sysvar_index = std.meta.fieldIndex(AccountsType, "rent_sysvar") orelse
+        @compileError("AccountsDerive failed to produce rent_sysvar field");
     const clock_index = std.meta.fieldIndex(AccountsType, "clock") orelse
         @compileError("AccountsDerive failed to produce clock field");
+    const clock_sysvar_index = std.meta.fieldIndex(AccountsType, "clock_sysvar") orelse
+        @compileError("AccountsDerive failed to produce clock_sysvar field");
     const slot_hashes_index = std.meta.fieldIndex(AccountsType, "slot_hashes") orelse
         @compileError("AccountsDerive failed to produce slot_hashes field");
     const slot_history_index = std.meta.fieldIndex(AccountsType, "slot_history") orelse
@@ -1752,6 +1899,9 @@ test "dsl: AccountsDerive auto-binds common program/sysvar fields" {
     if (!@hasField(fields[system_index].type, "base")) {
         @compileError("system_program was not wrapped with ProgramField");
     }
+    if (!@hasField(fields[system_id_index].type, "base")) {
+        @compileError("system_program_id was not wrapped with ProgramField");
+    }
     if (!@hasField(fields[token_index].type, "base")) {
         @compileError("token_program was not wrapped with ProgramField");
     }
@@ -1761,22 +1911,45 @@ test "dsl: AccountsDerive auto-binds common program/sysvar fields" {
     if (!@hasField(fields[memo_index].type, "base")) {
         @compileError("memo_program was not wrapped with ProgramField");
     }
+    if (!@hasField(fields[memo_v1_index].type, "base")) {
+        @compileError("memo_v1_program was not wrapped with ProgramField");
+    }
     if (!@hasField(fields[stake_program_index].type, "base")) {
         @compileError("stake_program was not wrapped with ProgramField");
     }
     if (!@hasField(fields[stake_config_program_index].type, "base")) {
         @compileError("stake_config_program was not wrapped with ProgramField");
     }
+    if (!@hasField(fields[bpf_loader_index].type, "base")) {
+        @compileError("bpf_loader was not wrapped with ProgramField");
+    }
+    if (!@hasField(fields[bpf_loader_upgradeable_index].type, "base")) {
+        @compileError("bpf_loader_upgradeable was not wrapped with ProgramField");
+    }
+    if (!@hasField(fields[loader_v4_index].type, "base")) {
+        @compileError("loader_v4 was not wrapped with ProgramField");
+    }
     if (!@hasDecl(fields[rent_index].type, "SYSVAR_TYPE")) {
         @compileError("rent was not wrapped with Sysvar");
     }
+    if (!@hasDecl(fields[rent_sysvar_index].type, "SYSVAR_TYPE")) {
+        @compileError("rent_sysvar was not wrapped with Sysvar");
+    }
     if (fields[rent_index].type.SYSVAR_TYPE != sol.rent.Rent) {
         @compileError("rent sysvar type mismatch");
+    }
+    if (fields[rent_sysvar_index].type.SYSVAR_TYPE != sol.rent.Rent) {
+        @compileError("rent_sysvar type mismatch");
     }
     if (!@hasDecl(fields[clock_index].type, "SYSVAR_TYPE") or
         fields[clock_index].type.SYSVAR_TYPE != sol.clock.Clock)
     {
         @compileError("clock sysvar type mismatch");
+    }
+    if (!@hasDecl(fields[clock_sysvar_index].type, "SYSVAR_TYPE") or
+        fields[clock_sysvar_index].type.SYSVAR_TYPE != sol.clock.Clock)
+    {
+        @compileError("clock_sysvar type mismatch");
     }
     if (!@hasDecl(fields[slot_hashes_index].type, "SYSVAR_TYPE") or
         fields[slot_hashes_index].type.SYSVAR_TYPE != sol.slot_hashes.SlotHashes)

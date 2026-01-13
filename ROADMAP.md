@@ -1551,6 +1551,13 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.42 - AccountsDerive Program/Sysvar Aliases
+
+- [x] Expand program/sysvar auto bindings with alias names
+- [x] Update docs
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

@@ -2,6 +2,21 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-13-062
+
+**Date**: 2026-01-13
+**Goal**: Expand AccountsDerive program/sysvar aliases
+
+#### Completed Work
+1. Added alias-based program auto bindings (system/memo/bpf_loader/loader_v4)
+2. Added `_sysvar` alias support for common sysvars
+3. Updated docs, story, and roadmap
+
+#### Test Results
+- `ZIG_GLOBAL_CACHE_DIR=.zig-cache ZIG_LOCAL_CACHE_DIR=.zig-cache ../solana-zig/zig build test --summary all`
+
+---
+
 ### Session 2026-01-13-061
 
 **Date**: 2026-01-13

@@ -151,7 +151,8 @@ AccountsDerive can auto-infer common token/mint/ata constraints when the
 account data shape and field names match expected patterns.
 It recognizes common aliases like `mint_account`, `token_mint_account`, and
 `wallet` for authority fields, and auto-wraps sysvars like `epoch_schedule`,
-`recent_blockhashes`, and `fees`.
+`recent_blockhashes`, and `fees`, plus program aliases like `bpf_loader`,
+`bpf_loader_upgradeable`, and `loader_v4`.
 Cross-field constraints (token/mint/associated token refs) are validated at
 comptime to ensure referenced Accounts fields exist and provide `key()`. Program
 references (token_program/mint_token_program) are also checked to be Program or

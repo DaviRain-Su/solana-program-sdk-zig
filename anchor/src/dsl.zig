@@ -1557,8 +1557,12 @@ fn autoAccountAttrs(comptime AccountsType: type, comptime FieldType: type) ?[]co
         }
     }
     const has_ata_program = autoAssociatedTokenProgramName(AccountsType) != null;
-    if (CleanType.ASSOCIATED_TOKEN == null and has_ata_program) {
-        if (dataHasField(DataType, "mint") and dataHasField(DataType, "owner")) {
+    if (CleanType.ASSOCIATED_TOKEN == null and has_ata_program and
+        CleanType.TOKEN_MINT == null and CleanType.TOKEN_AUTHORITY == null)
+    {
+        const has_mint = dataHasPublicKeyField(DataType, "mint");
+        const has_owner = dataHasPublicKeyField(DataType, "owner") or dataHasPublicKeyField(DataType, "authority");
+        if (has_mint and has_owner) {
             if (accountFieldName(AccountsType, token_mint_aliases[0..])) |name| {
                 config.associated_token_mint = name;
                 has_any = true;
@@ -2125,6 +2129,27 @@ test "dsl: AccountsDerive infers associated token from account shape" {
     const AccountsType = AccountsDerive(struct {
         token_mint: *const AccountInfo,
         token_authority: Signer,
+        ata_program: UncheckedProgram,
+        token_account: TokenAccount,
+    });
+
+    const TokenFieldType = @TypeOf(@field(@as(AccountsType, undefined), "token_account"));
+    try std.testing.expect(TokenFieldType.ASSOCIATED_TOKEN != null);
+}
+
+test "dsl: AccountsDerive infers associated token from authority field" {
+    const TokenData = struct {
+        mint: sol.PublicKey,
+        authority: sol.PublicKey,
+    };
+
+    const TokenAccount = account_mod.Account(TokenData, .{
+        .discriminator = discriminator_mod.accountDiscriminator("AssociatedTokenAuthorityShape"),
+    });
+
+    const AccountsType = AccountsDerive(struct {
+        token_mint: *const AccountInfo,
+        authority: Signer,
         ata_program: UncheckedProgram,
         token_account: TokenAccount,
     });

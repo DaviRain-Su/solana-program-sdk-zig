@@ -153,6 +153,8 @@ It recognizes common aliases like `mint_account`, `token_mint_account`, and
 `wallet` for authority fields, and auto-wraps sysvars like `epoch_schedule`,
 `recent_blockhashes`, and `fees`, plus program aliases like `bpf_loader`,
 `bpf_loader_upgradeable`, and `loader_v4`.
+Associated token inference accepts either `owner` or `authority` fields in the
+account data shape.
 Cross-field constraints (token/mint/associated token refs) are validated at
 comptime to ensure referenced Accounts fields exist and provide `key()`. Program
 references (token_program/mint_token_program) are also checked to be Program or

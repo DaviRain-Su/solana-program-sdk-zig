@@ -1558,6 +1558,13 @@ pub fn generateIdl(comptime program: anytype) []const u8 {
 
 ---
 
+### ✅ v3.2.43 - AccountsDerive Associated Token Authority
+
+- [x] Allow associated token inference with `authority` data field
+- [x] Add tests and update docs
+
+---
+
 ### ⏳ v3.1.0 - Advanced Features
 
 | Feature | Description |

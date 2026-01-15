@@ -374,6 +374,8 @@ pub const Constraints = constraints.Constraints;
 
 /// Constraint expression helper
 pub const constraint = constraints.constraint;
+/// Typed constraint expression builder
+pub const constraint_typed = constraints.constraint_typed;
 
 /// Constraint expression descriptor
 pub const ConstraintExpr = constraints.ConstraintExpr;

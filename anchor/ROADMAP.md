@@ -1,5 +1,11 @@
 # sol-anchor-zig Roadmap
 
+## ✅ v3.2.75 - Typed Constraint Builder + CPI Signed Reset
+
+- [x] Add typed constraint builder API
+- [x] Add signed reset helpers for CPI context
+- [x] Update docs and tests
+
 ## ✅ v3.2.74 - Constraint CI Helpers + CPI Remaining Reset
 
 - [x] Add ASCII case-insensitive constraint helpers

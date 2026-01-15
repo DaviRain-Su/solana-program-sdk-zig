@@ -2,6 +2,19 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-15-097
+
+**Date**: 2026-01-15
+**Goal**: Anchor typed constraint builder + CPI signed reset helpers
+
+#### Completed Work
+1. Added typed constraint builder API with fluent expression helpers
+2. Added signed reset helpers for CPI context
+3. Updated anchor docs and tests
+
+#### Test Results
+- `./solana-zig/zig build test --summary all`
+
 ### Session 2026-01-15-096
 
 **Date**: 2026-01-15

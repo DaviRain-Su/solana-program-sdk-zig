@@ -295,6 +295,39 @@ pub fn CpiContextWithConfig(
             return try iface.invoke(name, self.accounts, args, remaining);
         }
 
+        /// Clear, append remaining accounts, then invoke with args and signer seeds.
+        pub fn invokeWithRemainingResetSigned(
+            self: *Self,
+            comptime name: []const u8,
+            args: anytype,
+            remaining: anytype,
+            signer_seeds: []const []const []const u8,
+        ) !sol.ProgramResult {
+            self.resetRemaining();
+            try self.appendRemaining(remaining);
+            var iface = try interface_mod.Interface(Program, config).init(
+                self.allocator,
+                self.program.id.*,
+            );
+            return try iface.invokeSigned(name, self.accounts, args, self.resolvedRemaining(), signer_seeds);
+        }
+
+        /// Clear, append remaining accounts, then invoke without args and signer seeds.
+        pub fn invokeNoArgsWithRemainingResetSigned(
+            self: *Self,
+            comptime name: []const u8,
+            remaining: anytype,
+            signer_seeds: []const []const []const u8,
+        ) !sol.ProgramResult {
+            self.resetRemaining();
+            try self.appendRemaining(remaining);
+            var iface = try interface_mod.Interface(Program, config).init(
+                self.allocator,
+                self.program.id.*,
+            );
+            return try iface.invokeSignedNoArgs(name, self.accounts, self.resolvedRemaining(), signer_seeds);
+        }
+
         /// Clear, append remaining accounts, then invoke with args.
         pub fn invokeWithRemainingReset(
             self: *Self,
@@ -518,4 +551,58 @@ test "CpiContext resetRemaining clears collection" {
     const ix = try ctx.instructionNoArgs("ping");
     defer ix.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(usize, 2), ix.accounts.len);
+}
+
+test "CpiContext invokeWithRemainingResetSigned uses inline seeds" {
+    const TestAccounts = struct {
+        payer: *const AccountInfo,
+    };
+
+    const TestProgram = struct {
+        pub const instructions = struct {
+            pub const ping = @import("idl.zig").Instruction(.{
+                .Accounts = TestAccounts,
+                .Args = void,
+            });
+        };
+    };
+
+    var program_id = sol.PublicKey.default();
+    var owner = sol.PublicKey.default();
+    var lamports: u64 = 1;
+    var data: [0]u8 = undefined;
+    const program_info = AccountInfo{
+        .id = &program_id,
+        .owner_id = &owner,
+        .lamports = &lamports,
+        .data_len = 0,
+        .data = &data,
+        .is_signer = 0,
+        .is_writable = 0,
+        .is_executable = 1,
+        .rent_epoch = 0,
+    };
+
+    var rem_id = sol.PublicKey.default();
+    var rem_owner = sol.PublicKey.default();
+    var rem_lamports: u64 = 1;
+    var rem_data: [0]u8 = undefined;
+    const rem_info = AccountInfo{
+        .id = &rem_id,
+        .owner_id = &rem_owner,
+        .lamports = &rem_lamports,
+        .data_len = 0,
+        .data = &rem_data,
+        .is_signer = 0,
+        .is_writable = 0,
+        .is_executable = 0,
+        .rent_epoch = 0,
+    };
+
+    const accounts = TestAccounts{ .payer = &program_info };
+    var ctx = CpiContext(TestProgram, TestAccounts).init(std.testing.allocator, &program_info, accounts);
+    defer ctx.deinit();
+    const remaining = [_]*const AccountInfo{ &rem_info };
+    const signer_seeds: []const []const []const u8 = &.{&.{ "seed" }};
+    _ = try ctx.invokeNoArgsWithRemainingResetSigned("ping", remaining[0..], signer_seeds);
 }

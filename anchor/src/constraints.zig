@@ -33,6 +33,110 @@ const PublicKey = sol.PublicKey;
 /// Stored as a string literal and parsed at comptime for runtime validation.
 pub const ConstraintExpr = struct {
     expr: []const u8,
+
+    pub fn and_(self: ConstraintExpr, other: ConstraintExpr) ConstraintExpr {
+        return .{ .expr = "(" ++ self.expr ++ " && " ++ other.expr ++ ")" };
+    }
+
+    pub fn or_(self: ConstraintExpr, other: ConstraintExpr) ConstraintExpr {
+        return .{ .expr = "(" ++ self.expr ++ " || " ++ other.expr ++ ")" };
+    }
+
+    pub fn not_(self: ConstraintExpr) ConstraintExpr {
+        return .{ .expr = "!(" ++ self.expr ++ ")" };
+    }
+
+    pub fn eq(self: ConstraintExpr, other: ConstraintExpr) ConstraintExpr {
+        return .{ .expr = self.expr ++ " == " ++ other.expr };
+    }
+
+    pub fn ne(self: ConstraintExpr, other: ConstraintExpr) ConstraintExpr {
+        return .{ .expr = self.expr ++ " != " ++ other.expr };
+    }
+
+    pub fn gt(self: ConstraintExpr, other: ConstraintExpr) ConstraintExpr {
+        return .{ .expr = self.expr ++ " > " ++ other.expr };
+    }
+
+    pub fn ge(self: ConstraintExpr, other: ConstraintExpr) ConstraintExpr {
+        return .{ .expr = self.expr ++ " >= " ++ other.expr };
+    }
+
+    pub fn lt(self: ConstraintExpr, other: ConstraintExpr) ConstraintExpr {
+        return .{ .expr = self.expr ++ " < " ++ other.expr };
+    }
+
+    pub fn le(self: ConstraintExpr, other: ConstraintExpr) ConstraintExpr {
+        return .{ .expr = self.expr ++ " <= " ++ other.expr };
+    }
+
+    pub fn add(self: ConstraintExpr, other: ConstraintExpr) ConstraintExpr {
+        return .{ .expr = "(" ++ self.expr ++ " + " ++ other.expr ++ ")" };
+    }
+
+    pub fn sub(self: ConstraintExpr, other: ConstraintExpr) ConstraintExpr {
+        return .{ .expr = "(" ++ self.expr ++ " - " ++ other.expr ++ ")" };
+    }
+
+    pub fn mul(self: ConstraintExpr, other: ConstraintExpr) ConstraintExpr {
+        return .{ .expr = "(" ++ self.expr ++ " * " ++ other.expr ++ ")" };
+    }
+
+    pub fn div(self: ConstraintExpr, other: ConstraintExpr) ConstraintExpr {
+        return .{ .expr = "(" ++ self.expr ++ " / " ++ other.expr ++ ")" };
+    }
+
+    pub fn mod(self: ConstraintExpr, other: ConstraintExpr) ConstraintExpr {
+        return .{ .expr = "(" ++ self.expr ++ " % " ++ other.expr ++ ")" };
+    }
+
+    pub fn len(self: ConstraintExpr) ConstraintExpr {
+        return .{ .expr = "len(" ++ self.expr ++ ")" };
+    }
+
+    pub fn abs(self: ConstraintExpr) ConstraintExpr {
+        return .{ .expr = "abs(" ++ self.expr ++ ")" };
+    }
+
+    pub fn min(self: ConstraintExpr, other: ConstraintExpr) ConstraintExpr {
+        return .{ .expr = "min(" ++ self.expr ++ ", " ++ other.expr ++ ")" };
+    }
+
+    pub fn max(self: ConstraintExpr, other: ConstraintExpr) ConstraintExpr {
+        return .{ .expr = "max(" ++ self.expr ++ ", " ++ other.expr ++ ")" };
+    }
+
+    pub fn clamp(self: ConstraintExpr, min_value: ConstraintExpr, max_value: ConstraintExpr) ConstraintExpr {
+        return .{ .expr = "clamp(" ++ self.expr ++ ", " ++ min_value.expr ++ ", " ++ max_value.expr ++ ")" };
+    }
+
+    pub fn startsWith(self: ConstraintExpr, comptime needle: []const u8) ConstraintExpr {
+        return .{ .expr = "starts_with(" ++ self.expr ++ ", " ++ quoteLiteral(needle) ++ ")" };
+    }
+
+    pub fn endsWith(self: ConstraintExpr, comptime needle: []const u8) ConstraintExpr {
+        return .{ .expr = "ends_with(" ++ self.expr ++ ", " ++ quoteLiteral(needle) ++ ")" };
+    }
+
+    pub fn contains(self: ConstraintExpr, comptime needle: []const u8) ConstraintExpr {
+        return .{ .expr = "contains(" ++ self.expr ++ ", " ++ quoteLiteral(needle) ++ ")" };
+    }
+
+    pub fn startsWithCi(self: ConstraintExpr, comptime needle: []const u8) ConstraintExpr {
+        return .{ .expr = "starts_with_ci(" ++ self.expr ++ ", " ++ quoteLiteral(needle) ++ ")" };
+    }
+
+    pub fn endsWithCi(self: ConstraintExpr, comptime needle: []const u8) ConstraintExpr {
+        return .{ .expr = "ends_with_ci(" ++ self.expr ++ ", " ++ quoteLiteral(needle) ++ ")" };
+    }
+
+    pub fn containsCi(self: ConstraintExpr, comptime needle: []const u8) ConstraintExpr {
+        return .{ .expr = "contains_ci(" ++ self.expr ++ ", " ++ quoteLiteral(needle) ++ ")" };
+    }
+
+    pub fn isEmpty(self: ConstraintExpr) ConstraintExpr {
+        return .{ .expr = "is_empty(" ++ self.expr ++ ")" };
+    }
 };
 
 /// Define a constraint expression.
@@ -47,6 +151,36 @@ pub fn constraint(comptime expr: []const u8) ConstraintExpr {
     }
     return .{ .expr = expr };
 }
+
+fn quoteLiteral(comptime value: []const u8) []const u8 {
+    comptime {
+        for (value) |ch| {
+            if (ch == '"' or ch == '\\') {
+                @compileError("constraint string literal does not support quotes or escapes");
+            }
+        }
+    }
+    return "\"" ++ value ++ "\"";
+}
+
+/// Typed constraint expression builder.
+pub const constraint_typed = struct {
+    pub fn field(comptime name: []const u8) ConstraintExpr {
+        return .{ .expr = name };
+    }
+
+    pub fn int_(comptime value: anytype) ConstraintExpr {
+        return .{ .expr = std.fmt.comptimePrint("{d}", .{value}) };
+    }
+
+    pub fn bool_(comptime value: bool) ConstraintExpr {
+        return .{ .expr = if (value) "true" else "false" };
+    }
+
+    pub fn bytes(comptime value: []const u8) ConstraintExpr {
+        return .{ .expr = quoteLiteral(value) };
+    }
+};
 
 const ValueKind = enum {
     pubkey,
@@ -1568,4 +1702,23 @@ test "constraint expressions support arithmetic and helpers" {
     try std.testing.expectError(error.ConstraintRaw, validateConstraintExpr("a.value / 0 == 1", "a", accounts));
     try std.testing.expectError(error.ConstraintRaw, validateConstraintExpr("starts_with(a.label, \"zz\")", "a", accounts));
     try std.testing.expectError(error.ConstraintRaw, validateConstraintExpr("starts_with_ci(a.label, \"ZZ\")", "a", accounts));
+}
+
+test "constraint typed builder emits valid expressions" {
+    const c = constraint_typed;
+    const Accounts = struct {
+        label: []const u8,
+        count: i128,
+    };
+
+    const accounts = Accounts{
+        .label = "ctr",
+        .count = 2,
+    };
+
+    const expr = c.field("label")
+        .startsWith("ct")
+        .and_(c.field("count").add(c.int_(1)).eq(c.int_(3)));
+
+    try validateConstraintExpr(expr.expr, "label", accounts);
 }

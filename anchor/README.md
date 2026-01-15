@@ -465,6 +465,13 @@ const remaining = [_]*const sol.account.Account.Info{ ctx.accounts.extra.toAccou
 try ctx.invokeWithRemainingReset("transfer", .{ .amount = 1 }, remaining[0..]);
 ```
 
+When you need explicit signer seeds for a single call, use the signed reset helper.
+
+```zig
+const signer_seeds = &.{ &.{ "seed" } };
+try ctx.invokeWithRemainingResetSigned("transfer", .{ .amount = 1 }, remaining[0..], signer_seeds);
+```
+
 ## Constraint Expressions
 
 Constraint expressions support arithmetic, comparisons, and string helpers.
@@ -487,6 +494,18 @@ Case-insensitive helpers operate on ASCII bytes only.
 const Counter = anchor.Account(CounterData, .{
     .discriminator = anchor.accountDiscriminator("Counter"),
     .constraint = anchor.constraint("starts_with_ci(counter.label, \"CTR\")"),
+});
+```
+
+Typed constraint builder:
+
+```zig
+const c = anchor.constraint_typed;
+const Counter = anchor.Account(CounterData, .{
+    .discriminator = anchor.accountDiscriminator("Counter"),
+    .constraint = c.field("label").startsWith("ctr").and_(
+        c.field("count").add(c.int_(1)).eq(c.int_(3)),
+    ),
 });
 ```
 

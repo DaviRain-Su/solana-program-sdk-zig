@@ -126,6 +126,41 @@ pub fn derivePda(
     };
 }
 
+/// Validate PDA using runtime-resolved seeds (slice-based)
+///
+/// Use this when seeds are resolved at runtime (e.g., seedAccount, seedField).
+/// Unlike `validatePda`, this function accepts a slice of seed byte slices.
+///
+/// Example:
+/// ```zig
+/// var seed_buffer = SeedBuffer{};
+/// try seeds_mod.appendSeed(&seed_buffer, "counter");
+/// try seeds_mod.appendSeed(&seed_buffer, &authority_key.bytes);
+///
+/// const bump = try validatePdaRuntime(
+///     counter_account.key(),
+///     seed_buffer.asSlice(),
+///     program_id,
+/// );
+/// ```
+pub fn validatePdaRuntime(
+    account_key: *const PublicKey,
+    seeds: []const []const u8,
+    program_id: *const PublicKey,
+) PdaError!u8 {
+    // Use SDK's slice-based findProgramAddress
+    const pda = PublicKey.findProgramAddressSlice(seeds, program_id.*) catch {
+        return PdaError.DerivationFailed;
+    };
+
+    // Compare addresses
+    if (!account_key.equals(pda.address)) {
+        return PdaError.InvalidPda;
+    }
+
+    return pda.bump_seed[0];
+}
+
 /// Create a PDA address with known bump (no search)
 ///
 /// Use this when you already know the bump seed to avoid
@@ -249,6 +284,63 @@ test "validatePda with multiple seeds" {
 
     // Validate it
     const bump = try validatePda(&pda.address, .{ "user_data", &user.bytes }, &program_id);
+
+    try std.testing.expectEqual(pda.bump_seed[0], bump);
+}
+
+test "validatePdaRuntime succeeds for valid PDA" {
+    const program_id = comptime PublicKey.comptimeFromBase58("BPFLoaderUpgradeab1e11111111111111111111111");
+
+    // Derive PDA using comptime seeds
+    const pda = try derivePda(.{"runtime_test"}, &program_id);
+
+    // Validate using runtime slice
+    const runtime_seeds: []const []const u8 = &.{"runtime_test"};
+    const bump = try validatePdaRuntime(&pda.address, runtime_seeds, &program_id);
+
+    try std.testing.expectEqual(pda.bump_seed[0], bump);
+}
+
+test "validatePdaRuntime with multiple seeds" {
+    const program_id = comptime PublicKey.comptimeFromBase58("BPFLoaderUpgradeab1e11111111111111111111111");
+    const authority = comptime PublicKey.comptimeFromBase58("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+
+    // Derive PDA
+    const pda = try derivePda(.{ "counter", &authority.bytes }, &program_id);
+
+    // Validate using runtime slice (simulating seedAccount resolution)
+    const runtime_seeds: []const []const u8 = &.{ "counter", &authority.bytes };
+    const bump = try validatePdaRuntime(&pda.address, runtime_seeds, &program_id);
+
+    try std.testing.expectEqual(pda.bump_seed[0], bump);
+}
+
+test "validatePdaRuntime fails for wrong address" {
+    const program_id = comptime PublicKey.comptimeFromBase58("BPFLoaderUpgradeab1e11111111111111111111111");
+
+    // Use a random address that's not the PDA
+    var wrong_address = PublicKey.default();
+    wrong_address.bytes[0] = 0xFF;
+
+    const runtime_seeds: []const []const u8 = &.{"test_seed"};
+    const result = validatePdaRuntime(&wrong_address, runtime_seeds, &program_id);
+    try std.testing.expectError(PdaError.InvalidPda, result);
+}
+
+test "validatePdaRuntime with SeedBuffer" {
+    const program_id = comptime PublicKey.comptimeFromBase58("BPFLoaderUpgradeab1e11111111111111111111111");
+    const user = comptime PublicKey.comptimeFromBase58("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+
+    // Derive PDA using comptime
+    const pda = try derivePda(.{ "user_data", &user.bytes }, &program_id);
+
+    // Build seeds using SeedBuffer (simulating runtime resolution)
+    var buffer = SeedBuffer{};
+    try seeds_mod.appendSeed(&buffer, "user_data");
+    try seeds_mod.appendSeed(&buffer, &user.bytes);
+
+    // Validate using buffer's slice
+    const bump = try validatePdaRuntime(&pda.address, buffer.asSlice(), &program_id);
 
     try std.testing.expectEqual(pda.bump_seed[0], bump);
 }

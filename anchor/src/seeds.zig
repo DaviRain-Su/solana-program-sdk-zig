@@ -244,6 +244,123 @@ pub fn fieldNameHash(comptime name: []const u8) u64 {
     }
 }
 
+/// Append a seed to a SeedBuffer
+pub fn appendSeed(buffer: *SeedBuffer, seed_data: []const u8) SeedError!void {
+    if (buffer.len >= MAX_SEEDS) {
+        return SeedError.TooManySeeds;
+    }
+    if (seed_data.len > MAX_SEED_LEN) {
+        return SeedError.SeedTooLong;
+    }
+    buffer.seeds[buffer.len] = seed_data;
+    buffer.len += 1;
+}
+
+/// Append a bump seed (single byte) to a SeedBuffer
+pub fn appendBumpSeed(buffer: *SeedBuffer, bump: u8) SeedError!void {
+    if (buffer.len >= MAX_SEEDS) {
+        return SeedError.TooManySeeds;
+    }
+    buffer.backing[buffer.len][0] = bump;
+    buffer.seeds[buffer.len] = buffer.backing[buffer.len][0..1];
+    buffer.len += 1;
+}
+
+/// Check if seed specs contain any account references
+pub fn hasAccountRefs(comptime specs: []const SeedSpec) bool {
+    comptime {
+        for (specs) |spec| {
+            switch (spec) {
+                .account => return true,
+                else => {},
+            }
+        }
+        return false;
+    }
+}
+
+/// Check if seed specs contain any field references
+pub fn hasFieldRefs(comptime specs: []const SeedSpec) bool {
+    comptime {
+        for (specs) |spec| {
+            switch (spec) {
+                .field => return true,
+                else => {},
+            }
+        }
+        return false;
+    }
+}
+
+/// Check if seed specs contain any bump references
+pub fn hasBumpRefs(comptime specs: []const SeedSpec) bool {
+    comptime {
+        for (specs) |spec| {
+            switch (spec) {
+                .bump => return true,
+                else => {},
+            }
+        }
+        return false;
+    }
+}
+
+/// Get all account reference names from seed specs
+pub fn getAccountRefNames(comptime specs: []const SeedSpec) []const []const u8 {
+    comptime {
+        var count: usize = 0;
+        for (specs) |spec| {
+            switch (spec) {
+                .account => count += 1,
+                else => {},
+            }
+        }
+
+        if (count == 0) return &[_][]const u8{};
+
+        var names: [count][]const u8 = undefined;
+        var idx: usize = 0;
+        for (specs) |spec| {
+            switch (spec) {
+                .account => |name| {
+                    names[idx] = name;
+                    idx += 1;
+                },
+                else => {},
+            }
+        }
+        return &names;
+    }
+}
+
+/// Get all field reference names from seed specs
+pub fn getFieldRefNames(comptime specs: []const SeedSpec) []const []const u8 {
+    comptime {
+        var count: usize = 0;
+        for (specs) |spec| {
+            switch (spec) {
+                .field => count += 1,
+                else => {},
+            }
+        }
+
+        if (count == 0) return &[_][]const u8{};
+
+        var names: [count][]const u8 = undefined;
+        var idx: usize = 0;
+        for (specs) |spec| {
+            switch (spec) {
+                .field => |name| {
+                    names[idx] = name;
+                    idx += 1;
+                },
+                else => {},
+            }
+        }
+        return &names;
+    }
+}
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -349,4 +466,87 @@ test "MAX_SEEDS is 16" {
 
 test "MAX_SEED_LEN is 32" {
     try std.testing.expectEqual(@as(usize, 32), MAX_SEED_LEN);
+}
+
+test "appendSeed adds seed to buffer" {
+    var buffer = SeedBuffer{};
+
+    try appendSeed(&buffer, "hello");
+    try appendSeed(&buffer, "world");
+
+    try std.testing.expectEqual(@as(usize, 2), buffer.len);
+    try std.testing.expectEqualStrings("hello", buffer.seeds[0]);
+    try std.testing.expectEqualStrings("world", buffer.seeds[1]);
+}
+
+test "appendBumpSeed adds single byte seed" {
+    var buffer = SeedBuffer{};
+
+    try appendBumpSeed(&buffer, 255);
+
+    try std.testing.expectEqual(@as(usize, 1), buffer.len);
+    try std.testing.expectEqual(@as(usize, 1), buffer.seeds[0].len);
+    try std.testing.expectEqual(@as(u8, 255), buffer.seeds[0][0]);
+}
+
+test "hasAccountRefs detects account references" {
+    comptime {
+        const with_account = &[_]SeedSpec{
+            seed("prefix"),
+            seedAccount("authority"),
+        };
+        std.debug.assert(hasAccountRefs(with_account));
+
+        const without_account = &[_]SeedSpec{
+            seed("prefix"),
+            seedField("owner"),
+        };
+        std.debug.assert(!hasAccountRefs(without_account));
+    }
+}
+
+test "hasFieldRefs detects field references" {
+    comptime {
+        const with_field = &[_]SeedSpec{
+            seed("prefix"),
+            seedField("owner"),
+        };
+        std.debug.assert(hasFieldRefs(with_field));
+
+        const without_field = &[_]SeedSpec{
+            seed("prefix"),
+            seedAccount("authority"),
+        };
+        std.debug.assert(!hasFieldRefs(without_field));
+    }
+}
+
+test "getAccountRefNames returns account names" {
+    comptime {
+        const specs = &[_]SeedSpec{
+            seed("prefix"),
+            seedAccount("authority"),
+            seedAccount("user"),
+            seedField("owner"),
+        };
+        const names = getAccountRefNames(specs);
+        std.debug.assert(names.len == 2);
+        std.debug.assert(std.mem.eql(u8, "authority", names[0]));
+        std.debug.assert(std.mem.eql(u8, "user", names[1]));
+    }
+}
+
+test "getFieldRefNames returns field names" {
+    comptime {
+        const specs = &[_]SeedSpec{
+            seed("prefix"),
+            seedField("owner"),
+            seedAccount("authority"),
+            seedField("mint"),
+        };
+        const names = getFieldRefNames(specs);
+        std.debug.assert(names.len == 2);
+        std.debug.assert(std.mem.eql(u8, "owner", names[0]));
+        std.debug.assert(std.mem.eql(u8, "mint", names[1]));
+    }
 }

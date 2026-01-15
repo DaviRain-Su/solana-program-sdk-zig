@@ -526,6 +526,23 @@ pub const loadAccounts = context.loadAccounts;
 /// Parse full context from program inputs
 pub const parseContext = context.parseContext;
 
+/// Load accounts with dependency resolution for non-literal seeds
+///
+/// This function handles the two-phase loading required when seeds reference
+/// other accounts (via seedAccount) or account data fields (via seedField).
+///
+/// Example:
+/// ```zig
+/// const result = try anchor.loadAccountsWithDependencies(
+///     MyAccounts,
+///     &program_id,
+///     account_infos,
+/// );
+/// const accounts = result.accounts;
+/// const bumps = result.bumps;
+/// ```
+pub const loadAccountsWithDependencies = context.loadAccountsWithDependencies;
+
 /// Context loading errors
 pub const ContextError = context.ContextError;
 
@@ -594,6 +611,12 @@ pub const SeedBuffer = seeds.SeedBuffer;
 /// Seed resolution errors
 pub const SeedError = seeds.SeedError;
 
+/// Append a seed to a SeedBuffer
+pub const appendSeed = seeds.appendSeed;
+
+/// Append a bump seed (single byte) to a SeedBuffer
+pub const appendBumpSeed = seeds.appendBumpSeed;
+
 // ============================================================================
 // Phase 2: PDA Module
 // ============================================================================
@@ -612,6 +635,24 @@ pub const pda = @import("pda.zig");
 /// );
 /// ```
 pub const validatePda = pda.validatePda;
+
+/// Validate PDA using runtime-resolved seeds (slice-based)
+///
+/// Use when seeds are resolved at runtime (e.g., seedAccount, seedField).
+///
+/// Example:
+/// ```zig
+/// var seed_buffer = anchor.SeedBuffer{};
+/// try anchor.appendSeed(&seed_buffer, "counter");
+/// try anchor.appendSeed(&seed_buffer, &authority_key.bytes);
+///
+/// const bump = try anchor.validatePdaRuntime(
+///     counter_account.key(),
+///     seed_buffer.asSlice(),
+///     &program_id,
+/// );
+/// ```
+pub const validatePdaRuntime = pda.validatePdaRuntime;
 
 /// Validate PDA with known bump seed
 pub const validatePdaWithBump = pda.validatePdaWithBump;

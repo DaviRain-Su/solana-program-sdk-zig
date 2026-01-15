@@ -21,6 +21,7 @@
 
 const std = @import("std");
 const seeds_mod = @import("seeds.zig");
+const pda_mod = @import("pda.zig");
 const sol = @import("solana_program_sdk");
 
 // Import from parent SDK
@@ -53,6 +54,28 @@ fn validateSeedAccountRef(comptime Accounts: type, seed: SeedSpec) void {
         .account => |name| expectAccountField(Accounts, name),
         .bump => |name| expectAccountField(Accounts, name),
         else => {},
+    }
+}
+
+/// Validate seedField references against account DataType
+fn validateSeedFieldRef(comptime DataType: type, comptime field_name: []const u8) void {
+    if (!@hasField(DataType, field_name)) {
+        @compileError("seedField references unknown data field: " ++ field_name ++ " in " ++ @typeName(DataType));
+    }
+
+    // Verify the field type is valid for seeds (PublicKey or byte array)
+    const field_type = @TypeOf(@field(@as(DataType, undefined), field_name));
+    const is_valid_type = comptime blk: {
+        if (field_type == PublicKey) break :blk true;
+        const info = @typeInfo(field_type);
+        if (info == .array) {
+            if (info.array.child == u8) break :blk true;
+        }
+        break :blk false;
+    };
+
+    if (!is_valid_type) {
+        @compileError("seedField '" ++ field_name ++ "' must be PublicKey or [N]u8, found " ++ @typeName(field_type));
     }
 }
 
@@ -93,6 +116,15 @@ fn validateAccountRefs(comptime Accounts: type) void {
         if (FieldType.SEEDS) |seeds| {
             inline for (seeds) |seed| {
                 validateSeedAccountRef(Accounts, seed);
+                // Validate seedField references against account DataType
+                switch (seed) {
+                    .field => |field_name| {
+                        if (@hasDecl(FieldType, "DataType")) {
+                            validateSeedFieldRef(FieldType.DataType, field_name);
+                        }
+                    },
+                    else => {},
+                }
             }
         }
         if (FieldType.SEEDS_PROGRAM) |seed| {
@@ -460,6 +492,176 @@ pub fn loadAccountsWithPda(
         } else {
             // For raw AccountInfo pointers
             @field(accounts, field.name) = info;
+        }
+    }
+
+    try validateDuplicateMutableAccounts(Accounts, &accounts);
+
+    // Phase 3: Validate constraints after all accounts are loaded
+    try validatePhase3Constraints(Accounts, &accounts);
+
+    return .{ .accounts = accounts, .bumps = bumps };
+}
+
+/// Load accounts with automatic PDA seed resolution for all seed types
+///
+/// Unlike `loadAccountsWithPda` which only handles literal-only seeds,
+/// this function automatically resolves seedAccount and seedField references
+/// by first loading all accounts, then resolving seeds and validating PDAs.
+///
+/// Seed resolution order:
+/// 1. Load all accounts (without PDA validation)
+/// 2. For each account with seeds:
+///    - Resolve literal seeds directly
+///    - Resolve seedAccount by getting the referenced account's public key
+///    - Resolve seedField by reading the field from the account's data
+///    - Resolve seedBump from previously validated PDAs
+/// 3. Validate PDA addresses and store bumps
+/// 4. Run Phase 3 constraint validation
+///
+/// Note: seedField resolution requires the referenced data to already be deserialized,
+/// which means the account must be loaded before the field can be accessed.
+///
+/// Example:
+/// ```zig
+/// const result = try loadAccountsWithDependencies(MyAccounts, &program_id, account_infos);
+/// const accounts = result.accounts;
+/// const bumps = result.bumps;
+/// ```
+pub fn loadAccountsWithDependencies(
+    comptime Accounts: type,
+    program_id: *const PublicKey,
+    infos: []const AccountInfo,
+) !struct { accounts: Accounts, bumps: Bumps } {
+    const fields = @typeInfo(Accounts).@"struct".fields;
+
+    if (infos.len < fields.len) {
+        return error.AccountNotEnoughAccountKeys;
+    }
+
+    // Phase 1: Load all accounts without PDA validation
+    var accounts: Accounts = undefined;
+
+    inline for (fields, 0..) |field, i| {
+        const FieldType = field.type;
+        const info = &infos[i];
+
+        if (@hasDecl(FieldType, "load")) {
+            @field(accounts, field.name) = try FieldType.load(info);
+        } else {
+            @field(accounts, field.name) = info;
+        }
+    }
+
+    // Phase 2: Resolve seeds and validate PDAs
+    var bumps = Bumps{};
+
+    inline for (fields, 0..) |field, i| {
+        const FieldType = field.type;
+        const info = &infos[i];
+
+        // Skip if no PDA seeds
+        if (!@hasDecl(FieldType, "HAS_SEEDS") or !FieldType.HAS_SEEDS) continue;
+        if (!@hasDecl(FieldType, "SEEDS")) continue;
+
+        const seed_specs = FieldType.SEEDS orelse continue;
+
+        // If all seeds are literals, we can resolve at comptime
+        if (seeds_mod.areAllLiteralSeeds(seed_specs)) {
+            const resolved_seeds = seeds_mod.resolveComptimeSeeds(seed_specs);
+
+            if (@hasDecl(FieldType, "loadWithPda")) {
+                const result = try FieldType.loadWithPda(info, resolved_seeds, program_id);
+                @field(accounts, field.name) = result.account;
+                bumps.set(field.name, result.bump);
+            }
+        } else {
+            // Runtime seed resolution required
+            var seed_buffer = seeds_mod.SeedBuffer{};
+
+            inline for (seed_specs) |spec| {
+                switch (spec) {
+                    .literal => |lit| {
+                        try seeds_mod.appendSeed(&seed_buffer, lit);
+                    },
+                    .account => |account_name| {
+                        // Get public key from referenced account
+                        const ref_account = @field(accounts, account_name);
+                        const RefType = @TypeOf(ref_account);
+
+                        // Check if it's an Account wrapper with key() method
+                        if (@hasDecl(RefType, "key")) {
+                            const key_ptr = ref_account.key();
+                            try seeds_mod.appendSeed(&seed_buffer, &key_ptr.*.bytes);
+                        } else {
+                            // Handle AccountInfo or *AccountInfo
+                            const ActualType = if (@typeInfo(RefType) == .pointer)
+                                @typeInfo(RefType).pointer.child
+                            else
+                                RefType;
+
+                            if (@hasField(ActualType, "id")) {
+                                // AccountInfo has id field (which is *PublicKey)
+                                const info_ptr = if (@typeInfo(RefType) == .pointer)
+                                    ref_account
+                                else
+                                    &ref_account;
+                                try seeds_mod.appendSeed(&seed_buffer, &info_ptr.id.*.bytes);
+                            } else {
+                                return error.AccountNotFound;
+                            }
+                        }
+                    },
+                    .field => |field_name| {
+                        // Get field value from account data
+                        const account = @field(accounts, field.name);
+                        if (@hasDecl(@TypeOf(account), "data")) {
+                            const data = account.data;
+                            const DataType = @TypeOf(data);
+                            const ActualDataType = if (@typeInfo(DataType) == .pointer)
+                                @typeInfo(DataType).pointer.child
+                            else
+                                DataType;
+
+                            if (@hasField(ActualDataType, field_name)) {
+                                const data_ptr = if (@typeInfo(DataType) == .pointer) &data.* else &data;
+                                const field_ptr = &@field(data_ptr.*, field_name);
+                                const SeedFieldType = @TypeOf(field_ptr.*);
+
+                                if (SeedFieldType == PublicKey) {
+                                    try seeds_mod.appendSeed(&seed_buffer, &field_ptr.*.bytes);
+                                } else {
+                                    const seed_field_info = @typeInfo(SeedFieldType);
+                                    if (seed_field_info == .array and seed_field_info.array.child == u8) {
+                                        try seeds_mod.appendSeed(&seed_buffer, field_ptr.*);
+                                    } else {
+                                        return error.FieldNotFound;
+                                    }
+                                }
+                            } else {
+                                return error.FieldNotFound;
+                            }
+                        } else {
+                            return error.FieldNotFound;
+                        }
+                    },
+                    .bump => |bump_name| {
+                        // Get bump from previously validated PDA
+                        const bump_value = bumps.get(bump_name) orelse return error.BumpNotFound;
+                        try seeds_mod.appendBumpSeed(&seed_buffer, bump_value);
+                    },
+                }
+            }
+
+            // Validate PDA with resolved seeds using pda module
+            const bump_value = pda_mod.validatePdaRuntime(
+                info.id,
+                seed_buffer.asSlice(),
+                program_id,
+            ) catch {
+                return error.ConstraintSeeds;
+            };
+            bumps.set(field.name, bump_value);
         }
     }
 

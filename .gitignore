@@ -1,6 +1,7 @@
 .vscode/
 .direnv/
 .envrc
+.claude/
 
 solana-zig/
 zig-cache/

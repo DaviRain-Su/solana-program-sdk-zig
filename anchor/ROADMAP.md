@@ -1,5 +1,10 @@
 # sol-anchor-zig Roadmap
 
+## ✅ v3.2.67 - Transfer Checked Sugar
+
+- [x] Add `transferCheckedWithMint` helper for token CPI
+- [x] Update docs
+
 ## ✅ v3.2.66 - ATA Init/Payer Semantics
 
 - [x] Add associated token CPI helpers

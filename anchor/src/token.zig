@@ -93,6 +93,40 @@ fn resolveAccountInfo(comptime field_name: []const u8, accounts: anytype) *const
     @compileError("account field must be AccountInfo or type with toAccountInfo(): " ++ field_name);
 }
 
+fn toAccountInfo(value: anytype) *const AccountInfo {
+    const TargetType = @TypeOf(value);
+    if (TargetType == AccountInfo) {
+        @compileError("AccountInfo values are not supported; pass a pointer");
+    }
+    if (@typeInfo(TargetType) == .pointer) {
+        const ChildType = @typeInfo(TargetType).pointer.child;
+        if (ChildType == AccountInfo) {
+            return value;
+        }
+        if (@hasDecl(ChildType, "toAccountInfo")) {
+            return value.toAccountInfo();
+        }
+    }
+    if (@hasDecl(TargetType, "toAccountInfo")) {
+        return value.toAccountInfo();
+    }
+    @compileError("value must be AccountInfo pointer or type with toAccountInfo()");
+}
+
+fn mintDecimals(value: anytype) u8 {
+    const TargetType = @TypeOf(value);
+    if (@hasField(TargetType, "data")) {
+        return value.data.decimals;
+    }
+    if (@typeInfo(TargetType) == .pointer) {
+        const ChildType = @typeInfo(TargetType).pointer.child;
+        if (@hasField(ChildType, "data")) {
+            return value.*.data.decimals;
+        }
+    }
+    @compileError("mint account must expose data.decimals");
+}
+
 // ============================================================================
 // TokenAccount Wrapper
 // ============================================================================
@@ -550,6 +584,28 @@ pub fn transferChecked(
     });
     const infos = [_]AccountInfo{ source.*, mint.*, destination.*, authority.* };
     return invokeInstruction(&ix, infos[0..], null);
+}
+
+/// Invoke SPL Token transferChecked using mint wrapper decimals.
+pub fn transferCheckedWithMint(
+    token_program: *const AccountInfo,
+    source: *const AccountInfo,
+    mint_account: anytype,
+    destination: *const AccountInfo,
+    authority: *const AccountInfo,
+    amount: u64,
+) ?TokenCpiError {
+    const mint_info = toAccountInfo(mint_account);
+    const decimals = mintDecimals(mint_account);
+    return transferChecked(
+        token_program,
+        source,
+        mint_info,
+        destination,
+        authority,
+        amount,
+        decimals,
+    );
 }
 
 /// Invoke SPL Token mintTo.

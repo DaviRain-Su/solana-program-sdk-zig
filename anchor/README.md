@@ -303,6 +303,30 @@ fn send(ctx: anchor.Context(TransferAccounts), amount: u64) !void {
 }
 ```
 
+When the mint is already loaded, use `transferCheckedWithMint` to avoid
+passing decimals explicitly.
+
+```zig
+const token = anchor.token;
+
+fn sendChecked(ctx: anchor.Context(TransferAccounts), amount: u64) !void {
+    if (token.transferCheckedWithMint(
+        ctx.accounts.token_program.toAccountInfo(),
+        ctx.accounts.source.toAccountInfo(),
+        ctx.accounts.mint,
+        ctx.accounts.destination.toAccountInfo(),
+        ctx.accounts.authority.toAccountInfo(),
+        amount,
+    )) |err| switch (err) {
+        .InvokeFailed => return error.InvokeFailed,
+        .InvokeFailedWithCode => |code| {
+            _ = code;
+            return error.InvokeFailed;
+        },
+    };
+}
+```
+
 For ATA init/payer semantics, use the ATA marker with `if_needed` (idempotent)
 and include the associated token program and system program accounts.
 

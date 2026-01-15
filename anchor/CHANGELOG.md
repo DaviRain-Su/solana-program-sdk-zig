@@ -2,6 +2,18 @@
 
 All notable changes to sol-anchor-zig will be documented in this file.
 
+### Session 2026-01-15-017
+
+**Date**: 2026-01-15
+**Goal**: Add transferChecked DSL sugar
+
+#### Completed Work
+1. Added `transferCheckedWithMint` helper
+2. Updated docs
+
+#### Test Results
+- `./solana-zig/zig build test --summary all`
+
 ### Session 2026-01-15-016
 
 **Date**: 2026-01-15

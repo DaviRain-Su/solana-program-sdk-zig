@@ -18,6 +18,22 @@ pub fn SysvarId(comptime sysvar_id: PublicKey) type {
 pub const Instructions = SysvarId(sol.INSTRUCTIONS_ID);
 pub const StakeHistory = SysvarId(sol.STAKE_HISTORY_ID);
 
+pub const ClockData = SysvarData(sol.clock.Clock);
+pub const RentData = SysvarData(sol.rent.Rent.Data);
+pub const EpochScheduleData = SysvarData(sol.epoch_schedule.EpochSchedule);
+pub const SlotHashesData = SysvarData(sol.slot_hashes.SlotHashes);
+pub const SlotHistoryData = SysvarData(sol.slot_history.SlotHistory);
+pub const EpochRewardsData = SysvarData(sol.epoch_rewards.EpochRewards);
+pub const LastRestartSlotData = SysvarData(sol.last_restart_slot.LastRestartSlot);
+
+pub const ClockSysvar = SysvarId(sol.sysvar_id.CLOCK);
+pub const RentSysvar = SysvarId(sol.sysvar_id.RENT);
+pub const EpochScheduleSysvar = SysvarId(sol.sysvar_id.EPOCH_SCHEDULE);
+pub const SlotHashesSysvar = SysvarId(sol.sysvar_id.SLOT_HASHES);
+pub const SlotHistorySysvar = SysvarId(sol.sysvar_id.SLOT_HISTORY);
+pub const EpochRewardsSysvar = SysvarId(sol.sysvar_id.EPOCH_REWARDS);
+pub const LastRestartSlotSysvar = SysvarId(sol.sysvar_id.LAST_RESTART_SLOT);
+
 /// Sysvar account wrapper with address validation.
 pub fn Sysvar(comptime SysvarType: type) type {
     if (!@hasDecl(SysvarType, "id")) {

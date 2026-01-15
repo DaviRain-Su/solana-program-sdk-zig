@@ -2,6 +2,19 @@
 
 All notable changes to sol-anchor-zig will be documented in this file.
 
+### Session 2026-01-15-018
+
+**Date**: 2026-01-15
+**Goal**: Add sysvar data aliases
+
+#### Completed Work
+1. Added pre-defined SysvarData aliases (Clock/Rent/EpochSchedule/etc.)
+2. Added sysvar id-only wrappers
+3. Updated docs and examples
+
+#### Test Results
+- `./solana-zig/zig build test --summary all`
+
 ### Session 2026-01-15-017
 
 **Date**: 2026-01-15

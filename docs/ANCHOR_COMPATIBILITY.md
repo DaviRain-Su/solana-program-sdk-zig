@@ -31,6 +31,7 @@ const sol = anchor.sdk;
 - Memo CPI helpers (`anchor.memo`)
 - Stake CPI helpers and StakeAccount wrapper (`anchor.stake`, `anchor.StakeAccount`)
 - ATA init/payer semantics via `anchor.typed.ATA` + `anchor.associated_token`
+- Sysvar data wrappers (`ClockData`, `RentData`, `EpochScheduleData`, etc.)
 
 ## Not Implemented Yet
 
@@ -72,7 +73,7 @@ const sol = anchor.sdk;
 | Stake account wrapper | `StakeAccount` | `anchor.StakeAccount(.{})` | ✅ |
 | Stake CPI helpers | `anchor_spl::stake::*` | `anchor.stake.*` | ✅ |
 | ATA init | `associated_token::create` | `anchor.typed.ATA` + `anchor.associated_token` | ✅ |
-| Sysvar parsing | `Sysvar<'info, T>` | `anchor.SysvarData(T)` | ✅ |
+| Sysvar parsing | `Sysvar<'info, T>` | `anchor.SysvarData(T)` / `ClockData` / `RentData` | ✅ |
 
 ## Example
 

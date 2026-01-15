@@ -559,6 +559,24 @@ pub const Sysvar = sysvar_account.Sysvar;
 /// Sysvar account wrapper with data parsing.
 pub const SysvarData = sysvar_account.SysvarData;
 
+/// Sysvar data wrappers
+pub const ClockData = sysvar_account.ClockData;
+pub const RentData = sysvar_account.RentData;
+pub const EpochScheduleData = sysvar_account.EpochScheduleData;
+pub const SlotHashesData = sysvar_account.SlotHashesData;
+pub const SlotHistoryData = sysvar_account.SlotHistoryData;
+pub const EpochRewardsData = sysvar_account.EpochRewardsData;
+pub const LastRestartSlotData = sysvar_account.LastRestartSlotData;
+
+/// Sysvar id-only wrappers
+pub const ClockSysvar = sysvar_account.ClockSysvar;
+pub const RentSysvar = sysvar_account.RentSysvar;
+pub const EpochScheduleSysvar = sysvar_account.EpochScheduleSysvar;
+pub const SlotHashesSysvar = sysvar_account.SlotHashesSysvar;
+pub const SlotHistorySysvar = sysvar_account.SlotHistorySysvar;
+pub const EpochRewardsSysvar = sysvar_account.EpochRewardsSysvar;
+pub const LastRestartSlotSysvar = sysvar_account.LastRestartSlotSysvar;
+
 // ============================================================================
 // Context Module
 // ============================================================================
@@ -947,6 +965,20 @@ test "anchor module exports" {
     _ = Context;
     _ = Sysvar;
     _ = SysvarData;
+    _ = ClockData;
+    _ = RentData;
+    _ = EpochScheduleData;
+    _ = SlotHashesData;
+    _ = SlotHistoryData;
+    _ = EpochRewardsData;
+    _ = LastRestartSlotData;
+    _ = ClockSysvar;
+    _ = RentSysvar;
+    _ = EpochScheduleSysvar;
+    _ = SlotHashesSysvar;
+    _ = SlotHistorySysvar;
+    _ = EpochRewardsSysvar;
+    _ = LastRestartSlotSysvar;
     _ = token;
     _ = associated_token;
     _ = memo;

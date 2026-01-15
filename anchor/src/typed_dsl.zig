@@ -164,27 +164,39 @@ pub fn SysvarAccount(comptime sysvar_id: PublicKey) type {
 
 /// Rent Sysvar marker.
 /// Usage: `.rent = RentSysvar`
-pub const RentSysvar = SysvarAccount(PublicKey.comptimeFromBase58("SysvarRent111111111111111111111111111111111"));
+pub const RentSysvar = SysvarAccount(sol.sysvar_id.RENT);
 
 /// Clock Sysvar marker.
 /// Usage: `.clock = ClockSysvar`
-pub const ClockSysvar = SysvarAccount(PublicKey.comptimeFromBase58("SysvarC1ock11111111111111111111111111111111"));
+pub const ClockSysvar = SysvarAccount(sol.sysvar_id.CLOCK);
 
 /// Epoch Schedule Sysvar marker.
 /// Usage: `.epoch_schedule = EpochScheduleSysvar`
-pub const EpochScheduleSysvar = SysvarAccount(PublicKey.comptimeFromBase58("SysvarEpochScheworLNPkL1MWVrwsLE4D8F2auJV1"));
+pub const EpochScheduleSysvar = SysvarAccount(sol.sysvar_id.EPOCH_SCHEDULE);
 
 /// Slot Hashes Sysvar marker.
 /// Usage: `.slot_hashes = SlotHashesSysvar`
-pub const SlotHashesSysvar = SysvarAccount(PublicKey.comptimeFromBase58("SysvarS1otHashes111111111111111111111111111"));
+pub const SlotHashesSysvar = SysvarAccount(sol.sysvar_id.SLOT_HASHES);
+
+/// Slot History Sysvar marker.
+/// Usage: `.slot_history = SlotHistorySysvar`
+pub const SlotHistorySysvar = SysvarAccount(sol.sysvar_id.SLOT_HISTORY);
 
 /// Stake History Sysvar marker.
 /// Usage: `.stake_history = StakeHistorySysvar`
-pub const StakeHistorySysvar = SysvarAccount(PublicKey.comptimeFromBase58("SysvarStakeHistory1111111111111111111111111"));
+pub const StakeHistorySysvar = SysvarAccount(sol.sysvar_id.STAKE_HISTORY);
+
+/// Epoch Rewards Sysvar marker.
+/// Usage: `.epoch_rewards = EpochRewardsSysvar`
+pub const EpochRewardsSysvar = SysvarAccount(sol.sysvar_id.EPOCH_REWARDS);
+
+/// Last Restart Slot Sysvar marker.
+/// Usage: `.last_restart_slot = LastRestartSlotSysvar`
+pub const LastRestartSlotSysvar = SysvarAccount(sol.sysvar_id.LAST_RESTART_SLOT);
 
 /// Instructions Sysvar marker.
 /// Usage: `.instructions = InstructionsSysvar`
-pub const InstructionsSysvar = SysvarAccount(sol.instructions_sysvar.ID);
+pub const InstructionsSysvar = SysvarAccount(sol.sysvar_id.INSTRUCTIONS);
 
 // ============================================================================
 // Data Account with Type-Safe Config
@@ -1262,6 +1274,41 @@ test "predefined sysvar markers" {
         &ClockSysvar.ID.toBase58String(),
     );
 
+    // Epoch Schedule Sysvar
+    try std.testing.expect(EpochScheduleSysvar.IS_SYSVAR == true);
+    try std.testing.expectEqualStrings(
+        "SysvarEpochSchedu1e111111111111111111111111",
+        &EpochScheduleSysvar.ID.toBase58String(),
+    );
+
+    // Slot Hashes Sysvar
+    try std.testing.expect(SlotHashesSysvar.IS_SYSVAR == true);
+    try std.testing.expectEqualStrings(
+        "SysvarS1otHashes111111111111111111111111111",
+        &SlotHashesSysvar.ID.toBase58String(),
+    );
+
+    // Slot History Sysvar
+    try std.testing.expect(SlotHistorySysvar.IS_SYSVAR == true);
+    try std.testing.expectEqualStrings(
+        "SysvarS1otHistory11111111111111111111111111",
+        &SlotHistorySysvar.ID.toBase58String(),
+    );
+
+    // Epoch Rewards Sysvar
+    try std.testing.expect(EpochRewardsSysvar.IS_SYSVAR == true);
+    try std.testing.expectEqualStrings(
+        "SysvarEpochRewards1111111111111111111111111",
+        &EpochRewardsSysvar.ID.toBase58String(),
+    );
+
+    // Last Restart Slot Sysvar
+    try std.testing.expect(LastRestartSlotSysvar.IS_SYSVAR == true);
+    try std.testing.expectEqualStrings(
+        "SysvarLastRestartS1ot1111111111111111111111",
+        &LastRestartSlotSysvar.ID.toBase58String(),
+    );
+
     // Instructions Sysvar
     try std.testing.expect(InstructionsSysvar.IS_SYSVAR == true);
     try std.testing.expect(InstructionsSysvar.ID.equals(sol.instructions_sysvar.ID));
@@ -1275,10 +1322,16 @@ test "Accounts with predefined programs" {
         .memo_program = MemoProgram,
         .stake_program = StakeProgram,
         .rent = RentSysvar,
+        .clock = ClockSysvar,
+        .epoch_schedule = EpochScheduleSysvar,
+        .slot_hashes = SlotHashesSysvar,
+        .slot_history = SlotHistorySysvar,
+        .epoch_rewards = EpochRewardsSysvar,
+        .last_restart_slot = LastRestartSlotSysvar,
     });
 
     const fields = @typeInfo(TestAccounts).@"struct".fields;
-    try std.testing.expect(fields.len == 6);
+    try std.testing.expect(fields.len == 12);
 }
 
 test "isEventFieldWrapper" {

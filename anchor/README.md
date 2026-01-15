@@ -365,6 +365,18 @@ fn addMemo(ctx: anchor.Context(Accounts)) !void {
 }
 ```
 
+## Sysvar Data Wrappers
+
+Use `SysvarData` aliases to parse common sysvars directly.
+
+```zig
+const Accounts = struct {
+    clock: anchor.ClockData,
+    rent: anchor.RentData,
+    epoch_schedule: anchor.EpochScheduleData,
+};
+```
+
 ## Stake Wrappers + CPI Helpers
 
 Use `anchor.StakeAccount` to parse stake state and `anchor.stake` CPI helpers

@@ -1,5 +1,10 @@
 # sol-anchor-zig Roadmap
 
+## ✅ v3.2.70 - Constraint Expr Extensions
+
+- [x] Add short-circuit evaluation for logical operators
+- [x] Update tests and docs
+
 ## ✅ v3.2.69 - CPI Context Builder
 
 - [x] Add `CpiContext` and `CpiContextWithConfig`

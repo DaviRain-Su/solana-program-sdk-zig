@@ -2,6 +2,18 @@
 
 All notable changes to sol-anchor-zig will be documented in this file.
 
+### Session 2026-01-15-020
+
+**Date**: 2026-01-15
+**Goal**: Extend constraint expression evaluation
+
+#### Completed Work
+1. Added short-circuit evaluation for logical operators
+2. Added tests for optional access guards
+
+#### Test Results
+- `./solana-zig/zig build test --summary all`
+
 ### Session 2026-01-15-019
 
 **Date**: 2026-01-15

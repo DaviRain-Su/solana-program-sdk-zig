@@ -52,7 +52,7 @@ const sol = anchor.sdk;
 | Client codegen | `anchor client` | `anchor.generateZigClient` | ✅ |
 | IDL file output | `anchor idl --out` | `anchor.idl.writeJsonFile` / `zig build idl` (root or `anchor/`) | ✅ |
 | RPC client wrapper | `AnchorClient` | `ProgramClient` (generated) | ✅ |
-| Constraint expr | `constraint = <expr>` | `anchor.constraint()` | ✅ |
+| Constraint expr | `constraint = <expr>` | `anchor.constraint()` (supports comparisons + logical ops) | ✅ |
 | Constraint runtime | `constraint = <expr>` | Runtime eval (==/!=, key(), field access) | ✅ |
 | Rent exempt | `#[account(rent_exempt)]` | Runtime rent exemption check | ✅ |
 | Zero/Space/Dup constraints | `#[account(zero/space/dup)]` | Zeroed discriminator check, exact space check, duplicate mutable account check | ✅ |

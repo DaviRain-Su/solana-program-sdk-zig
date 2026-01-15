@@ -667,11 +667,17 @@ fn evalExpr(
         .binary => |binary| blk: {
             if (binary.op == .and_op or binary.op == .or_op) {
                 const lhs = evalExpr(expr, binary.lhs, account_name, accounts);
-                const rhs = evalExpr(expr, binary.rhs, account_name, accounts);
                 const l = switch (lhs) {
                     .bool => |value| value,
                     else => return .{ .invalid = {} },
                 };
+                if (binary.op == .and_op and !l) {
+                    break :blk .{ .bool = false };
+                }
+                if (binary.op == .or_op and l) {
+                    break :blk .{ .bool = true };
+                }
+                const rhs = evalExpr(expr, binary.rhs, account_name, accounts);
                 const r = switch (rhs) {
                     .bool => |value| value,
                     else => return .{ .invalid = {} },
@@ -1011,17 +1017,23 @@ test "constraint expressions support comparisons and logic" {
         },
         b: i128,
         flag: bool,
+        maybe: ?struct {
+            value: i128,
+        },
     };
 
     const accounts = Accounts{
         .a = .{ .value = 10, .flag = true },
         .b = 3,
         .flag = true,
+        .maybe = null,
     };
 
     try validateConstraintExpr("a.value > b && flag == true", "a", accounts);
     try validateConstraintExpr("a.value >= b && a.flag == true", "a", accounts);
     try validateConstraintExpr("a.value < 20 || flag == false", "a", accounts);
     try validateConstraintExpr("!(a.value <= b)", "a", accounts);
+    try validateConstraintExpr("flag == true || maybe.value > 0", "a", accounts);
+    try std.testing.expectError(error.ConstraintRaw, validateConstraintExpr("flag == false && maybe.value > 0", "a", accounts));
     try std.testing.expectError(error.ConstraintRaw, validateConstraintExpr("a.value < b", "a", accounts));
 }

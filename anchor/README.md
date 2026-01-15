@@ -431,6 +431,30 @@ const result = try ctx.invoke("transfer", .{ .amount = 1 });
 _ = result;
 ```
 
+Use inline remaining account helpers when you don't want to store them in the context.
+
+```zig
+const remaining = [_]*const sol.account.Account.Info{ ctx.accounts.extra.toAccountInfo() };
+try ctx.invokeWithRemaining("transfer", .{ .amount = 1 }, remaining[0..]);
+```
+
+## Constraint Expressions
+
+Constraint expressions support arithmetic, comparisons, and string helpers.
+
+```zig
+const Counter = anchor.Account(CounterData, .{
+    .discriminator = anchor.accountDiscriminator("Counter"),
+    .constraint = anchor.constraint("counter.value + 1 > 0 && starts_with(counter.label, \"ctr\")"),
+});
+
+const Accounts = anchor.Accounts(struct {
+    authority: anchor.Signer,
+    counter: Counter,
+});
+```
+
+
 ## Stake Wrappers + CPI Helpers
 
 Use `anchor.StakeAccount` to parse stake state and `anchor.stake` CPI helpers

@@ -2,6 +2,19 @@
 
 All notable changes to sol-anchor-zig will be documented in this file.
 
+### Session 2026-01-15-022
+
+**Date**: 2026-01-15
+**Goal**: Extend constraint expressions and CPI builder ergonomics
+
+#### Completed Work
+1. Added arithmetic operators and helper functions to constraint expressions
+2. Added inline remaining helpers to CPI context builder
+3. Updated docs and tests
+
+#### Test Results
+- `./solana-zig/zig build test --summary all`
+
 ### Session 2026-01-15-021
 
 **Date**: 2026-01-15

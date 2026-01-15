@@ -52,6 +52,7 @@ const ValueKind = enum {
     pubkey,
     int,
     bool,
+    bytes,
     invalid,
 };
 
@@ -59,11 +60,13 @@ const Value = union(ValueKind) {
     pubkey: [32]u8,
     int: i128,
     bool: bool,
+    bytes: []const u8,
     invalid: void,
 };
 
 const UnaryOp = enum {
     not,
+    neg,
 };
 
 const BinaryOp = enum {
@@ -73,6 +76,11 @@ const BinaryOp = enum {
     ge,
     lt,
     le,
+    add,
+    sub,
+    mul,
+    div,
+    mod,
     and_op,
     or_op,
 };
@@ -87,6 +95,7 @@ const Operand = union(enum) {
     access: Access,
     int: i128,
     bool: bool,
+    bytes: []const u8,
 };
 
 const UnaryExpr = struct {
@@ -100,10 +109,24 @@ const BinaryExpr = struct {
     rhs: usize,
 };
 
+const CallKind = enum {
+    len,
+    abs,
+    starts_with,
+    ends_with,
+};
+
+const CallExpr = struct {
+    kind: CallKind,
+    args: [2]usize,
+    len: usize,
+};
+
 const Node = union(enum) {
     value: Operand,
     unary: UnaryExpr,
     binary: BinaryExpr,
+    call: CallExpr,
 };
 
 const ParsedExpr = struct {
@@ -206,17 +229,24 @@ const ExprParser = struct {
         return self.len - 1;
     }
 
-    fn parseOperand(self: *ExprParser) Operand {
-        self.skipWs();
-        if (self.peek()) |c| {
-            if (std.ascii.isDigit(c)) {
-                return .{ .int = self.parseInt() };
+    fn parseStringLiteral(self: *ExprParser) []const u8 {
+        self.expectChar('"');
+        const start = self.index;
+        while (self.peek()) |c| {
+            if (c == '"') {
+                const value = self.input[start..self.index];
+                self.index += 1;
+                return value;
             }
+            if (c == '\\') {
+                @compileError("constraint parse error: string escapes not supported");
+            }
+            self.index += 1;
         }
-        const ident = self.parseIdent();
-        if (std.mem.eql(u8, ident, "true")) return .{ .bool = true };
-        if (std.mem.eql(u8, ident, "false")) return .{ .bool = false };
+        @compileError("constraint parse error: unterminated string literal");
+    }
 
+    fn parseAccessFromIdent(self: *ExprParser, ident: []const u8) Operand {
         var parts: [8][]const u8 = undefined;
         var count: usize = 0;
         parts[count] = ident;
@@ -246,6 +276,40 @@ const ExprParser = struct {
         return .{ .access = .{ .parts = parts, .len = count, .use_key = use_key } };
     }
 
+    fn parseCall(self: *ExprParser, ident: []const u8) usize {
+        const kind: CallKind = if (std.mem.eql(u8, ident, "len"))
+            .len
+        else if (std.mem.eql(u8, ident, "abs"))
+            .abs
+        else if (std.mem.eql(u8, ident, "starts_with"))
+            .starts_with
+        else if (std.mem.eql(u8, ident, "ends_with"))
+            .ends_with
+        else
+            @compileError("constraint parse error: unknown function");
+
+        self.skipWs();
+        if (self.consumeChar(')')) {
+            @compileError("constraint parse error: expected function arguments");
+        }
+
+        const first = self.parseUnary();
+        var args: [2]usize = .{ first, 0 };
+        var arg_len: usize = 1;
+
+        self.skipWs();
+        if (kind == .starts_with or kind == .ends_with) {
+            self.expectChar(',');
+            const second = self.parseUnary();
+            args[1] = second;
+            arg_len = 2;
+            self.skipWs();
+        }
+
+        self.expectChar(')');
+        return self.addNode(.{ .call = .{ .kind = kind, .args = args, .len = arg_len } });
+    }
+
     fn parsePrimary(self: *ExprParser) usize {
         self.skipWs();
         if (self.consumeChar('(')) {
@@ -254,7 +318,26 @@ const ExprParser = struct {
             self.expectChar(')');
             return expr;
         }
-        const operand = self.parseOperand();
+        if (self.peek()) |c| {
+            if (c == '"') {
+                const literal = self.parseStringLiteral();
+                return self.addNode(.{ .value = .{ .bytes = literal } });
+            }
+            if (std.ascii.isDigit(c)) {
+                return self.addNode(.{ .value = .{ .int = self.parseInt() } });
+            }
+        }
+
+        const ident = self.parseIdent();
+        if (std.mem.eql(u8, ident, "true")) return self.addNode(.{ .value = .{ .bool = true } });
+        if (std.mem.eql(u8, ident, "false")) return self.addNode(.{ .value = .{ .bool = false } });
+
+        self.skipWs();
+        if (self.consumeChar('(')) {
+            return self.parseCall(ident);
+        }
+
+        const operand = self.parseAccessFromIdent(ident);
         return self.addNode(.{ .value = operand });
     }
 
@@ -264,7 +347,47 @@ const ExprParser = struct {
             const child = self.parseUnary();
             return self.addNode(.{ .unary = .{ .op = .not, .expr = child } });
         }
+        if (self.consumeChar('-')) {
+            const child = self.parseUnary();
+            return self.addNode(.{ .unary = .{ .op = .neg, .expr = child } });
+        }
         return self.parsePrimary();
+    }
+
+    fn parseMul(self: *ExprParser) usize {
+        var left = self.parseUnary();
+        while (true) {
+            self.skipWs();
+            const op: ?BinaryOp = if (self.consumeChar('*'))
+                .mul
+            else if (self.consumeChar('/'))
+                .div
+            else if (self.consumeChar('%'))
+                .mod
+            else
+                null;
+            if (op == null) break;
+            const right = self.parseUnary();
+            left = self.addNode(.{ .binary = .{ .op = op.?, .lhs = left, .rhs = right } });
+        }
+        return left;
+    }
+
+    fn parseAdd(self: *ExprParser) usize {
+        var left = self.parseMul();
+        while (true) {
+            self.skipWs();
+            const op: ?BinaryOp = if (self.consumeChar('+'))
+                .add
+            else if (self.consumeChar('-'))
+                .sub
+            else
+                null;
+            if (op == null) break;
+            const right = self.parseMul();
+            left = self.addNode(.{ .binary = .{ .op = op.?, .lhs = left, .rhs = right } });
+        }
+        return left;
     }
 
     fn parseCompareOp(self: *ExprParser) ?BinaryOp {
@@ -293,10 +416,10 @@ const ExprParser = struct {
     }
 
     fn parseCompare(self: *ExprParser) usize {
-        var left = self.parseUnary();
+        var left = self.parseAdd();
         while (true) {
             const op = self.parseCompareOp() orelse break;
-            const right = self.parseUnary();
+            const right = self.parseAdd();
             left = self.addNode(.{ .binary = .{ .op = op, .lhs = left, .rhs = right } });
         }
         return left;
@@ -366,7 +489,10 @@ fn unwrapOptionalType(comptime T: type) type {
 fn unwrapPointerType(comptime T: type) type {
     const info = @typeInfo(T);
     if (info == .pointer) {
-        return info.pointer.child;
+        if (info.pointer.size == .one) {
+            return info.pointer.child;
+        }
+        return T;
     }
     return T;
 }
@@ -387,6 +513,18 @@ fn isIntType(comptime T: type) bool {
 
 fn isBoolType(comptime T: type) bool {
     return unwrapPointerType(unwrapOptionalType(T)) == bool;
+}
+
+fn isBytesType(comptime T: type) bool {
+    const Clean = unwrapOptionalType(T);
+    const info = @typeInfo(Clean);
+    if (info == .pointer and info.pointer.size == .slice) {
+        return info.pointer.child == u8;
+    }
+    if (info == .array) {
+        return info.array.child == u8 and info.array.len != 32;
+    }
+    return false;
 }
 
 fn accessValueType(
@@ -447,11 +585,13 @@ fn operandKind(
     return switch (operand) {
         .int => .int,
         .bool => .bool,
+        .bytes => .bytes,
         .access => |access| blk: {
             const T = accessValueType(access, account_name, Accounts);
             if (isPubkeyLike(T)) break :blk .pubkey;
             if (isIntType(T)) break :blk .int;
             if (isBoolType(T)) break :blk .bool;
+            if (isBytesType(T)) break :blk .bytes;
             @compileError("constraint access type not supported");
         },
     };
@@ -467,10 +607,20 @@ fn exprKind(
         .value => |operand| operandKind(operand, account_name, Accounts),
         .unary => |unary| blk: {
             const child_kind = exprKind(expr, unary.expr, account_name, Accounts);
-            if (child_kind != .bool) {
-                @compileError("constraint unary operator requires bool");
+            switch (unary.op) {
+                .not => {
+                    if (child_kind != .bool) {
+                        @compileError("constraint unary operator requires bool");
+                    }
+                    break :blk .bool;
+                },
+                .neg => {
+                    if (child_kind != .int) {
+                        @compileError("constraint unary negation requires integer");
+                    }
+                    break :blk .int;
+                },
             }
-            break :blk .bool;
         },
         .binary => |binary| blk: {
             const lhs_kind = exprKind(expr, binary.lhs, account_name, Accounts);
@@ -498,6 +648,38 @@ fn exprKind(
                     }
                     break :blk .bool;
                 },
+                .add, .sub, .mul, .div, .mod => {
+                    if (lhs_kind != .int or rhs_kind != .int) {
+                        @compileError("constraint arithmetic requires integer operands");
+                    }
+                    break :blk .int;
+                },
+            }
+        },
+        .call => |call| blk: {
+            switch (call.kind) {
+                .len => {
+                    const arg_kind = exprKind(expr, call.args[0], account_name, Accounts);
+                    if (arg_kind != .bytes) {
+                        @compileError("constraint len() requires byte slice");
+                    }
+                    break :blk .int;
+                },
+                .abs => {
+                    const arg_kind = exprKind(expr, call.args[0], account_name, Accounts);
+                    if (arg_kind != .int) {
+                        @compileError("constraint abs() requires integer");
+                    }
+                    break :blk .int;
+                },
+                .starts_with, .ends_with => {
+                    const lhs_kind = exprKind(expr, call.args[0], account_name, Accounts);
+                    const rhs_kind = exprKind(expr, call.args[1], account_name, Accounts);
+                    if (lhs_kind != .bytes or rhs_kind != .bytes) {
+                        @compileError("constraint string helper requires byte slices");
+                    }
+                    break :blk .bool;
+                },
             }
         },
     };
@@ -521,7 +703,23 @@ fn valueFromAny(value: anytype) Value {
         return valueFromAny(value.?);
     }
     if (@typeInfo(T) == .pointer) {
-        return valueFromAny(value.*);
+        const info = @typeInfo(T).pointer;
+        if (info.size == .slice) {
+            if (info.child == u8) {
+                return .{ .bytes = value };
+            }
+            @compileError("constraint value type not supported: " ++ @typeName(T));
+        }
+        if (info.size == .one) {
+            if (@typeInfo(info.child) == .array) {
+                const array = @typeInfo(info.child).array;
+                if (array.child == u8 and array.len != 32) {
+                    return .{ .bytes = value.*[0..] };
+                }
+            }
+            return valueFromAny(value.*);
+        }
+        @compileError("constraint value type not supported: " ++ @typeName(T));
     }
 
     if (T == PublicKey) {
@@ -532,12 +730,18 @@ fn valueFromAny(value: anytype) Value {
         if (array.child == u8 and array.len == 32) {
             return .{ .pubkey = value };
         }
+        if (array.child == u8) {
+            @compileError("constraint value type not supported: " ++ @typeName(T));
+        }
     }
     if (@typeInfo(T) == .int) {
         return .{ .int = @intCast(value) };
     }
     if (T == bool) {
         return .{ .bool = value };
+    }
+    if (@typeInfo(T) == .pointer and @typeInfo(T).pointer.size == .slice and @typeInfo(T).pointer.child == u8) {
+        return .{ .bytes = value };
     }
 
     @compileError("constraint value type not supported: " ++ @typeName(T));
@@ -583,21 +787,34 @@ fn resolveAccessValueAt(
         next = next.?;
     }
     if (@typeInfo(@TypeOf(next)) == .pointer) {
-        next = next.*;
+        const ptr_info = @typeInfo(@TypeOf(next)).pointer;
+        if (ptr_info.size == .one) {
+            next = next.*;
+        }
     }
 
     const CleanType = @TypeOf(next);
     if (comptime @hasDecl(CleanType, "DataType")) {
         const DataType = CleanType.DataType;
         if (comptime hasField(DataType, name)) {
-            return resolveAccessValueAt(access, @field(next.data.*, name), index + 1);
+            const field_ptr = &@field(next.data.*, name);
+            const field_type = @TypeOf(field_ptr.*);
+            if (@typeInfo(field_type) == .array and @typeInfo(field_type).array.child == u8 and @typeInfo(field_type).array.len != 32) {
+                return resolveAccessValueAt(access, field_ptr, index + 1);
+            }
+            return resolveAccessValueAt(access, field_ptr.*, index + 1);
         }
     }
     if (comptime std.mem.eql(u8, name, "__owner") and @hasDecl(CleanType, "owner")) {
         return resolveAccessValueAt(access, next.owner(), index + 1);
     }
     if (comptime hasField(CleanType, name)) {
-        return resolveAccessValueAt(access, @field(next, name), index + 1);
+        const field_ptr = &@field(next, name);
+        const field_type = @TypeOf(field_ptr.*);
+        if (@typeInfo(field_type) == .array and @typeInfo(field_type).array.child == u8 and @typeInfo(field_type).array.len != 32) {
+            return resolveAccessValueAt(access, field_ptr, index + 1);
+        }
+        return resolveAccessValueAt(access, field_ptr.*, index + 1);
     }
 
     @compileError("constraint access references unknown field: " ++ name);
@@ -611,6 +828,7 @@ fn evalOperand(
     return switch (operand) {
         .int => |value| .{ .int = value },
         .bool => |value| .{ .bool = value },
+        .bytes => |value| .{ .bytes = value },
         .access => |access| resolveAccessValue(access, account_name, accounts),
     };
 }
@@ -646,6 +864,14 @@ fn compareValues(lhs: Value, op: BinaryOp, rhs: Value) bool {
             },
             else => false,
         },
+        .bytes => |l| switch (rhs) {
+            .bytes => |r| switch (op) {
+                .eq => std.mem.eql(u8, l, r),
+                .ne => !std.mem.eql(u8, l, r),
+                else => false,
+            },
+            else => false,
+        },
     };
 }
 
@@ -659,9 +885,15 @@ fn evalExpr(
         .value => |operand| evalOperand(operand, account_name, accounts),
         .unary => |unary| blk: {
             const value = evalExpr(expr, unary.expr, account_name, accounts);
-            switch (value) {
-                .bool => |b| break :blk .{ .bool = !b },
-                else => return .{ .invalid = {} },
+            switch (unary.op) {
+                .not => switch (value) {
+                    .bool => |b| break :blk .{ .bool = !b },
+                    else => return .{ .invalid = {} },
+                },
+                .neg => switch (value) {
+                    .int => |i| break :blk .{ .int = -i },
+                    else => return .{ .invalid = {} },
+                },
             }
         },
         .binary => |binary| blk: {
@@ -684,9 +916,77 @@ fn evalExpr(
                 };
                 break :blk .{ .bool = if (binary.op == .and_op) (l and r) else (l or r) };
             }
+            if (binary.op == .add or binary.op == .sub or binary.op == .mul or binary.op == .div or binary.op == .mod) {
+                const lhs = evalExpr(expr, binary.lhs, account_name, accounts);
+                const rhs = evalExpr(expr, binary.rhs, account_name, accounts);
+                const l = switch (lhs) {
+                    .int => |value| value,
+                    else => return .{ .invalid = {} },
+                };
+                const r = switch (rhs) {
+                    .int => |value| value,
+                    else => return .{ .invalid = {} },
+                };
+                if ((binary.op == .div or binary.op == .mod) and r == 0) {
+                    return .{ .invalid = {} };
+                }
+                const result = switch (binary.op) {
+                    .add => l + r,
+                    .sub => l - r,
+                    .mul => l * r,
+                    .div => @divTrunc(l, r),
+                    .mod => @mod(l, r),
+                    else => unreachable,
+                };
+                break :blk .{ .int = result };
+            }
             const lhs = evalExpr(expr, binary.lhs, account_name, accounts);
             const rhs = evalExpr(expr, binary.rhs, account_name, accounts);
             return .{ .bool = compareValues(lhs, binary.op, rhs) };
+        },
+        .call => |call| blk: {
+            switch (call.kind) {
+                .len => {
+                    const arg = evalExpr(expr, call.args[0], account_name, accounts);
+                    return switch (arg) {
+                        .bytes => |value| .{ .int = @intCast(value.len) },
+                        else => .{ .invalid = {} },
+                    };
+                },
+                .abs => {
+                    const arg = evalExpr(expr, call.args[0], account_name, accounts);
+                    return switch (arg) {
+                        .int => |value| .{ .int = if (value < 0) -value else value },
+                        else => .{ .invalid = {} },
+                    };
+                },
+                .starts_with => {
+                    const left = evalExpr(expr, call.args[0], account_name, accounts);
+                    const right = evalExpr(expr, call.args[1], account_name, accounts);
+                    const l = switch (left) {
+                        .bytes => |value| value,
+                        else => return .{ .invalid = {} },
+                    };
+                    const r = switch (right) {
+                        .bytes => |value| value,
+                        else => return .{ .invalid = {} },
+                    };
+                    break :blk .{ .bool = std.mem.startsWith(u8, l, r) };
+                },
+                .ends_with => {
+                    const left = evalExpr(expr, call.args[0], account_name, accounts);
+                    const right = evalExpr(expr, call.args[1], account_name, accounts);
+                    const l = switch (left) {
+                        .bytes => |value| value,
+                        else => return .{ .invalid = {} },
+                    };
+                    const r = switch (right) {
+                        .bytes => |value| value,
+                        else => return .{ .invalid = {} },
+                    };
+                    break :blk .{ .bool = std.mem.endsWith(u8, l, r) };
+                },
+            }
         },
     };
 }
@@ -1036,4 +1336,34 @@ test "constraint expressions support comparisons and logic" {
     try validateConstraintExpr("flag == true || maybe.value > 0", "a", accounts);
     try std.testing.expectError(error.ConstraintRaw, validateConstraintExpr("flag == false && maybe.value > 0", "a", accounts));
     try std.testing.expectError(error.ConstraintRaw, validateConstraintExpr("a.value < b", "a", accounts));
+}
+
+test "constraint expressions support arithmetic and helpers" {
+    const Accounts = struct {
+        a: struct {
+            value: i128,
+            name: [5]u8,
+            label: []const u8,
+        },
+        b: i128,
+    };
+
+    const accounts = Accounts{
+        .a = .{
+            .value = 10,
+            .name = .{ 'a', 'l', 'i', 'c', 'e' },
+            .label = "alpha",
+        },
+        .b = 3,
+    };
+
+    try validateConstraintExpr("a.value + b * 2 == 16", "a", accounts);
+    try validateConstraintExpr("abs(-a.value) == 10", "a", accounts);
+    try validateConstraintExpr("a.value % b == 1", "a", accounts);
+    try validateConstraintExpr("len(a.name) == 5", "a", accounts);
+    try validateConstraintExpr("starts_with(a.label, \"al\") == true", "a", accounts);
+    try validateConstraintExpr("ends_with(a.label, \"ha\")", "a", accounts);
+    try validateConstraintExpr("a.label == \"alpha\"", "a", accounts);
+    try std.testing.expectError(error.ConstraintRaw, validateConstraintExpr("a.value / 0 == 1", "a", accounts));
+    try std.testing.expectError(error.ConstraintRaw, validateConstraintExpr("starts_with(a.label, \"zz\")", "a", accounts));
 }

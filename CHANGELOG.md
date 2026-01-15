@@ -2,6 +2,19 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-15-094
+
+**Date**: 2026-01-15
+**Goal**: Anchor constraint helpers and CPI builder ergonomics
+
+#### Completed Work
+1. Added arithmetic operators and helper functions to constraint expressions
+2. Added inline remaining helpers to CPI context builder
+3. Updated docs and tests
+
+#### Test Results
+- `./solana-zig/zig build test --summary all`
+
 ### Session 2026-01-15-093
 
 **Date**: 2026-01-15

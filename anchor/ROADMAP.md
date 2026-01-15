@@ -1,5 +1,11 @@
 # sol-anchor-zig Roadmap
 
+## ✅ v3.2.72 - Constraint Expr Helpers + CPI Context Ergonomics
+
+- [x] Add arithmetic operators and helper functions to constraint expressions
+- [x] Add inline remaining helpers to CPI context builder
+- [x] Update docs and tests
+
 ## ✅ v3.2.71 - Batch Init Helpers
 
 - [x] Add `createAccounts` batch wrapper for system program init

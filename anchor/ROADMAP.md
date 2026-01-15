@@ -13,6 +13,9 @@
 - [x] **Bumps Storage Improvements**: Enhanced PDA bump management
   - Increase `MAX_BUMPS` from 16 to 32 for complex programs
   - Replace simple polynomial hash with FNV-1a 64-bit for better collision resistance
+- [x] **PDA/Seeds Automation**: Runtime seed resolution and validation
+  - Add `loadAccountsWithDependencies` for seedAccount/seedField/seedBump resolution
+  - Validate PDA addresses using runtime seed slices
 
 ## ✅ v3.2.62 - InterfaceProgram Unchecked
 

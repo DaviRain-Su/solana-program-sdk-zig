@@ -234,6 +234,47 @@ const CounterEvent = anchor.Event(struct {
 Indexed event fields must be `bool`, fixed-size integers (`u8/u16/u32/u64/u128/u256` and signed),
 or `sol.PublicKey`. `usize/isize` are rejected to keep IDL stable across targets.
 
+## Event Emission
+
+Events are emitted via `sol_log_data` using Anchor's `[discriminator][borsh]` payload format.
+You can emit events directly or through `Context.emit`.
+
+```zig
+const TransferEvent = anchor.Event(struct {
+    from: sol.PublicKey,
+    to: sol.PublicKey,
+    amount: u64,
+});
+
+fn transfer(ctx: anchor.Context(TransferAccounts), amount: u64) !void {
+    // ... transfer logic ...
+    ctx.emit(TransferEvent, .{
+        .from = ctx.accounts.from.key().*,
+        .to = ctx.accounts.to.key().*,
+        .amount = amount,
+    });
+}
+```
+
+## PDA Seed Dependencies
+
+When seeds reference other accounts or account data fields, use
+`loadAccountsWithDependencies` to resolve runtime seeds and validate PDAs.
+
+```zig
+const result = try anchor.loadAccountsWithDependencies(
+    InitializeAccounts,
+    program_id,
+    accounts,
+);
+const ctx = anchor.Context(InitializeAccounts).new(
+    result.accounts,
+    program_id,
+    &[_]sol.account.Account.Info{},
+    result.bumps,
+);
+```
+
 ## AccountsDerive Auto Inference (Token/Mint/ATA)
 
 AccountsDerive can auto-infer common token/mint/ata constraints when the

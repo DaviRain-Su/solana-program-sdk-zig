@@ -2,6 +2,20 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-15-084
+
+**Date**: 2026-01-15
+**Goal**: Anchor DSL event emission, realloc safety, and PDA seed automation
+
+#### Completed Work
+1. Added event emission helpers and context emit support
+2. Hardened realloc with payer requirement and 10KB growth limit
+3. Added runtime seed resolution + PDA validation helpers
+4. Updated docs, exports, and examples
+
+#### Test Results
+- Not run in this session (user-reported: anchor 195/195, sdk 363/363)
+
 ### Session 2026-01-13-083
 
 **Date**: 2026-01-13

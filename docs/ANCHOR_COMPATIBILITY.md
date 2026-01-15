@@ -55,6 +55,7 @@ const sol = anchor.sdk;
 | Token constraints | `token::mint/authority`, `associated_token::*` | `anchor.attr.tokenMint/tokenAuthority/associatedToken*` | ✅ |
 | Accounts derive | `#[derive(Accounts)]` | `anchor.Accounts(T)` / `anchor.AccountsDerive(T)` | ✅ |
 | Event derive | `#[event]` | `anchor.Event(T)` | ✅ |
+| Event emission | `emit!` / `emit_cpi!` | `anchor.emitEvent` / `Context.emit` | ✅ |
 | Event index | `#[index]` | `anchor.eventField(..., .{ .index = true })` (<=4, bool/fixed-size int/pubkey only) | ✅ |
 | Program entry | `#[program]` dispatch | `anchor.ProgramEntry(Program)` | ✅ |
 | Interface/CPI | `#[interface]` + CPI | `anchor.InterfaceProgram`/`anchor.InterfaceAccount`/`anchor.InterfaceAccountInfo`/`anchor.Interface` | ✅ |

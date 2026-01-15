@@ -2,6 +2,20 @@
 
 All notable changes to sol-anchor-zig will be documented in this file.
 
+### Session 2026-01-15-012
+
+**Date**: 2026-01-15
+**Goal**: Add event emission, realloc safety, and PDA seed automation
+
+#### Completed Work
+1. Added event emission helpers with runtime logging support
+2. Hardened realloc with payer requirement and 10KB growth limit
+3. Added runtime seed resolution with PDA validation helpers
+4. Updated docs, exports, and examples
+
+#### Test Results
+- Not run in this session (user-reported: anchor 195/195, sdk 363/363)
+
 ### Session 2026-01-13-011
 
 **Date**: 2026-01-13

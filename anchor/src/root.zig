@@ -239,56 +239,12 @@ pub const AccountMetaOverride = interface.AccountMetaOverride;
 pub const Interface = interface.Interface;
 
 // ============================================================================
-// Comptime Derives
+// Type-Safe DSL
 // ============================================================================
 
-/// Comptime Accounts validator
-pub const Accounts = @import("dsl.zig").Accounts;
-
-/// Comptime Accounts validator with field attrs config.
-pub const AccountsWith = @import("dsl.zig").AccountsWith;
-/// Comptime Accounts validator with embedded field attrs.
-pub const AccountsDerive = @import("dsl.zig").AccountsDerive;
-/// Typed account field attr marker.
-pub const Attrs = @import("dsl.zig").Attrs;
-/// Typed account field attr helper.
-pub const AttrsWith = @import("dsl.zig").AttrsWith;
-/// Typed account field attr helper with field enum resolution.
-pub const AttrsFor = @import("dsl.zig").AttrsFor;
-/// Typed seed spec for Accounts/Data field enums.
-pub const SeedSpecFor = @import("dsl.zig").SeedSpecFor;
-/// Typed seed spec builder that resolves field enums.
-pub const seedSpecsFor = @import("dsl.zig").seedSpecsFor;
-/// Typed has_one spec for Accounts/Data field enums.
-pub const HasOneSpecFor = @import("dsl.zig").HasOneSpecFor;
-/// Typed associated token config for Accounts field enums.
-pub const AssociatedTokenFor = @import("dsl.zig").AssociatedTokenFor;
-/// Typed token constraint config for Accounts field enums.
-pub const TokenFor = @import("dsl.zig").TokenFor;
-/// Typed mint constraint config for Accounts field enums.
-pub const MintFor = @import("dsl.zig").MintFor;
-/// Typed init/payer/space helper for Accounts field enums.
-pub const InitFor = @import("dsl.zig").InitFor;
-/// Typed close helper for Accounts field enums.
-pub const CloseFor = @import("dsl.zig").CloseFor;
-/// Typed realloc helper for Accounts field enums.
-pub const ReallocFor = @import("dsl.zig").ReallocFor;
-/// Typed owner/address/executable/space helper for Accounts field enums.
-pub const AccessFor = @import("dsl.zig").AccessFor;
-
-/// Comptime Event validator
-pub const Event = @import("dsl.zig").Event;
-
-/// Event field helper
-pub const eventField = @import("dsl.zig").eventField;
-
-// ============================================================================
-// Simplified DSL
-// ============================================================================
-
-/// Type-Safe Simplified DSL with compile-time field validation
+/// Type-Safe DSL for Solana Program Development
 ///
-/// Provides a concise syntax with compile-time type safety using enum literals:
+/// Provides a concise builder-pattern syntax with compile-time type safety:
 ///
 /// ```zig
 /// const dsl = anchor.dsl;
@@ -296,8 +252,8 @@ pub const eventField = @import("dsl.zig").eventField;
 /// const Initialize = dsl.Instr("initialize",
 ///     dsl.Accounts(.{
 ///         .payer = dsl.SignerMut,
-///         .counter = dsl.Init(CounterData, .{ .payer = .payer }),  // type-safe!
-///         .system = dsl.Prog(SystemProgram.id),
+///         .counter = dsl.Init(CounterData, .{ .payer = .payer }),
+///         .system_program = dsl.SystemProgram,
 ///     }),
 ///     struct { initial_value: u64 },
 /// );
@@ -307,10 +263,13 @@ pub const eventField = @import("dsl.zig").eventField;
 /// }
 /// ```
 ///
-/// Key features:
-/// - `.payer = .payer` instead of `.payer = "payer"` - typos caught at compile time
-/// - `Accounts(.{...})` builder transforms markers to real types
-/// - Full validation of field references
+/// Available markers:
+/// - Account types: Signer, SignerMut, Unchecked, SystemAccount
+/// - Data accounts: Data, Init, PDA, Close, Realloc, Opt
+/// - Token accounts: Token, Mint, ATA
+/// - Programs: Prog, SystemProgram, TokenProgram, Token2022Program, etc.
+/// - Sysvars: RentSysvar, ClockSysvar, etc.
+/// - Events: Event, eventField
 pub const dsl = @import("typed_dsl.zig");
 
 // ============================================================================
@@ -836,8 +795,6 @@ test "anchor module exports" {
     _ = AccountField;
     _ = AccountConfig;
     _ = AssociatedTokenConfig;
-    _ = AccountsWith;
-    _ = AccountsDerive;
     _ = Signer;
     _ = SignerMut;
     _ = Program;

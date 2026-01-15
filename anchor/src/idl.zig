@@ -451,8 +451,8 @@ fn eventFieldsJson(
     inline for (fields) |field| {
         var obj = std.json.ObjectMap.init(allocator);
         try putString(allocator, &obj, "name", field.name);
-        const field_type = @import("dsl.zig").unwrapEventField(field.type);
-        const field_config = @import("dsl.zig").eventFieldConfig(field.type);
+        const field_type = @import("typed_dsl.zig").unwrapEventField(field.type);
+        const field_config = @import("typed_dsl.zig").eventFieldConfig(field.type);
         const type_value = try typeToJson(allocator, field_type, type_registry, type_defs);
         try obj.put(try allocator.dupe(u8, "type"), type_value);
         try obj.put(try allocator.dupe(u8, "index"), .{ .bool = field_config.index });
@@ -803,7 +803,7 @@ fn ensureTypeDef(
         var obj = std.json.ObjectMap.init(allocator);
         try putString(allocator, &obj, "name", field.name);
         const FieldType = if (@typeInfo(field.type) == .@"struct")
-            @import("dsl.zig").unwrapEventField(field.type)
+            @import("typed_dsl.zig").unwrapEventField(field.type)
         else
             field.type;
         const value = try typeToJson(allocator, FieldType, registry, type_defs);
@@ -894,7 +894,7 @@ fn structTypeJson(
         var obj = std.json.ObjectMap.init(allocator);
         try putString(allocator, &obj, "name", field.name);
         const FieldType = if (@typeInfo(field.type) == .@"struct")
-            @import("dsl.zig").unwrapEventField(field.type)
+            @import("typed_dsl.zig").unwrapEventField(field.type)
         else
             field.type;
         const value = try typeToJson(allocator, FieldType, type_registry, type_defs);
@@ -1088,7 +1088,7 @@ pub const ExampleProgram = struct {
 
     pub const events = struct {
         pub const CounterEvent = struct {
-            amount: @import("dsl.zig").eventField(u64, .{ .index = true }),
+            amount: @import("typed_dsl.zig").eventField(u64, .{ .index = true }),
             owner: @import("solana_program_sdk").PublicKey,
         };
     };

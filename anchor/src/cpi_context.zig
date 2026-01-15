@@ -255,6 +255,17 @@ pub fn CpiContextWithConfig(
             return try iface.invokeNoArgs(name, self.accounts, remaining);
         }
 
+        /// Clear, append remaining accounts, then invoke without args.
+        pub fn invokeNoArgsWithRemainingReset(
+            self: *Self,
+            comptime name: []const u8,
+            remaining: anytype,
+        ) !sol.ProgramResult {
+            self.resetRemaining();
+            try self.appendRemaining(remaining);
+            return try self.invokeNoArgs(name);
+        }
+
         /// Invoke instruction with args.
         pub fn invoke(self: *const Self, comptime name: []const u8, args: anytype) !sol.ProgramResult {
             var iface = try interface_mod.Interface(Program, config).init(
@@ -282,6 +293,18 @@ pub fn CpiContextWithConfig(
                 return try iface.invokeSigned(name, self.accounts, args, remaining, seeds);
             }
             return try iface.invoke(name, self.accounts, args, remaining);
+        }
+
+        /// Clear, append remaining accounts, then invoke with args.
+        pub fn invokeWithRemainingReset(
+            self: *Self,
+            comptime name: []const u8,
+            args: anytype,
+            remaining: anytype,
+        ) !sol.ProgramResult {
+            self.resetRemaining();
+            try self.appendRemaining(remaining);
+            return try self.invoke(name, args);
         }
     };
 }
@@ -433,6 +456,64 @@ test "CpiContext collects remaining accounts with storage pool" {
 
     var storage: [2]AccountInfo = undefined;
     ctx = ctx.withRemainingStorage(storage[0..]);
+    try ctx.appendRemaining(&[_]*const AccountInfo{ &rem_info });
+    const ix = try ctx.instructionNoArgs("ping");
+    defer ix.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(usize, 2), ix.accounts.len);
+}
+
+test "CpiContext resetRemaining clears collection" {
+    const TestAccounts = struct {
+        payer: *const AccountInfo,
+    };
+
+    const TestProgram = struct {
+        pub const instructions = struct {
+            pub const ping = @import("idl.zig").Instruction(.{
+                .Accounts = TestAccounts,
+                .Args = void,
+            });
+        };
+    };
+
+    var program_id = sol.PublicKey.default();
+    var owner = sol.PublicKey.default();
+    var lamports: u64 = 1;
+    var data: [0]u8 = undefined;
+    const program_info = AccountInfo{
+        .id = &program_id,
+        .owner_id = &owner,
+        .lamports = &lamports,
+        .data_len = 0,
+        .data = &data,
+        .is_signer = 0,
+        .is_writable = 0,
+        .is_executable = 1,
+        .rent_epoch = 0,
+    };
+
+    var rem_id = sol.PublicKey.default();
+    var rem_owner = sol.PublicKey.default();
+    var rem_lamports: u64 = 1;
+    var rem_data: [0]u8 = undefined;
+    const rem_info = AccountInfo{
+        .id = &rem_id,
+        .owner_id = &rem_owner,
+        .lamports = &rem_lamports,
+        .data_len = 0,
+        .data = &rem_data,
+        .is_signer = 0,
+        .is_writable = 0,
+        .is_executable = 0,
+        .rent_epoch = 0,
+    };
+
+    const accounts = TestAccounts{ .payer = &program_info };
+    var ctx = CpiContext(TestProgram, TestAccounts).init(std.testing.allocator, &program_info, accounts);
+    defer ctx.deinit();
+
+    try ctx.appendRemaining(&[_]*const AccountInfo{ &rem_info });
+    ctx.resetRemaining();
     try ctx.appendRemaining(&[_]*const AccountInfo{ &rem_info });
     const ix = try ctx.instructionNoArgs("ping");
     defer ix.deinit(std.testing.allocator);

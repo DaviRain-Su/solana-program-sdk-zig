@@ -115,6 +115,9 @@ const CallKind = enum {
     starts_with,
     ends_with,
     contains,
+    starts_with_ci,
+    ends_with_ci,
+    contains_ci,
     is_empty,
     min,
     max,
@@ -292,6 +295,12 @@ const ExprParser = struct {
             .ends_with
         else if (std.mem.eql(u8, ident, "contains"))
             .contains
+        else if (std.mem.eql(u8, ident, "starts_with_ci"))
+            .starts_with_ci
+        else if (std.mem.eql(u8, ident, "ends_with_ci"))
+            .ends_with_ci
+        else if (std.mem.eql(u8, ident, "contains_ci"))
+            .contains_ci
         else if (std.mem.eql(u8, ident, "is_empty"))
             .is_empty
         else if (std.mem.eql(u8, ident, "min"))
@@ -313,7 +322,7 @@ const ExprParser = struct {
         var arg_len: usize = 1;
 
         self.skipWs();
-        if (kind == .starts_with or kind == .ends_with or kind == .contains or kind == .min or kind == .max or kind == .clamp) {
+        if (kind == .starts_with or kind == .ends_with or kind == .contains or kind == .starts_with_ci or kind == .ends_with_ci or kind == .contains_ci or kind == .min or kind == .max or kind == .clamp) {
             self.expectChar(',');
             const second = self.parseUnary();
             args[1] = second;
@@ -694,7 +703,7 @@ fn exprKind(
                     }
                     break :blk .int;
                 },
-                .starts_with, .ends_with, .contains => {
+                .starts_with, .ends_with, .contains, .starts_with_ci, .ends_with_ci, .contains_ci => {
                     const lhs_kind = exprKind(expr, call.args[0], account_name, Accounts);
                     const rhs_kind = exprKind(expr, call.args[1], account_name, Accounts);
                     if (lhs_kind != .bytes or rhs_kind != .bytes) {
@@ -921,6 +930,40 @@ fn compareValues(lhs: Value, op: BinaryOp, rhs: Value) bool {
     };
 }
 
+fn toLowerAscii(byte: u8) u8 {
+    if (byte >= 'A' and byte <= 'Z') {
+        return byte + 32;
+    }
+    return byte;
+}
+
+fn startsWithCi(haystack: []const u8, needle: []const u8) bool {
+    if (needle.len > haystack.len) return false;
+    for (needle, 0..) |ch, i| {
+        if (toLowerAscii(haystack[i]) != toLowerAscii(ch)) return false;
+    }
+    return true;
+}
+
+fn endsWithCi(haystack: []const u8, needle: []const u8) bool {
+    if (needle.len > haystack.len) return false;
+    const start = haystack.len - needle.len;
+    for (needle, 0..) |ch, i| {
+        if (toLowerAscii(haystack[start + i]) != toLowerAscii(ch)) return false;
+    }
+    return true;
+}
+
+fn containsCi(haystack: []const u8, needle: []const u8) bool {
+    if (needle.len == 0) return true;
+    if (needle.len > haystack.len) return false;
+    var i: usize = 0;
+    while (i + needle.len <= haystack.len) : (i += 1) {
+        if (startsWithCi(haystack[i..], needle)) return true;
+    }
+    return false;
+}
+
 fn evalExpr(
     comptime expr: ParsedExpr,
     comptime index: usize,
@@ -1044,6 +1087,45 @@ fn evalExpr(
                         else => return .{ .invalid = {} },
                     };
                     break :blk .{ .bool = std.mem.indexOf(u8, l, r) != null };
+                },
+                .starts_with_ci => {
+                    const left = evalExpr(expr, call.args[0], account_name, accounts);
+                    const right = evalExpr(expr, call.args[1], account_name, accounts);
+                    const l = switch (left) {
+                        .bytes => |value| value,
+                        else => return .{ .invalid = {} },
+                    };
+                    const r = switch (right) {
+                        .bytes => |value| value,
+                        else => return .{ .invalid = {} },
+                    };
+                    break :blk .{ .bool = startsWithCi(l, r) };
+                },
+                .ends_with_ci => {
+                    const left = evalExpr(expr, call.args[0], account_name, accounts);
+                    const right = evalExpr(expr, call.args[1], account_name, accounts);
+                    const l = switch (left) {
+                        .bytes => |value| value,
+                        else => return .{ .invalid = {} },
+                    };
+                    const r = switch (right) {
+                        .bytes => |value| value,
+                        else => return .{ .invalid = {} },
+                    };
+                    break :blk .{ .bool = endsWithCi(l, r) };
+                },
+                .contains_ci => {
+                    const left = evalExpr(expr, call.args[0], account_name, accounts);
+                    const right = evalExpr(expr, call.args[1], account_name, accounts);
+                    const l = switch (left) {
+                        .bytes => |value| value,
+                        else => return .{ .invalid = {} },
+                    };
+                    const r = switch (right) {
+                        .bytes => |value| value,
+                        else => return .{ .invalid = {} },
+                    };
+                    break :blk .{ .bool = containsCi(l, r) };
                 },
                 .is_empty => {
                     const arg = evalExpr(expr, call.args[0], account_name, accounts);
@@ -1476,10 +1558,14 @@ test "constraint expressions support arithmetic and helpers" {
     try validateConstraintExpr("ends_with(a.label, \"ha\")", "a", accounts);
     try validateConstraintExpr("a.label == \"alpha\"", "a", accounts);
     try validateConstraintExpr("contains(a.label, \"lp\")", "a", accounts);
+    try validateConstraintExpr("starts_with_ci(a.label, \"AL\")", "a", accounts);
+    try validateConstraintExpr("ends_with_ci(a.label, \"HA\")", "a", accounts);
+    try validateConstraintExpr("contains_ci(a.label, \"LP\")", "a", accounts);
     try validateConstraintExpr("is_empty(\"\")", "a", accounts);
     try validateConstraintExpr("min(a.value, b) == 3", "a", accounts);
     try validateConstraintExpr("max(a.value, b) == 10", "a", accounts);
     try validateConstraintExpr("clamp(a.value, 0, 7) == 7", "a", accounts);
     try std.testing.expectError(error.ConstraintRaw, validateConstraintExpr("a.value / 0 == 1", "a", accounts));
     try std.testing.expectError(error.ConstraintRaw, validateConstraintExpr("starts_with(a.label, \"zz\")", "a", accounts));
+    try std.testing.expectError(error.ConstraintRaw, validateConstraintExpr("starts_with_ci(a.label, \"ZZ\")", "a", accounts));
 }

@@ -458,6 +458,13 @@ try ctx.appendRemaining(&[_]*const sol.account.Account.Info{ ctx.accounts.extra.
 try ctx.invoke("transfer", .{ .amount = 1 });
 ```
 
+You can also clear and replace the remaining accounts in one call:
+
+```zig
+const remaining = [_]*const sol.account.Account.Info{ ctx.accounts.extra.toAccountInfo() };
+try ctx.invokeWithRemainingReset("transfer", .{ .amount = 1 }, remaining[0..]);
+```
+
 ## Constraint Expressions
 
 Constraint expressions support arithmetic, comparisons, and string helpers.
@@ -471,6 +478,15 @@ const Counter = anchor.Account(CounterData, .{
 const Accounts = anchor.Accounts(struct {
     authority: anchor.Signer,
     counter: Counter,
+});
+```
+
+Case-insensitive helpers operate on ASCII bytes only.
+
+```zig
+const Counter = anchor.Account(CounterData, .{
+    .discriminator = anchor.accountDiscriminator("Counter"),
+    .constraint = anchor.constraint("starts_with_ci(counter.label, \"CTR\")"),
 });
 ```
 

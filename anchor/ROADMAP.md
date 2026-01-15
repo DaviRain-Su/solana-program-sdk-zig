@@ -1,5 +1,11 @@
 # sol-anchor-zig Roadmap
 
+## ✅ v3.2.74 - Constraint CI Helpers + CPI Remaining Reset
+
+- [x] Add ASCII case-insensitive constraint helpers
+- [x] Add reset + append + invoke helpers for CPI context
+- [x] Update docs and tests
+
 ## ✅ v3.2.73 - Constraint Expr + CPI Context Extensions
 
 - [x] Add constraint helper functions (contains/is_empty/min/max/clamp)

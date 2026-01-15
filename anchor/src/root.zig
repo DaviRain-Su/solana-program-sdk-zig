@@ -286,40 +286,18 @@ pub const eventField = @import("dsl.zig").eventField;
 // Simplified DSL
 // ============================================================================
 
-/// Simplified DSL for reduced boilerplate
+/// Type-Safe Simplified DSL with compile-time field validation
 ///
-/// Provides a more concise syntax for defining accounts and instructions:
-///
-/// ```zig
-/// const simple = anchor.simple;
-///
-/// // Define instruction with inline constraints
-/// const Initialize = simple.Instruction("initialize", struct {
-///     payer: simple.Signer(.{ .mut = true }),
-///     counter: simple.Init(CounterData, .{ .payer = "payer" }),
-///     system_program: simple.Program(SystemProgram.id),
-/// }, struct {
-///     initial_value: u64,
-/// });
-///
-/// pub fn initialize(ctx: Initialize.Context, args: Initialize.Args) !void {
-///     ctx.accounts.counter.data.count = args.initial_value;
-/// }
-/// ```
-pub const simple = @import("simple_dsl.zig");
-
-/// Type-Safe DSL with compile-time field validation
-///
-/// Uses enum literals (.field) instead of strings for type-safe references:
+/// Provides a concise syntax with compile-time type safety using enum literals:
 ///
 /// ```zig
-/// const typed = anchor.typed;
+/// const dsl = anchor.dsl;
 ///
-/// const Initialize = typed.Instr("initialize",
-///     typed.Accounts(.{
-///         .payer = typed.SignerMut,
-///         .counter = typed.Init(CounterData, .{ .payer = .payer }),  // type-safe!
-///         .system = typed.Prog(SystemProgram.id),
+/// const Initialize = dsl.Instr("initialize",
+///     dsl.Accounts(.{
+///         .payer = dsl.SignerMut,
+///         .counter = dsl.Init(CounterData, .{ .payer = .payer }),  // type-safe!
+///         .system = dsl.Prog(SystemProgram.id),
 ///     }),
 ///     struct { initial_value: u64 },
 /// );
@@ -328,7 +306,12 @@ pub const simple = @import("simple_dsl.zig");
 ///     ctx.accounts.counter.data.count = args.initial_value;
 /// }
 /// ```
-pub const typed = @import("typed_dsl.zig");
+///
+/// Key features:
+/// - `.payer = .payer` instead of `.payer = "payer"` - typos caught at compile time
+/// - `Accounts(.{...})` builder transforms markers to real types
+/// - Full validation of field references
+pub const dsl = @import("typed_dsl.zig");
 
 // ============================================================================
 // Constraints Module

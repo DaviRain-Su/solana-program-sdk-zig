@@ -1,6 +1,6 @@
 //! Counter Program using Type-Safe DSL
 //!
-//! This example demonstrates the typed DSL that provides both concise syntax
+//! This example demonstrates the DSL that provides both concise syntax
 //! AND compile-time type safety for field references.
 //!
 //! Key features:
@@ -13,7 +13,7 @@ const sol = @import("solana_program_sdk");
 const anchor = @import("anchor");
 
 // Import the type-safe DSL
-const typed = anchor.typed;
+const dsl = anchor.dsl;
 
 // ============================================================================
 // Program ID
@@ -44,21 +44,21 @@ pub const CounterData = struct {
 ///
 /// Notice: `.payer = .payer` uses enum literal, not string!
 /// If you typo `.payerr`, you get a compile error immediately.
-pub const Initialize = typed.Instr(
+pub const Initialize = dsl.Instr(
     "initialize",
     // Accounts definition with type-safe references
-    typed.Accounts(.{
+    dsl.Accounts(.{
         // Mutable signer who pays
-        .payer = typed.SignerMut,
+        .payer = dsl.SignerMut,
 
         // Initialize counter - .payer references the payer field above
         // If you write .payerr by mistake, compile error!
-        .counter = typed.Init(CounterData, .{
+        .counter = dsl.Init(CounterData, .{
             .payer = .payer, // Type-safe reference!
         }),
 
         // System program for CPI
-        .system_program = typed.Prog(sol.system_program.ID),
+        .system_program = dsl.Prog(sol.system_program.ID),
     }),
     // Instruction arguments
     struct {
@@ -67,11 +67,11 @@ pub const Initialize = typed.Instr(
 );
 
 /// Increment instruction
-pub const Increment = typed.Instr(
+pub const Increment = dsl.Instr(
     "increment",
-    typed.Accounts(.{
-        .authority = typed.Signer,
-        .counter = typed.Data(CounterData, .{ .mut = true }),
+    dsl.Accounts(.{
+        .authority = dsl.Signer,
+        .counter = dsl.Data(CounterData, .{ .mut = true }),
     }),
     struct {
         amount: u64,
@@ -79,11 +79,11 @@ pub const Increment = typed.Instr(
 );
 
 /// Decrement instruction
-pub const Decrement = typed.Instr(
+pub const Decrement = dsl.Instr(
     "decrement",
-    typed.Accounts(.{
-        .authority = typed.Signer,
-        .counter = typed.Data(CounterData, .{ .mut = true }),
+    dsl.Accounts(.{
+        .authority = dsl.Signer,
+        .counter = dsl.Data(CounterData, .{ .mut = true }),
     }),
     struct {
         amount: u64,
@@ -91,12 +91,12 @@ pub const Decrement = typed.Instr(
 );
 
 /// Close instruction with type-safe destination reference
-pub const CloseCounter = typed.Instr(
+pub const CloseCounter = dsl.Instr(
     "close",
-    typed.Accounts(.{
-        .authority = typed.Signer,
+    dsl.Accounts(.{
+        .authority = dsl.Signer,
         // .destination references the authority field - type-safe!
-        .counter = typed.Close(CounterData, .{
+        .counter = dsl.Close(CounterData, .{
             .destination = .authority, // Lamports go to authority
         }),
     }),
@@ -208,7 +208,7 @@ comptime {
 //
 // TYPE-SAFE (typed DSL):
 // ```zig
-// .counter = typed.Init(CounterData, .{ .payer = .payer }),
+// .counter = dsl.Init(CounterData, .{ .payer = .payer }),
 // //                                            ^^^^^^ enum literal - typo = compile error!
 // ```
 //

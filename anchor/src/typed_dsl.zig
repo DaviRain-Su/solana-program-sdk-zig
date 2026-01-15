@@ -407,6 +407,93 @@ pub fn ATA(comptime config: anytype) type {
 }
 
 // ============================================================================
+// Realloc Account - Dynamic Resizing
+// ============================================================================
+
+/// Realloc account marker for dynamic resizing.
+pub fn Realloc(comptime T: type, comptime config: anytype) type {
+    return struct {
+        pub const IS_REALLOC = true;
+        pub const DataType = T;
+        pub const CONFIG = config;
+
+        pub fn AccountType(comptime AccountsType: type) type {
+            const payer_name = if (@hasField(@TypeOf(config), "payer"))
+                resolveFieldRefOpt(config.payer)
+            else
+                null;
+
+            if (payer_name) |name| {
+                if (!@hasField(AccountsType, name)) {
+                    @compileError("payer field '" ++ name ++ "' not found in Accounts");
+                }
+            }
+
+            const disc_name = if (@hasField(@TypeOf(config), "name"))
+                config.name
+            else
+                @typeName(T);
+            const discriminator = discriminator_mod.accountDiscriminator(disc_name);
+
+            const realloc_config = if (payer_name) |name| blk: {
+                break :blk @import("realloc.zig").ReallocConfig{
+                    .payer = name,
+                    .zero_init = if (@hasField(@TypeOf(config), "zero_init")) config.zero_init else false,
+                };
+            } else null;
+
+            return account_mod.Account(T, .{
+                .discriminator = discriminator,
+                .mut = true,
+                .realloc = realloc_config,
+                .space = if (@hasField(@TypeOf(config), "space")) config.space else null,
+            });
+        }
+    };
+}
+
+// ============================================================================
+// Optional Account Wrapper
+// ============================================================================
+
+/// Optional account that may or may not be present.
+///
+/// Usage:
+/// ```zig
+/// .co_signer = Opt(Signer),
+/// .config = Opt(Data(ConfigData, .{})),
+/// ```
+pub fn Opt(comptime MarkerType: type) type {
+    return struct {
+        pub const IS_OPTIONAL = true;
+        pub const InnerType = MarkerType;
+
+        pub fn AccountType(comptime AccountsType: type) type {
+            const InnerAccountType = resolveMarkerType(MarkerType, AccountsType);
+            return ?InnerAccountType;
+        }
+    };
+}
+
+// ============================================================================
+// System Account - Lamport-only Account
+// ============================================================================
+
+/// System-owned account (no data, just lamports).
+pub const SystemAccount = struct {
+    pub const IS_SYSTEM = true;
+    pub const IS_MUT = false;
+    pub const AccountType = *const AccountInfo;
+};
+
+/// Mutable system account.
+pub const SystemAccountMut = struct {
+    pub const IS_SYSTEM = true;
+    pub const IS_MUT = true;
+    pub const AccountType = signer_mod.SignerMut;
+};
+
+// ============================================================================
 // Seed Helpers (Type-Safe)
 // ============================================================================
 
@@ -428,6 +515,68 @@ pub fn seedData(comptime field: []const u8) SeedSpec {
 /// Bump seed marker.
 pub fn seedBump(comptime field: anytype) SeedSpec {
     return .{ .bump = resolveFieldRef(field) };
+}
+
+// ============================================================================
+// Constraint Helpers
+// ============================================================================
+
+/// Build a constraint expression string.
+pub fn constraint(comptime expr: []const u8) []const u8 {
+    return expr;
+}
+
+/// Has-one constraint shorthand (field == field).
+pub fn hasOne(comptime field: anytype) []const u8 {
+    const name = resolveFieldRef(field);
+    return name ++ " == " ++ name;
+}
+
+/// Build has_one constraint list.
+pub fn hasOneList(comptime fields: anytype) []const has_one_mod.HasOneSpec {
+    const fields_arr = if (@TypeOf(fields) == []const []const u8)
+        fields
+    else blk: {
+        // Convert enum literals to strings
+        comptime var names: [fields.len][]const u8 = undefined;
+        inline for (fields, 0..) |f, i| {
+            names[i] = resolveFieldRef(f);
+        }
+        break :blk &names;
+    };
+
+    comptime var specs: [fields_arr.len]has_one_mod.HasOneSpec = undefined;
+    inline for (fields_arr, 0..) |field, i| {
+        specs[i] = .{ .field = field, .target = field };
+    }
+    return specs[0..];
+}
+
+/// Build has_one constraint with different target.
+pub fn hasOneTarget(comptime field: anytype, comptime target: anytype) has_one_mod.HasOneSpec {
+    return .{
+        .field = resolveFieldRef(field),
+        .target = resolveFieldRef(target),
+    };
+}
+
+// ============================================================================
+// Convenience Type Aliases
+// ============================================================================
+
+/// Read-only data account (shorthand).
+pub fn ReadOnly(comptime T: type) type {
+    return Data(T, .{});
+}
+
+/// Mutable data account (shorthand).
+pub fn Mut(comptime T: type) type {
+    return Data(T, .{ .mut = true });
+}
+
+/// Mutable PDA account (shorthand).
+pub fn MutPDA(comptime T: type, comptime seeds: []const SeedSpec) type {
+    return PDA(T, .{ .seeds = seeds, .mut = true });
 }
 
 // ============================================================================
@@ -471,15 +620,23 @@ fn resolveMarkerType(comptime MarkerType: type, comptime AccountsSpec: type) typ
     if (MarkerType == Signer) return signer_mod.Signer;
     if (MarkerType == SignerMut) return signer_mod.SignerMut;
     if (MarkerType == Unchecked) return *const AccountInfo;
+    if (MarkerType == SystemAccount) return *const AccountInfo;
+    if (MarkerType == SystemAccountMut) return signer_mod.SignerMut;
 
     // Program type
     if (@hasDecl(MarkerType, "IS_PROGRAM") and MarkerType.IS_PROGRAM) {
         return MarkerType.AccountType;
     }
 
+    // Optional type
+    if (@hasDecl(MarkerType, "IS_OPTIONAL") and MarkerType.IS_OPTIONAL) {
+        const ActualAccountsType = buildAccountsTypeForValidation(AccountsSpec);
+        return MarkerType.AccountType(ActualAccountsType);
+    }
+
     // Types with AccountType function
     if (@hasDecl(MarkerType, "AccountType")) {
-        // For Data, Init, PDA, Close, Token, Mint, ATA
+        // For Data, Init, PDA, Close, Token, Mint, ATA, Realloc
         // We need to build the actual Accounts type first to validate
         const ActualAccountsType = buildAccountsTypeForValidation(AccountsSpec);
         return MarkerType.AccountType(ActualAccountsType);
@@ -641,4 +798,60 @@ test "Instr definition" {
 
     try std.testing.expectEqualStrings("test", TestInstr.instruction_name);
     try std.testing.expect(TestInstr.Accs == TestAccounts);
+}
+
+test "SystemAccount markers" {
+    try std.testing.expect(SystemAccount.IS_SYSTEM == true);
+    try std.testing.expect(SystemAccount.IS_MUT == false);
+    try std.testing.expect(SystemAccountMut.IS_SYSTEM == true);
+    try std.testing.expect(SystemAccountMut.IS_MUT == true);
+}
+
+test "Opt marker" {
+    const OptSigner = Opt(Signer);
+    try std.testing.expect(OptSigner.IS_OPTIONAL == true);
+}
+
+test "constraint helper" {
+    const expr = constraint("account.owner == authority");
+    try std.testing.expectEqualStrings("account.owner == authority", expr);
+}
+
+test "hasOne helper" {
+    const expr = hasOne(.authority);
+    try std.testing.expectEqualStrings("authority == authority", expr);
+}
+
+test "hasOneTarget helper" {
+    const spec = hasOneTarget(.owner, .authority);
+    try std.testing.expectEqualStrings("owner", spec.field);
+    try std.testing.expectEqualStrings("authority", spec.target);
+}
+
+test "ReadOnly and Mut shortcuts" {
+    const TestData = struct { value: u64 };
+
+    const ROMarker = ReadOnly(TestData);
+    const MutMarker = Mut(TestData);
+
+    try std.testing.expect(ROMarker.IS_DATA == true);
+    try std.testing.expect(MutMarker.IS_DATA == true);
+}
+
+test "Realloc marker" {
+    const TestData = struct { value: u64 };
+    const ReallocMarker = Realloc(TestData, .{ .payer = .payer, .space = 256 });
+
+    try std.testing.expect(ReallocMarker.IS_REALLOC == true);
+    try std.testing.expect(ReallocMarker.DataType == TestData);
+}
+
+test "Accounts with SystemAccount" {
+    const TestAccounts = Accounts(.{
+        .payer = SignerMut,
+        .recipient = SystemAccount,
+    });
+
+    const fields = @typeInfo(TestAccounts).@"struct".fields;
+    try std.testing.expect(fields.len == 2);
 }

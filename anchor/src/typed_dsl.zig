@@ -914,6 +914,37 @@ fn isIndexableEventFieldType(comptime T: type) bool {
     return false;
 }
 
+/// Check if a type is an event field wrapper (created by eventField).
+pub fn isEventFieldWrapper(comptime T: type) bool {
+    return @hasDecl(T, "IS_EVENT_FIELD") and T.IS_EVENT_FIELD;
+}
+
+/// Unwrap an event field type to get the underlying type.
+///
+/// If T is `eventField(u64, .{})`, returns `u64`.
+/// If T is already a plain type, returns T unchanged.
+///
+/// Useful for IDL generation and event serialization.
+pub fn unwrapEventField(comptime T: type) type {
+    if (isEventFieldWrapper(T)) {
+        return T.FieldType;
+    }
+    return T;
+}
+
+/// Get the configuration for an event field.
+///
+/// If T is `eventField(u64, .{ .index = true })`, returns `.{ .index = true }`.
+/// If T is a plain type, returns default config `.{ .index = false }`.
+///
+/// Useful for IDL generation to determine which fields are indexed.
+pub fn eventFieldConfig(comptime T: type) EventField {
+    if (isEventFieldWrapper(T)) {
+        return T.FIELD_CONFIG;
+    }
+    return .{};
+}
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -1159,4 +1190,33 @@ test "Accounts with predefined programs" {
 
     const fields = @typeInfo(TestAccounts).@"struct".fields;
     try std.testing.expect(fields.len == 4);
+}
+
+test "isEventFieldWrapper" {
+    const Wrapped = eventField(u64, .{ .index = true });
+    const Plain = u64;
+
+    try std.testing.expect(isEventFieldWrapper(Wrapped) == true);
+    try std.testing.expect(isEventFieldWrapper(Plain) == false);
+    try std.testing.expect(isEventFieldWrapper(PublicKey) == false);
+}
+
+test "unwrapEventField" {
+    const Wrapped = eventField(u64, .{ .index = true });
+    const WrappedPubkey = eventField(PublicKey, .{});
+
+    try std.testing.expect(unwrapEventField(Wrapped) == u64);
+    try std.testing.expect(unwrapEventField(WrappedPubkey) == PublicKey);
+    try std.testing.expect(unwrapEventField(u64) == u64);
+    try std.testing.expect(unwrapEventField(bool) == bool);
+}
+
+test "eventFieldConfig" {
+    const IndexedField = eventField(u64, .{ .index = true });
+    const NonIndexedField = eventField(u64, .{ .index = false });
+    const PlainField = u64;
+
+    try std.testing.expect(eventFieldConfig(IndexedField).index == true);
+    try std.testing.expect(eventFieldConfig(NonIndexedField).index == false);
+    try std.testing.expect(eventFieldConfig(PlainField).index == false);
 }

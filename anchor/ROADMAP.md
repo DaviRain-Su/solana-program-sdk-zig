@@ -1,5 +1,10 @@
 # sol-anchor-zig Roadmap
 
+## ✅ v3.2.69 - CPI Context Builder
+
+- [x] Add `CpiContext` and `CpiContextWithConfig`
+- [x] Update docs and examples
+
 ## ✅ v3.2.68 - Sysvar Data Aliases
 
 - [x] Add common SysvarData aliases (Clock/Rent/EpochSchedule/etc.)

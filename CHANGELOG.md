@@ -2,6 +2,18 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-15-091
+
+**Date**: 2026-01-15
+**Goal**: Add CPI context builder
+
+#### Completed Work
+1. Added `CpiContext` and `CpiContextWithConfig`
+2. Updated docs and examples
+
+#### Test Results
+- `./solana-zig/zig build test --summary all`
+
 ### Session 2026-01-15-090
 
 **Date**: 2026-01-15

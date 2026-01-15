@@ -239,6 +239,19 @@ pub const AccountMetaOverride = interface.AccountMetaOverride;
 pub const Interface = interface.Interface;
 
 // ============================================================================
+// CPI Context
+// ============================================================================
+
+/// CPI context builder
+pub const cpi_context = @import("cpi_context.zig");
+
+/// CPI context builder with default config
+pub const CpiContext = cpi_context.CpiContext;
+
+/// CPI context builder with custom interface config
+pub const CpiContextWithConfig = cpi_context.CpiContextWithConfig;
+
+// ============================================================================
 // SPL Token Helpers
 // ============================================================================
 
@@ -979,6 +992,8 @@ test "anchor module exports" {
     _ = SlotHistorySysvar;
     _ = EpochRewardsSysvar;
     _ = LastRestartSlotSysvar;
+    _ = CpiContext;
+    _ = CpiContextWithConfig;
     _ = token;
     _ = associated_token;
     _ = memo;

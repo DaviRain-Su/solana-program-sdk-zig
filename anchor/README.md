@@ -377,6 +377,24 @@ const Accounts = struct {
 };
 ```
 
+## CPI Context Builder
+
+Use `CpiContext` to build and invoke CPI instructions with a fluent API.
+
+```zig
+const ctx = anchor.CpiContext(MyProgram, MyProgram.instructions.transfer.Accounts).init(
+    allocator,
+    ctx.accounts.target_program.toAccountInfo(),
+    .{
+        .from = ctx.accounts.from,
+        .to = ctx.accounts.to,
+        .authority = ctx.accounts.authority,
+    },
+);
+const result = try ctx.invoke("transfer", .{ .amount = 1 });
+_ = result;
+```
+
 ## Stake Wrappers + CPI Helpers
 
 Use `anchor.StakeAccount` to parse stake state and `anchor.stake` CPI helpers

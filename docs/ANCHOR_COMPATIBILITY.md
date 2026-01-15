@@ -77,7 +77,7 @@ const sol = anchor.sdk;
 | ATA init | `associated_token::create` | `anchor.typed.ATA` + `anchor.associated_token` | ✅ |
 | Batch init helpers | n/a | `anchor.createAccounts` / `anchor.associated_token.createBatchIdempotent` | ✅ |
 | Sysvar parsing | `Sysvar<'info, T>` | `anchor.SysvarData(T)` / `ClockData` / `RentData` | ✅ |
-| CPI context builder | `CpiContext` | `anchor.CpiContext` (inline remaining helpers) | ✅ |
+| CPI context builder | `CpiContext` | `anchor.CpiContext` (inline remaining + pooling helpers) | ✅ |
 
 ## Example
 

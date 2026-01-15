@@ -2,6 +2,19 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-15-095
+
+**Date**: 2026-01-15
+**Goal**: Anchor constraint helpers and CPI remaining pooling
+
+#### Completed Work
+1. Added constraint helper functions (contains/is_empty/min/max/clamp)
+2. Added pooled remaining account collection for CPI context
+3. Updated anchor docs and tests
+
+#### Test Results
+- `./solana-zig/zig build test --summary all`
+
 ### Session 2026-01-15-094
 
 **Date**: 2026-01-15

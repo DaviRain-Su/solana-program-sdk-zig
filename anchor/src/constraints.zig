@@ -114,11 +114,16 @@ const CallKind = enum {
     abs,
     starts_with,
     ends_with,
+    contains,
+    is_empty,
+    min,
+    max,
+    clamp,
 };
 
 const CallExpr = struct {
     kind: CallKind,
-    args: [2]usize,
+    args: [3]usize,
     len: usize,
 };
 
@@ -285,6 +290,16 @@ const ExprParser = struct {
             .starts_with
         else if (std.mem.eql(u8, ident, "ends_with"))
             .ends_with
+        else if (std.mem.eql(u8, ident, "contains"))
+            .contains
+        else if (std.mem.eql(u8, ident, "is_empty"))
+            .is_empty
+        else if (std.mem.eql(u8, ident, "min"))
+            .min
+        else if (std.mem.eql(u8, ident, "max"))
+            .max
+        else if (std.mem.eql(u8, ident, "clamp"))
+            .clamp
         else
             @compileError("constraint parse error: unknown function");
 
@@ -294,15 +309,22 @@ const ExprParser = struct {
         }
 
         const first = self.parseUnary();
-        var args: [2]usize = .{ first, 0 };
+        var args: [3]usize = .{ first, 0, 0 };
         var arg_len: usize = 1;
 
         self.skipWs();
-        if (kind == .starts_with or kind == .ends_with) {
+        if (kind == .starts_with or kind == .ends_with or kind == .contains or kind == .min or kind == .max or kind == .clamp) {
             self.expectChar(',');
             const second = self.parseUnary();
             args[1] = second;
             arg_len = 2;
+            self.skipWs();
+        }
+        if (kind == .clamp) {
+            self.expectChar(',');
+            const third = self.parseUnary();
+            args[2] = third;
+            arg_len = 3;
             self.skipWs();
         }
 
@@ -672,13 +694,37 @@ fn exprKind(
                     }
                     break :blk .int;
                 },
-                .starts_with, .ends_with => {
+                .starts_with, .ends_with, .contains => {
                     const lhs_kind = exprKind(expr, call.args[0], account_name, Accounts);
                     const rhs_kind = exprKind(expr, call.args[1], account_name, Accounts);
                     if (lhs_kind != .bytes or rhs_kind != .bytes) {
                         @compileError("constraint string helper requires byte slices");
                     }
                     break :blk .bool;
+                },
+                .is_empty => {
+                    const arg_kind = exprKind(expr, call.args[0], account_name, Accounts);
+                    if (arg_kind != .bytes) {
+                        @compileError("constraint is_empty() requires byte slice");
+                    }
+                    break :blk .bool;
+                },
+                .min, .max => {
+                    const lhs_kind = exprKind(expr, call.args[0], account_name, Accounts);
+                    const rhs_kind = exprKind(expr, call.args[1], account_name, Accounts);
+                    if (lhs_kind != .int or rhs_kind != .int) {
+                        @compileError("constraint min/max requires integer operands");
+                    }
+                    break :blk .int;
+                },
+                .clamp => {
+                    const value_kind = exprKind(expr, call.args[0], account_name, Accounts);
+                    const min_kind = exprKind(expr, call.args[1], account_name, Accounts);
+                    const max_kind = exprKind(expr, call.args[2], account_name, Accounts);
+                    if (value_kind != .int or min_kind != .int or max_kind != .int) {
+                        @compileError("constraint clamp() requires integer operands");
+                    }
+                    break :blk .int;
                 },
             }
         },
@@ -985,6 +1031,71 @@ fn evalExpr(
                         else => return .{ .invalid = {} },
                     };
                     break :blk .{ .bool = std.mem.endsWith(u8, l, r) };
+                },
+                .contains => {
+                    const left = evalExpr(expr, call.args[0], account_name, accounts);
+                    const right = evalExpr(expr, call.args[1], account_name, accounts);
+                    const l = switch (left) {
+                        .bytes => |value| value,
+                        else => return .{ .invalid = {} },
+                    };
+                    const r = switch (right) {
+                        .bytes => |value| value,
+                        else => return .{ .invalid = {} },
+                    };
+                    break :blk .{ .bool = std.mem.indexOf(u8, l, r) != null };
+                },
+                .is_empty => {
+                    const arg = evalExpr(expr, call.args[0], account_name, accounts);
+                    return switch (arg) {
+                        .bytes => |value| .{ .bool = value.len == 0 },
+                        else => .{ .invalid = {} },
+                    };
+                },
+                .min => {
+                    const left = evalExpr(expr, call.args[0], account_name, accounts);
+                    const right = evalExpr(expr, call.args[1], account_name, accounts);
+                    const l = switch (left) {
+                        .int => |value| value,
+                        else => return .{ .invalid = {} },
+                    };
+                    const r = switch (right) {
+                        .int => |value| value,
+                        else => return .{ .invalid = {} },
+                    };
+                    break :blk .{ .int = if (l < r) l else r };
+                },
+                .max => {
+                    const left = evalExpr(expr, call.args[0], account_name, accounts);
+                    const right = evalExpr(expr, call.args[1], account_name, accounts);
+                    const l = switch (left) {
+                        .int => |value| value,
+                        else => return .{ .invalid = {} },
+                    };
+                    const r = switch (right) {
+                        .int => |value| value,
+                        else => return .{ .invalid = {} },
+                    };
+                    break :blk .{ .int = if (l > r) l else r };
+                },
+                .clamp => {
+                    const value = evalExpr(expr, call.args[0], account_name, accounts);
+                    const min_value = evalExpr(expr, call.args[1], account_name, accounts);
+                    const max_value = evalExpr(expr, call.args[2], account_name, accounts);
+                    const v = switch (value) {
+                        .int => |val| val,
+                        else => return .{ .invalid = {} },
+                    };
+                    const min_v = switch (min_value) {
+                        .int => |val| val,
+                        else => return .{ .invalid = {} },
+                    };
+                    const max_v = switch (max_value) {
+                        .int => |val| val,
+                        else => return .{ .invalid = {} },
+                    };
+                    const clamped = if (v < min_v) min_v else if (v > max_v) max_v else v;
+                    break :blk .{ .int = clamped };
                 },
             }
         },
@@ -1364,6 +1475,11 @@ test "constraint expressions support arithmetic and helpers" {
     try validateConstraintExpr("starts_with(a.label, \"al\") == true", "a", accounts);
     try validateConstraintExpr("ends_with(a.label, \"ha\")", "a", accounts);
     try validateConstraintExpr("a.label == \"alpha\"", "a", accounts);
+    try validateConstraintExpr("contains(a.label, \"lp\")", "a", accounts);
+    try validateConstraintExpr("is_empty(\"\")", "a", accounts);
+    try validateConstraintExpr("min(a.value, b) == 3", "a", accounts);
+    try validateConstraintExpr("max(a.value, b) == 10", "a", accounts);
+    try validateConstraintExpr("clamp(a.value, 0, 7) == 7", "a", accounts);
     try std.testing.expectError(error.ConstraintRaw, validateConstraintExpr("a.value / 0 == 1", "a", accounts));
     try std.testing.expectError(error.ConstraintRaw, validateConstraintExpr("starts_with(a.label, \"zz\")", "a", accounts));
 }

@@ -438,6 +438,26 @@ const remaining = [_]*const sol.account.Account.Info{ ctx.accounts.extra.toAccou
 try ctx.invokeWithRemaining("transfer", .{ .amount = 1 }, remaining[0..]);
 ```
 
+Collect remaining accounts incrementally, optionally using a pre-allocated pool.
+
+```zig
+var ctx = anchor.CpiContext(MyProgram, MyProgram.instructions.transfer.Accounts).init(
+    allocator,
+    ctx.accounts.target_program.toAccountInfo(),
+    .{
+        .from = ctx.accounts.from,
+        .to = ctx.accounts.to,
+        .authority = ctx.accounts.authority,
+    },
+);
+defer ctx.deinit();
+
+var remaining_pool: [4]sol.account.Account.Info = undefined;
+ctx = ctx.withRemainingStorage(remaining_pool[0..]);
+try ctx.appendRemaining(&[_]*const sol.account.Account.Info{ ctx.accounts.extra.toAccountInfo() });
+try ctx.invoke("transfer", .{ .amount = 1 });
+```
+
 ## Constraint Expressions
 
 Constraint expressions support arithmetic, comparisons, and string helpers.
@@ -445,7 +465,7 @@ Constraint expressions support arithmetic, comparisons, and string helpers.
 ```zig
 const Counter = anchor.Account(CounterData, .{
     .discriminator = anchor.accountDiscriminator("Counter"),
-    .constraint = anchor.constraint("counter.value + 1 > 0 && starts_with(counter.label, \"ctr\")"),
+    .constraint = anchor.constraint("clamp(counter.value, 0, 100) > 0 && contains(counter.label, \"ctr\")"),
 });
 
 const Accounts = anchor.Accounts(struct {

@@ -1,5 +1,11 @@
 # sol-anchor-zig Roadmap
 
+## ✅ v3.2.73 - Constraint Expr + CPI Context Extensions
+
+- [x] Add constraint helper functions (contains/is_empty/min/max/clamp)
+- [x] Add remaining account collection with pooling support for CPI context
+- [x] Update docs and tests
+
 ## ✅ v3.2.72 - Constraint Expr Helpers + CPI Context Ergonomics
 
 - [x] Add arithmetic operators and helper functions to constraint expressions

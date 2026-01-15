@@ -287,13 +287,19 @@ const TokenAccount = anchor.TokenAccount(.{});
 const Mint = anchor.Mint(.{});
 
 fn send(ctx: anchor.Context(TransferAccounts), amount: u64) !void {
-    try token.transfer(
+    if (token.transfer(
         ctx.accounts.token_program.toAccountInfo(),
         ctx.accounts.source.toAccountInfo(),
         ctx.accounts.destination.toAccountInfo(),
         ctx.accounts.authority.toAccountInfo(),
         amount,
-    );
+    )) |err| switch (err) {
+        .InvokeFailed => return error.InvokeFailed,
+        .InvokeFailedWithCode => |code| {
+            _ = code;
+            return error.InvokeFailed;
+        },
+    };
 }
 ```
 

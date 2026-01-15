@@ -9,11 +9,17 @@ const TransferAccounts = struct {
 };
 
 pub fn transfer(ctx: anchor.Context(TransferAccounts), amount: u64) !void {
-    try anchor.token.transfer(
+    if (anchor.token.transfer(
         ctx.accounts.token_program.toAccountInfo(),
         ctx.accounts.source.toAccountInfo(),
         ctx.accounts.destination.toAccountInfo(),
         ctx.accounts.authority.toAccountInfo(),
         amount,
-    );
+    )) |err| switch (err) {
+        .InvokeFailed => return error.InvokeFailed,
+        .InvokeFailedWithCode => |code| {
+            _ = code;
+            return error.InvokeFailed;
+        },
+    };
 }

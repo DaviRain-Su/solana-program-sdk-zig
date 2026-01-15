@@ -24,8 +24,13 @@ const AssociatedTokenConfig = account_mod.AssociatedTokenConfig;
 pub const TOKEN_PROGRAM_ID = sol.spl.TOKEN_PROGRAM_ID;
 
 /// CPI helper errors.
-pub const TokenCpiError = error{
+pub const TokenCpiError = union(enum) {
     InvokeFailed,
+    InvokeFailedWithCode: u64,
+};
+
+/// CPI helper validation errors.
+pub const TokenCpiValidationError = error{
     InvalidSignerCount,
 };
 
@@ -33,14 +38,15 @@ fn invokeInstruction(
     ix: *const Instruction,
     infos: []const AccountInfo,
     signer_seeds: ?[]const []const []const u8,
-) TokenCpiError!void {
+) ?TokenCpiError {
     const result = if (signer_seeds) |seeds|
         ix.invokeSigned(infos, seeds)
     else
         ix.invoke(infos);
     if (result != null) {
-        return TokenCpiError.InvokeFailed;
+        return .{ .InvokeFailedWithCode = result.?.toU64() };
     }
+    return null;
 }
 
 fn buildParams(comptime N: usize, metas: *const [N]AccountMeta) [N]AccountParam {
@@ -312,7 +318,7 @@ pub fn transfer(
     destination: *const AccountInfo,
     authority: *const AccountInfo,
     amount: u64,
-) TokenCpiError!void {
+) ?TokenCpiError {
     const built = token_instruction.transfer(source.id.*, destination.id.*, authority.id.*, amount);
     var metas = built.accounts;
     const params = buildParams(3, &metas);
@@ -322,7 +328,7 @@ pub fn transfer(
         .data = built.data[0..],
     });
     const infos = [_]AccountInfo{ source.*, destination.*, authority.* };
-    try invokeInstruction(&ix, infos[0..], null);
+    return invokeInstruction(&ix, infos[0..], null);
 }
 
 /// Invoke SPL Token transfer with signer seeds.
@@ -333,7 +339,7 @@ pub fn transferSigned(
     authority: *const AccountInfo,
     amount: u64,
     signer_seeds: []const []const []const u8,
-) TokenCpiError!void {
+) ?TokenCpiError {
     const built = token_instruction.transfer(source.id.*, destination.id.*, authority.id.*, amount);
     var metas = built.accounts;
     const params = buildParams(3, &metas);
@@ -343,7 +349,7 @@ pub fn transferSigned(
         .data = built.data[0..],
     });
     const infos = [_]AccountInfo{ source.*, destination.*, authority.* };
-    try invokeInstruction(&ix, infos[0..], signer_seeds);
+    return invokeInstruction(&ix, infos[0..], signer_seeds);
 }
 
 /// Invoke SPL Token transfer for multisig authority.
@@ -354,9 +360,9 @@ pub fn transferMultisig(
     owner: *const AccountInfo,
     signer_infos: []const *const AccountInfo,
     amount: u64,
-) TokenCpiError!void {
+) TokenCpiValidationError!?TokenCpiError {
     if (signer_infos.len == 0 or signer_infos.len > token_instruction.MAX_SIGNERS) {
-        return TokenCpiError.InvalidSignerCount;
+        return TokenCpiValidationError.InvalidSignerCount;
     }
 
     const signers = blk: {
@@ -374,7 +380,7 @@ pub fn transferMultisig(
         signers,
         amount,
     ) catch {
-        return TokenCpiError.InvalidSignerCount;
+        return TokenCpiValidationError.InvalidSignerCount;
     };
 
     var metas = built.accounts;
@@ -396,7 +402,7 @@ pub fn transferMultisig(
         infos[3 + i] = signer.*;
     }
 
-    try invokeInstruction(&ix, infos[0 .. 3 + signer_infos.len], null);
+    return invokeInstruction(&ix, infos[0 .. 3 + signer_infos.len], null);
 }
 
 /// Invoke SPL Token transferChecked.
@@ -408,7 +414,7 @@ pub fn transferChecked(
     authority: *const AccountInfo,
     amount: u64,
     decimals: u8,
-) TokenCpiError!void {
+) ?TokenCpiError {
     const built = token_instruction.transferChecked(
         source.id.*,
         mint.id.*,
@@ -425,7 +431,7 @@ pub fn transferChecked(
         .data = built.data[0..],
     });
     const infos = [_]AccountInfo{ source.*, mint.*, destination.*, authority.* };
-    try invokeInstruction(&ix, infos[0..], null);
+    return invokeInstruction(&ix, infos[0..], null);
 }
 
 /// Invoke SPL Token mintTo.
@@ -435,7 +441,7 @@ pub fn mintTo(
     destination: *const AccountInfo,
     authority: *const AccountInfo,
     amount: u64,
-) TokenCpiError!void {
+) ?TokenCpiError {
     const built = token_instruction.mintTo(
         mint.id.*,
         destination.id.*,
@@ -450,7 +456,7 @@ pub fn mintTo(
         .data = built.data[0..],
     });
     const infos = [_]AccountInfo{ mint.*, destination.*, authority.* };
-    try invokeInstruction(&ix, infos[0..], null);
+    return invokeInstruction(&ix, infos[0..], null);
 }
 
 /// Invoke SPL Token mintToChecked.
@@ -461,7 +467,7 @@ pub fn mintToChecked(
     authority: *const AccountInfo,
     amount: u64,
     decimals: u8,
-) TokenCpiError!void {
+) ?TokenCpiError {
     const built = token_instruction.mintToChecked(
         mint.id.*,
         destination.id.*,
@@ -477,7 +483,7 @@ pub fn mintToChecked(
         .data = built.data[0..],
     });
     const infos = [_]AccountInfo{ mint.*, destination.*, authority.* };
-    try invokeInstruction(&ix, infos[0..], null);
+    return invokeInstruction(&ix, infos[0..], null);
 }
 
 /// Invoke SPL Token burn.
@@ -487,7 +493,7 @@ pub fn burn(
     mint: *const AccountInfo,
     authority: *const AccountInfo,
     amount: u64,
-) TokenCpiError!void {
+) ?TokenCpiError {
     const built = token_instruction.burn(
         account.id.*,
         mint.id.*,
@@ -502,7 +508,7 @@ pub fn burn(
         .data = built.data[0..],
     });
     const infos = [_]AccountInfo{ account.*, mint.*, authority.* };
-    try invokeInstruction(&ix, infos[0..], null);
+    return invokeInstruction(&ix, infos[0..], null);
 }
 
 /// Invoke SPL Token burnChecked.
@@ -513,7 +519,7 @@ pub fn burnChecked(
     authority: *const AccountInfo,
     amount: u64,
     decimals: u8,
-) TokenCpiError!void {
+) ?TokenCpiError {
     const built = token_instruction.burnChecked(
         account.id.*,
         mint.id.*,
@@ -529,7 +535,7 @@ pub fn burnChecked(
         .data = built.data[0..],
     });
     const infos = [_]AccountInfo{ account.*, mint.*, authority.* };
-    try invokeInstruction(&ix, infos[0..], null);
+    return invokeInstruction(&ix, infos[0..], null);
 }
 
 /// Invoke SPL Token approve.
@@ -539,7 +545,7 @@ pub fn approve(
     delegate: *const AccountInfo,
     authority: *const AccountInfo,
     amount: u64,
-) TokenCpiError!void {
+) ?TokenCpiError {
     const built = token_instruction.approve(
         source.id.*,
         delegate.id.*,
@@ -554,7 +560,7 @@ pub fn approve(
         .data = built.data[0..],
     });
     const infos = [_]AccountInfo{ source.*, delegate.*, authority.* };
-    try invokeInstruction(&ix, infos[0..], null);
+    return invokeInstruction(&ix, infos[0..], null);
 }
 
 /// Invoke SPL Token revoke.
@@ -562,7 +568,7 @@ pub fn revoke(
     token_program: *const AccountInfo,
     source: *const AccountInfo,
     authority: *const AccountInfo,
-) TokenCpiError!void {
+) ?TokenCpiError {
     const built = token_instruction.revoke(source.id.*, authority.id.*);
     var metas = built.accounts;
     const params = buildParams(2, &metas);
@@ -572,7 +578,7 @@ pub fn revoke(
         .data = built.data[0..],
     });
     const infos = [_]AccountInfo{ source.*, authority.* };
-    try invokeInstruction(&ix, infos[0..], null);
+    return invokeInstruction(&ix, infos[0..], null);
 }
 
 /// Invoke SPL Token closeAccount.
@@ -581,7 +587,7 @@ pub fn closeAccount(
     account: *const AccountInfo,
     destination: *const AccountInfo,
     authority: *const AccountInfo,
-) TokenCpiError!void {
+) ?TokenCpiError {
     const built = token_instruction.closeAccount(
         account.id.*,
         destination.id.*,
@@ -595,7 +601,7 @@ pub fn closeAccount(
         .data = built.data[0..],
     });
     const infos = [_]AccountInfo{ account.*, destination.*, authority.* };
-    try invokeInstruction(&ix, infos[0..], null);
+    return invokeInstruction(&ix, infos[0..], null);
 }
 
 /// Invoke SPL Token freezeAccount.
@@ -604,7 +610,7 @@ pub fn freezeAccount(
     account: *const AccountInfo,
     mint: *const AccountInfo,
     authority: *const AccountInfo,
-) TokenCpiError!void {
+) ?TokenCpiError {
     const built = token_instruction.freezeAccount(account.id.*, mint.id.*, authority.id.*);
     var metas = built.accounts;
     const params = buildParams(3, &metas);
@@ -614,7 +620,7 @@ pub fn freezeAccount(
         .data = built.data[0..],
     });
     const infos = [_]AccountInfo{ account.*, mint.*, authority.* };
-    try invokeInstruction(&ix, infos[0..], null);
+    return invokeInstruction(&ix, infos[0..], null);
 }
 
 /// Invoke SPL Token thawAccount.
@@ -623,7 +629,7 @@ pub fn thawAccount(
     account: *const AccountInfo,
     mint: *const AccountInfo,
     authority: *const AccountInfo,
-) TokenCpiError!void {
+) ?TokenCpiError {
     const built = token_instruction.thawAccount(account.id.*, mint.id.*, authority.id.*);
     var metas = built.accounts;
     const params = buildParams(3, &metas);
@@ -633,7 +639,7 @@ pub fn thawAccount(
         .data = built.data[0..],
     });
     const infos = [_]AccountInfo{ account.*, mint.*, authority.* };
-    try invokeInstruction(&ix, infos[0..], null);
+    return invokeInstruction(&ix, infos[0..], null);
 }
 
 /// Invoke SPL Token setAuthority.
@@ -643,7 +649,7 @@ pub fn setAuthority(
     current_authority: *const AccountInfo,
     authority_type: token_instruction.AuthorityType,
     new_authority: ?PublicKey,
-) TokenCpiError!void {
+) ?TokenCpiError {
     const built = token_instruction.setAuthority(
         account_or_mint.id.*,
         current_authority.id.*,
@@ -658,14 +664,14 @@ pub fn setAuthority(
         .data = built.data[0..built.data_len],
     });
     const infos = [_]AccountInfo{ account_or_mint.*, current_authority.* };
-    try invokeInstruction(&ix, infos[0..], null);
+    return invokeInstruction(&ix, infos[0..], null);
 }
 
 /// Invoke SPL Token syncNative for wrapped SOL.
 pub fn syncNative(
     token_program: *const AccountInfo,
     account: *const AccountInfo,
-) TokenCpiError!void {
+) ?TokenCpiError {
     const built = token_instruction.syncNative(account.id.*);
     var metas = built.accounts;
     const params = buildParams(1, &metas);
@@ -675,7 +681,7 @@ pub fn syncNative(
         .data = built.data[0..],
     });
     const infos = [_]AccountInfo{ account.* };
-    try invokeInstruction(&ix, infos[0..], null);
+    return invokeInstruction(&ix, infos[0..], null);
 }
 
 // ============================================================================

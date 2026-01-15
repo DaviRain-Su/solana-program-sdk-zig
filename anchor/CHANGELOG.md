@@ -2,6 +2,18 @@
 
 All notable changes to sol-anchor-zig will be documented in this file.
 
+### Session 2026-01-15-015
+
+**Date**: 2026-01-15
+**Goal**: Improve token CPI error detail
+
+#### Completed Work
+1. Added `InvokeFailedWithCode` branch to `TokenCpiError`
+2. Updated token CPI helpers and examples to surface error codes
+
+#### Test Results
+- `./solana-zig/zig build test --summary all`
+
 ### Session 2026-01-15-014
 
 **Date**: 2026-01-15

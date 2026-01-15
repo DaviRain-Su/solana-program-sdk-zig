@@ -126,7 +126,6 @@ test "SysvarData load parses data" {
         .is_signer = 0,
         .is_writable = 0,
         .is_executable = 0,
-        .rent_epoch = 0,
     };
 
     const Wrapper = SysvarData(DummySysvar);

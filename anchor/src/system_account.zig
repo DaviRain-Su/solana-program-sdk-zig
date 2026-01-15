@@ -75,7 +75,6 @@ test "SystemAccount load validates owner" {
         .is_signer = 0,
         .is_writable = 0,
         .is_executable = 0,
-        .rent_epoch = 0,
     };
 
     _ = try SystemAccountConst.load(&info);

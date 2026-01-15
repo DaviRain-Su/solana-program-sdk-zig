@@ -596,7 +596,6 @@ test "StakeAccount load parses state" {
         .is_signer = 0,
         .is_writable = 0,
         .is_executable = 0,
-        .rent_epoch = 0,
     };
 
     const Wrapper = StakeAccount(.{});

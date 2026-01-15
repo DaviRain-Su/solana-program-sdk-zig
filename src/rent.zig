@@ -34,6 +34,7 @@ pub const Rent = struct {
     pub const account_storage_overhead: u64 = 128;
 
     pub const Data = packed struct {
+        pub const id = Rent.id;
         pub const SIZE = @sizeOf(Rent.Data);
 
         lamports_per_byte_year: u64 = Rent.default_lamports_per_byte_year,

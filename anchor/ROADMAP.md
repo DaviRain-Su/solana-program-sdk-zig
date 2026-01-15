@@ -1,5 +1,11 @@
 # sol-anchor-zig Roadmap
 
+## ✅ v3.2.76 - Typed Constraint Builder Enhancements
+
+- [x] Add pubkey literal helper for typed constraints
+- [x] Add asInt/asBytes helpers for explicit type assertions
+- [x] Update docs and tests
+
 ## ✅ v3.2.75 - Typed Constraint Builder + CPI Signed Reset
 
 - [x] Add typed constraint builder API

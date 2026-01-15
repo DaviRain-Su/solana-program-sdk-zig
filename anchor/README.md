@@ -509,6 +509,18 @@ const Counter = anchor.Account(CounterData, .{
 });
 ```
 
+Typed helpers for pubkey literals and explicit type assertions:
+
+```zig
+const c = anchor.constraint_typed;
+const Counter = anchor.Account(CounterData, .{
+    .discriminator = anchor.accountDiscriminator("Counter"),
+    .constraint = c.field("authority")
+        .eq(c.pubkey("11111111111111111111111111111111"))
+        .and_(c.field("label").asBytes().len().eq(c.int_(3))),
+});
+```
+
 
 ## Stake Wrappers + CPI Helpers
 

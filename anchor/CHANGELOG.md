@@ -2,6 +2,19 @@
 
 All notable changes to sol-anchor-zig will be documented in this file.
 
+### Session 2026-01-15-027
+
+**Date**: 2026-01-15
+**Goal**: Add typed constraint pubkey literals and type assertions
+
+#### Completed Work
+1. Added pubkey literal helper for typed constraints
+2. Added as_int/as_bytes helpers for explicit type assertions
+3. Updated docs and tests
+
+#### Test Results
+- `./solana-zig/zig build test --summary all`
+
 ### Session 2026-01-15-026
 
 **Date**: 2026-01-15

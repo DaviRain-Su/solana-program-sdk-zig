@@ -137,6 +137,18 @@ pub const ConstraintExpr = struct {
     pub fn isEmpty(self: ConstraintExpr) ConstraintExpr {
         return .{ .expr = "is_empty(" ++ self.expr ++ ")" };
     }
+
+    pub fn key(self: ConstraintExpr) ConstraintExpr {
+        return .{ .expr = self.expr ++ ".key()" };
+    }
+
+    pub fn asInt(self: ConstraintExpr) ConstraintExpr {
+        return .{ .expr = "as_int(" ++ self.expr ++ ")" };
+    }
+
+    pub fn asBytes(self: ConstraintExpr) ConstraintExpr {
+        return .{ .expr = "as_bytes(" ++ self.expr ++ ")" };
+    }
 };
 
 /// Define a constraint expression.
@@ -179,6 +191,10 @@ pub const constraint_typed = struct {
 
     pub fn bytes(comptime value: []const u8) ConstraintExpr {
         return .{ .expr = quoteLiteral(value) };
+    }
+
+    pub fn pubkey(comptime base58: []const u8) ConstraintExpr {
+        return .{ .expr = "pubkey(" ++ quoteLiteral(base58) ++ ")" };
     }
 };
 
@@ -230,6 +246,7 @@ const Operand = union(enum) {
     int: i128,
     bool: bool,
     bytes: []const u8,
+    pubkey: [32]u8,
 };
 
 const UnaryExpr = struct {
@@ -256,6 +273,8 @@ const CallKind = enum {
     min,
     max,
     clamp,
+    as_int,
+    as_bytes,
 };
 
 const CallExpr = struct {
@@ -443,6 +462,10 @@ const ExprParser = struct {
             .max
         else if (std.mem.eql(u8, ident, "clamp"))
             .clamp
+        else if (std.mem.eql(u8, ident, "as_int"))
+            .as_int
+        else if (std.mem.eql(u8, ident, "as_bytes"))
+            .as_bytes
         else
             @compileError("constraint parse error: unknown function");
 
@@ -498,6 +521,14 @@ const ExprParser = struct {
         if (std.mem.eql(u8, ident, "false")) return self.addNode(.{ .value = .{ .bool = false } });
 
         self.skipWs();
+        if (std.mem.eql(u8, ident, "pubkey") and self.consumeChar('(')) {
+            self.skipWs();
+            const encoded = self.parseStringLiteral();
+            self.skipWs();
+            self.expectChar(')');
+            const key = comptime PublicKey.comptimeFromBase58(encoded);
+            return self.addNode(.{ .value = .{ .pubkey = key.bytes } });
+        }
         if (self.consumeChar('(')) {
             return self.parseCall(ident);
         }
@@ -751,6 +782,7 @@ fn operandKind(
         .int => .int,
         .bool => .bool,
         .bytes => .bytes,
+        .pubkey => .pubkey,
         .access => |access| blk: {
             const T = accessValueType(access, account_name, Accounts);
             if (isPubkeyLike(T)) break :blk .pubkey;
@@ -868,6 +900,20 @@ fn exprKind(
                         @compileError("constraint clamp() requires integer operands");
                     }
                     break :blk .int;
+                },
+                .as_int => {
+                    const arg_kind = exprKind(expr, call.args[0], account_name, Accounts);
+                    if (arg_kind != .int) {
+                        @compileError("constraint as_int() requires integer operand");
+                    }
+                    break :blk .int;
+                },
+                .as_bytes => {
+                    const arg_kind = exprKind(expr, call.args[0], account_name, Accounts);
+                    if (arg_kind != .bytes) {
+                        @compileError("constraint as_bytes() requires byte slice");
+                    }
+                    break :blk .bytes;
                 },
             }
         },
@@ -1018,6 +1064,7 @@ fn evalOperand(
         .int => |value| .{ .int = value },
         .bool => |value| .{ .bool = value },
         .bytes => |value| .{ .bytes = value },
+        .pubkey => |value| .{ .pubkey = value },
         .access => |access| resolveAccessValue(access, account_name, accounts),
     };
 }
@@ -1312,6 +1359,20 @@ fn evalExpr(
                     };
                     const clamped = if (v < min_v) min_v else if (v > max_v) max_v else v;
                     break :blk .{ .int = clamped };
+                },
+                .as_int => {
+                    const arg = evalExpr(expr, call.args[0], account_name, accounts);
+                    return switch (arg) {
+                        .int => |value| .{ .int = value },
+                        else => .{ .invalid = {} },
+                    };
+                },
+                .as_bytes => {
+                    const arg = evalExpr(expr, call.args[0], account_name, accounts);
+                    return switch (arg) {
+                        .bytes => |value| .{ .bytes = value },
+                        else => .{ .invalid = {} },
+                    };
                 },
             }
         },
@@ -1709,11 +1770,13 @@ test "constraint typed builder emits valid expressions" {
     const Accounts = struct {
         label: []const u8,
         count: i128,
+        authority: PublicKey,
     };
 
     const accounts = Accounts{
         .label = "ctr",
         .count = 2,
+        .authority = PublicKey.comptimeFromBase58("11111111111111111111111111111111"),
     };
 
     const expr = c.field("label")
@@ -1721,4 +1784,10 @@ test "constraint typed builder emits valid expressions" {
         .and_(c.field("count").add(c.int_(1)).eq(c.int_(3)));
 
     try validateConstraintExpr(expr.expr, "label", accounts);
+
+    const key_expr = c.field("authority").eq(c.pubkey("11111111111111111111111111111111"));
+    try validateConstraintExpr(key_expr.expr, "authority", accounts);
+
+    const typed_expr = c.field("label").asBytes().len().eq(c.int_(3));
+    try validateConstraintExpr(typed_expr.expr, "label", accounts);
 }

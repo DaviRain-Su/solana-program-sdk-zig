@@ -2,6 +2,19 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-15-099
+
+**Date**: 2026-01-15
+**Goal**: Anchor typed constraint builder assertions
+
+#### Completed Work
+1. Added pubkey literal helper for typed constraints
+2. Added as_int/as_bytes helpers for explicit type assertions
+3. Updated anchor docs and tests
+
+#### Test Results
+- `./solana-zig/zig build test --summary all`
+
 ### Session 2026-01-15-098
 
 **Date**: 2026-01-15

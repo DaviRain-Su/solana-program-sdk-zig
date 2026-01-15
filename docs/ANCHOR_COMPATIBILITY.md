@@ -24,7 +24,7 @@ const sol = anchor.sdk;
 - AccountsDerive auto binding for Program fields by alias name
 - Runtime validation for token/mint constraints (token account + mint state checks, program owner validation)
 - Runtime validation for associated token constraints (ATA address + owner checks)
-- Constraint expressions support boolean/comparison operators, arithmetic, and string helpers (ASCII-only *_ci variants, typed builder)
+- Constraint expressions support boolean/comparison operators, arithmetic, and string helpers (ASCII-only *_ci variants, typed builder with pubkey/type asserts)
 - Program entry dispatch with optional fallback/error mapping
 - AccountLoader zero-copy access
 - LazyAccount on-demand decoding
@@ -53,7 +53,7 @@ const sol = anchor.sdk;
 | Client codegen | `anchor client` | `anchor.generateZigClient` | ✅ |
 | IDL file output | `anchor idl --out` | `anchor.idl.writeJsonFile` / `zig build idl` (root or `anchor/`) | ✅ |
 | RPC client wrapper | `AnchorClient` | `ProgramClient` (generated) | ✅ |
-| Constraint expr | `constraint = <expr>` | `anchor.constraint()` + `anchor.constraint_typed` (comparisons + logic + arithmetic + helpers, ASCII-only *_ci) | ✅ |
+| Constraint expr | `constraint = <expr>` | `anchor.constraint()` + `anchor.constraint_typed` (comparisons + logic + arithmetic + helpers, ASCII-only *_ci, pubkey/type asserts) | ✅ |
 | Constraint runtime | `constraint = <expr>` | Runtime eval (==/!=, key(), field access) | ✅ |
 | Rent exempt | `#[account(rent_exempt)]` | Runtime rent exemption check | ✅ |
 | Zero/Space/Dup constraints | `#[account(zero/space/dup)]` | Zeroed discriminator check, exact space check, duplicate mutable account check | ✅ |

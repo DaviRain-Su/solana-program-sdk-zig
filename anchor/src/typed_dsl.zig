@@ -111,6 +111,71 @@ pub const Unchecked = struct {
 };
 
 // ============================================================================
+// Common Solana Programs - Predefined Program Markers
+// ============================================================================
+
+/// System Program marker.
+/// Usage: `.system_program = SystemProgram`
+pub const SystemProgram = Prog(sol.system_program.id);
+
+/// SPL Token Program marker.
+/// Usage: `.token_program = TokenProgram`
+pub const TokenProgram = Prog(PublicKey.comptimeFromBase58("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"));
+
+/// Token 2022 Program (Token Extensions) marker.
+/// Usage: `.token_program = Token2022Program`
+pub const Token2022Program = Prog(PublicKey.comptimeFromBase58("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"));
+
+/// Associated Token Account Program marker.
+/// Usage: `.ata_program = AssociatedTokenProgram`
+pub const AssociatedTokenProgram = Prog(PublicKey.comptimeFromBase58("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"));
+
+/// Compute Budget Program marker.
+/// Usage: `.compute_budget = ComputeBudgetProgram`
+pub const ComputeBudgetProgram = Prog(sol.compute_budget.ID);
+
+/// Address Lookup Table Program marker.
+/// Usage: `.alt_program = AddressLookupTableProgram`
+pub const AddressLookupTableProgram = Prog(sol.address_lookup_table.ID);
+
+// ============================================================================
+// Common Sysvars - Predefined Sysvar Markers
+// ============================================================================
+
+/// Sysvar account marker that validates the account address matches the expected sysvar.
+pub fn SysvarAccount(comptime sysvar_id: PublicKey) type {
+    return struct {
+        pub const IS_SYSVAR = true;
+        pub const ID = sysvar_id;
+        pub const AccountType = *const AccountInfo;
+    };
+}
+
+/// Rent Sysvar marker.
+/// Usage: `.rent = RentSysvar`
+pub const RentSysvar = SysvarAccount(PublicKey.comptimeFromBase58("SysvarRent111111111111111111111111111111111"));
+
+/// Clock Sysvar marker.
+/// Usage: `.clock = ClockSysvar`
+pub const ClockSysvar = SysvarAccount(PublicKey.comptimeFromBase58("SysvarC1ock11111111111111111111111111111111"));
+
+/// Epoch Schedule Sysvar marker.
+/// Usage: `.epoch_schedule = EpochScheduleSysvar`
+pub const EpochScheduleSysvar = SysvarAccount(PublicKey.comptimeFromBase58("SysvarEpochScheworLNPkL1MWVrwsLE4D8F2auJV1"));
+
+/// Slot Hashes Sysvar marker.
+/// Usage: `.slot_hashes = SlotHashesSysvar`
+pub const SlotHashesSysvar = SysvarAccount(PublicKey.comptimeFromBase58("SysvarS1otHashes111111111111111111111111111"));
+
+/// Stake History Sysvar marker.
+/// Usage: `.stake_history = StakeHistorySysvar`
+pub const StakeHistorySysvar = SysvarAccount(PublicKey.comptimeFromBase58("SysvarStakeHistory1111111111111111111111111"));
+
+/// Instructions Sysvar marker.
+/// Usage: `.instructions = InstructionsSysvar`
+pub const InstructionsSysvar = SysvarAccount(sol.instructions_sysvar.ID);
+
+// ============================================================================
 // Data Account with Type-Safe Config
 // ============================================================================
 
@@ -628,6 +693,11 @@ fn resolveMarkerType(comptime MarkerType: type, comptime AccountsSpec: type) typ
         return MarkerType.AccountType;
     }
 
+    // Sysvar type
+    if (@hasDecl(MarkerType, "IS_SYSVAR") and MarkerType.IS_SYSVAR) {
+        return MarkerType.AccountType;
+    }
+
     // Optional type
     if (@hasDecl(MarkerType, "IS_OPTIONAL") and MarkerType.IS_OPTIONAL) {
         const ActualAccountsType = buildAccountsTypeForValidation(AccountsSpec);
@@ -1026,4 +1096,67 @@ test "isIndexableEventFieldType" {
     // Non-indexable types
     try std.testing.expect(isIndexableEventFieldType([]const u8) == false);
     try std.testing.expect(isIndexableEventFieldType(f64) == false);
+}
+
+test "predefined program markers" {
+    // System Program
+    try std.testing.expect(SystemProgram.IS_PROGRAM == true);
+    try std.testing.expect(SystemProgram.ID.equals(sol.system_program.id));
+
+    // Token Program
+    try std.testing.expect(TokenProgram.IS_PROGRAM == true);
+    try std.testing.expectEqualStrings(
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        &TokenProgram.ID.toBase58String(),
+    );
+
+    // Token 2022 Program
+    try std.testing.expect(Token2022Program.IS_PROGRAM == true);
+    try std.testing.expectEqualStrings(
+        "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+        &Token2022Program.ID.toBase58String(),
+    );
+
+    // Associated Token Program
+    try std.testing.expect(AssociatedTokenProgram.IS_PROGRAM == true);
+    try std.testing.expectEqualStrings(
+        "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+        &AssociatedTokenProgram.ID.toBase58String(),
+    );
+
+    // Compute Budget Program
+    try std.testing.expect(ComputeBudgetProgram.IS_PROGRAM == true);
+    try std.testing.expect(ComputeBudgetProgram.ID.equals(sol.compute_budget.ID));
+}
+
+test "predefined sysvar markers" {
+    // Rent Sysvar
+    try std.testing.expect(RentSysvar.IS_SYSVAR == true);
+    try std.testing.expectEqualStrings(
+        "SysvarRent111111111111111111111111111111111",
+        &RentSysvar.ID.toBase58String(),
+    );
+
+    // Clock Sysvar
+    try std.testing.expect(ClockSysvar.IS_SYSVAR == true);
+    try std.testing.expectEqualStrings(
+        "SysvarC1ock11111111111111111111111111111111",
+        &ClockSysvar.ID.toBase58String(),
+    );
+
+    // Instructions Sysvar
+    try std.testing.expect(InstructionsSysvar.IS_SYSVAR == true);
+    try std.testing.expect(InstructionsSysvar.ID.equals(sol.instructions_sysvar.ID));
+}
+
+test "Accounts with predefined programs" {
+    const TestAccounts = Accounts(.{
+        .payer = SignerMut,
+        .system_program = SystemProgram,
+        .token_program = TokenProgram,
+        .rent = RentSysvar,
+    });
+
+    const fields = @typeInfo(TestAccounts).@"struct".fields;
+    try std.testing.expect(fields.len == 4);
 }

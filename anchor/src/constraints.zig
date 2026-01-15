@@ -210,6 +210,20 @@ fn hexDecode32(comptime value: []const u8) [32]u8 {
     return out;
 }
 
+fn hexDecode(comptime value: []const u8) []const u8 {
+    if (value.len % 2 != 0) {
+        @compileError("constraint bytes_hex requires even-length hex string");
+    }
+    comptime var out: [value.len / 2]u8 = undefined;
+    comptime var i: usize = 0;
+    while (i < out.len) : (i += 1) {
+        const hi = hexToNibble(value[i * 2]);
+        const lo = hexToNibble(value[i * 2 + 1]);
+        out[i] = (hi << 4) | lo;
+    }
+    return out[0..];
+}
+
 /// Typed constraint expression builder.
 pub const constraint_typed = struct {
     pub fn field(comptime name: []const u8) ConstraintExpr {
@@ -228,8 +242,25 @@ pub const constraint_typed = struct {
         return .{ .expr = quoteLiteral(value) };
     }
 
-    pub fn pubkey(comptime base58: []const u8) ConstraintExpr {
-        return .{ .expr = "pubkey(" ++ quoteLiteral(base58) ++ ")" };
+    pub fn pubkey(comptime value: anytype) ConstraintExpr {
+        const T = @TypeOf(value);
+        if (T == PublicKey) {
+            return pubkeyValue(value);
+        }
+        if (@typeInfo(T) == .array) {
+            const array = @typeInfo(T).array;
+            if (array.child == u8 and array.len == 32) {
+                return pubkeyBytes(value);
+            }
+        }
+        if (@typeInfo(T) == .pointer and @typeInfo(T).pointer.size == .slice and @typeInfo(T).pointer.child == u8) {
+            return .{ .expr = "pubkey(" ++ quoteLiteral(value) ++ ")" };
+        }
+        @compileError("constraint_typed.pubkey expects PublicKey, [32]u8, or base58 string");
+    }
+
+    pub fn bytesFromHex(comptime value: []const u8) ConstraintExpr {
+        return .{ .expr = "bytes_hex(" ++ quoteLiteral(value) ++ ")" };
     }
 
     pub fn pubkeyBytes(comptime bytes: [32]u8) ConstraintExpr {
@@ -579,6 +610,14 @@ const ExprParser = struct {
             self.expectChar(')');
             const bytes = comptime hexDecode32(encoded);
             return self.addNode(.{ .value = .{ .pubkey = bytes } });
+        }
+        if (std.mem.eql(u8, ident, "bytes_hex") and self.consumeChar('(')) {
+            self.skipWs();
+            const encoded = self.parseStringLiteral();
+            self.skipWs();
+            self.expectChar(')');
+            const bytes = comptime hexDecode(encoded);
+            return self.addNode(.{ .value = .{ .bytes = bytes } });
         }
         if (self.consumeChar('(')) {
             return self.parseCall(ident);
@@ -1843,6 +1882,12 @@ test "constraint typed builder emits valid expressions" {
     const direct_expr = c.field("authority").eq(direct_key);
     try validateConstraintExpr(direct_expr.expr, "authority", accounts);
 
+    const direct_expr2 = c.field("authority").eq(c.pubkey(PublicKey.comptimeFromBase58("11111111111111111111111111111111")));
+    try validateConstraintExpr(direct_expr2.expr, "authority", accounts);
+
     const typed_expr = c.field("label").asBytes().len().eq(c.int_(3));
     try validateConstraintExpr(typed_expr.expr, "label", accounts);
+
+    const hex_expr = c.field("label").eq(c.bytesFromHex("637472"));
+    try validateConstraintExpr(hex_expr.expr, "label", accounts);
 }

@@ -1,5 +1,11 @@
 # sol-anchor-zig Roadmap
 
+## ✅ v3.2.78 - Typed Constraint Overloads + Hex Bytes
+
+- [x] Add pubkey overloads for typed constraints
+- [x] Add bytesFromHex helper for typed constraints
+- [x] Update docs and tests
+
 ## ✅ v3.2.77 - Typed Constraint Pubkey Values
 
 - [x] Add pubkeyValue/pubkeyBytes helpers to typed constraints

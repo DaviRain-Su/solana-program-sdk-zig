@@ -528,7 +528,17 @@ const c = anchor.constraint_typed;
 const program_id = sol.PublicKey.comptimeFromBase58("11111111111111111111111111111111");
 const Counter = anchor.Account(CounterData, .{
     .discriminator = anchor.accountDiscriminator("Counter"),
-    .constraint = c.field("authority").eq(c.pubkeyValue(program_id)),
+    .constraint = c.field("authority").eq(c.pubkey(program_id)),
+});
+```
+
+Hex byte literal helper:
+
+```zig
+const c = anchor.constraint_typed;
+const Counter = anchor.Account(CounterData, .{
+    .discriminator = anchor.accountDiscriminator("Counter"),
+    .constraint = c.field("label").eq(c.bytesFromHex("637472")),
 });
 ```
 

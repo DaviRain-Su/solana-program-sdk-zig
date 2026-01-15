@@ -2,6 +2,19 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-15-101
+
+**Date**: 2026-01-15
+**Goal**: Anchor typed constraint overloads + hex bytes helper
+
+#### Completed Work
+1. Added pubkey overloads for typed constraints
+2. Added bytesFromHex helper for typed constraints
+3. Updated anchor docs and tests
+
+#### Test Results
+- `./solana-zig/zig build test --summary all`
+
 ### Session 2026-01-15-100
 
 **Date**: 2026-01-15

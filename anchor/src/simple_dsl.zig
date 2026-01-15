@@ -519,6 +519,341 @@ pub fn hasOne(comptime field: []const u8) []const u8 {
 }
 
 // ============================================================================
+// Token Account Types (SPL Token)
+// ============================================================================
+
+/// SPL Token account with mint and authority constraints.
+///
+/// Usage:
+/// ```zig
+/// // Basic token account
+/// user_token: Token(.{
+///     .mint = "mint",
+///     .authority = "owner",
+/// }),
+///
+/// // Mutable token account
+/// user_token: Token(.{
+///     .mint = "mint",
+///     .authority = "owner",
+///     .mut = true,
+/// }),
+/// ```
+pub fn Token(comptime config: TokenConfig) type {
+    return account_mod.Account(TokenAccountData, .{
+        .discriminator = TOKEN_ACCOUNT_DISCRIMINATOR,
+        .mut = config.mut,
+        .token_mint = config.mint,
+        .token_authority = config.authority,
+        .token_program = config.token_program,
+        .owner = config.owner,
+        .constraint = config.constraint,
+    });
+}
+
+pub const TokenConfig = struct {
+    /// Mint account field name (required)
+    mint: []const u8,
+    /// Authority account field name (required)
+    authority: []const u8,
+    /// Token program field name (optional)
+    token_program: ?[]const u8 = null,
+    /// Account must be writable
+    mut: bool = false,
+    /// Expected owner
+    owner: ?PublicKey = null,
+    /// Custom constraint
+    constraint: ?[]const u8 = null,
+
+    pub const mut = TokenConfig{ .mint = "", .authority = "", .mut = true };
+};
+
+/// Token account data structure (SPL Token).
+pub const TokenAccountData = extern struct {
+    mint: PublicKey,
+    owner: PublicKey,
+    amount: u64,
+    delegate: ?PublicKey,
+    state: u8,
+    is_native: ?u64,
+    delegated_amount: u64,
+    close_authority: ?PublicKey,
+};
+
+const TOKEN_ACCOUNT_DISCRIMINATOR = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 }; // SPL Token has no discriminator
+
+// ============================================================================
+// Mint Account Type
+// ============================================================================
+
+/// SPL Mint account with authority constraints.
+///
+/// Usage:
+/// ```zig
+/// // Basic mint
+/// mint: Mint(.{
+///     .authority = "mint_authority",
+/// }),
+///
+/// // With freeze authority
+/// mint: Mint(.{
+///     .authority = "mint_authority",
+///     .freeze_authority = "freeze_authority",
+///     .decimals = 9,
+/// }),
+/// ```
+pub fn Mint(comptime config: MintConfig) type {
+    return account_mod.Account(MintData, .{
+        .discriminator = MINT_DISCRIMINATOR,
+        .mut = config.mut,
+        .mint_authority = config.authority,
+        .mint_freeze_authority = config.freeze_authority,
+        .mint_decimals = config.decimals,
+        .mint_token_program = config.token_program,
+        .owner = config.owner,
+        .constraint = config.constraint,
+    });
+}
+
+pub const MintConfig = struct {
+    /// Mint authority account field name (required)
+    authority: []const u8,
+    /// Freeze authority account field name (optional)
+    freeze_authority: ?[]const u8 = null,
+    /// Expected decimals (optional)
+    decimals: ?u8 = null,
+    /// Token program field name (optional)
+    token_program: ?[]const u8 = null,
+    /// Account must be writable
+    mut: bool = false,
+    /// Expected owner
+    owner: ?PublicKey = null,
+    /// Custom constraint
+    constraint: ?[]const u8 = null,
+
+    pub const mut = MintConfig{ .authority = "", .mut = true };
+};
+
+/// Mint account data structure (SPL Token).
+pub const MintData = extern struct {
+    mint_authority: ?PublicKey,
+    supply: u64,
+    decimals: u8,
+    is_initialized: bool,
+    freeze_authority: ?PublicKey,
+};
+
+const MINT_DISCRIMINATOR = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 }; // SPL Token has no discriminator
+
+// ============================================================================
+// Associated Token Account (ATA)
+// ============================================================================
+
+/// Associated Token Account with automatic address derivation.
+///
+/// Usage:
+/// ```zig
+/// // Basic ATA
+/// user_ata: ATA(.{
+///     .mint = "mint",
+///     .authority = "owner",
+/// }),
+///
+/// // Init ATA if needed
+/// user_ata: ATA(.{
+///     .mint = "mint",
+///     .authority = "owner",
+///     .init = true,
+///     .payer = "payer",
+/// }),
+/// ```
+pub fn ATA(comptime config: ATAConfig) type {
+    return account_mod.Account(TokenAccountData, .{
+        .discriminator = TOKEN_ACCOUNT_DISCRIMINATOR,
+        .mut = config.mut or config.init,
+        .associated_token = .{
+            .mint = config.mint,
+            .authority = config.authority,
+            .token_program = config.token_program,
+        },
+        .init = config.init,
+        .init_if_needed = config.init_if_needed,
+        .payer = config.payer,
+        .owner = config.owner,
+        .constraint = config.constraint,
+    });
+}
+
+pub const ATAConfig = struct {
+    /// Mint account field name (required)
+    mint: []const u8,
+    /// Authority/owner account field name (required)
+    authority: []const u8,
+    /// Token program field name (optional)
+    token_program: ?[]const u8 = null,
+    /// Account must be writable
+    mut: bool = false,
+    /// Initialize ATA
+    init: bool = false,
+    /// Initialize if needed (idempotent)
+    init_if_needed: bool = false,
+    /// Payer for init
+    payer: ?[]const u8 = null,
+    /// Expected owner
+    owner: ?PublicKey = null,
+    /// Custom constraint
+    constraint: ?[]const u8 = null,
+};
+
+// ============================================================================
+// Realloc Account - Dynamic Resizing
+// ============================================================================
+
+/// Account with dynamic resizing capability.
+///
+/// Usage:
+/// ```zig
+/// // Realloc with payer
+/// data_account: Realloc(MyData, .{
+///     .payer = "payer",
+///     .space = 1024,
+/// }),
+///
+/// // Zero-initialized realloc
+/// data_account: Realloc(MyData, .{
+///     .payer = "payer",
+///     .space = 1024,
+///     .zero_init = true,
+/// }),
+/// ```
+pub fn Realloc(comptime T: type, comptime config: ReallocConfig) type {
+    const disc_name = config.name orelse @typeName(T);
+    const discriminator = discriminator_mod.accountDiscriminator(disc_name);
+
+    const realloc_config = if (config.payer) |payer| blk: {
+        break :blk @import("realloc.zig").ReallocConfig{
+            .payer = payer,
+            .zero_init = config.zero_init,
+        };
+    } else null;
+
+    return account_mod.Account(T, .{
+        .discriminator = discriminator,
+        .mut = true, // realloc requires mut
+        .realloc = realloc_config,
+        .space = config.space,
+        .owner = config.owner,
+        .constraint = config.constraint,
+    });
+}
+
+pub const ReallocConfig = struct {
+    /// Payer account field name (required)
+    payer: ?[]const u8 = null,
+    /// New space size
+    space: ?usize = null,
+    /// Zero-initialize new space
+    zero_init: bool = false,
+    /// Custom discriminator name
+    name: ?[]const u8 = null,
+    /// Expected owner
+    owner: ?PublicKey = null,
+    /// Custom constraint
+    constraint: ?[]const u8 = null,
+};
+
+// ============================================================================
+// Optional Account Wrapper
+// ============================================================================
+
+/// Optional account that may or may not be present.
+///
+/// Usage:
+/// ```zig
+/// // Optional data account
+/// optional_config: Optional(Data(ConfigData, .{})),
+///
+/// // Optional signer
+/// co_signer: Optional(Signer(.{})),
+/// ```
+pub fn Optional(comptime T: type) type {
+    return ?T;
+}
+
+// ============================================================================
+// System Account - Lamport-only Account
+// ============================================================================
+
+/// System-owned account (no data, just lamports).
+///
+/// Usage:
+/// ```zig
+/// // Basic system account
+/// recipient: SystemAccount(.{}),
+///
+/// // Mutable system account
+/// recipient: SystemAccount(.mut),
+/// ```
+pub fn SystemAccount(comptime config: SystemAccountConfig) type {
+    if (config.mut) {
+        return signer_mod.SignerMut; // Use SignerMut for writable system accounts
+    }
+    // For read-only, use UncheckedAccount
+    return *const AccountInfo;
+}
+
+pub const SystemAccountConfig = struct {
+    mut: bool = false,
+
+    pub const mut = SystemAccountConfig{ .mut = true };
+};
+
+// ============================================================================
+// HasOne Constraint Helpers
+// ============================================================================
+
+/// Build has_one constraint list.
+///
+/// Usage:
+/// ```zig
+/// counter: Data(CounterData, .{
+///     .mut = true,
+///     .has_one = hasOneList(&.{ "authority", "mint" }),
+/// }),
+/// ```
+pub fn hasOneList(comptime fields: []const []const u8) []const @import("has_one.zig").HasOneSpec {
+    comptime var specs: [fields.len]@import("has_one.zig").HasOneSpec = undefined;
+    inline for (fields, 0..) |field, i| {
+        specs[i] = .{ .field = field, .target = field };
+    }
+    return specs[0..];
+}
+
+/// Build has_one constraint with different target.
+pub fn hasOneTarget(comptime field: []const u8, comptime target: []const u8) @import("has_one.zig").HasOneSpec {
+    return .{ .field = field, .target = target };
+}
+
+// ============================================================================
+// Convenience Type Aliases
+// ============================================================================
+
+/// Read-only data account (shorthand).
+pub fn ReadOnly(comptime T: type) type {
+    return Data(T, .{});
+}
+
+/// Mutable data account (shorthand).
+pub fn Mut(comptime T: type) type {
+    return Data(T, .mut);
+}
+
+/// Mutable PDA account (shorthand).
+pub fn MutPDA(comptime T: type, comptime seeds: []const SeedSpec) type {
+    return PDA(T, .{ .seeds = seeds, .mut = true });
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -554,4 +889,112 @@ test "Instruction definition" {
     try std.testing.expect(TestInstr.Accounts == TestAccounts);
     try std.testing.expect(TestInstr.Args == TestArgs);
     try std.testing.expectEqualStrings("test_instruction", TestInstr.instruction_name);
+}
+
+test "Data account type" {
+    const MyData = struct {
+        value: u64,
+    };
+
+    const DataAccount = Data(MyData, .{ .mut = true });
+    try std.testing.expect(DataAccount.HAS_MUT == true);
+    try std.testing.expect(DataAccount.DataType == MyData);
+}
+
+test "Init account type" {
+    const MyData = struct {
+        value: u64,
+    };
+
+    const InitAccount = Init(MyData, .{ .payer = "payer" });
+    try std.testing.expect(InitAccount.HAS_MUT == true);
+    try std.testing.expect(InitAccount.IS_INIT == true);
+    try std.testing.expect(InitAccount.IS_ZERO == true);
+}
+
+test "PDA account type" {
+    const MyData = struct {
+        value: u64,
+    };
+
+    const PDAAccount = PDA(MyData, .{
+        .seeds = &.{ seed("test"), seedAccount("user") },
+        .mut = true,
+    });
+    try std.testing.expect(PDAAccount.HAS_MUT == true);
+    try std.testing.expect(PDAAccount.SEEDS != null);
+}
+
+test "Close account type" {
+    const MyData = struct {
+        value: u64,
+    };
+
+    const CloseAccount = Close(MyData, .{ .destination = "receiver" });
+    try std.testing.expect(CloseAccount.HAS_MUT == true);
+    try std.testing.expect(CloseAccount.CLOSE != null);
+}
+
+test "Optional wrapper" {
+    const MyData = struct {
+        value: u64,
+    };
+
+    const OptData = Optional(Data(MyData, .{}));
+    const info = @typeInfo(OptData);
+    try std.testing.expect(info == .optional);
+}
+
+test "SystemAccount config" {
+    const MutSys = SystemAccount(.mut);
+    const ReadSys = SystemAccount(.{});
+
+    try std.testing.expect(MutSys == signer_mod.SignerMut);
+    try std.testing.expect(ReadSys == *const AccountInfo);
+}
+
+test "hasOneList helper" {
+    const specs = hasOneList(&.{ "authority", "mint" });
+    try std.testing.expect(specs.len == 2);
+    try std.testing.expectEqualStrings("authority", specs[0].field);
+    try std.testing.expectEqualStrings("mint", specs[1].field);
+}
+
+test "hasOneTarget helper" {
+    const spec = hasOneTarget("owner", "authority");
+    try std.testing.expectEqualStrings("owner", spec.field);
+    try std.testing.expectEqualStrings("authority", spec.target);
+}
+
+test "ReadOnly and Mut shortcuts" {
+    const MyData = struct {
+        value: u64,
+    };
+
+    const RO = ReadOnly(MyData);
+    const RW = Mut(MyData);
+
+    try std.testing.expect(RO.HAS_MUT == false);
+    try std.testing.expect(RW.HAS_MUT == true);
+}
+
+test "InstructionNoArgs" {
+    const TestAccounts = struct {
+        payer: signer_mod.SignerMut,
+    };
+
+    const TestInstr = InstructionNoArgs("test_no_args", TestAccounts);
+
+    try std.testing.expect(TestInstr.Args == void);
+    try std.testing.expectEqualStrings("test_no_args", TestInstr.instruction_name);
+}
+
+test "constraint helper" {
+    const expr = constraint("account.owner == authority");
+    try std.testing.expectEqualStrings("account.owner == authority", expr);
+}
+
+test "hasOne helper" {
+    const expr = hasOne("authority");
+    try std.testing.expectEqualStrings("authority == authority", expr);
 }

@@ -1,5 +1,11 @@
 # sol-anchor-zig Roadmap
 
+## ✅ v3.2.77 - Typed Constraint Pubkey Values
+
+- [x] Add pubkeyValue/pubkeyBytes helpers to typed constraints
+- [x] Add pubkey_bytes literal parsing
+- [x] Update docs and tests
+
 ## ✅ v3.2.76 - Typed Constraint Builder Enhancements
 
 - [x] Add pubkey literal helper for typed constraints

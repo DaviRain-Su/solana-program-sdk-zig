@@ -175,6 +175,41 @@ fn quoteLiteral(comptime value: []const u8) []const u8 {
     return "\"" ++ value ++ "\"";
 }
 
+fn hexEncode(comptime bytes: [32]u8) []const u8 {
+    const hex_chars = "0123456789abcdef";
+    comptime var out: [64]u8 = undefined;
+    comptime var i: usize = 0;
+    while (i < bytes.len) : (i += 1) {
+        const b = bytes[i];
+        out[i * 2] = hex_chars[b >> 4];
+        out[i * 2 + 1] = hex_chars[b & 0x0f];
+    }
+    return out[0..];
+}
+
+fn hexToNibble(comptime value: u8) u8 {
+    return switch (value) {
+        '0'...'9' => value - '0',
+        'a'...'f' => value - 'a' + 10,
+        'A'...'F' => value - 'A' + 10,
+        else => @compileError("constraint pubkey_bytes requires hex string"),
+    };
+}
+
+fn hexDecode32(comptime value: []const u8) [32]u8 {
+    if (value.len != 64) {
+        @compileError("constraint pubkey_bytes requires 64 hex chars");
+    }
+    comptime var out: [32]u8 = undefined;
+    comptime var i: usize = 0;
+    while (i < 32) : (i += 1) {
+        const hi = hexToNibble(value[i * 2]);
+        const lo = hexToNibble(value[i * 2 + 1]);
+        out[i] = (hi << 4) | lo;
+    }
+    return out;
+}
+
 /// Typed constraint expression builder.
 pub const constraint_typed = struct {
     pub fn field(comptime name: []const u8) ConstraintExpr {
@@ -195,6 +230,14 @@ pub const constraint_typed = struct {
 
     pub fn pubkey(comptime base58: []const u8) ConstraintExpr {
         return .{ .expr = "pubkey(" ++ quoteLiteral(base58) ++ ")" };
+    }
+
+    pub fn pubkeyBytes(comptime bytes: [32]u8) ConstraintExpr {
+        return .{ .expr = "pubkey_bytes(" ++ quoteLiteral(hexEncode(bytes)) ++ ")" };
+    }
+
+    pub fn pubkeyValue(comptime key: PublicKey) ConstraintExpr {
+        return pubkeyBytes(key.bytes);
     }
 };
 
@@ -528,6 +571,14 @@ const ExprParser = struct {
             self.expectChar(')');
             const key = comptime PublicKey.comptimeFromBase58(encoded);
             return self.addNode(.{ .value = .{ .pubkey = key.bytes } });
+        }
+        if (std.mem.eql(u8, ident, "pubkey_bytes") and self.consumeChar('(')) {
+            self.skipWs();
+            const encoded = self.parseStringLiteral();
+            self.skipWs();
+            self.expectChar(')');
+            const bytes = comptime hexDecode32(encoded);
+            return self.addNode(.{ .value = .{ .pubkey = bytes } });
         }
         if (self.consumeChar('(')) {
             return self.parseCall(ident);
@@ -1787,6 +1838,10 @@ test "constraint typed builder emits valid expressions" {
 
     const key_expr = c.field("authority").eq(c.pubkey("11111111111111111111111111111111"));
     try validateConstraintExpr(key_expr.expr, "authority", accounts);
+
+    const direct_key = c.pubkeyValue(PublicKey.comptimeFromBase58("11111111111111111111111111111111"));
+    const direct_expr = c.field("authority").eq(direct_key);
+    try validateConstraintExpr(direct_expr.expr, "authority", accounts);
 
     const typed_expr = c.field("label").asBytes().len().eq(c.int_(3));
     try validateConstraintExpr(typed_expr.expr, "label", accounts);

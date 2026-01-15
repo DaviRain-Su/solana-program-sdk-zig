@@ -521,6 +521,17 @@ const Counter = anchor.Account(CounterData, .{
 });
 ```
 
+You can also build pubkeys from compile-time PublicKey values:
+
+```zig
+const c = anchor.constraint_typed;
+const program_id = sol.PublicKey.comptimeFromBase58("11111111111111111111111111111111");
+const Counter = anchor.Account(CounterData, .{
+    .discriminator = anchor.accountDiscriminator("Counter"),
+    .constraint = c.field("authority").eq(c.pubkeyValue(program_id)),
+});
+```
+
 
 ## Stake Wrappers + CPI Helpers
 

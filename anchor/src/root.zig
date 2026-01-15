@@ -245,6 +245,9 @@ pub const Interface = interface.Interface;
 /// SPL Token account wrappers and CPI helpers
 pub const token = @import("token.zig");
 
+/// SPL Associated Token Account CPI helpers
+pub const associated_token = @import("associated_token.zig");
+
 /// Token account wrapper
 pub const TokenAccount = token.TokenAccount;
 
@@ -945,6 +948,7 @@ test "anchor module exports" {
     _ = Sysvar;
     _ = SysvarData;
     _ = token;
+    _ = associated_token;
     _ = memo;
     _ = stake;
     _ = TokenAccount;

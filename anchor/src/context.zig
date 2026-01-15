@@ -725,10 +725,9 @@ pub fn validatePhase3Constraints(comptime Accounts: type, accounts: *const Accou
 
     inline for (fields) |field| {
         const FieldType = field.type;
-        const account = @field(accounts.*, field.name);
-
         // Check if this field type has Phase 3 constraint validation
         if (@hasDecl(FieldType, "validateAllConstraints")) {
+            const account = &@field(accounts.*, field.name);
             try account.validateAllConstraints(field.name, accounts.*);
         }
     }

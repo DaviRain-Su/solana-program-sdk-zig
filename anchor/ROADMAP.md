@@ -1,5 +1,11 @@
 # sol-anchor-zig Roadmap
 
+## ✅ v3.2.66 - ATA Init/Payer Semantics
+
+- [x] Add associated token CPI helpers
+- [x] Add ATA init/if_needed support in typed DSL
+- [x] Update docs and examples
+
 ## ✅ v3.2.65 - SPL Memo + Stake Wrappers
 
 - [x] Add `anchor.memo` CPI helpers for memo program

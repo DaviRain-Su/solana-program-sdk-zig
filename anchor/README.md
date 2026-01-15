@@ -303,6 +303,26 @@ fn send(ctx: anchor.Context(TransferAccounts), amount: u64) !void {
 }
 ```
 
+For ATA init/payer semantics, use the ATA marker with `if_needed` (idempotent)
+and include the associated token program and system program accounts.
+
+```zig
+const Accounts = anchor.typed.Accounts(.{
+    .payer = anchor.typed.SignerMut,
+    .authority = anchor.typed.Signer,
+    .mint = anchor.typed.Mint(.{ .authority = .authority }),
+    .ata = anchor.typed.ATA(.{
+        .mint = .mint,
+        .authority = .authority,
+        .payer = .payer,
+        .if_needed = true,
+    }),
+    .system_program = anchor.typed.SystemProgram,
+    .token_program = anchor.typed.TokenProgram,
+    .associated_token_program = anchor.typed.AssociatedTokenProgram,
+});
+```
+
 ## Memo CPI Helper
 
 Use `anchor.memo` to emit Memo program instructions from your program.

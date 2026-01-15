@@ -10,6 +10,8 @@
 const std = @import("std");
 const sol = @import("solana_program_sdk");
 const account_mod = @import("account.zig");
+const associated_token_mod = @import("associated_token.zig");
+const init_mod = @import("init.zig");
 
 const AccountInfo = sol.account.Account.Info;
 const AccountParam = sol.account.Account.Param;
@@ -72,6 +74,25 @@ fn resolveKey(comptime field_name: []const u8, accounts: anytype) *const PublicK
     @compileError("constraint target must have key() or be AccountInfo: " ++ field_name);
 }
 
+fn resolveAccountInfo(comptime field_name: []const u8, accounts: anytype) *const AccountInfo {
+    const target = @field(accounts, field_name);
+    const TargetType = @TypeOf(target);
+    if (@typeInfo(TargetType) == .pointer) {
+        const ChildType = @typeInfo(TargetType).pointer.child;
+        if (ChildType == AccountInfo) {
+            return target;
+        }
+        if (@hasDecl(ChildType, "toAccountInfo")) {
+            return target.toAccountInfo();
+        }
+        @compileError("account field must be AccountInfo or type with toAccountInfo(): " ++ field_name);
+    }
+    if (@hasDecl(TargetType, "toAccountInfo")) {
+        return target.toAccountInfo();
+    }
+    @compileError("account field must be AccountInfo or type with toAccountInfo(): " ++ field_name);
+}
+
 // ============================================================================
 // TokenAccount Wrapper
 // ============================================================================
@@ -86,10 +107,35 @@ pub const TokenAccountConfig = struct {
     authority: ?[]const u8 = null,
     associated: ?AssociatedTokenConfig = null,
     allow_extensions: bool = true,
+    init: bool = false,
+    init_if_needed: bool = false,
+    payer: ?[]const u8 = null,
+    system_program: ?[]const u8 = null,
+    associated_token_program: ?[]const u8 = null,
 };
 
 /// Token account wrapper.
 pub fn TokenAccount(comptime config: TokenAccountConfig) type {
+    comptime {
+        if (config.init or config.init_if_needed) {
+            if (config.associated == null) {
+                @compileError("TokenAccount init requires associated token config");
+            }
+            if (config.payer == null) {
+                @compileError("TokenAccount init requires payer field name");
+            }
+            if (config.system_program == null) {
+                @compileError("TokenAccount init requires system_program field name");
+            }
+            if (config.associated_token_program == null) {
+                @compileError("TokenAccount init requires associated_token_program field name");
+            }
+            if (config.token_program == null) {
+                @compileError("TokenAccount init requires token_program field name");
+            }
+        }
+    }
+
     return struct {
         const Self = @This();
 
@@ -101,6 +147,22 @@ pub fn TokenAccount(comptime config: TokenAccountConfig) type {
 
         /// Load and validate a token account from AccountInfo.
         pub fn load(info: *const AccountInfo) !Self {
+            const init_enabled = config.init or config.init_if_needed;
+            if (init_enabled and init_mod.isUninitialized(info)) {
+                if (config.address) |addr| {
+                    if (!info.id.equals(addr)) {
+                        return error.ConstraintAddress;
+                    }
+                }
+                if (config.mut and info.is_writable == 0) {
+                    return error.ConstraintMut;
+                }
+                if (config.signer and info.is_signer == 0) {
+                    return error.ConstraintSigner;
+                }
+                return Self{ .info = info, .data = std.mem.zeroes(token_state.Account) };
+            }
+
             if (config.address) |addr| {
                 if (!info.id.equals(addr)) {
                     return error.ConstraintAddress;
@@ -140,7 +202,7 @@ pub fn TokenAccount(comptime config: TokenAccountConfig) type {
         }
 
         /// Validate runtime constraints that depend on other accounts.
-        pub fn validateAllConstraints(self: Self, comptime account_name: []const u8, accounts: anytype) !void {
+        pub fn validateAllConstraints(self: *Self, comptime account_name: []const u8, accounts: anytype) !void {
             _ = account_name;
             const associated_token_program_id = comptime PublicKey.comptimeFromBase58(
                 "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
@@ -152,20 +214,76 @@ pub fn TokenAccount(comptime config: TokenAccountConfig) type {
             else
                 default_token_program;
 
+            const init_enabled = config.init or config.init_if_needed;
+            if (init_enabled) {
+                const uninitialized = init_mod.isUninitialized(self.info);
+                if (!uninitialized and !config.init_if_needed) {
+                    return error.ConstraintAssociatedInit;
+                }
+                if (uninitialized) {
+                    if (self.info.is_writable == 0) {
+                        return error.ConstraintAssociatedInit;
+                    }
+                    const payer_info = resolveAccountInfo(config.payer.?, accounts);
+                    if (payer_info.is_signer == 0 or payer_info.is_writable == 0) {
+                        return error.ConstraintAssociatedInit;
+                    }
+                    const system_program_info = resolveAccountInfo(config.system_program.?, accounts);
+                    const associated_token_program_info = resolveAccountInfo(config.associated_token_program.?, accounts);
+                    const token_program_info = resolveAccountInfo(config.token_program.?, accounts);
+
+                    const cpi_err = if (config.init_if_needed)
+                        associated_token_mod.createIdempotent(
+                            associated_token_program_info,
+                            payer_info,
+                            self.info,
+                            resolveAccountInfo(config.associated.?.authority, accounts),
+                            resolveAccountInfo(config.associated.?.mint, accounts),
+                            system_program_info,
+                            token_program_info,
+                            null,
+                        )
+                    else
+                        associated_token_mod.create(
+                            associated_token_program_info,
+                            payer_info,
+                            self.info,
+                            resolveAccountInfo(config.associated.?.authority, accounts),
+                            resolveAccountInfo(config.associated.?.mint, accounts),
+                            system_program_info,
+                            token_program_info,
+                            null,
+                        );
+                    if (cpi_err != null) {
+                        return error.ConstraintAssociatedInit;
+                    }
+                }
+            }
+
             if (!self.info.owner_id.equals(token_program_key)) {
                 return error.ConstraintOwner;
             }
 
+            const token_account = if (config.allow_extensions)
+                token_state.Account.unpackUnchecked(self.info.data[0..self.info.data_len]) catch {
+                    return error.ConstraintTokenOwner;
+                }
+            else
+                token_state.Account.unpackFromSlice(self.info.data[0..self.info.data_len]) catch {
+                    return error.ConstraintTokenOwner;
+                };
+            self.data = token_account;
+
             if (config.mint) |field_name| {
                 const mint_key = resolveKey(field_name, accounts).*;
-                if (!self.data.mint.equals(mint_key)) {
+                if (!token_account.mint.equals(mint_key)) {
                     return error.ConstraintTokenMint;
                 }
             }
 
             if (config.authority) |field_name| {
                 const owner_key = resolveKey(field_name, accounts).*;
-                if (!self.data.owner.equals(owner_key)) {
+                if (!token_account.owner.equals(owner_key)) {
                     return error.ConstraintTokenOwner;
                 }
             }
@@ -181,10 +299,10 @@ pub fn TokenAccount(comptime config: TokenAccountConfig) type {
                 if (!self.info.owner_id.equals(token_program_key_associated)) {
                     return error.ConstraintOwner;
                 }
-                if (!self.data.owner.equals(authority_key)) {
+                if (!token_account.owner.equals(authority_key)) {
                     return error.ConstraintTokenOwner;
                 }
-                if (!self.data.mint.equals(mint_key)) {
+                if (!token_account.mint.equals(mint_key)) {
                     return error.ConstraintAssociated;
                 }
 
@@ -709,6 +827,35 @@ test "TokenAccount load parses data" {
     };
 
     const Wrapper = TokenAccount(.{});
+    _ = try Wrapper.load(&info);
+}
+
+test "TokenAccount load allows uninitialized init" {
+    var owner = sol.system_program.id;
+    var account_id = PublicKey.default();
+    var lamports: u64 = 0;
+    var data: [0]u8 = undefined;
+
+    const info = AccountInfo{
+        .id = &account_id,
+        .owner_id = &owner,
+        .lamports = &lamports,
+        .data_len = 0,
+        .data = &data,
+        .is_signer = 0,
+        .is_writable = 1,
+        .is_executable = 0,
+        .rent_epoch = 0,
+    };
+
+    const Wrapper = TokenAccount(.{
+        .associated = .{ .mint = "mint", .authority = "authority" },
+        .init = true,
+        .payer = "payer",
+        .system_program = "system_program",
+        .associated_token_program = "associated_token_program",
+        .token_program = "token_program",
+    });
     _ = try Wrapper.load(&info);
 }
 

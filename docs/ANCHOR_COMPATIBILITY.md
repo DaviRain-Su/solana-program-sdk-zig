@@ -30,6 +30,7 @@ const sol = anchor.sdk;
 - InterfaceProgram/InterfaceAccount wrappers and Interface CPI builder (remaining accounts + AccountMeta support + invoke helpers + rent_exempt + meta merge + unchecked program variants)
 - Memo CPI helpers (`anchor.memo`)
 - Stake CPI helpers and StakeAccount wrapper (`anchor.stake`, `anchor.StakeAccount`)
+- ATA init/payer semantics via `anchor.typed.ATA` + `anchor.associated_token`
 
 ## Not Implemented Yet
 
@@ -70,6 +71,7 @@ const sol = anchor.sdk;
 | Memo CPI helpers | `anchor_spl::memo::*` | `anchor.memo.*` | ✅ |
 | Stake account wrapper | `StakeAccount` | `anchor.StakeAccount(.{})` | ✅ |
 | Stake CPI helpers | `anchor_spl::stake::*` | `anchor.stake.*` | ✅ |
+| ATA init | `associated_token::create` | `anchor.typed.ATA` + `anchor.associated_token` | ✅ |
 | Sysvar parsing | `Sysvar<'info, T>` | `anchor.SysvarData(T)` | ✅ |
 
 ## Example

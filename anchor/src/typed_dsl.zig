@@ -447,14 +447,50 @@ pub fn ATA(comptime config: anytype) type {
             const authority_name = resolveFieldRef(config.authority);
             const token_program_name = if (@hasField(@TypeOf(config), "token_program"))
                 resolveFieldRefOpt(config.token_program)
+            else if (@hasField(AccountsType, "token_program"))
+                "token_program"
             else
                 null;
+            const system_program_name = if (@hasField(@TypeOf(config), "system_program"))
+                resolveFieldRefOpt(config.system_program)
+            else if (@hasField(AccountsType, "system_program"))
+                "system_program"
+            else
+                null;
+            const associated_token_program_name = if (@hasField(@TypeOf(config), "associated_token_program"))
+                resolveFieldRefOpt(config.associated_token_program)
+            else if (@hasField(AccountsType, "associated_token_program"))
+                "associated_token_program"
+            else if (@hasField(AccountsType, "ata_program"))
+                "ata_program"
+            else
+                null;
+            const init_if_needed = if (@hasField(@TypeOf(config), "if_needed")) config.if_needed else false;
+            const init_enabled = if (@hasField(@TypeOf(config), "init")) config.init else init_if_needed;
 
             if (!@hasField(AccountsType, mint_name)) {
                 @compileError("mint field '" ++ mint_name ++ "' not found in Accounts");
             }
             if (!@hasField(AccountsType, authority_name)) {
                 @compileError("authority field '" ++ authority_name ++ "' not found in Accounts");
+            }
+            if (init_enabled) {
+                const payer_name = if (@hasField(@TypeOf(config), "payer"))
+                    resolveFieldRef(config.payer)
+                else
+                    @compileError("ATA init requires .payer field");
+                if (!@hasField(AccountsType, payer_name)) {
+                    @compileError("payer field '" ++ payer_name ++ "' not found in Accounts");
+                }
+                if (token_program_name == null) {
+                    @compileError("ATA init requires token_program field in Accounts");
+                }
+                if (system_program_name == null) {
+                    @compileError("ATA init requires system_program field in Accounts");
+                }
+                if (associated_token_program_name == null) {
+                    @compileError("ATA init requires associated_token_program or ata_program field in Accounts");
+                }
             }
 
             return token_mod.TokenAccount(.{
@@ -465,6 +501,11 @@ pub fn ATA(comptime config: anytype) type {
                     .authority = authority_name,
                     .token_program = token_program_name,
                 },
+                .init = init_enabled,
+                .init_if_needed = init_if_needed,
+                .payer = if (init_enabled) resolveFieldRef(config.payer) else null,
+                .system_program = system_program_name,
+                .associated_token_program = associated_token_program_name,
             });
         }
     };

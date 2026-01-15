@@ -2,6 +2,19 @@
 
 All notable changes to sol-anchor-zig will be documented in this file.
 
+### Session 2026-01-15-016
+
+**Date**: 2026-01-15
+**Goal**: Add ATA init/payer semantics
+
+#### Completed Work
+1. Added associated token CPI helpers
+2. Added ATA init/if_needed config + validation in TokenAccount/typed DSL
+3. Updated docs and examples
+
+#### Test Results
+- `./solana-zig/zig build test --summary all`
+
 ### Session 2026-01-15-015
 
 **Date**: 2026-01-15

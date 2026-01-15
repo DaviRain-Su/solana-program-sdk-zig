@@ -46,7 +46,7 @@ pub const CounterData = struct {
 /// - system_program: System program for CPI
 pub const Initialize = simple.Instruction("initialize", struct {
     /// Signer who pays for account creation
-    payer: simple.Signer(.mut),
+    payer: simple.Signer(.{ .mut = true }),
 
     /// Counter account to initialize (auto: mut + init + zero)
     counter: simple.Init(CounterData, .{

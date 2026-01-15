@@ -22,7 +22,7 @@
 //! // Define instruction with inline constraints
 //! const Initialize = dsl.Instruction("initialize", struct {
 //!     // Signer who pays for account creation
-//!     payer: dsl.Signer(.mut),
+//!     payer: dsl.Signer(.{ .mut = true }),
 //!     // Counter account to initialize (mut + init + payer)
 //!     counter: dsl.Init(CounterData, .{ .payer = "payer" }),
 //!     // System program for CPI
@@ -61,8 +61,8 @@ const AccountInfo = sol.account.Account.Info;
 ///
 /// Usage:
 /// ```zig
-/// payer: Signer(.mut),      // Mutable signer
-/// authority: Signer(.{}),   // Immutable signer
+/// payer: Signer(.{ .mut = true }),  // Mutable signer
+/// authority: Signer(.{}),            // Immutable signer
 /// ```
 pub fn Signer(comptime config: SignerConfig) type {
     if (config.mut) {
@@ -74,7 +74,8 @@ pub fn Signer(comptime config: SignerConfig) type {
 pub const SignerConfig = struct {
     mut: bool = false,
 
-    pub const mut = SignerConfig{ .mut = true };
+    /// Preset for mutable signer
+    pub const mutable = SignerConfig{ .mut = true };
 };
 
 /// Program account for CPI.
@@ -166,8 +167,9 @@ pub const DataConfig = struct {
     /// Custom constraint expression
     constraint: ?[]const u8 = null,
 
-    // Convenience presets
-    pub const mut = DataConfig{ .mut = true };
+    /// Preset for mutable account
+    pub const mutable = DataConfig{ .mut = true };
+    /// Preset for readonly account
     pub const readonly = DataConfig{};
 };
 
@@ -280,7 +282,8 @@ pub const PDAConfig = struct {
     /// Custom constraint
     constraint: ?[]const u8 = null,
 
-    pub const mut = PDAConfig{ .seeds = &.{}, .mut = true };
+    /// Preset for mutable PDA
+    pub const mutable = PDAConfig{ .seeds = &.{}, .mut = true };
 };
 
 // ============================================================================
@@ -351,8 +354,8 @@ pub fn seedBump(comptime account_field: []const u8) SeedSpec {
 /// Usage:
 /// ```zig
 /// const Transfer = Instruction("transfer", struct {
-///     from: Data(TokenAccount, .mut),
-///     to: Data(TokenAccount, .mut),
+///     from: Data(TokenAccount, .{ .mut = true }),
+///     to: Data(TokenAccount, .{ .mut = true }),
 ///     authority: Signer(.{}),
 /// }, struct {
 ///     amount: u64,
@@ -398,26 +401,36 @@ pub fn InstructionNoArgs(
 ///
 /// Usage:
 /// ```zig
-/// const MyProgram = DefineProgram(.{
-///     .id = my_program_id,
-///     .instructions = .{
+/// const MyProgram = DefineProgram(
+///     my_program_id,
+///     .{
 ///         .initialize = Initialize,
 ///         .transfer = Transfer,
 ///         .close = CloseInstruction,
 ///     },
-/// });
+///     .{
+///         .initialize = initializeHandler,
+///         .transfer = transferHandler,
+///         .close = closeHandler,
+///     },
+/// );
 ///
 /// // Entry point
 /// pub const entry = MyProgram.entrypoint;
 /// ```
-pub fn DefineProgram(comptime config: ProgramConfig) type {
+pub fn DefineProgram(
+    comptime program_id: PublicKey,
+    comptime instructions_def: anytype,
+    comptime handlers_def: anytype,
+) type {
     return struct {
-        pub const id = config.id;
-        pub const instructions = config.instructions;
+        pub const id = program_id;
+        pub const instructions = instructions_def;
+        pub const handlers = handlers_def;
 
         /// Process instruction entrypoint.
         pub fn entrypoint(
-            program_id: *PublicKey,
+            prog_id: *PublicKey,
             accounts: []sol.Account,
             data: []const u8,
         ) sol.ProgramResult {
@@ -428,26 +441,26 @@ pub fn DefineProgram(comptime config: ProgramConfig) type {
                 infos[i] = acc.info().*;
             }
 
-            dispatch(program_id, infos[0..count], data) catch |err| {
+            dispatch(prog_id, infos[0..count], data) catch |err| {
                 return .{ .err = mapError(err) };
             };
             return .ok;
         }
 
         fn dispatch(
-            program_id: *const PublicKey,
+            prog_id: *const PublicKey,
             accounts: []const AccountInfo,
             data: []const u8,
         ) !void {
-            _ = program_id;
+            _ = prog_id;
             if (data.len < discriminator_mod.DISCRIMINATOR_LENGTH) {
                 return error.InstructionMissing;
             }
 
             const disc = data[0..discriminator_mod.DISCRIMINATOR_LENGTH];
 
-            inline for (@typeInfo(@TypeOf(config.instructions)).@"struct".fields) |field| {
-                const InstrType = @field(config.instructions, field.name);
+            inline for (@typeInfo(@TypeOf(instructions_def)).@"struct".fields) |field| {
+                const InstrType = @field(instructions_def, field.name);
                 if (@TypeOf(InstrType) != type) continue;
                 if (!@hasDecl(InstrType, "discriminator")) continue;
 
@@ -456,16 +469,16 @@ pub fn DefineProgram(comptime config: ProgramConfig) type {
                     const ctx = try context_mod.parseContext(InstrType.Accounts, &id, accounts);
 
                     if (InstrType.Args == void) {
-                        // Call handler from config.handlers
-                        if (@hasField(@TypeOf(config.handlers), field.name)) {
-                            const handler = @field(config.handlers, field.name);
+                        // Call handler from handlers_def
+                        if (@hasField(@TypeOf(handlers_def), field.name)) {
+                            const handler = @field(handlers_def, field.name);
                             return handler(ctx);
                         }
                     } else {
                         const args_data = data[discriminator_mod.DISCRIMINATOR_LENGTH..];
                         const args = try sol.borsh.deserialize(InstrType.Args, args_data);
-                        if (@hasField(@TypeOf(config.handlers), field.name)) {
-                            const handler = @field(config.handlers, field.name);
+                        if (@hasField(@TypeOf(handlers_def), field.name)) {
+                            const handler = @field(handlers_def, field.name);
                             return handler(ctx, args);
                         }
                     }
@@ -482,12 +495,6 @@ pub fn DefineProgram(comptime config: ProgramConfig) type {
         }
     };
 }
-
-pub const ProgramConfig = struct {
-    id: PublicKey,
-    instructions: anytype,
-    handlers: anytype = .{},
-};
 
 // ============================================================================
 // Constraint Expression Helpers
@@ -565,7 +572,8 @@ pub const TokenConfig = struct {
     /// Custom constraint
     constraint: ?[]const u8 = null,
 
-    pub const mut = TokenConfig{ .mint = "", .authority = "", .mut = true };
+    /// Preset for mutable token account
+    pub const mutable = TokenConfig{ .mint = "", .authority = "", .mut = true };
 };
 
 /// Token account data structure (SPL Token).
@@ -631,7 +639,8 @@ pub const MintConfig = struct {
     /// Custom constraint
     constraint: ?[]const u8 = null,
 
-    pub const mut = MintConfig{ .authority = "", .mut = true };
+    /// Preset for mutable mint account
+    pub const mutable = MintConfig{ .authority = "", .mut = true };
 };
 
 /// Mint account data structure (SPL Token).
@@ -788,11 +797,11 @@ pub fn Optional(comptime T: type) type {
 ///
 /// Usage:
 /// ```zig
-/// // Basic system account
+/// // Basic system account (read-only)
 /// recipient: SystemAccount(.{}),
 ///
 /// // Mutable system account
-/// recipient: SystemAccount(.mut),
+/// recipient: SystemAccount(.{ .mut = true }),
 /// ```
 pub fn SystemAccount(comptime config: SystemAccountConfig) type {
     if (config.mut) {
@@ -805,7 +814,8 @@ pub fn SystemAccount(comptime config: SystemAccountConfig) type {
 pub const SystemAccountConfig = struct {
     mut: bool = false,
 
-    pub const mut = SystemAccountConfig{ .mut = true };
+    /// Preset for mutable system account
+    pub const mutable = SystemAccountConfig{ .mut = true };
 };
 
 // ============================================================================
@@ -845,7 +855,7 @@ pub fn ReadOnly(comptime T: type) type {
 
 /// Mutable data account (shorthand).
 pub fn Mut(comptime T: type) type {
-    return Data(T, .mut);
+    return Data(T, .{ .mut = true });
 }
 
 /// Mutable PDA account (shorthand).
@@ -858,7 +868,7 @@ pub fn MutPDA(comptime T: type, comptime seeds: []const SeedSpec) type {
 // ============================================================================
 
 test "Signer config" {
-    const MutSigner = Signer(.mut);
+    const MutSigner = Signer(.{ .mut = true });
     const ImmutSigner = Signer(.{});
 
     try std.testing.expect(MutSigner == signer_mod.SignerMut);
@@ -946,7 +956,7 @@ test "Optional wrapper" {
 }
 
 test "SystemAccount config" {
-    const MutSys = SystemAccount(.mut);
+    const MutSys = SystemAccount(.{ .mut = true });
     const ReadSys = SystemAccount(.{});
 
     try std.testing.expect(MutSys == signer_mod.SignerMut);

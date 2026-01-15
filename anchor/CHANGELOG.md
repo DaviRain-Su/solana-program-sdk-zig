@@ -16,6 +16,20 @@ All notable changes to sol-anchor-zig will be documented in this file.
 #### Test Results
 - Not run in this session (user-reported: anchor 195/195, sdk 363/363)
 
+### Session 2026-01-15-013
+
+**Date**: 2026-01-15
+**Goal**: Add token helpers, system account wrappers, and sysvar parsing
+
+#### Completed Work
+1. Added SPL token wrappers and token CPI helpers
+2. Added SystemAccount wrappers
+3. Added SysvarData parsing helper
+4. Updated docs and examples
+
+#### Test Results
+- Not run in this session
+
 ### Session 2026-01-13-011
 
 **Date**: 2026-01-13

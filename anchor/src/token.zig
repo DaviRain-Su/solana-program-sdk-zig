@@ -1,0 +1,731 @@
+//! Anchor-style SPL Token helpers and wrappers.
+//!
+//! Provides TokenAccount/Mint wrappers and CPI helpers mirroring anchor_spl::token.
+//!
+//! Rust sources:
+//! - https://github.com/coral-xyz/anchor/blob/master/spl/src/token.rs
+//! - https://github.com/solana-labs/solana-program-library/blob/master/token/program/src/instruction.rs
+//! - https://github.com/solana-labs/solana-program-library/blob/master/token/program/src/state.rs
+
+const std = @import("std");
+const sol = @import("solana_program_sdk");
+const account_mod = @import("account.zig");
+
+const AccountInfo = sol.account.Account.Info;
+const AccountParam = sol.account.Account.Param;
+const AccountMeta = sol.instruction.AccountMeta;
+const Instruction = sol.instruction.Instruction;
+const PublicKey = sol.PublicKey;
+const token_instruction = sol.spl.token.instruction;
+const token_state = sol.spl.token.state;
+const AssociatedTokenConfig = account_mod.AssociatedTokenConfig;
+
+/// Token program id (SPL Token 1.0).
+pub const TOKEN_PROGRAM_ID = sol.spl.TOKEN_PROGRAM_ID;
+
+/// CPI helper errors.
+pub const TokenCpiError = error{
+    InvokeFailed,
+    InvalidSignerCount,
+};
+
+fn invokeInstruction(
+    ix: *const Instruction,
+    infos: []const AccountInfo,
+    signer_seeds: ?[]const []const []const u8,
+) TokenCpiError!void {
+    const result = if (signer_seeds) |seeds|
+        ix.invokeSigned(infos, seeds)
+    else
+        ix.invoke(infos);
+    if (result != null) {
+        return TokenCpiError.InvokeFailed;
+    }
+}
+
+fn buildParams(comptime N: usize, metas: *const [N]AccountMeta) [N]AccountParam {
+    var params: [N]AccountParam = undefined;
+    inline for (metas.*, 0..) |*meta, i| {
+        params[i] = sol.instruction.accountMetaToParam(meta);
+    }
+    return params;
+}
+
+fn resolveKey(comptime field_name: []const u8, accounts: anytype) *const PublicKey {
+    const target = @field(accounts, field_name);
+    const TargetType = @TypeOf(target);
+    if (TargetType == *const AccountInfo) {
+        return target.id;
+    }
+    if (@hasDecl(TargetType, "key")) {
+        return target.key();
+    }
+    if (@typeInfo(TargetType) == .pointer and @hasDecl(@typeInfo(TargetType).pointer.child, "key")) {
+        return target.*.key();
+    }
+    @compileError("constraint target must have key() or be AccountInfo: " ++ field_name);
+}
+
+// ============================================================================
+// TokenAccount Wrapper
+// ============================================================================
+
+/// Token account wrapper configuration.
+pub const TokenAccountConfig = struct {
+    mut: bool = false,
+    signer: bool = false,
+    address: ?PublicKey = null,
+    token_program: ?[]const u8 = null,
+    mint: ?[]const u8 = null,
+    authority: ?[]const u8 = null,
+    associated: ?AssociatedTokenConfig = null,
+    allow_extensions: bool = true,
+};
+
+/// Token account wrapper.
+pub fn TokenAccount(comptime config: TokenAccountConfig) type {
+    return struct {
+        const Self = @This();
+
+        info: *const AccountInfo,
+        data: token_state.Account,
+
+        pub const HAS_MUT: bool = config.mut;
+        pub const HAS_SIGNER: bool = config.signer;
+
+        /// Load and validate a token account from AccountInfo.
+        pub fn load(info: *const AccountInfo) !Self {
+            if (config.address) |addr| {
+                if (!info.id.equals(addr)) {
+                    return error.ConstraintAddress;
+                }
+            }
+            if (config.mut and info.is_writable == 0) {
+                return error.ConstraintMut;
+            }
+            if (config.signer and info.is_signer == 0) {
+                return error.ConstraintSigner;
+            }
+
+            if (config.token_program == null and !info.owner_id.equals(TOKEN_PROGRAM_ID)) {
+                return error.ConstraintOwner;
+            }
+
+            const data = if (config.allow_extensions)
+                token_state.Account.unpackUnchecked(info.data[0..info.data_len]) catch {
+                    return error.AccountDidNotDeserialize;
+                }
+            else
+                token_state.Account.unpackFromSlice(info.data[0..info.data_len]) catch {
+                    return error.AccountDidNotDeserialize;
+                };
+
+            return Self{ .info = info, .data = data };
+        }
+
+        /// Return the account public key.
+        pub fn key(self: Self) *const PublicKey {
+            return self.info.id;
+        }
+
+        /// Return the underlying AccountInfo.
+        pub fn toAccountInfo(self: Self) *const AccountInfo {
+            return self.info;
+        }
+
+        /// Validate runtime constraints that depend on other accounts.
+        pub fn validateAllConstraints(self: Self, comptime account_name: []const u8, accounts: anytype) !void {
+            _ = account_name;
+            const associated_token_program_id = comptime PublicKey.comptimeFromBase58(
+                "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+            );
+
+            const default_token_program = TOKEN_PROGRAM_ID;
+            const token_program_key = if (config.token_program) |field_name|
+                resolveKey(field_name, accounts).*
+            else
+                default_token_program;
+
+            if (!self.info.owner_id.equals(token_program_key)) {
+                return error.ConstraintOwner;
+            }
+
+            if (config.mint) |field_name| {
+                const mint_key = resolveKey(field_name, accounts).*;
+                if (!self.data.mint.equals(mint_key)) {
+                    return error.ConstraintTokenMint;
+                }
+            }
+
+            if (config.authority) |field_name| {
+                const owner_key = resolveKey(field_name, accounts).*;
+                if (!self.data.owner.equals(owner_key)) {
+                    return error.ConstraintTokenOwner;
+                }
+            }
+
+            if (config.associated) |cfg| {
+                const authority_key = resolveKey(cfg.authority, accounts).*;
+                const mint_key = resolveKey(cfg.mint, accounts).*;
+                const token_program_key_associated = if (cfg.token_program) |field_name|
+                    resolveKey(field_name, accounts).*
+                else
+                    default_token_program;
+
+                if (!self.info.owner_id.equals(token_program_key_associated)) {
+                    return error.ConstraintOwner;
+                }
+                if (!self.data.owner.equals(authority_key)) {
+                    return error.ConstraintTokenOwner;
+                }
+                if (!self.data.mint.equals(mint_key)) {
+                    return error.ConstraintAssociated;
+                }
+
+                const seeds = .{ &authority_key.bytes, &token_program_key_associated.bytes, &mint_key.bytes };
+                const derived = PublicKey.findProgramAddress(seeds, associated_token_program_id) catch {
+                    return error.ConstraintAssociated;
+                };
+                if (!self.info.id.equals(derived.address)) {
+                    return error.ConstraintAssociated;
+                }
+            }
+        }
+    };
+}
+
+// ============================================================================
+// Mint Wrapper
+// ============================================================================
+
+/// Mint account wrapper configuration.
+pub const MintConfig = struct {
+    mut: bool = false,
+    signer: bool = false,
+    address: ?PublicKey = null,
+    token_program: ?[]const u8 = null,
+    authority: ?[]const u8 = null,
+    freeze_authority: ?[]const u8 = null,
+    decimals: ?u8 = null,
+    allow_extensions: bool = true,
+};
+
+/// Mint account wrapper.
+pub fn Mint(comptime config: MintConfig) type {
+    return struct {
+        const Self = @This();
+
+        info: *const AccountInfo,
+        data: token_state.Mint,
+
+        pub const HAS_MUT: bool = config.mut;
+        pub const HAS_SIGNER: bool = config.signer;
+
+        /// Load and validate a mint account from AccountInfo.
+        pub fn load(info: *const AccountInfo) !Self {
+            if (config.address) |addr| {
+                if (!info.id.equals(addr)) {
+                    return error.ConstraintAddress;
+                }
+            }
+            if (config.mut and info.is_writable == 0) {
+                return error.ConstraintMut;
+            }
+            if (config.signer and info.is_signer == 0) {
+                return error.ConstraintSigner;
+            }
+
+            if (config.token_program == null and !info.owner_id.equals(TOKEN_PROGRAM_ID)) {
+                return error.ConstraintOwner;
+            }
+
+            const data = if (config.allow_extensions)
+                token_state.Mint.unpackUnchecked(info.data[0..info.data_len]) catch {
+                    return error.AccountDidNotDeserialize;
+                }
+            else
+                token_state.Mint.unpackFromSlice(info.data[0..info.data_len]) catch {
+                    return error.AccountDidNotDeserialize;
+                };
+
+            return Self{ .info = info, .data = data };
+        }
+
+        /// Return the mint public key.
+        pub fn key(self: Self) *const PublicKey {
+            return self.info.id;
+        }
+
+        /// Return the underlying AccountInfo.
+        pub fn toAccountInfo(self: Self) *const AccountInfo {
+            return self.info;
+        }
+
+        /// Validate runtime constraints that depend on other accounts.
+        pub fn validateAllConstraints(self: Self, comptime account_name: []const u8, accounts: anytype) !void {
+            _ = account_name;
+            const default_token_program = TOKEN_PROGRAM_ID;
+            const token_program_key = if (config.token_program) |field_name|
+                resolveKey(field_name, accounts).*
+            else
+                default_token_program;
+
+            if (!self.info.owner_id.equals(token_program_key)) {
+                return error.ConstraintOwner;
+            }
+
+            if (config.authority) |field_name| {
+                const authority_key = resolveKey(field_name, accounts).*;
+                if (!self.data.mint_authority.isSome() or
+                    !self.data.mint_authority.unwrap().equals(authority_key))
+                {
+                    return error.ConstraintMintMintAuthority;
+                }
+            }
+
+            if (config.freeze_authority) |field_name| {
+                const authority_key = resolveKey(field_name, accounts).*;
+                if (!self.data.freeze_authority.isSome() or
+                    !self.data.freeze_authority.unwrap().equals(authority_key))
+                {
+                    return error.ConstraintMintFreezeAuthority;
+                }
+            }
+
+            if (config.decimals) |decimals| {
+                if (self.data.decimals != decimals) {
+                    return error.ConstraintMintDecimals;
+                }
+            }
+        }
+    };
+}
+
+// ============================================================================
+// Token CPI helpers
+// ============================================================================
+
+/// Invoke SPL Token transfer.
+pub fn transfer(
+    token_program: *const AccountInfo,
+    source: *const AccountInfo,
+    destination: *const AccountInfo,
+    authority: *const AccountInfo,
+    amount: u64,
+) TokenCpiError!void {
+    const built = token_instruction.transfer(source.id.*, destination.id.*, authority.id.*, amount);
+    var metas = built.accounts;
+    const params = buildParams(3, &metas);
+    const ix = Instruction.from(.{
+        .program_id = token_program.id,
+        .accounts = params[0..],
+        .data = built.data[0..],
+    });
+    const infos = [_]AccountInfo{ source.*, destination.*, authority.* };
+    try invokeInstruction(&ix, infos[0..], null);
+}
+
+/// Invoke SPL Token transfer with signer seeds.
+pub fn transferSigned(
+    token_program: *const AccountInfo,
+    source: *const AccountInfo,
+    destination: *const AccountInfo,
+    authority: *const AccountInfo,
+    amount: u64,
+    signer_seeds: []const []const []const u8,
+) TokenCpiError!void {
+    const built = token_instruction.transfer(source.id.*, destination.id.*, authority.id.*, amount);
+    var metas = built.accounts;
+    const params = buildParams(3, &metas);
+    const ix = Instruction.from(.{
+        .program_id = token_program.id,
+        .accounts = params[0..],
+        .data = built.data[0..],
+    });
+    const infos = [_]AccountInfo{ source.*, destination.*, authority.* };
+    try invokeInstruction(&ix, infos[0..], signer_seeds);
+}
+
+/// Invoke SPL Token transfer for multisig authority.
+pub fn transferMultisig(
+    token_program: *const AccountInfo,
+    source: *const AccountInfo,
+    destination: *const AccountInfo,
+    owner: *const AccountInfo,
+    signer_infos: []const *const AccountInfo,
+    amount: u64,
+) TokenCpiError!void {
+    if (signer_infos.len == 0 or signer_infos.len > token_instruction.MAX_SIGNERS) {
+        return TokenCpiError.InvalidSignerCount;
+    }
+
+    const signers = blk: {
+        var list: [token_instruction.MAX_SIGNERS]PublicKey = undefined;
+        for (signer_infos, 0..) |signer, i| {
+            list[i] = signer.id.*;
+        }
+        break :blk list[0..signer_infos.len];
+    };
+
+    const built = token_instruction.transferMultisig(
+        source.id.*,
+        destination.id.*,
+        owner.id.*,
+        signers,
+        amount,
+    ) catch {
+        return TokenCpiError.InvalidSignerCount;
+    };
+
+    var metas = built.accounts;
+    var params: [token_instruction.MAX_SIGNERS + 3]AccountParam = undefined;
+    for (metas[0..built.num_accounts], 0..) |*meta, i| {
+        params[i] = sol.instruction.accountMetaToParam(meta);
+    }
+    const ix = Instruction.from(.{
+        .program_id = token_program.id,
+        .accounts = params[0..built.num_accounts],
+        .data = built.data[0..],
+    });
+
+    var infos: [token_instruction.MAX_SIGNERS + 3]AccountInfo = undefined;
+    infos[0] = source.*;
+    infos[1] = destination.*;
+    infos[2] = owner.*;
+    for (signer_infos, 0..) |signer, i| {
+        infos[3 + i] = signer.*;
+    }
+
+    try invokeInstruction(&ix, infos[0 .. 3 + signer_infos.len], null);
+}
+
+/// Invoke SPL Token transferChecked.
+pub fn transferChecked(
+    token_program: *const AccountInfo,
+    source: *const AccountInfo,
+    mint: *const AccountInfo,
+    destination: *const AccountInfo,
+    authority: *const AccountInfo,
+    amount: u64,
+    decimals: u8,
+) TokenCpiError!void {
+    const built = token_instruction.transferChecked(
+        source.id.*,
+        mint.id.*,
+        destination.id.*,
+        authority.id.*,
+        amount,
+        decimals,
+    );
+    var metas = built.accounts;
+    const params = buildParams(4, &metas);
+    const ix = Instruction.from(.{
+        .program_id = token_program.id,
+        .accounts = params[0..],
+        .data = built.data[0..],
+    });
+    const infos = [_]AccountInfo{ source.*, mint.*, destination.*, authority.* };
+    try invokeInstruction(&ix, infos[0..], null);
+}
+
+/// Invoke SPL Token mintTo.
+pub fn mintTo(
+    token_program: *const AccountInfo,
+    mint: *const AccountInfo,
+    destination: *const AccountInfo,
+    authority: *const AccountInfo,
+    amount: u64,
+) TokenCpiError!void {
+    const built = token_instruction.mintTo(
+        mint.id.*,
+        destination.id.*,
+        authority.id.*,
+        amount,
+    );
+    var metas = built.accounts;
+    const params = buildParams(3, &metas);
+    const ix = Instruction.from(.{
+        .program_id = token_program.id,
+        .accounts = params[0..],
+        .data = built.data[0..],
+    });
+    const infos = [_]AccountInfo{ mint.*, destination.*, authority.* };
+    try invokeInstruction(&ix, infos[0..], null);
+}
+
+/// Invoke SPL Token mintToChecked.
+pub fn mintToChecked(
+    token_program: *const AccountInfo,
+    mint: *const AccountInfo,
+    destination: *const AccountInfo,
+    authority: *const AccountInfo,
+    amount: u64,
+    decimals: u8,
+) TokenCpiError!void {
+    const built = token_instruction.mintToChecked(
+        mint.id.*,
+        destination.id.*,
+        authority.id.*,
+        amount,
+        decimals,
+    );
+    var metas = built.accounts;
+    const params = buildParams(3, &metas);
+    const ix = Instruction.from(.{
+        .program_id = token_program.id,
+        .accounts = params[0..],
+        .data = built.data[0..],
+    });
+    const infos = [_]AccountInfo{ mint.*, destination.*, authority.* };
+    try invokeInstruction(&ix, infos[0..], null);
+}
+
+/// Invoke SPL Token burn.
+pub fn burn(
+    token_program: *const AccountInfo,
+    account: *const AccountInfo,
+    mint: *const AccountInfo,
+    authority: *const AccountInfo,
+    amount: u64,
+) TokenCpiError!void {
+    const built = token_instruction.burn(
+        account.id.*,
+        mint.id.*,
+        authority.id.*,
+        amount,
+    );
+    var metas = built.accounts;
+    const params = buildParams(3, &metas);
+    const ix = Instruction.from(.{
+        .program_id = token_program.id,
+        .accounts = params[0..],
+        .data = built.data[0..],
+    });
+    const infos = [_]AccountInfo{ account.*, mint.*, authority.* };
+    try invokeInstruction(&ix, infos[0..], null);
+}
+
+/// Invoke SPL Token burnChecked.
+pub fn burnChecked(
+    token_program: *const AccountInfo,
+    account: *const AccountInfo,
+    mint: *const AccountInfo,
+    authority: *const AccountInfo,
+    amount: u64,
+    decimals: u8,
+) TokenCpiError!void {
+    const built = token_instruction.burnChecked(
+        account.id.*,
+        mint.id.*,
+        authority.id.*,
+        amount,
+        decimals,
+    );
+    var metas = built.accounts;
+    const params = buildParams(3, &metas);
+    const ix = Instruction.from(.{
+        .program_id = token_program.id,
+        .accounts = params[0..],
+        .data = built.data[0..],
+    });
+    const infos = [_]AccountInfo{ account.*, mint.*, authority.* };
+    try invokeInstruction(&ix, infos[0..], null);
+}
+
+/// Invoke SPL Token approve.
+pub fn approve(
+    token_program: *const AccountInfo,
+    source: *const AccountInfo,
+    delegate: *const AccountInfo,
+    authority: *const AccountInfo,
+    amount: u64,
+) TokenCpiError!void {
+    const built = token_instruction.approve(
+        source.id.*,
+        delegate.id.*,
+        authority.id.*,
+        amount,
+    );
+    var metas = built.accounts;
+    const params = buildParams(3, &metas);
+    const ix = Instruction.from(.{
+        .program_id = token_program.id,
+        .accounts = params[0..],
+        .data = built.data[0..],
+    });
+    const infos = [_]AccountInfo{ source.*, delegate.*, authority.* };
+    try invokeInstruction(&ix, infos[0..], null);
+}
+
+/// Invoke SPL Token revoke.
+pub fn revoke(
+    token_program: *const AccountInfo,
+    source: *const AccountInfo,
+    authority: *const AccountInfo,
+) TokenCpiError!void {
+    const built = token_instruction.revoke(source.id.*, authority.id.*);
+    var metas = built.accounts;
+    const params = buildParams(2, &metas);
+    const ix = Instruction.from(.{
+        .program_id = token_program.id,
+        .accounts = params[0..],
+        .data = built.data[0..],
+    });
+    const infos = [_]AccountInfo{ source.*, authority.* };
+    try invokeInstruction(&ix, infos[0..], null);
+}
+
+/// Invoke SPL Token closeAccount.
+pub fn closeAccount(
+    token_program: *const AccountInfo,
+    account: *const AccountInfo,
+    destination: *const AccountInfo,
+    authority: *const AccountInfo,
+) TokenCpiError!void {
+    const built = token_instruction.closeAccount(
+        account.id.*,
+        destination.id.*,
+        authority.id.*,
+    );
+    var metas = built.accounts;
+    const params = buildParams(3, &metas);
+    const ix = Instruction.from(.{
+        .program_id = token_program.id,
+        .accounts = params[0..],
+        .data = built.data[0..],
+    });
+    const infos = [_]AccountInfo{ account.*, destination.*, authority.* };
+    try invokeInstruction(&ix, infos[0..], null);
+}
+
+/// Invoke SPL Token freezeAccount.
+pub fn freezeAccount(
+    token_program: *const AccountInfo,
+    account: *const AccountInfo,
+    mint: *const AccountInfo,
+    authority: *const AccountInfo,
+) TokenCpiError!void {
+    const built = token_instruction.freezeAccount(account.id.*, mint.id.*, authority.id.*);
+    var metas = built.accounts;
+    const params = buildParams(3, &metas);
+    const ix = Instruction.from(.{
+        .program_id = token_program.id,
+        .accounts = params[0..],
+        .data = built.data[0..],
+    });
+    const infos = [_]AccountInfo{ account.*, mint.*, authority.* };
+    try invokeInstruction(&ix, infos[0..], null);
+}
+
+/// Invoke SPL Token thawAccount.
+pub fn thawAccount(
+    token_program: *const AccountInfo,
+    account: *const AccountInfo,
+    mint: *const AccountInfo,
+    authority: *const AccountInfo,
+) TokenCpiError!void {
+    const built = token_instruction.thawAccount(account.id.*, mint.id.*, authority.id.*);
+    var metas = built.accounts;
+    const params = buildParams(3, &metas);
+    const ix = Instruction.from(.{
+        .program_id = token_program.id,
+        .accounts = params[0..],
+        .data = built.data[0..],
+    });
+    const infos = [_]AccountInfo{ account.*, mint.*, authority.* };
+    try invokeInstruction(&ix, infos[0..], null);
+}
+
+/// Invoke SPL Token setAuthority.
+pub fn setAuthority(
+    token_program: *const AccountInfo,
+    account_or_mint: *const AccountInfo,
+    current_authority: *const AccountInfo,
+    authority_type: token_instruction.AuthorityType,
+    new_authority: ?PublicKey,
+) TokenCpiError!void {
+    const built = token_instruction.setAuthority(
+        account_or_mint.id.*,
+        current_authority.id.*,
+        authority_type,
+        new_authority,
+    );
+    var metas = built.accounts;
+    const params = buildParams(2, &metas);
+    const ix = Instruction.from(.{
+        .program_id = token_program.id,
+        .accounts = params[0..],
+        .data = built.data[0..built.data_len],
+    });
+    const infos = [_]AccountInfo{ account_or_mint.*, current_authority.* };
+    try invokeInstruction(&ix, infos[0..], null);
+}
+
+/// Invoke SPL Token syncNative for wrapped SOL.
+pub fn syncNative(
+    token_program: *const AccountInfo,
+    account: *const AccountInfo,
+) TokenCpiError!void {
+    const built = token_instruction.syncNative(account.id.*);
+    var metas = built.accounts;
+    const params = buildParams(1, &metas);
+    const ix = Instruction.from(.{
+        .program_id = token_program.id,
+        .accounts = params[0..],
+        .data = built.data[0..],
+    });
+    const infos = [_]AccountInfo{ account.* };
+    try invokeInstruction(&ix, infos[0..], null);
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+test "TokenAccount load parses data" {
+    const token_program = TOKEN_PROGRAM_ID;
+    var owner = token_program;
+    var account_id = PublicKey.default();
+    var lamports: u64 = 1;
+    var buffer: [token_state.Account.SIZE]u8 = undefined;
+    @memset(&buffer, 0);
+
+    const info = AccountInfo{
+        .id = &account_id,
+        .owner_id = &owner,
+        .lamports = &lamports,
+        .data_len = buffer.len,
+        .data = buffer[0..].ptr,
+        .is_signer = 0,
+        .is_writable = 1,
+        .is_executable = 0,
+        .rent_epoch = 0,
+    };
+
+    const Wrapper = TokenAccount(.{});
+    _ = try Wrapper.load(&info);
+}
+
+test "Mint load parses data" {
+    const token_program = TOKEN_PROGRAM_ID;
+    var owner = token_program;
+    var mint_id = PublicKey.default();
+    var lamports: u64 = 1;
+    var buffer: [token_state.Mint.SIZE]u8 = undefined;
+    @memset(&buffer, 0);
+
+    const info = AccountInfo{
+        .id = &mint_id,
+        .owner_id = &owner,
+        .lamports = &lamports,
+        .data_len = buffer.len,
+        .data = buffer[0..].ptr,
+        .is_signer = 0,
+        .is_writable = 0,
+        .is_executable = 0,
+        .rent_epoch = 0,
+    };
+
+    const Wrapper = Mint(.{});
+    _ = try Wrapper.load(&info);
+}

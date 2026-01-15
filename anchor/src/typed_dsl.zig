@@ -42,6 +42,8 @@ const sol = @import("solana_program_sdk");
 const account_mod = @import("account.zig");
 const signer_mod = @import("signer.zig");
 const program_mod = @import("program.zig");
+const system_account_mod = @import("system_account.zig");
+const token_mod = @import("token.zig");
 const context_mod = @import("context.zig");
 const discriminator_mod = @import("discriminator.zig");
 const seeds_mod = @import("seeds.zig");
@@ -362,18 +364,7 @@ pub fn Close(comptime T: type, comptime config: anytype) type {
 // ============================================================================
 
 /// Token account data.
-pub const TokenAccountData = extern struct {
-    mint: PublicKey,
-    owner: PublicKey,
-    amount: u64,
-    delegate: ?PublicKey,
-    state: u8,
-    is_native: ?u64,
-    delegated_amount: u64,
-    close_authority: ?PublicKey,
-};
-
-const TOKEN_DISCRIMINATOR = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 };
+pub const TokenAccountData = sol.spl.token.state.Account;
 
 /// Token account marker.
 pub fn Token(comptime config: anytype) type {
@@ -384,6 +375,10 @@ pub fn Token(comptime config: anytype) type {
         pub fn AccountType(comptime AccountsType: type) type {
             const mint_name = resolveFieldRef(config.mint);
             const authority_name = resolveFieldRef(config.authority);
+            const token_program_name = if (@hasField(@TypeOf(config), "token_program"))
+                resolveFieldRefOpt(config.token_program)
+            else
+                null;
 
             if (!@hasField(AccountsType, mint_name)) {
                 @compileError("mint field '" ++ mint_name ++ "' not found in Accounts");
@@ -392,24 +387,18 @@ pub fn Token(comptime config: anytype) type {
                 @compileError("authority field '" ++ authority_name ++ "' not found in Accounts");
             }
 
-            return account_mod.Account(TokenAccountData, .{
-                .discriminator = TOKEN_DISCRIMINATOR,
+            return token_mod.TokenAccount(.{
                 .mut = if (@hasField(@TypeOf(config), "mut")) config.mut else false,
-                .token_mint = mint_name,
-                .token_authority = authority_name,
+                .token_program = token_program_name,
+                .mint = mint_name,
+                .authority = authority_name,
             });
         }
     };
 }
 
 /// Mint account data.
-pub const MintData = extern struct {
-    mint_authority: ?PublicKey,
-    supply: u64,
-    decimals: u8,
-    is_initialized: bool,
-    freeze_authority: ?PublicKey,
-};
+pub const MintData = sol.spl.token.state.Mint;
 
 /// Mint account marker.
 pub fn Mint(comptime config: anytype) type {
@@ -419,16 +408,20 @@ pub fn Mint(comptime config: anytype) type {
 
         pub fn AccountType(comptime AccountsType: type) type {
             const authority_name = resolveFieldRef(config.authority);
+            const token_program_name = if (@hasField(@TypeOf(config), "token_program"))
+                resolveFieldRefOpt(config.token_program)
+            else
+                null;
 
             if (!@hasField(AccountsType, authority_name)) {
                 @compileError("authority field '" ++ authority_name ++ "' not found in Accounts");
             }
 
-            return account_mod.Account(MintData, .{
-                .discriminator = TOKEN_DISCRIMINATOR,
+            return token_mod.Mint(.{
                 .mut = if (@hasField(@TypeOf(config), "mut")) config.mut else false,
-                .mint_authority = authority_name,
-                .mint_decimals = if (@hasField(@TypeOf(config), "decimals")) config.decimals else null,
+                .token_program = token_program_name,
+                .authority = authority_name,
+                .decimals = if (@hasField(@TypeOf(config), "decimals")) config.decimals else null,
             });
         }
     };
@@ -443,6 +436,10 @@ pub fn ATA(comptime config: anytype) type {
         pub fn AccountType(comptime AccountsType: type) type {
             const mint_name = resolveFieldRef(config.mint);
             const authority_name = resolveFieldRef(config.authority);
+            const token_program_name = if (@hasField(@TypeOf(config), "token_program"))
+                resolveFieldRefOpt(config.token_program)
+            else
+                null;
 
             if (!@hasField(AccountsType, mint_name)) {
                 @compileError("mint field '" ++ mint_name ++ "' not found in Accounts");
@@ -451,21 +448,14 @@ pub fn ATA(comptime config: anytype) type {
                 @compileError("authority field '" ++ authority_name ++ "' not found in Accounts");
             }
 
-            const payer_name = if (@hasField(@TypeOf(config), "payer"))
-                resolveFieldRefOpt(config.payer)
-            else
-                null;
-
-            return account_mod.Account(TokenAccountData, .{
-                .discriminator = TOKEN_DISCRIMINATOR,
+            return token_mod.TokenAccount(.{
                 .mut = if (@hasField(@TypeOf(config), "mut")) config.mut else false,
-                .associated_token = .{
+                .token_program = token_program_name,
+                .associated = .{
                     .mint = mint_name,
                     .authority = authority_name,
-                    .token_program = null,
+                    .token_program = token_program_name,
                 },
-                .init = if (@hasField(@TypeOf(config), "init")) config.init else false,
-                .payer = payer_name,
             });
         }
     };
@@ -548,14 +538,14 @@ pub fn Opt(comptime MarkerType: type) type {
 pub const SystemAccount = struct {
     pub const IS_SYSTEM = true;
     pub const IS_MUT = false;
-    pub const AccountType = *const AccountInfo;
+    pub const AccountType = system_account_mod.SystemAccountConst;
 };
 
 /// Mutable system account.
 pub const SystemAccountMut = struct {
     pub const IS_SYSTEM = true;
     pub const IS_MUT = true;
-    pub const AccountType = signer_mod.SignerMut;
+    pub const AccountType = system_account_mod.SystemAccountMut;
 };
 
 // ============================================================================

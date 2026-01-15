@@ -61,6 +61,11 @@ const sol = anchor.sdk;
 | Interface/CPI | `#[interface]` + CPI | `anchor.InterfaceProgram`/`anchor.InterfaceAccount`/`anchor.InterfaceAccountInfo`/`anchor.Interface` | ✅ |
 | AccountLoader | `AccountLoader<T>` | `anchor.AccountLoader(T, config)` | ✅ |
 | LazyAccount | `LazyAccount<T>` | `anchor.LazyAccount(T, config)` | ✅ |
+| System account | `SystemAccount<'info>` | `anchor.SystemAccount` / `anchor.SystemAccountMut` | ✅ |
+| Token account wrapper | `TokenAccount` | `anchor.TokenAccount(.{})` | ✅ |
+| Mint wrapper | `Mint` | `anchor.Mint(.{})` | ✅ |
+| Token CPI helpers | `anchor_spl::token::*` | `anchor.token.*` | ✅ |
+| Sysvar parsing | `Sysvar<'info, T>` | `anchor.SysvarData(T)` | ✅ |
 
 ## Example
 

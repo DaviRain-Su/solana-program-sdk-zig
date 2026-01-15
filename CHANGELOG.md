@@ -16,6 +16,20 @@ All notable changes to the Solana SDK Zig implementation will be documented in t
 #### Test Results
 - Not run in this session (user-reported: anchor 195/195, sdk 363/363)
 
+### Session 2026-01-15-085
+
+**Date**: 2026-01-15
+**Goal**: Anchor token helpers, SystemAccount, and sysvar parsing
+
+#### Completed Work
+1. Added SPL token wrappers and CPI helpers
+2. Added SystemAccount wrappers
+3. Added SysvarData parsing helper
+4. Updated docs and examples
+
+#### Test Results
+- Not run in this session
+
 ### Session 2026-01-13-083
 
 **Date**: 2026-01-13

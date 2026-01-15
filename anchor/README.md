@@ -275,6 +275,28 @@ const ctx = anchor.Context(InitializeAccounts).new(
 );
 ```
 
+## Token Wrappers + CPI Helpers
+
+Use the SPL Token wrappers for decoding token accounts and mint data, and
+`anchor.token` CPI helpers to invoke the token program.
+
+```zig
+const token = anchor.token;
+
+const TokenAccount = anchor.TokenAccount(.{});
+const Mint = anchor.Mint(.{});
+
+fn send(ctx: anchor.Context(TransferAccounts), amount: u64) !void {
+    try token.transfer(
+        ctx.accounts.token_program.toAccountInfo(),
+        ctx.accounts.source.toAccountInfo(),
+        ctx.accounts.destination.toAccountInfo(),
+        ctx.accounts.authority.toAccountInfo(),
+        amount,
+    );
+}
+```
+
 ## AccountsDerive Auto Inference (Token/Mint/ATA)
 
 AccountsDerive can auto-infer common token/mint/ata constraints when the

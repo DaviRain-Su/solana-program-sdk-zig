@@ -239,6 +239,19 @@ pub const AccountMetaOverride = interface.AccountMetaOverride;
 pub const Interface = interface.Interface;
 
 // ============================================================================
+// SPL Token Helpers
+// ============================================================================
+
+/// SPL Token account wrappers and CPI helpers
+pub const token = @import("token.zig");
+
+/// Token account wrapper
+pub const TokenAccount = token.TokenAccount;
+
+/// Mint account wrapper
+pub const Mint = token.Mint;
+
+// ============================================================================
 // Event Emission
 // ============================================================================
 
@@ -461,6 +474,22 @@ pub const SignerConfig = signer.SignerConfig;
 pub const SignerError = signer.SignerError;
 
 // ============================================================================
+// System Account Module
+// ============================================================================
+
+/// System account wrappers
+pub const system_account = @import("system_account.zig");
+
+/// System-owned account (read-only)
+pub const SystemAccount = system_account.SystemAccountConst;
+
+/// System-owned account (mutable)
+pub const SystemAccountMut = system_account.SystemAccountMut;
+
+/// Configurable system account wrapper
+pub const SystemAccountWith = system_account.SystemAccount;
+
+// ============================================================================
 // Program Module
 // ============================================================================
 
@@ -496,6 +525,9 @@ pub const sysvar_account = @import("sysvar_account.zig");
 
 /// Sysvar account wrapper with address validation.
 pub const Sysvar = sysvar_account.Sysvar;
+
+/// Sysvar account wrapper with data parsing.
+pub const SysvarData = sysvar_account.SysvarData;
 
 // ============================================================================
 // Context Module
@@ -877,8 +909,15 @@ test "anchor module exports" {
     _ = AssociatedTokenConfig;
     _ = Signer;
     _ = SignerMut;
+    _ = SystemAccount;
+    _ = SystemAccountMut;
     _ = Program;
     _ = Context;
+    _ = Sysvar;
+    _ = SysvarData;
+    _ = token;
+    _ = TokenAccount;
+    _ = Mint;
 
     // Phase 2 exports
     _ = SeedSpec;

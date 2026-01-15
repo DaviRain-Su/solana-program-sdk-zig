@@ -1,5 +1,13 @@
 # sol-anchor-zig Roadmap
 
+## ✅ v3.2.64 - Token Helpers + SystemAccount + Sysvar Parsing
+
+- [x] Add SPL token wrappers for TokenAccount/Mint
+- [x] Add `anchor.token` CPI helpers for common token instructions
+- [x] Add SystemAccount wrappers
+- [x] Add SysvarData parsing wrapper
+- [x] Update docs and examples
+
 ## ✅ v3.2.63 - Event Emission + Realloc Safety + Bumps Improvements
 
 - [x] **Event Runtime Emission**: Add `ctx.emit()` and `emitEvent()` for Anchor-compatible event logging

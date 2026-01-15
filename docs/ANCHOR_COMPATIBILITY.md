@@ -28,6 +28,8 @@ const sol = anchor.sdk;
 - AccountLoader zero-copy access
 - LazyAccount on-demand decoding
 - InterfaceProgram/InterfaceAccount wrappers and Interface CPI builder (remaining accounts + AccountMeta support + invoke helpers + rent_exempt + meta merge + unchecked program variants)
+- Memo CPI helpers (`anchor.memo`)
+- Stake CPI helpers and StakeAccount wrapper (`anchor.stake`, `anchor.StakeAccount`)
 
 ## Not Implemented Yet
 
@@ -65,6 +67,9 @@ const sol = anchor.sdk;
 | Token account wrapper | `TokenAccount` | `anchor.TokenAccount(.{})` | ✅ |
 | Mint wrapper | `Mint` | `anchor.Mint(.{})` | ✅ |
 | Token CPI helpers | `anchor_spl::token::*` | `anchor.token.*` | ✅ |
+| Memo CPI helpers | `anchor_spl::memo::*` | `anchor.memo.*` | ✅ |
+| Stake account wrapper | `StakeAccount` | `anchor.StakeAccount(.{})` | ✅ |
+| Stake CPI helpers | `anchor_spl::stake::*` | `anchor.stake.*` | ✅ |
 | Sysvar parsing | `Sysvar<'info, T>` | `anchor.SysvarData(T)` | ✅ |
 
 ## Example

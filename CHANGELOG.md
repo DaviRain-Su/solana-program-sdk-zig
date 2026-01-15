@@ -2,6 +2,20 @@
 
 All notable changes to the Solana SDK Zig implementation will be documented in this file.
 
+### Session 2026-01-15-086
+
+**Date**: 2026-01-15
+**Goal**: Anchor memo/stake wrappers and CPI helpers
+
+#### Completed Work
+1. Added `anchor.memo` CPI helpers for SPL Memo program
+2. Added `anchor.stake` CPI helpers for SPL Stake program
+3. Added StakeAccount wrapper and DSL markers
+4. Updated docs and examples
+
+#### Test Results
+- `./solana-zig/zig build test --summary all`
+
 ### Session 2026-01-15-084
 
 **Date**: 2026-01-15

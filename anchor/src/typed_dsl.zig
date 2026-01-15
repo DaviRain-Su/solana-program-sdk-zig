@@ -44,6 +44,7 @@ const signer_mod = @import("signer.zig");
 const program_mod = @import("program.zig");
 const system_account_mod = @import("system_account.zig");
 const token_mod = @import("token.zig");
+const stake_mod = @import("stake.zig");
 const context_mod = @import("context.zig");
 const discriminator_mod = @import("discriminator.zig");
 const seeds_mod = @import("seeds.zig");
@@ -123,6 +124,14 @@ pub const SystemProgram = Prog(sol.system_program.id);
 /// SPL Token Program marker.
 /// Usage: `.token_program = TokenProgram`
 pub const TokenProgram = Prog(PublicKey.comptimeFromBase58("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"));
+
+/// SPL Memo Program marker.
+/// Usage: `.memo_program = MemoProgram`
+pub const MemoProgram = Prog(sol.spl.memo.MEMO_PROGRAM_ID);
+
+/// SPL Stake Program marker.
+/// Usage: `.stake_program = StakeProgram`
+pub const StakeProgram = Prog(sol.spl.stake.STAKE_PROGRAM_ID);
 
 /// Token 2022 Program (Token Extensions) marker.
 /// Usage: `.token_program = Token2022Program`
@@ -456,6 +465,30 @@ pub fn ATA(comptime config: anytype) type {
                     .authority = authority_name,
                     .token_program = token_program_name,
                 },
+            });
+        }
+    };
+}
+
+// ============================================================================
+// Stake Accounts
+// ============================================================================
+
+/// Stake account data.
+pub const StakeAccountData = sol.spl.stake.state.StakeStateV2;
+
+/// Stake account marker.
+pub fn StakeAccount(comptime config: anytype) type {
+    return struct {
+        pub const IS_STAKE = true;
+        pub const CONFIG = config;
+
+        pub fn AccountType(comptime AccountsType: type) type {
+            _ = AccountsType;
+            return stake_mod.StakeAccount(.{
+                .mut = if (@hasField(@TypeOf(config), "mut")) config.mut else false,
+                .signer = if (@hasField(@TypeOf(config), "signer")) config.signer else false,
+                .address = if (@hasField(@TypeOf(config), "address")) config.address else null,
             });
         }
     };
@@ -1073,6 +1106,15 @@ test "Accounts with SystemAccount" {
     try std.testing.expect(fields.len == 2);
 }
 
+test "Accounts with StakeAccount" {
+    const TestAccounts = Accounts(.{
+        .stake = StakeAccount(.{ .mut = true }),
+    });
+
+    const fields = @typeInfo(TestAccounts).@"struct".fields;
+    try std.testing.expect(fields.len == 1);
+}
+
 test "Event basic" {
     const TestEvent = Event(.{
         .amount = u64,
@@ -1145,6 +1187,20 @@ test "predefined program markers" {
         &AssociatedTokenProgram.ID.toBase58String(),
     );
 
+    // Memo Program
+    try std.testing.expect(MemoProgram.IS_PROGRAM == true);
+    try std.testing.expectEqualStrings(
+        "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
+        &MemoProgram.ID.toBase58String(),
+    );
+
+    // Stake Program
+    try std.testing.expect(StakeProgram.IS_PROGRAM == true);
+    try std.testing.expectEqualStrings(
+        "Stake11111111111111111111111111111111111111",
+        &StakeProgram.ID.toBase58String(),
+    );
+
     // Compute Budget Program
     try std.testing.expect(ComputeBudgetProgram.IS_PROGRAM == true);
     try std.testing.expect(ComputeBudgetProgram.ID.equals(sol.compute_budget.ID));
@@ -1175,11 +1231,13 @@ test "Accounts with predefined programs" {
         .payer = SignerMut,
         .system_program = SystemProgram,
         .token_program = TokenProgram,
+        .memo_program = MemoProgram,
+        .stake_program = StakeProgram,
         .rent = RentSysvar,
     });
 
     const fields = @typeInfo(TestAccounts).@"struct".fields;
-    try std.testing.expect(fields.len == 4);
+    try std.testing.expect(fields.len == 6);
 }
 
 test "isEventFieldWrapper" {

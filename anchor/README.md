@@ -297,6 +297,43 @@ fn send(ctx: anchor.Context(TransferAccounts), amount: u64) !void {
 }
 ```
 
+## Memo CPI Helper
+
+Use `anchor.memo` to emit Memo program instructions from your program.
+
+```zig
+const memo = anchor.memo;
+
+fn addMemo(ctx: anchor.Context(Accounts)) !void {
+    try memo.memo(
+        1,
+        ctx.accounts.memo_program.toAccountInfo(),
+        &[_]*const sol.account.Account.Info{ ctx.accounts.authority.toAccountInfo() },
+        "hello",
+        null,
+    );
+}
+```
+
+## Stake Wrappers + CPI Helpers
+
+Use `anchor.StakeAccount` to parse stake state and `anchor.stake` CPI helpers
+to invoke the stake program.
+
+```zig
+const stake = anchor.stake;
+
+fn deactivateStake(ctx: anchor.Context(Accounts)) !void {
+    try stake.deactivate(
+        ctx.accounts.stake_program.toAccountInfo(),
+        ctx.accounts.stake_account.toAccountInfo(),
+        ctx.accounts.clock_sysvar.toAccountInfo(),
+        ctx.accounts.authority.toAccountInfo(),
+        null,
+    );
+}
+```
+
 ## AccountsDerive Auto Inference (Token/Mint/ATA)
 
 AccountsDerive can auto-infer common token/mint/ata constraints when the

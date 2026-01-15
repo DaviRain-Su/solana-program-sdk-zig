@@ -252,6 +252,20 @@ pub const TokenAccount = token.TokenAccount;
 pub const Mint = token.Mint;
 
 // ============================================================================
+// SPL Memo Helpers
+// ============================================================================
+
+/// SPL Memo CPI helpers
+pub const memo = @import("memo.zig");
+
+// ============================================================================
+// SPL Stake Helpers
+// ============================================================================
+
+/// SPL Stake wrappers and CPI helpers
+pub const stake = @import("stake.zig");
+
+// ============================================================================
 // Event Emission
 // ============================================================================
 
@@ -316,7 +330,7 @@ pub const getEventDiscriminator = event.getEventDiscriminator;
 /// ```
 ///
 /// Available markers:
-/// - Account types: Signer, SignerMut, Unchecked, SystemAccount
+/// - Account types: Signer, SignerMut, Unchecked, SystemAccount, StakeAccount
 /// - Data accounts: Data, Init, PDA, Close, Realloc, Opt
 /// - Token accounts: Token, Mint, ATA
 /// - Programs: Prog, SystemProgram, TokenProgram, Token2022Program, etc.
@@ -488,6 +502,19 @@ pub const SystemAccountMut = system_account.SystemAccountMut;
 
 /// Configurable system account wrapper
 pub const SystemAccountWith = system_account.SystemAccount;
+
+// ============================================================================
+// Stake Account Module
+// ============================================================================
+
+/// Stake account (read-only)
+pub const StakeAccount = stake.StakeAccountConst;
+
+/// Stake account (mutable)
+pub const StakeAccountMut = stake.StakeAccountMut;
+
+/// Configurable stake account wrapper
+pub const StakeAccountWith = stake.StakeAccount;
 
 // ============================================================================
 // Program Module
@@ -911,11 +938,15 @@ test "anchor module exports" {
     _ = SignerMut;
     _ = SystemAccount;
     _ = SystemAccountMut;
+    _ = StakeAccount;
+    _ = StakeAccountMut;
     _ = Program;
     _ = Context;
     _ = Sysvar;
     _ = SysvarData;
     _ = token;
+    _ = memo;
+    _ = stake;
     _ = TokenAccount;
     _ = Mint;
 

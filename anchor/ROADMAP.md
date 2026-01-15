@@ -1,5 +1,12 @@
 # sol-anchor-zig Roadmap
 
+## ✅ v3.2.65 - SPL Memo + Stake Wrappers
+
+- [x] Add `anchor.memo` CPI helpers for memo program
+- [x] Add `anchor.stake` CPI helpers for stake program
+- [x] Add `StakeAccount` wrappers
+- [x] Update docs and examples
+
 ## ✅ v3.2.64 - Token Helpers + SystemAccount + Sysvar Parsing
 
 - [x] Add SPL token wrappers for TokenAccount/Mint

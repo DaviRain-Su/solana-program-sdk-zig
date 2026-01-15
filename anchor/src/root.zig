@@ -283,6 +283,32 @@ pub const Event = @import("dsl.zig").Event;
 pub const eventField = @import("dsl.zig").eventField;
 
 // ============================================================================
+// Simplified DSL
+// ============================================================================
+
+/// Simplified DSL for reduced boilerplate
+///
+/// Provides a more concise syntax for defining accounts and instructions:
+///
+/// ```zig
+/// const simple = anchor.simple;
+///
+/// // Define instruction with inline constraints
+/// const Initialize = simple.Instruction("initialize", struct {
+///     payer: simple.Signer(.mut),
+///     counter: simple.Init(CounterData, .{ .payer = "payer" }),
+///     system_program: simple.Program(SystemProgram.id),
+/// }, struct {
+///     initial_value: u64,
+/// });
+///
+/// pub fn initialize(ctx: Initialize.Context, args: Initialize.Args) !void {
+///     ctx.accounts.counter.data.count = args.initial_value;
+/// }
+/// ```
+pub const simple = @import("simple_dsl.zig");
+
+// ============================================================================
 // Constraints Module
 // ============================================================================
 

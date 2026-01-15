@@ -295,7 +295,7 @@ pub const eventField = @import("dsl.zig").eventField;
 ///
 /// // Define instruction with inline constraints
 /// const Initialize = simple.Instruction("initialize", struct {
-///     payer: simple.Signer(.mut),
+///     payer: simple.Signer(.{ .mut = true }),
 ///     counter: simple.Init(CounterData, .{ .payer = "payer" }),
 ///     system_program: simple.Program(SystemProgram.id),
 /// }, struct {
@@ -307,6 +307,28 @@ pub const eventField = @import("dsl.zig").eventField;
 /// }
 /// ```
 pub const simple = @import("simple_dsl.zig");
+
+/// Type-Safe DSL with compile-time field validation
+///
+/// Uses enum literals (.field) instead of strings for type-safe references:
+///
+/// ```zig
+/// const typed = anchor.typed;
+///
+/// const Initialize = typed.Instr("initialize",
+///     typed.Accounts(.{
+///         .payer = typed.SignerMut,
+///         .counter = typed.Init(CounterData, .{ .payer = .payer }),  // type-safe!
+///         .system = typed.Prog(SystemProgram.id),
+///     }),
+///     struct { initial_value: u64 },
+/// );
+///
+/// pub fn initialize(ctx: Initialize.Ctx, args: Initialize.Args) !void {
+///     ctx.accounts.counter.data.count = args.initial_value;
+/// }
+/// ```
+pub const typed = @import("typed_dsl.zig");
 
 // ============================================================================
 // Constraints Module

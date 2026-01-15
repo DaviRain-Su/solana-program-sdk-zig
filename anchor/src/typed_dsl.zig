@@ -719,6 +719,132 @@ pub fn InstrNoArgs(
 }
 
 // ============================================================================
+// Event System
+// ============================================================================
+
+/// Event field configuration for indexed fields.
+pub const EventField = struct {
+    /// Mark this field as indexed in the IDL.
+    index: bool = false,
+};
+
+/// Wrap an event field with configuration.
+///
+/// Usage:
+/// ```zig
+/// const TransferEvent = Event(.{
+///     .from = sol.PublicKey,
+///     .to = sol.PublicKey,
+///     .amount = eventField(u64, .{ .index = true }),  // indexed for efficient queries
+/// });
+/// ```
+pub fn eventField(comptime T: type, comptime config: EventField) type {
+    return struct {
+        pub const FieldType = T;
+        pub const FIELD_CONFIG = config;
+        pub const IS_EVENT_FIELD = true;
+    };
+}
+
+/// Validate and define an Event type.
+///
+/// Events are emitted during program execution and can be queried by clients.
+/// Indexed fields enable efficient filtering.
+///
+/// Usage:
+/// ```zig
+/// pub const TransferEvent = Event(.{
+///     .from = sol.PublicKey,
+///     .to = sol.PublicKey,
+///     .amount = u64,
+/// });
+///
+/// // In handler:
+/// ctx.emit(TransferEvent{
+///     .from = source.key().*,
+///     .to = dest.key().*,
+///     .amount = amount,
+/// });
+/// ```
+pub fn Event(comptime spec: anytype) type {
+    const SpecType = @TypeOf(spec);
+    const spec_fields = @typeInfo(SpecType).@"struct".fields;
+
+    if (spec_fields.len == 0) {
+        @compileError("Event must have at least one field");
+    }
+
+    // Validate indexed fields are of supported types
+    comptime var index_count: usize = 0;
+    inline for (spec_fields) |field| {
+        const FieldType = field.type;
+        if (@hasDecl(FieldType, "IS_EVENT_FIELD") and FieldType.IS_EVENT_FIELD) {
+            const config = FieldType.FIELD_CONFIG;
+            if (config.index) {
+                const actual_type = FieldType.FieldType;
+                if (!isIndexableEventFieldType(actual_type)) {
+                    @compileError("Indexed event field '" ++ field.name ++
+                        "' must be bool, integer (8/16/32/64/128/256-bit), or PublicKey");
+                }
+                index_count += 1;
+            }
+        }
+    }
+
+    // Maximum 4 indexed fields (Anchor convention)
+    if (index_count > 4) {
+        @compileError("Event can have at most 4 indexed fields");
+    }
+
+    // Build the actual event struct type
+    const EventFields = comptime blk: {
+        var fields: [spec_fields.len]std.builtin.Type.StructField = undefined;
+        for (spec_fields, 0..) |field, i| {
+            const FieldType = field.type;
+            const actual_type = if (@hasDecl(FieldType, "IS_EVENT_FIELD") and FieldType.IS_EVENT_FIELD)
+                FieldType.FieldType
+            else
+                FieldType;
+
+            fields[i] = .{
+                .name = field.name,
+                .type = actual_type,
+                .default_value = null,
+                .is_comptime = false,
+                .alignment = 0,
+            };
+        }
+        break :blk fields;
+    };
+
+    return @Type(.{
+        .@"struct" = .{
+            .layout = .auto,
+            .fields = &EventFields,
+            .decls = &.{},
+            .is_tuple = false,
+        },
+    });
+}
+
+fn isIndexableEventFieldType(comptime T: type) bool {
+    // Boolean
+    if (T == bool) return true;
+
+    // Integer types (8/16/32/64/128/256-bit)
+    const info = @typeInfo(T);
+    if (info == .int) {
+        const bits = info.int.bits;
+        return bits == 8 or bits == 16 or bits == 32 or bits == 64 or bits == 128 or bits == 256;
+    }
+
+    // PublicKey
+    if (T == PublicKey) return true;
+
+    return false;
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -854,4 +980,50 @@ test "Accounts with SystemAccount" {
 
     const fields = @typeInfo(TestAccounts).@"struct".fields;
     try std.testing.expect(fields.len == 2);
+}
+
+test "Event basic" {
+    const TestEvent = Event(.{
+        .amount = u64,
+        .success = bool,
+    });
+
+    const fields = @typeInfo(TestEvent).@"struct".fields;
+    try std.testing.expect(fields.len == 2);
+    try std.testing.expectEqualStrings("amount", fields[0].name);
+    try std.testing.expectEqualStrings("success", fields[1].name);
+}
+
+test "Event with indexed field" {
+    const TestEvent = Event(.{
+        .from = PublicKey,
+        .to = PublicKey,
+        .amount = eventField(u64, .{ .index = true }),
+    });
+
+    const fields = @typeInfo(TestEvent).@"struct".fields;
+    try std.testing.expect(fields.len == 3);
+    try std.testing.expect(fields[2].type == u64);
+}
+
+test "eventField marker" {
+    const IndexedField = eventField(u64, .{ .index = true });
+    try std.testing.expect(IndexedField.IS_EVENT_FIELD == true);
+    try std.testing.expect(IndexedField.FieldType == u64);
+    try std.testing.expect(IndexedField.FIELD_CONFIG.index == true);
+}
+
+test "isIndexableEventFieldType" {
+    try std.testing.expect(isIndexableEventFieldType(bool) == true);
+    try std.testing.expect(isIndexableEventFieldType(u8) == true);
+    try std.testing.expect(isIndexableEventFieldType(u16) == true);
+    try std.testing.expect(isIndexableEventFieldType(u32) == true);
+    try std.testing.expect(isIndexableEventFieldType(u64) == true);
+    try std.testing.expect(isIndexableEventFieldType(u128) == true);
+    try std.testing.expect(isIndexableEventFieldType(i64) == true);
+    try std.testing.expect(isIndexableEventFieldType(PublicKey) == true);
+
+    // Non-indexable types
+    try std.testing.expect(isIndexableEventFieldType([]const u8) == false);
+    try std.testing.expect(isIndexableEventFieldType(f64) == false);
 }

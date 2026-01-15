@@ -2,6 +2,19 @@
 
 All notable changes to sol-anchor-zig will be documented in this file.
 
+### Session 2026-01-15-021
+
+**Date**: 2026-01-15
+**Goal**: Add batch init helpers
+
+#### Completed Work
+1. Added batch init configs and helpers for system account initialization
+2. Added batch ATA init helper for associated token accounts
+3. Updated docs and exports
+
+#### Test Results
+- `./solana-zig/zig build test --summary all`
+
 ### Session 2026-01-15-020
 
 **Date**: 2026-01-15

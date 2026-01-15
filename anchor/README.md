@@ -347,6 +347,42 @@ const Accounts = anchor.typed.Accounts(.{
 });
 ```
 
+## Batch Init Helpers
+
+Use `anchor.createAccounts` to initialize multiple system accounts and
+`anchor.associated_token.createBatchIdempotent` to create multiple ATAs.
+
+```zig
+try anchor.createAccounts(&[_]anchor.BatchInitConfig{
+    .{
+        .payer = ctx.accounts.payer.toAccountInfo(),
+        .new_account = ctx.accounts.counter.toAccountInfo(),
+        .owner = &program_id,
+        .space = Counter.SPACE,
+        .system_program = ctx.accounts.system_program.toAccountInfo(),
+    },
+    .{
+        .payer = ctx.accounts.payer.toAccountInfo(),
+        .new_account = ctx.accounts.vault.toAccountInfo(),
+        .owner = &program_id,
+        .space = Vault.SPACE,
+        .system_program = ctx.accounts.system_program.toAccountInfo(),
+    },
+});
+
+_ = anchor.associated_token.createBatchIdempotent(&[_]anchor.associated_token.BatchInitConfig{
+    .{
+        .associated_token_program = ctx.accounts.associated_token_program.toAccountInfo(),
+        .payer = ctx.accounts.payer.toAccountInfo(),
+        .associated_token_account = ctx.accounts.user_ata.toAccountInfo(),
+        .authority = ctx.accounts.authority.toAccountInfo(),
+        .mint = ctx.accounts.mint.toAccountInfo(),
+        .system_program = ctx.accounts.system_program.toAccountInfo(),
+        .token_program = ctx.accounts.token_program.toAccountInfo(),
+    },
+});
+```
+
 ## Memo CPI Helper
 
 Use `anchor.memo` to emit Memo program instructions from your program.

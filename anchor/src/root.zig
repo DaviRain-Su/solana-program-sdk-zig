@@ -771,6 +771,8 @@ pub const init = @import("init.zig");
 
 /// Configuration for account initialization
 pub const InitConfig = init.InitConfig;
+/// Configuration for batch account initialization
+pub const BatchInitConfig = init.BatchInitConfig;
 
 /// Get rent-exempt balance for an account
 ///
@@ -785,6 +787,8 @@ pub const rentExemptBalanceDefault = init.rentExemptBalanceDefault;
 
 /// Create a new account via CPI
 pub const createAccount = init.createAccount;
+/// Create multiple accounts via CPI
+pub const createAccounts = init.createAccounts;
 
 /// Create an account at a PDA via CPI
 ///

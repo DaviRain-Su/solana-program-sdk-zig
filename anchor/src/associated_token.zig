@@ -25,6 +25,18 @@ pub const AssociatedTokenCpiError = union(enum) {
     InvokeFailedWithCode: u64,
 };
 
+/// Batch associated token init configuration.
+pub const BatchInitConfig = struct {
+    associated_token_program: *const AccountInfo,
+    payer: *const AccountInfo,
+    associated_token_account: *const AccountInfo,
+    authority: *const AccountInfo,
+    mint: *const AccountInfo,
+    system_program: *const AccountInfo,
+    token_program: *const AccountInfo,
+    signer_seeds: ?[]const []const []const u8 = null,
+};
+
 fn invokeInstruction(
     ix: *const Instruction,
     infos: []const AccountInfo,
@@ -120,4 +132,23 @@ pub fn createIdempotent(
         token_program.*,
     };
     return invokeInstruction(&ix, infos[0..], signer_seeds);
+}
+
+/// Create multiple associated token accounts (idempotent).
+pub fn createBatchIdempotent(configs: []const BatchInitConfig) ?AssociatedTokenCpiError {
+    for (configs) |cfg| {
+        if (createIdempotent(
+            cfg.associated_token_program,
+            cfg.payer,
+            cfg.associated_token_account,
+            cfg.authority,
+            cfg.mint,
+            cfg.system_program,
+            cfg.token_program,
+            cfg.signer_seeds,
+        )) |err| {
+            return err;
+        }
+    }
+    return null;
 }

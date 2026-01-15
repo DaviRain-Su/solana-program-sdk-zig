@@ -17,6 +17,7 @@ const sol = anchor.sdk;
 - Constraints (`constraints.zig`)
 - PDA helpers (`pda.zig`, `seeds.zig`)
 - Init/close/realloc helpers (`init.zig`, `close.zig`, `realloc.zig`)
+- Batch init helpers (`createAccounts`, `associated_token.createBatchIdempotent`)
 - Anchor error codes (`AnchorError`)
 - AccountsDerive auto inference for token/mint/ata shapes and common program aliases
 - AccountsDerive auto binding for compute budget/address lookup table/vote/ed25519/secp256 programs
@@ -74,6 +75,7 @@ const sol = anchor.sdk;
 | Stake account wrapper | `StakeAccount` | `anchor.StakeAccount(.{})` | ✅ |
 | Stake CPI helpers | `anchor_spl::stake::*` | `anchor.stake.*` | ✅ |
 | ATA init | `associated_token::create` | `anchor.typed.ATA` + `anchor.associated_token` | ✅ |
+| Batch init helpers | n/a | `anchor.createAccounts` / `anchor.associated_token.createBatchIdempotent` | ✅ |
 | Sysvar parsing | `Sysvar<'info, T>` | `anchor.SysvarData(T)` / `ClockData` / `RentData` | ✅ |
 | CPI context builder | `CpiContext` | `anchor.CpiContext` | ✅ |
 

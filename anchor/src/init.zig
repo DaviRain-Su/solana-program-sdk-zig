@@ -64,6 +64,15 @@ pub const InitConfig = struct {
     owner: PublicKey,
 };
 
+/// Configuration for batch account initialization.
+pub const BatchInitConfig = struct {
+    payer: *const AccountInfo,
+    new_account: *const AccountInfo,
+    owner: *const PublicKey,
+    space: usize,
+    system_program: *const AccountInfo,
+};
+
 /// Get the minimum rent-exempt balance for an account
 ///
 /// Returns the minimum lamports needed for an account with the given
@@ -152,6 +161,22 @@ pub fn createAccount(
     const result = ix.invoke(&[_]AccountInfo{ payer.*, new_account.*, system_program_info.* });
     if (result != null) {
         return InitError.InvokeFailed;
+    }
+}
+
+/// Create multiple accounts via CPI to the system program.
+///
+/// This is a convenience wrapper around `createAccount` for batch setup.
+/// Each entry is processed sequentially; the first failure aborts the batch.
+pub fn createAccounts(configs: []const BatchInitConfig) InitError!void {
+    for (configs) |cfg| {
+        try createAccount(
+            cfg.payer,
+            cfg.new_account,
+            cfg.owner,
+            cfg.space,
+            cfg.system_program,
+        );
     }
 }
 

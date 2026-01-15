@@ -1,5 +1,11 @@
 # sol-anchor-zig Roadmap
 
+## ✅ v3.2.71 - Batch Init Helpers
+
+- [x] Add `createAccounts` batch wrapper for system program init
+- [x] Add `createBatchIdempotent` for ATA setup
+- [x] Update docs and examples
+
 ## ✅ v3.2.70 - Constraint Expr Extensions
 
 - [x] Add short-circuit evaluation for logical operators

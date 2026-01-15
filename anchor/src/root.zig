@@ -239,6 +239,45 @@ pub const AccountMetaOverride = interface.AccountMetaOverride;
 pub const Interface = interface.Interface;
 
 // ============================================================================
+// Event Emission
+// ============================================================================
+
+/// Event emission utilities
+pub const event = @import("event.zig");
+
+/// Maximum event data size
+pub const MAX_EVENT_SIZE = event.MAX_EVENT_SIZE;
+
+/// Event discriminator length
+pub const EVENT_DISCRIMINATOR_LENGTH = event.EVENT_DISCRIMINATOR_LENGTH;
+
+/// Emit an event to the Solana program logs
+///
+/// Events follow Anchor's format: `[discriminator][borsh_serialized_data]`
+///
+/// Example:
+/// ```zig
+/// const TransferEvent = struct {
+///     from: sol.PublicKey,
+///     to: sol.PublicKey,
+///     amount: u64,
+/// };
+///
+/// anchor.emitEvent(TransferEvent, .{
+///     .from = source_key,
+///     .to = dest_key,
+///     .amount = 1000,
+/// });
+/// ```
+pub const emitEvent = event.emitEvent;
+
+/// Emit an event with a custom discriminator
+pub const emitEventWithDiscriminator = event.emitEventWithDiscriminator;
+
+/// Get the discriminator for an event type
+pub const getEventDiscriminator = event.getEventDiscriminator;
+
+// ============================================================================
 // Type-Safe DSL
 // ============================================================================
 

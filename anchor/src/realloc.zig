@@ -38,6 +38,10 @@ const Rent = rent_mod.Rent;
 /// Maximum account data size (10 MB)
 pub const MAX_ACCOUNT_SIZE: usize = 10 * 1024 * 1024;
 
+/// Maximum single realloc increase (10 KB per transaction)
+/// This matches Solana runtime's limitation on account growth per transaction.
+pub const MAX_REALLOC_INCREASE: usize = 10 * 1024;
+
 /// Account reallocation errors
 pub const ReallocError = error{
     /// Account is not writable
@@ -57,6 +61,12 @@ pub const ReallocError = error{
 
     /// Account shrinking would leave insufficient rent
     InsufficientRent,
+
+    /// Payer is required when growing an account that needs additional rent
+    PayerRequired,
+
+    /// Single realloc increase exceeds maximum (10 KB)
+    ReallocIncreaseTooLarge,
 };
 
 /// Realloc configuration for AccountConfig
@@ -127,29 +137,36 @@ pub fn reallocAccount(
     const new_rent = rent.getMinimumBalance(new_size);
 
     if (new_size > old_size) {
+        // Check single realloc increase limit (10 KB)
+        const increase = new_size - old_size;
+        if (increase > MAX_REALLOC_INCREASE) {
+            return ReallocError.ReallocIncreaseTooLarge;
+        }
+
         // Growing: need more rent
         const additional_rent = new_rent - old_rent;
 
         if (additional_rent > 0) {
-            if (payer) |p| {
-                // Validate payer is signer
-                if (p.is_signer == 0) {
-                    return ReallocError.PayerNotSigner;
-                }
+            // Payer is required when growing requires additional rent
+            const p = payer orelse return ReallocError.PayerRequired;
 
-                // Check payer has sufficient lamports
-                if (p.lamports.* < additional_rent) {
-                    return ReallocError.InsufficientPayer;
-                }
-
-                // Transfer from payer to account
-                p.lamports.* -= additional_rent;
-                account.lamports.* += additional_rent;
+            // Validate payer is signer
+            if (p.is_signer == 0) {
+                return ReallocError.PayerNotSigner;
             }
+
+            // Check payer has sufficient lamports
+            if (p.lamports.* < additional_rent) {
+                return ReallocError.InsufficientPayer;
+            }
+
+            // Transfer from payer to account
+            p.lamports.* -= additional_rent;
+            account.lamports.* += additional_rent;
         }
 
         // Zero-init new space if requested and account data is accessible
-        if (zero_init and new_size > old_size) {
+        if (zero_init) {
             // Note: In actual runtime, the data slice would be extended
             // For testing, we assume data buffer is large enough
             if (account.data_len < new_size) {
@@ -239,15 +256,21 @@ pub fn validateRealloc(
     const new_rent = rent.getMinimumBalance(new_size);
 
     if (new_size > old_size) {
+        // Check single realloc increase limit (10 KB)
+        const increase = new_size - old_size;
+        if (increase > MAX_REALLOC_INCREASE) {
+            return ReallocError.ReallocIncreaseTooLarge;
+        }
+
         const additional_rent = new_rent - old_rent;
         if (additional_rent > 0) {
-            if (payer) |p| {
-                if (p.is_signer == 0) {
-                    return ReallocError.PayerNotSigner;
-                }
-                if (p.lamports.* < additional_rent) {
-                    return ReallocError.InsufficientPayer;
-                }
+            // Payer is required when growing requires additional rent
+            const p = payer orelse return ReallocError.PayerRequired;
+            if (p.is_signer == 0) {
+                return ReallocError.PayerNotSigner;
+            }
+            if (p.lamports.* < additional_rent) {
+                return ReallocError.InsufficientPayer;
             }
         }
     } else {
@@ -518,4 +541,120 @@ test "validateRealloc catches errors without executing" {
     };
 
     try std.testing.expectError(ReallocError.AccountNotWritable, validateRealloc(&account_info, 100, null));
+}
+
+test "reallocAccount fails when payer is null but required for rent" {
+    var account_id = PublicKey.default();
+    var owner = PublicKey.default();
+    var lamports: u64 = 1_000_000;
+    var data: [200]u8 = undefined;
+
+    const account_info = AccountInfo{
+        .id = &account_id,
+        .owner_id = &owner,
+        .lamports = &lamports,
+        .data_len = 50,
+        .data = &data,
+        .is_signer = 0,
+        .is_writable = 1,
+        .is_executable = 0,
+    };
+
+    // Growing account without payer should fail with PayerRequired
+    try std.testing.expectError(ReallocError.PayerRequired, reallocAccount(&account_info, 100, null, true));
+}
+
+test "reallocAccount fails when increase exceeds 10KB limit" {
+    var account_id = PublicKey.default();
+    var payer_id = comptime PublicKey.comptimeFromBase58("11111111111111111111111111111111");
+    var owner = PublicKey.default();
+    var account_lamports: u64 = 1_000_000_000;
+    var payer_lamports: u64 = 1_000_000_000;
+    var data: [20000]u8 = undefined;
+
+    const account_info = AccountInfo{
+        .id = &account_id,
+        .owner_id = &owner,
+        .lamports = &account_lamports,
+        .data_len = 100,
+        .data = &data,
+        .is_signer = 0,
+        .is_writable = 1,
+        .is_executable = 0,
+    };
+
+    const payer_info = AccountInfo{
+        .id = &payer_id,
+        .owner_id = &owner,
+        .lamports = &payer_lamports,
+        .data_len = 0,
+        .data = undefined,
+        .is_signer = 1,
+        .is_writable = 1,
+        .is_executable = 0,
+    };
+
+    // Trying to grow by more than 10KB should fail
+    const new_size = 100 + MAX_REALLOC_INCREASE + 1;
+    try std.testing.expectError(ReallocError.ReallocIncreaseTooLarge, reallocAccount(&account_info, new_size, &payer_info, true));
+}
+
+test "reallocAccount succeeds when increase is exactly 10KB" {
+    var account_id = PublicKey.default();
+    var payer_id = comptime PublicKey.comptimeFromBase58("11111111111111111111111111111111");
+    var owner = PublicKey.default();
+    var account_lamports: u64 = 1_000_000_000;
+    var payer_lamports: u64 = 1_000_000_000;
+    var data: [20000]u8 = undefined;
+
+    const account_info = AccountInfo{
+        .id = &account_id,
+        .owner_id = &owner,
+        .lamports = &account_lamports,
+        .data_len = 100,
+        .data = &data,
+        .is_signer = 0,
+        .is_writable = 1,
+        .is_executable = 0,
+    };
+
+    const payer_info = AccountInfo{
+        .id = &payer_id,
+        .owner_id = &owner,
+        .lamports = &payer_lamports,
+        .data_len = 0,
+        .data = undefined,
+        .is_signer = 1,
+        .is_writable = 1,
+        .is_executable = 0,
+    };
+
+    // Growing by exactly 10KB should succeed
+    const new_size = 100 + MAX_REALLOC_INCREASE;
+    try reallocAccount(&account_info, new_size, &payer_info, true);
+}
+
+test "reallocAccount shrinking succeeds without payer" {
+    var account_id = PublicKey.default();
+    var owner = PublicKey.default();
+    var lamports: u64 = 10_000_000;
+    var data: [200]u8 = undefined;
+
+    const account_info = AccountInfo{
+        .id = &account_id,
+        .owner_id = &owner,
+        .lamports = &lamports,
+        .data_len = 100,
+        .data = &data,
+        .is_signer = 0,
+        .is_writable = 1,
+        .is_executable = 0,
+    };
+
+    // Shrinking should succeed without payer (refund is just lost)
+    try reallocAccount(&account_info, 50, null, false);
+}
+
+test "MAX_REALLOC_INCREASE is 10 KB" {
+    try std.testing.expectEqual(@as(usize, 10 * 1024), MAX_REALLOC_INCREASE);
 }

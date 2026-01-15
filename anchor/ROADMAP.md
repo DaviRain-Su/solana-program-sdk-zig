@@ -1,5 +1,19 @@
 # sol-anchor-zig Roadmap
 
+## ✅ v3.2.63 - Event Emission + Realloc Safety + Bumps Improvements
+
+- [x] **Event Runtime Emission**: Add `ctx.emit()` and `emitEvent()` for Anchor-compatible event logging
+  - New `event.zig` module with discriminator + Borsh serialization
+  - Context.emit() method for convenient event emission
+  - Events logged via `sol_log_data` syscall
+- [x] **Realloc Safety Fixes**: Critical security improvements to account reallocation
+  - Add `PayerRequired` error when growing accounts without payer
+  - Add `ReallocIncreaseTooLarge` error for 10KB single-increase limit (matches Solana runtime)
+  - Fix silent failure when payer is null during rent-requiring growth
+- [x] **Bumps Storage Improvements**: Enhanced PDA bump management
+  - Increase `MAX_BUMPS` from 16 to 32 for complex programs
+  - Replace simple polynomial hash with FNV-1a 64-bit for better collision resistance
+
 ## ✅ v3.2.62 - InterfaceProgram Unchecked
 
 - [x] Add InterfaceProgramAny/InterfaceProgramUnchecked helpers

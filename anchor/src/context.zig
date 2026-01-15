@@ -110,7 +110,9 @@ pub const Bumps = struct {
     data: [MAX_BUMPS]BumpEntry = undefined,
     len: usize = 0,
 
-    const MAX_BUMPS = 16;
+    /// Maximum number of PDA bumps that can be stored.
+    /// Increased from 16 to 32 to support complex programs.
+    const MAX_BUMPS = 32;
 
     const BumpEntry = struct {
         name_hash: u64,
@@ -192,22 +194,37 @@ pub const Bumps = struct {
         return self.get(name) != null;
     }
 
-    /// Simple hash for field name lookup
+    /// FNV-1a hash for field name lookup (compile-time)
+    ///
+    /// Uses FNV-1a 64-bit hash for better collision resistance
+    /// compared to simple polynomial hash.
     fn hashName(comptime name: []const u8) u64 {
         comptime {
-            var hash: u64 = 0;
+            // FNV-1a 64-bit constants
+            const FNV_OFFSET: u64 = 0xcbf29ce484222325;
+            const FNV_PRIME: u64 = 0x100000001b3;
+
+            var hash: u64 = FNV_OFFSET;
             for (name) |c| {
-                hash = hash *% 31 +% c;
+                hash ^= c;
+                hash *%= FNV_PRIME;
             }
             return hash;
         }
     }
 
-    /// Runtime hash for field name lookup
+    /// FNV-1a hash for field name lookup (runtime)
+    ///
+    /// Use this when the field name is not known at compile time.
     pub fn hashNameRuntime(name: []const u8) u64 {
-        var hash: u64 = 0;
+        // FNV-1a 64-bit constants
+        const FNV_OFFSET: u64 = 0xcbf29ce484222325;
+        const FNV_PRIME: u64 = 0x100000001b3;
+
+        var hash: u64 = FNV_OFFSET;
         for (name) |c| {
-            hash = hash *% 31 +% c;
+            hash ^= c;
+            hash *%= FNV_PRIME;
         }
         return hash;
     }
@@ -280,6 +297,35 @@ pub fn Context(comptime Accounts: type) type {
         /// Returns null if the field has no associated bump.
         pub fn getBump(self: *const Self, comptime field_name: []const u8) ?u8 {
             return self.bumps.get(field_name);
+        }
+
+        /// Emit an event to the Solana program logs
+        ///
+        /// Events are emitted via `sol_log_data` and can be parsed by clients
+        /// subscribing to program logs. The format follows Anchor's event
+        /// encoding: `[discriminator][borsh_serialized_data]`.
+        ///
+        /// Example:
+        /// ```zig
+        /// const TransferEvent = struct {
+        ///     from: sol.PublicKey,
+        ///     to: sol.PublicKey,
+        ///     amount: u64,
+        /// };
+        ///
+        /// fn transfer(ctx: anchor.Context(TransferAccounts), amount: u64) !void {
+        ///     // ... transfer logic ...
+        ///     ctx.emit(TransferEvent, .{
+        ///         .from = ctx.accounts.from.key().*,
+        ///         .to = ctx.accounts.to.key().*,
+        ///         .amount = amount,
+        ///     });
+        /// }
+        /// ```
+        pub fn emit(self: *const Self, comptime EventType: type, event_data: EventType) void {
+            _ = self; // Context state not needed for event emission
+            const event_mod = @import("event.zig");
+            event_mod.emitEvent(EventType, event_data);
         }
     };
 }

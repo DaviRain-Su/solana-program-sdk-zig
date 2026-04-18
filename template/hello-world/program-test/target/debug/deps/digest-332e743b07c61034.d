@@ -1,0 +1,11 @@
+/Users/davirian/dev/active/solana-program-sdk-zig/template/hello-world/program-test/target/debug/deps/digest-332e743b07c61034.d: /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/digest-0.9.0/src/lib.rs /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/digest-0.9.0/src/digest.rs /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/digest-0.9.0/src/dyn_digest.rs /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/digest-0.9.0/src/errors.rs /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/digest-0.9.0/src/fixed.rs /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/digest-0.9.0/src/variable.rs /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/digest-0.9.0/src/xof.rs
+
+/Users/davirian/dev/active/solana-program-sdk-zig/template/hello-world/program-test/target/debug/deps/libdigest-332e743b07c61034.rmeta: /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/digest-0.9.0/src/lib.rs /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/digest-0.9.0/src/digest.rs /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/digest-0.9.0/src/dyn_digest.rs /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/digest-0.9.0/src/errors.rs /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/digest-0.9.0/src/fixed.rs /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/digest-0.9.0/src/variable.rs /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/digest-0.9.0/src/xof.rs
+
+/Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/digest-0.9.0/src/lib.rs:
+/Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/digest-0.9.0/src/digest.rs:
+/Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/digest-0.9.0/src/dyn_digest.rs:
+/Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/digest-0.9.0/src/errors.rs:
+/Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/digest-0.9.0/src/fixed.rs:
+/Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/digest-0.9.0/src/variable.rs:
+/Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/digest-0.9.0/src/xof.rs:

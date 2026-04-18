@@ -1,0 +1,72 @@
+name: Main
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ZIG_VERSION: 0.16.0
+  ELF2SBPF_BIN: ${{ github.workspace }}/elf2sbpf/zig-out/bin/elf2sbpf
+
+jobs:
+  test:
+    name: build + test
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout elf2sbpf
+        uses: actions/checkout@v4
+        with:
+          repository: DaviRain-Su/elf2sbpf
+          path: elf2sbpf
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: zig version
+        shell: bash
+        run: zig version
+
+      - name: Build elf2sbpf
+        shell: bash
+        working-directory: elf2sbpf
+        run: zig build
+
+      - name: Test host code
+        shell: bash
+        run: zig build test --summary all
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            program-test/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('./program-test/Cargo.toml') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.86.0
+
+      - name: Build and test program
+        shell: bash
+        run: ./program-test/test.sh zig "$ELF2SBPF_BIN"

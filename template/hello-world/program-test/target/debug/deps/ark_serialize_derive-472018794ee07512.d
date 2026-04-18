@@ -1,0 +1,7 @@
+/Users/davirian/dev/active/solana-program-sdk-zig/template/hello-world/program-test/target/debug/deps/ark_serialize_derive-472018794ee07512.d: /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ark-serialize-derive-0.5.0/src/lib.rs /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ark-serialize-derive-0.5.0/src/serialize.rs /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ark-serialize-derive-0.5.0/src/deserialize.rs
+
+/Users/davirian/dev/active/solana-program-sdk-zig/template/hello-world/program-test/target/debug/deps/libark_serialize_derive-472018794ee07512.dylib: /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ark-serialize-derive-0.5.0/src/lib.rs /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ark-serialize-derive-0.5.0/src/serialize.rs /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ark-serialize-derive-0.5.0/src/deserialize.rs
+
+/Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ark-serialize-derive-0.5.0/src/lib.rs:
+/Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ark-serialize-derive-0.5.0/src/serialize.rs:
+/Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ark-serialize-derive-0.5.0/src/deserialize.rs:

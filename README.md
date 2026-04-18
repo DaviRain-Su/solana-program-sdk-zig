@@ -3,7 +3,7 @@
 Write Solana on-chain programs in Zig.
 
 This maintenance branch uses a **stock Zig + `elf2sbpf`** pipeline for on-chain
-program builds instead of the old custom `solana-zig` compiler flow.
+program builds.
 
 If you want a more complete example repo, see
 [`solana-helloworld-zig`](https://github.com/joncinque/solana-helloworld-zig).
@@ -42,8 +42,8 @@ cd ../elf2sbpf
 zig build
 ```
 
-The legacy `./install-solana-zig.sh` script is kept only as historical
-compatibility tooling. It is **not** the primary path for this branch.
+`elf2sbpf` is the required stage-2 linker/post-processor for this branch's
+on-chain build path.
 
 ## How to use
 
@@ -103,8 +103,7 @@ The maintained on-chain target is:
 
 - `bpf_target` -> stock Zig BPF codegen + `elf2sbpf`
 
-The previous custom `solana-zig` / direct-SBF flow is no longer the documented
-build path for this branch.
+This branch documents and maintains only the stock Zig + `elf2sbpf` build path.
 
 ## Unit tests
 

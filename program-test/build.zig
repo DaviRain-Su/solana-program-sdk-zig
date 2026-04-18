@@ -1,5 +1,33 @@
 const std = @import("std");
 
+fn fileExists(path: []const u8) bool {
+    std.Io.Dir.accessAbsolute(std.Options.debug_io, path, .{}) catch return false;
+    return true;
+}
+
+fn resolveElf2sbpfBin(b: *std.Build, cli_override: ?[]const u8) []const u8 {
+    if (cli_override) |path| return path;
+
+    if (b.graph.environ_map.get("ELF2SBPF_BIN")) |path| return path;
+
+    const local_candidates = [_][]const u8{
+        ".tools/bin/elf2sbpf",
+        ".tools/elf2sbpf/bin/elf2sbpf",
+        ".tools/elf2sbpf/zig-out/bin/elf2sbpf",
+        "../.tools/bin/elf2sbpf",
+        "../.tools/elf2sbpf/bin/elf2sbpf",
+        "../.tools/elf2sbpf/zig-out/bin/elf2sbpf",
+    };
+    inline for (local_candidates) |candidate| {
+        const abs = b.pathFromRoot(candidate);
+        if (fileExists(abs)) return abs;
+    }
+
+    return b.findProgram(&.{"elf2sbpf"}, &.{}) catch @panic(
+        "elf2sbpf not found. Run ../scripts/bootstrap.sh, set ELF2SBPF_BIN, or pass -Delf2sbpf-bin=/absolute/path/to/elf2sbpf.",
+    );
+}
+
 pub fn build(b: *std.Build) !void {
     const optimize = .ReleaseFast;
     const target = b.resolveTargetQuery(.{
@@ -10,11 +38,11 @@ pub fn build(b: *std.Build) !void {
         .os_tag = .freestanding,
         .cpu_features_add = std.Target.bpf.cpu.v2.features,
     });
-    const elf2sbpf_bin = b.option(
+    const elf2sbpf_bin = resolveElf2sbpfBin(b, b.option(
         []const u8,
         "elf2sbpf-bin",
-        "Path to the elf2sbpf executable (default: look up on PATH)",
-    ) orelse "elf2sbpf";
+        "Path to the elf2sbpf executable (default: env / .tools / PATH)",
+    ));
 
     const solana_dep = b.dependency("solana_program_sdk", .{
         .target = target,

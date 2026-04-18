@@ -37,12 +37,37 @@ pub const LinkedProgram = struct {
     step: *std.Build.Step,
 };
 
+fn fileExists(path: []const u8) bool {
+    std.Io.Dir.accessAbsolute(std.Options.debug_io, path, .{}) catch return false;
+    return true;
+}
+
+pub fn resolveElf2sbpfBin(b: *std.Build, cli_override: ?[]const u8) []const u8 {
+    if (cli_override) |path| return path;
+
+    if (b.graph.environ_map.get("ELF2SBPF_BIN")) |path| return path;
+
+    const local_candidates = [_][]const u8{
+        ".tools/bin/elf2sbpf",
+        ".tools/elf2sbpf/bin/elf2sbpf",
+        ".tools/elf2sbpf/zig-out/bin/elf2sbpf",
+    };
+    inline for (local_candidates) |candidate| {
+        const abs = b.pathFromRoot(candidate);
+        if (fileExists(abs)) return abs;
+    }
+
+    return b.findProgram(&.{"elf2sbpf"}, &.{}) catch @panic(
+        "elf2sbpf not found. Run ./scripts/bootstrap.sh, set ELF2SBPF_BIN, or pass -Delf2sbpf-bin=/absolute/path/to/elf2sbpf.",
+    );
+}
+
 pub const BuildProgramElf2SbpfOptions = struct {
     name: []const u8,
     root_source_file: std.Build.LazyPath,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
-    elf2sbpf_bin: []const u8 = "elf2sbpf",
+    elf2sbpf_bin: ?[]const u8 = null,
 };
 
 pub fn buildProgramElf2sbpf(b: *std.Build, options: BuildProgramElf2SbpfOptions) LinkedProgram {
@@ -84,7 +109,8 @@ pub fn buildProgramElf2sbpf(b: *std.Build, options: BuildProgramElf2SbpfOptions)
     zig_cc.addArg("-o");
     const obj = zig_cc.addOutputFileArg(b.fmt("{s}.o", .{options.name}));
 
-    const link_program = b.addSystemCommand(&.{options.elf2sbpf_bin});
+    const elf2sbpf_bin = resolveElf2sbpfBin(b, options.elf2sbpf_bin);
+    const link_program = b.addSystemCommand(&.{elf2sbpf_bin});
     link_program.addFileArg(obj);
     const so = link_program.addOutputFileArg(b.fmt("{s}.so", .{options.name}));
 

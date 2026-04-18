@@ -2,7 +2,7 @@
     .fingerprint = 0x8d2e243edb223d6c,
     .name = .solana_program_sdk_test,
     .version = "0.15.0",
-    .minimum_zig_version = "0.15.0",
+    .minimum_zig_version = "0.16.0",
     .dependencies = .{
         .base58 = .{
             .url = "https://github.com/joncinque/base58-zig/archive/refs/tags/v0.15.0.tar.gz",

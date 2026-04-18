@@ -2,19 +2,35 @@
 
 Write Solana on-chain programs in Zig.
 
-This maintenance branch uses a **stock Zig + `elf2sbpf`** pipeline for on-chain
-program builds.
+This maintenance branch acts as a **starter template** for a stock Zig +
+`elf2sbpf` Solana program workflow. The goal is to make first use easy:
+bootstrap the toolchain, edit the sample program, build, and run tests.
 
-If you want a more complete example repo, see
-[`solana-helloworld-zig`](https://github.com/joncinque/solana-helloworld-zig).
+## Quick start
 
-## Other Zig packages for Solana development
+```console
+./scripts/bootstrap.sh
+zig build test --summary all
+./program-test/test.sh
+```
 
-- [Base-58](https://github.com/joncinque/base58-zig)
-- [Bincode](https://github.com/joncinque/bincode-zig)
-- [Borsh](https://github.com/joncinque/borsh-zig)
-- [Solana Program Library](https://github.com/joncinque/solana-program-library-zig)
-- [Metaplex Token-Metadata](https://github.com/joncinque/mpl-token-metadata-zig)
+What `bootstrap.sh` does:
+
+- checks that Zig is available
+- reuses `ELF2SBPF_BIN` if you already set it
+- reuses a sibling `../elf2sbpf` checkout if present
+- otherwise clones and builds `elf2sbpf` into `.tools/elf2sbpf/`
+
+After that, you can start by editing:
+
+- `program-test/pubkey/main.zig`
+
+## What this branch gives you
+
+- stock Zig 0.16.x workflow
+- automatic `elf2sbpf` bootstrap for local development
+- CI already wired for Zig + Rust + `elf2sbpf`
+- a minimal starter program plus integration test harness
 
 ## Prerequisites
 
@@ -29,31 +45,77 @@ zig build test --summary all
 
 ### On-chain program builds
 
-For program builds in this branch, use:
+For program builds in this branch, the pipeline is:
 
-1. stock Zig to emit LLVM bitcode
-2. `zig cc` to produce a BPF ELF object
-3. `elf2sbpf` to convert that object into a deployable Solana `.so`
-
-Build `elf2sbpf` once and keep its path handy:
-
-```console
-cd ../elf2sbpf
-zig build
-```
+1. stock Zig emits LLVM bitcode
+2. `zig cc` produces a BPF ELF object
+3. `elf2sbpf` converts that object into a deployable Solana `.so`
 
 `elf2sbpf` is the required stage-2 linker/post-processor for this branch's
 on-chain build path.
 
-## How to use
+## Using this branch as a starter template
 
-### 1. Add this package to your project
+### Bootstrap tools
 
 ```console
-zig fetch --save https://github.com/joncinque/solana-program-sdk-zig/archive/refs/tags/v0.17.0.tar.gz
+./scripts/bootstrap.sh
 ```
 
-### 2. Use the `buildProgramElf2sbpf` helper in `build.zig`
+This branch stores auto-prepared local tools under:
+
+```text
+.tools/elf2sbpf/
+```
+
+You can also override the binary explicitly with either:
+
+```console
+export ELF2SBPF_BIN=/absolute/path/to/elf2sbpf
+```
+
+or
+
+```console
+zig build -Delf2sbpf-bin=/absolute/path/to/elf2sbpf
+```
+
+### Edit the sample program
+
+The starter program lives at:
+
+```text
+program-test/pubkey/main.zig
+```
+
+Current sample:
+
+```zig
+const sol = @import("solana_program_sdk");
+
+export fn entrypoint(input: [*]u8) u64 {
+    _ = sol.context.Context.load(input) catch return 1;
+    sol.log.log("Hello zig program");
+    return 0;
+}
+```
+
+Replace the body with your own program logic as needed.
+
+### Build the sample program
+
+```console
+cd program-test
+zig build
+```
+
+If `ELF2SBPF_BIN` is unset, the build first looks in local `.tools/` and then on
+`PATH`.
+
+## Reusing the helper in your own project
+
+The root `build.zig` exports `buildProgramElf2sbpf(...)` for consumers that want
+to reuse the same stock Zig + `elf2sbpf` pipeline.
 
 ```zig
 const std = @import("std");
@@ -66,7 +128,7 @@ pub fn build(b: *std.Build) !void {
         []const u8,
         "elf2sbpf-bin",
         "Path to the elf2sbpf executable",
-    ) orelse "elf2sbpf";
+    );
 
     _ = solana.buildProgramElf2sbpf(b, .{
         .name = "program_name",
@@ -78,24 +140,11 @@ pub fn build(b: *std.Build) !void {
 }
 ```
 
-### 3. Define your program entrypoint
+If `elf2sbpf_bin` is omitted, the helper resolves in this order:
 
-```zig
-const solana = @import("solana_program_sdk");
-
-export fn entrypoint(_: [*]u8) callconv(.c) u64 {
-    solana.print("Hello world!", .{});
-    return 0;
-}
-```
-
-### 4. Build a Solana `.so`
-
-```console
-zig build -Delf2sbpf-bin=/absolute/path/to/elf2sbpf --summary all
-```
-
-The generated program is installed to `zig-out/lib/<name>.so`.
+1. `ELF2SBPF_BIN`
+2. local `.tools/` install
+3. `PATH`
 
 ## Build model on this branch
 
@@ -122,9 +171,12 @@ and run it against the Agave runtime using the
 Run them with:
 
 ```console
-cd program-test
-./test.sh zig /absolute/path/to/elf2sbpf
+./program-test/test.sh
 ```
 
-The script defaults to `zig` for the compiler and also accepts the `ELF2SBPF_BIN`
-environment variable if you prefer not to pass the path explicitly.
+The script defaults to `zig` for the compiler, resolves `elf2sbpf`
+automatically, and still accepts an explicit path when you want one:
+
+```console
+./program-test/test.sh zig /absolute/path/to/elf2sbpf
+```

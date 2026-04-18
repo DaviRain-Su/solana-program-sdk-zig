@@ -1,9 +1,0 @@
-/Users/davirian/dev/active/solana-program-sdk-zig/template/hello-world/program-test/target/debug/deps/agave_syscalls-dbd3fe897a46293d.d: /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/agave-syscalls-3.0.14/src/lib.rs /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/agave-syscalls-3.0.14/src/cpi.rs /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/agave-syscalls-3.0.14/src/logging.rs /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/agave-syscalls-3.0.14/src/mem_ops.rs /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/agave-syscalls-3.0.14/src/sysvar.rs
-
-/Users/davirian/dev/active/solana-program-sdk-zig/template/hello-world/program-test/target/debug/deps/libagave_syscalls-dbd3fe897a46293d.rmeta: /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/agave-syscalls-3.0.14/src/lib.rs /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/agave-syscalls-3.0.14/src/cpi.rs /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/agave-syscalls-3.0.14/src/logging.rs /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/agave-syscalls-3.0.14/src/mem_ops.rs /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/agave-syscalls-3.0.14/src/sysvar.rs
-
-/Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/agave-syscalls-3.0.14/src/lib.rs:
-/Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/agave-syscalls-3.0.14/src/cpi.rs:
-/Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/agave-syscalls-3.0.14/src/logging.rs:
-/Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/agave-syscalls-3.0.14/src/mem_ops.rs:
-/Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/agave-syscalls-3.0.14/src/sysvar.rs:

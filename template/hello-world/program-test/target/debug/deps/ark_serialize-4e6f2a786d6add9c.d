@@ -1,9 +1,0 @@
-/Users/davirian/dev/active/solana-program-sdk-zig/template/hello-world/program-test/target/debug/deps/ark_serialize-4e6f2a786d6add9c.d: /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ark-serialize-0.5.0/src/lib.rs /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ark-serialize-0.5.0/src/error.rs /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ark-serialize-0.5.0/src/flags.rs /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ark-serialize-0.5.0/src/impls.rs /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ark-serialize-0.5.0/src/../README.md
-
-/Users/davirian/dev/active/solana-program-sdk-zig/template/hello-world/program-test/target/debug/deps/libark_serialize-4e6f2a786d6add9c.rmeta: /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ark-serialize-0.5.0/src/lib.rs /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ark-serialize-0.5.0/src/error.rs /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ark-serialize-0.5.0/src/flags.rs /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ark-serialize-0.5.0/src/impls.rs /Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ark-serialize-0.5.0/src/../README.md
-
-/Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ark-serialize-0.5.0/src/lib.rs:
-/Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ark-serialize-0.5.0/src/error.rs:
-/Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ark-serialize-0.5.0/src/flags.rs:
-/Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ark-serialize-0.5.0/src/impls.rs:
-/Users/davirian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ark-serialize-0.5.0/src/../README.md:

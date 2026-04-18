@@ -1,7 +1,7 @@
 const sol = @import("solana_program_sdk");
 
 export fn entrypoint(input: [*]u8) u64 {
-    const context = sol.context.Context.load(input) catch return 1;
-    sol.log.print("Hello zig program {f}", .{context.program_id});
+    _ = sol.context.Context.load(input) catch return 1;
+    sol.log.log("Hello zig program");
     return 0;
 }

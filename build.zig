@@ -30,74 +30,79 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_lib_unit_tests.step);
 }
 
-// General helper function to do all the tricky build steps, by adding the
-// solana-sdk module, adding the BPF link script
-pub fn buildProgram(b: *std.Build, program: *std.Build.Step.Compile, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *std.Build.Module {
+pub const LinkedProgram = struct {
+    name: []const u8,
+    module: *std.Build.Module,
+    so: std.Build.LazyPath,
+    step: *std.Build.Step,
+};
+
+pub const BuildProgramElf2SbpfOptions = struct {
+    name: []const u8,
+    root_source_file: std.Build.LazyPath,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    elf2sbpf_bin: []const u8 = "elf2sbpf",
+};
+
+pub fn buildProgramElf2sbpf(b: *std.Build, options: BuildProgramElf2SbpfOptions) LinkedProgram {
     const solana_dep = b.dependency("solana_program_sdk", .{
-        .target = target,
-        .optimize = optimize,
+        .target = options.target,
+        .optimize = options.optimize,
     });
     const solana_mod = solana_dep.module("solana_program_sdk");
-    program.root_module.addImport("solana_program_sdk", solana_mod);
-    linkSolanaProgram(b, program);
-    return solana_mod;
+
+    const program_mod = b.createModule(.{
+        .root_source_file = options.root_source_file,
+        .target = options.target,
+        .optimize = options.optimize,
+        .imports = &.{
+            .{ .name = "solana_program_sdk", .module = solana_mod },
+        },
+    });
+    program_mod.pic = true;
+    program_mod.strip = true;
+
+    const bitcode_obj = b.addObject(.{
+        .name = b.fmt("{s}-bitcode", .{options.name}),
+        .root_module = program_mod,
+    });
+    const bitcode = bitcode_obj.getEmittedLlvmBc();
+
+    const zig_cc = b.addSystemCommand(&.{
+        b.graph.zig_exe,
+        "cc",
+        "-target",
+        "bpfel-freestanding",
+        "-mcpu=v2",
+        "-O2",
+        "-mllvm",
+        "-bpf-stack-size=4096",
+        "-c",
+    });
+    zig_cc.addFileArg(bitcode);
+    zig_cc.addArg("-o");
+    const obj = zig_cc.addOutputFileArg(b.fmt("{s}.o", .{options.name}));
+
+    const link_program = b.addSystemCommand(&.{options.elf2sbpf_bin});
+    link_program.addFileArg(obj);
+    const so = link_program.addOutputFileArg(b.fmt("{s}.so", .{options.name}));
+
+    b.getInstallStep().dependOn(&b.addInstallLibFile(so, b.fmt("{s}.so", .{options.name})).step);
+
+    return .{
+        .name = options.name,
+        .module = solana_mod,
+        .so = so,
+        .step = &link_program.step,
+    };
 }
-
-pub const sbf_target: std.Target.Query = .{
-    .cpu_arch = .sbf,
-    .os_tag = .solana,
-};
-
-pub const sbfv2_target: std.Target.Query = .{
-    .cpu_arch = .sbf,
-    .cpu_model = .{
-        .explicit = &std.Target.sbf.cpu.sbfv2,
-    },
-    .os_tag = .solana,
-    .cpu_features_add = std.Target.sbf.cpu.sbfv2.features,
-};
 
 pub const bpf_target: std.Target.Query = .{
     .cpu_arch = .bpfel,
+    .cpu_model = .{
+        .explicit = &std.Target.bpf.cpu.v2,
+    },
     .os_tag = .freestanding,
-    .cpu_features_add = std.Target.bpf.featureSet(&.{.solana}),
+    .cpu_features_add = std.Target.bpf.cpu.v2.features,
 };
-
-pub fn linkSolanaProgram(b: *std.Build, lib: *std.Build.Step.Compile) void {
-    const write_file_step = b.addWriteFiles();
-    const linker_script = write_file_step.add("bpf.ld",
-        \\PHDRS
-        \\{
-        \\text PT_LOAD  ;
-        \\rodata PT_LOAD ;
-        \\data PT_LOAD ;
-        \\dynamic PT_DYNAMIC ;
-        \\}
-        \\
-        \\SECTIONS
-        \\{
-        \\. = SIZEOF_HEADERS;
-        \\.text : { *(.text*) } :text
-        \\.rodata : { *(.rodata*) } :rodata
-        \\.data.rel.ro : { *(.data.rel.ro*) } :rodata
-        \\.dynamic : { *(.dynamic) } :dynamic
-        \\.dynsym : { *(.dynsym) } :data
-        \\.dynstr : { *(.dynstr) } :data
-        \\.rel.dyn : { *(.rel.dyn) } :data
-        \\/DISCARD/ : {
-        \\*(.eh_frame*)
-        \\*(.gnu.hash*)
-        \\*(.hash*)
-        \\}
-        \\}
-    );
-
-    lib.step.dependOn(&write_file_step.step);
-
-    lib.setLinkerScript(linker_script);
-    lib.stack_size = 4096;
-    lib.link_z_notext = true;
-    lib.root_module.pic = true;
-    lib.root_module.strip = true;
-    lib.entry = .{ .symbol_name = "entrypoint" };
-}

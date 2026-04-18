@@ -1,23 +1,20 @@
 const std = @import("std");
 const solana = @import("solana_program_sdk");
-const base58 = @import("base58");
 
 pub fn build(b: *std.Build) !void {
     const optimize = .ReleaseFast;
-    const target = b.resolveTargetQuery(solana.sbf_target);
-    const program = b.addLibrary(.{
-        .name = "pubkey",
-        .linkage = .dynamic,
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("pubkey/main.zig"),
-            .optimize = optimize,
-            .target = target,
-        }),
-    });
+    const target = b.resolveTargetQuery(solana.bpf_target);
+    const elf2sbpf_bin = b.option(
+        []const u8,
+        "elf2sbpf-bin",
+        "Path to the elf2sbpf executable (default: look up on PATH)",
+    ) orelse "elf2sbpf";
 
-    // Adding required dependencies, link the program properly, and get a
-    // prepared modules
-    _ = solana.buildProgram(b, program, target, optimize);
-    b.installArtifact(program);
-    base58.generateProgramKeypair(b, program);
+    _ = solana.buildProgramElf2sbpf(b, .{
+        .name = "pubkey",
+        .root_source_file = b.path("pubkey/main.zig"),
+        .optimize = optimize,
+        .target = target,
+        .elf2sbpf_bin = elf2sbpf_bin,
+    });
 }

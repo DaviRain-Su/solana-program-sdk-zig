@@ -1,105 +1,84 @@
 # solana-program-sdk-zig
 
-Write Solana on-chain programs in Zig!
+Write Solana on-chain programs in Zig.
 
-If you want a more complete program example, please see the
-[`solana-helloworld-zig` repo](https://github.com/joncinque/solana-helloworld-zig),
-which also provides tests and a CLI.
+This maintenance branch uses a **stock Zig + `elf2sbpf`** pipeline for on-chain
+program builds instead of the old custom `solana-zig` compiler flow.
 
-## Other Zig Packages for Solana Program development
+If you want a more complete example repo, see
+[`solana-helloworld-zig`](https://github.com/joncinque/solana-helloworld-zig).
 
-Here are some other packages to help with developing Solana programs with Zig:
+## Other Zig packages for Solana development
 
-* [Base-58](https://github.com/joncinque/base58-zig)
-* [Bincode](https://github.com/joncinque/bincode-zig)
-* [Borsh](https://github.com/joncinque/borsh-zig)
-* [Solana Program Library](https://github.com/joncinque/solana-program-library-zig)
-* [Metaplex Token-Metadata](https://github.com/joncinque/mpl-token-metadata-zig)
+- [Base-58](https://github.com/joncinque/base58-zig)
+- [Bincode](https://github.com/joncinque/bincode-zig)
+- [Borsh](https://github.com/joncinque/borsh-zig)
+- [Solana Program Library](https://github.com/joncinque/solana-program-library-zig)
+- [Metaplex Token-Metadata](https://github.com/joncinque/mpl-token-metadata-zig)
 
 ## Prerequisites
 
-Requires a Solana-compatible Zig compiler, which can be built with
-[solana-zig-bootstrap](https://github.com/joncinque/solana-zig-bootstrap).
+### Library / host tests
 
-It's also possible to download an appropriate compiler for your system from the
-[GitHub Releases](https://github.com/joncinque/solana-zig-bootstrap/releases).
+Use stock Zig:
 
-You can run the convenience script in this repo to download the compiler to
-`solana-zig`:
-
+```console
+zig version
+zig build test --summary all
 ```
-./install-solana-zig.sh
-./solana-zig/zig build test
+
+### On-chain program builds
+
+For program builds in this branch, use:
+
+1. stock Zig to emit LLVM bitcode
+2. `zig cc` to produce a BPF ELF object
+3. `elf2sbpf` to convert that object into a deployable Solana `.so`
+
+Build `elf2sbpf` once and keep its path handy:
+
+```console
+cd ../elf2sbpf
+zig build
 ```
+
+The legacy `./install-solana-zig.sh` script is kept only as historical
+compatibility tooling. It is **not** the primary path for this branch.
 
 ## How to use
 
-1. Add this package to your project:
+### 1. Add this package to your project
 
 ```console
 zig fetch --save https://github.com/joncinque/solana-program-sdk-zig/archive/refs/tags/v0.17.0.tar.gz
 ```
 
-2. (Optional) if you want to generate a keypair during building, you'll also
-need to install base58 and clap:
-
-```console
-zig fetch --save https://github.com/joncinque/base58-zig/archive/refs/tags/v0.15.0.tar.gz
-zig fetch --save https://github.com/Hejsil/zig-clap/archive/refs/tags/0.11.0.tar.gz
-```
-
-3. In your build.zig, add the modules that you want one by one, or use the
-helpers in `build.zig`:
+### 2. Use the `buildProgramElf2sbpf` helper in `build.zig`
 
 ```zig
 const std = @import("std");
 const solana = @import("solana_program_sdk");
-const base58 = @import("base58");
 
-pub fn build(b: *std.build.Builder) !void {
-    // Choose the on-chain target (bpf, sbf v1, sbf v2, etc)
-    // Many targets exist in the package, including `bpf_target`,
-    // `sbf_target`, and `sbfv2_target`.
-    // See `build.zig` for more info.
-    const target = b.resolveTargetQuery(solana.sbf_target);
-    // Choose the optimization. `.ReleaseFast` gives optimized CU usage
+pub fn build(b: *std.Build) !void {
     const optimize = .ReleaseFast;
-    // Create a module for your program
-    const mod = b.addModule("my_program", .{
-        .root_source_file = b.path("src/root.zig"),
+    const target = b.resolveTargetQuery(solana.bpf_target);
+    const elf2sbpf_bin = b.option(
+        []const u8,
+        "elf2sbpf-bin",
+        "Path to the elf2sbpf executable",
+    ) orelse "elf2sbpf";
+
+    _ = solana.buildProgramElf2sbpf(b, .{
+        .name = "program_name",
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
+        .elf2sbpf_bin = elf2sbpf_bin,
     });
-    // Define your program as a shared library
-    const program = b.addLibrary(.{
-        .name = "program_name",
-        .linkage = .dynamic,
-        // Give the root of your program, where the entrypoint is defined
-        .root_module = mod,
-    });
-    // Use the `buildProgram` helper to create the solana-sdk module, and link
-    // the program properly.
-    const solana_mod = solana.buildProgram(b, program, target, optimize);
-
-    // Install the program artifact
-    b.installArtifact(program);
-
-    // Optional: to generate a keypair in `zig-out/lib`, be sure to run this too:
-    base58.generateProgramKeypair(b, program);
-
-    // Optional, but if you define unit tests in your program files, you can run
-    // them with `zig build test` with this step included
-    const test_step = b.step("test", "Run unit tests");
-    const lib_unit_tests = b.addTest(.{
-        .root_module = mod,
-    });
-    lib_unit_tests.root_module.addImport("solana_program_sdk", solana_mod);
-    const run_unit_tests = b.addRunArtifact(lib_unit_tests);
-    test_step.dependOn(&run_unit_tests.step);
 }
 ```
 
-4. Setup `src/main.zig`:
+### 3. Define your program entrypoint
 
 ```zig
 const solana = @import("solana_program_sdk");
@@ -110,62 +89,43 @@ export fn entrypoint(_: [*]u8) callconv(.c) u64 {
 }
 ```
 
-5. Download the solana-zig compiler using the script in this repository:
+### 4. Build a Solana `.so`
 
 ```console
-$ ./install-solana-zig.sh
+zig build -Delf2sbpf-bin=/absolute/path/to/elf2sbpf --summary all
 ```
 
-6. Build and deploy your program on Solana devnet:
+The generated program is installed to `zig-out/lib/<name>.so`.
 
-```console
-$ ./solana-zig/zig build --summary all
-Program ID: FHGeakPPYgDWomQT6Embr4mVW5DSoygX6TaxQXdgwDYU
+## Build model on this branch
 
-$ solana airdrop -ud 1
-Requesting airdrop of 1 SOL
+The maintained on-chain target is:
 
-Signature: 52rgcLosCjRySoQq5MQLpoKg4JacCdidPNXPWbJhTE1LJR2uzFgp93Q7Dq1hQrcyc6nwrNrieoN54GpyNe8H4j3T
+- `bpf_target` -> stock Zig BPF codegen + `elf2sbpf`
 
-882.4039166 SOL
-
-$ solana program deploy -ud zig-out/lib/program_name.so
-Program Id: FHGeakPPYgDWomQT6Embr4mVW5DSoygX6TaxQXdgwDYU
-```
-
-And that's it!
-
-### Targets available
-
-The helpers in build.zig contain various Solana targets. Here are their analogues
-to the Rust build tools:
-
-* `sbf_target` -> `cargo build-sbf`
-* `sbfv2_target` -> `cargo build-sbf --arch sbfv2`
-* **Deprecated** `bpf_target` -> `cargo build-bpf`
+The previous custom `solana-zig` / direct-SBF flow is no longer the documented
+build path for this branch.
 
 ## Unit tests
 
-The unit tests require the solana-zig compiler as mentioned in the prerequisites.
-
-You can run all unit tests for the library with:
+Run all library tests with stock Zig:
 
 ```console
-./solana-zig/zig build test --summary all
+zig build test --summary all
 ```
 
 ## Integration tests
 
-There are also integration tests that build programs and run against the Agave
-runtime using the
+This repo includes `program-test/` integration tests that build a test program
+and run it against the Agave runtime using the
 [`solana-program-test` crate](https://crates.io/crates/solana-program-test).
 
-You can run these tests using the `test.sh` script:
+Run them with:
 
 ```console
-cd program-test/
-./test.sh
+cd program-test
+./test.sh zig /absolute/path/to/elf2sbpf
 ```
 
-These tests require a Rust compiler along with the solana-zig compiler, as
-mentioned in the prerequisites. Be sure to run `./install-solana-zig.sh` first.
+The script defaults to `zig` for the compiler and also accepts the `ELF2SBPF_BIN`
+environment variable if you prefer not to pass the path explicitly.

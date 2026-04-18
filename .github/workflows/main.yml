@@ -3,14 +3,20 @@ name: Main
 on:
   push:
     branches:
-      - 'main'
+      - main
+      - elf2sbpf-from-4589040
   pull_request:
     branches:
-      - 'main'
+      - main
+      - elf2sbpf-from-4589040
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
-  SOLANA_ZIG_VERSION: v1.52.0
-  SOLANA_ZIG_DIR: solana-zig
+  ZIG_VERSION: 0.16.0
+  ELF2SBPF_BIN: ${{ github.workspace }}/elf2sbpf/zig-out/bin/elf2sbpf
 
 jobs:
   library:
@@ -21,64 +27,62 @@ jobs:
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v4
-      with:
-        submodules: recursive
+      - uses: actions/checkout@v4
 
-    - uses: actions/cache@v4
-      with:
-        path: $SOLANA_ZIG_DIR
-        key: solana-zig-$SOLANA_ZIG_VERSION
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: ${{ env.ZIG_VERSION }}
 
-    - name: Download solana-zig compiler
-      shell: bash
-      run: ./install-solana-zig.sh $SOLANA_ZIG_DIR
-
-    - name: Test library
-      shell: bash
-      run: |
-        $SOLANA_ZIG_DIR/zig build test --summary all
+      - name: Test library
+        shell: bash
+        run: zig build test --summary all
 
   programs:
     name: Build and test programs
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest]
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v4
-      with:
-        submodules: recursive
+      - uses: actions/checkout@v4
 
-    - uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          $SOLANA_ZIG_DIR
-        key: solana-zig-${{ hashFiles('./program-test/Cargo.lock') }}-$SOLANA_ZIG_VERSION
+      - name: Checkout elf2sbpf
+        uses: actions/checkout@v4
+        with:
+          repository: DaviRain-Su/elf2sbpf
+          path: elf2sbpf
 
-    - name: Download solana-zig compiler
-      shell: bash
-      run: ./install-solana-zig.sh $SOLANA_ZIG_DIR
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: ${{ env.ZIG_VERSION }}
 
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: 1.86.0
+      - name: Build elf2sbpf
+        shell: bash
+        working-directory: elf2sbpf
+        run: zig build
 
-    # took the workaround from https://github.com/sfackler/rust-openssl/issues/2149
-    - name: Set Perl environment variables
-      if: runner.os == 'Windows'
-      run: |
-        echo "PERL=$((where.exe perl)[0])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-        echo "OPENSSL_SRC_PERL=$((where.exe perl)[0])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            program-test/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('./program-test/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
 
-    - name: Install build deps
-      shell: bash
-      run: ./program-test/install-build-deps.sh
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.86.0
 
-    - name: Build and test program
-      shell: bash
-      run: ./program-test/test.sh
+      - name: Install build deps
+        shell: bash
+        run: ./program-test/install-build-deps.sh
+
+      - name: Build and test program
+        shell: bash
+        run: ./program-test/test.sh zig "$ELF2SBPF_BIN"

@@ -8,7 +8,7 @@ SDK serves both audiences:
 | Path | Compiler | Linker | CU | Install size |
 |------|----------|--------|-----|--------------|
 | **Primary** — `buildProgram` | [solana-zig fork][fork] (Zig 0.16-dev) | built-in `lld` | best (matches `solana-zig` baseline) | ~200 MB |
-| **Fallback** — `buildProgramElf2sbpf` | stock Zig 0.16 | [`elf2sbpf`][elf2sbpf] | ~80–95 % of baseline with `--peephole` | stock Zig + ~2 MB |
+| **Fallback** — `buildProgramElf2sbpf` | stock Zig 0.16 | [`elf2sbpf`][elf2sbpf] | worse than baseline (no CU optimizer) | stock Zig + ~2 MB |
 
 [fork]: https://github.com/DaviRain-Su/solana-zig-bootstrap/tree/solana-1.52-zig0.16
 [elf2sbpf]: https://github.com/DaviRain-Su/elf2sbpf
@@ -93,17 +93,11 @@ Run with stock Zig:
 zig build  # elf2sbpf auto-resolved from ELF2SBPF_BIN / .tools / PATH
 ```
 
-If you want the D.7.10 peephole pass (closes most of the CU gap), point
-`ELF2SBPF_BIN` at a wrapper that passes `--peephole`:
-
-```console
-cat > elf2sbpf-peephole <<'EOF'
-#!/usr/bin/env bash
-exec /path/to/elf2sbpf --peephole "$@"
-EOF
-chmod +x elf2sbpf-peephole
-export ELF2SBPF_BIN=$PWD/elf2sbpf-peephole
-```
+For CU-optimal Zig programs, use the solana-zig fork path (primary)
+instead — the elf2sbpf fallback path is for users who can't install
+the fork. A `--peephole` rewriter existed in earlier elf2sbpf
+versions but was rolled back 2026-04-19 (miscompile on escrow-class
+programs).
 
 ## Prerequisites
 

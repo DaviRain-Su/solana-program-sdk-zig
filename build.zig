@@ -156,8 +156,10 @@ pub fn linkSolanaProgram(b: *std.Build, lib: *std.Build.Step.Compile) void {
 // For users running stock Zig 0.16 without the solana-zig fork. Emits
 // LLVM bitcode, then uses `zig cc -target bpfel` to produce a BPF
 // object file, then invokes `elf2sbpf` to convert it to a Solana .so.
-// CU numbers are worse than `buildProgram`; enable `elf2sbpf --peephole`
-// via `ELF2SBPF_BIN` pointing at a wrapper to narrow the gap.
+// CU numbers are worse than `buildProgram` — stock `bpfel` codegen
+// expands unaligned u64 loads/stores to byte-wise chains that the
+// solana-zig fork avoids. For CU-critical workloads, use the fork
+// path via `buildProgram` above.
 // ---------------------------------------------------------------------
 
 fn fileExists(path: []const u8) bool {

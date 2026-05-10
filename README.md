@@ -7,10 +7,10 @@ SDK serves both audiences:
 
 | Path | Compiler | Linker | CU | Install size |
 |------|----------|--------|-----|--------------|
-| **Primary** — `buildProgram` | [solana-zig fork][fork] (Zig 0.16-dev) | built-in `lld` | best (matches `solana-zig` baseline) | ~200 MB |
+| **Primary** — `buildProgram` | [solana-zig fork][fork] (Zig 0.16) | built-in `lld` | best (matches `solana-zig` baseline) | ~200 MB |
 | **Fallback** — `buildProgramElf2sbpf` | stock Zig 0.16 | [`elf2sbpf`][elf2sbpf] | worse than baseline (no CU optimizer) | stock Zig + ~2 MB |
 
-[fork]: https://github.com/DaviRain-Su/solana-zig-bootstrap/tree/solana-1.52-zig0.16
+[fork]: https://github.com/joncinque/solana-zig-bootstrap/releases/tag/solana-v1.53.0
 [elf2sbpf]: https://github.com/DaviRain-Su/elf2sbpf
 
 Which to pick:
@@ -110,15 +110,29 @@ zig version
 
 ### solana-zig fork (primary program builds)
 
-Clone & build:
+#### Option 1: Download prebuilt binary (recommended)
+
+Download from [GitHub Releases](https://github.com/joncinque/solana-zig-bootstrap/releases/tag/solana-v1.53.0):
 
 ```console
-git clone -b solana-1.52-zig0.16 \
-  https://github.com/DaviRain-Su/solana-zig-bootstrap \
+# Linux x86_64
+curl -LO https://github.com/joncinque/solana-zig-bootstrap/releases/download/solana-v1.53.0/zig-x86_64-linux-musl.tar.bz2
+tar -xjf zig-x86_64-linux-musl.tar.bz2
+export SOLANA_ZIG_BIN="$(pwd)/zig-x86_64-linux-musl-baseline/zig"
+```
+
+Other platforms: see the release page for `zig-aarch64-linux-musl`,
+`zig-x86_64-macos-none`, etc.
+
+#### Option 2: Build from source
+
+```console
+git clone -b solana-1.52 \
+  https://github.com/joncinque/solana-zig-bootstrap \
   ../solana-zig-bootstrap
 cd ../solana-zig-bootstrap
 git submodule update --init --recursive
-./build native-macos-none baseline   # or native-linux-musl baseline
+./build native-linux-musl baseline   # or native-macos-none baseline
 ```
 
 When done:
@@ -151,7 +165,14 @@ zig build test --summary all
 ./program-test/test.sh
 ```
 
-See `program-test/test.sh` for CLI options.
+The test script auto-detects the solana-zig fork and uses the optimal
+`buildProgram` path when available. Pass a specific Zig binary as the
+first argument if needed:
+
+```console
+./program-test/test.sh /path/to/solana-zig
+./program-test/test.sh /usr/bin/zig        # force stock Zig path
+```
 
 ## Branch layout
 

@@ -50,14 +50,12 @@ pub const sbf_target: std.Target.Query = .{
     .cpu_arch = .sbf,
     .os_tag = .solana,
     .cpu_model = .{ .explicit = &std.Target.sbf.cpu.v2 },
-    .cpu_features_add = std.Target.sbf.cpu.v2.features,
 };
 
 pub const bpf_target: std.Target.Query = .{
     .cpu_arch = .bpfel,
     .cpu_model = .{ .explicit = &std.Target.bpf.cpu.v2 },
     .os_tag = .freestanding,
-    .cpu_features_add = std.Target.bpf.cpu.v2.features,
 };
 
 // ---------------------------------------------------------------------

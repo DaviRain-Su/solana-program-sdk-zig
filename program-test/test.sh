@@ -20,7 +20,7 @@ is_solana_zig() {
 
 if is_solana_zig "$ZIG"; then
   echo "Detected solana-zig fork — using buildProgram (sbf target) path"
-  "$ZIG" build --summary all --verbose
+  "$ZIG" build -Dsolana-zig --summary all --verbose
 else
   echo "Using stock Zig — using buildProgramElf2sbpf (bpf + elf2sbpf) fallback path"
   if [[ -z "$ELF2SBPF_BIN" ]]; then

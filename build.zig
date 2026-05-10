@@ -46,11 +46,15 @@ pub const LinkedProgram = struct {
 // `buildProgramElf2sbpf` instead.
 // ---------------------------------------------------------------------
 
-pub const sbf_target: std.Target.Query = .{
-    .cpu_arch = .sbf,
-    .os_tag = .solana,
-    .cpu_model = .{ .explicit = &std.Target.sbf.cpu.v2 },
-};
+pub const has_sbf_target = @hasField(std.Target.Cpu.Arch, "sbf");
+
+pub fn sbfTarget() std.Target.Query {
+    return .{
+        .cpu_arch = .sbf,
+        .os_tag = .solana,
+        .cpu_model = .{ .explicit = &std.Target.sbf.cpu.v2 },
+    };
+}
 
 pub const bpf_target: std.Target.Query = .{
     .cpu_arch = .bpfel,
@@ -74,7 +78,11 @@ pub const BuildProgramOptions = struct {
 };
 
 pub fn buildProgram(b: *std.Build, options: BuildProgramOptions) LinkedProgram {
-    const target = b.resolveTargetQuery(sbf_target);
+    if (!has_sbf_target) {
+        std.log.err("buildProgram requires the solana-zig fork. Use buildProgramElf2sbpf with stock Zig.", .{});
+        std.process.exit(1);
+    }
+    const target = b.resolveTargetQuery(sbfTarget());
     const optimize = options.optimize;
 
     const solana_dep = b.dependency("solana_program_sdk", .{

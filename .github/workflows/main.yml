@@ -5,10 +5,12 @@ on:
     branches:
       - main
       - elf2sbpf-from-4589040
+      - solana-zig-fork-0.16
   pull_request:
     branches:
       - main
       - elf2sbpf-from-4589040
+      - solana-zig-fork-0.16
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -42,8 +44,8 @@ jobs:
         shell: bash
         run: zig build test --summary all
 
-  programs:
-    name: Build and test programs
+  programs-fallback:
+    name: Build and test programs (fallback path)
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
@@ -91,6 +93,55 @@ jobs:
         shell: bash
         run: ./program-test/install-build-deps.sh
 
-      - name: Build and test program
+      - name: Build and test program (fallback)
         shell: bash
         run: ./program-test/test.sh zig "$ELF2SBPF_BIN"
+
+  programs-fork:
+    name: Build and test programs (solana-zig fork path)
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download solana-zig fork
+        shell: bash
+        run: |
+          curl -LO https://github.com/joncinque/solana-zig-bootstrap/releases/download/solana-v1.53.0/zig-x86_64-linux-musl.tar.bz2
+          tar -xjf zig-x86_64-linux-musl.tar.bz2
+          echo "SOLANA_ZIG_BIN=$(pwd)/zig-x86_64-linux-musl-baseline/zig" >> "$GITHUB_ENV"
+
+      - name: Setup Zig (stock)
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Test library with stock Zig
+        shell: bash
+        run: zig build test --summary all
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            program-test/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('./program-test/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.86.0
+
+      - name: Install build deps
+        shell: bash
+        run: ./program-test/install-build-deps.sh
+
+      - name: Build and test program (fork)
+        shell: bash
+        run: ./program-test/test.sh "$SOLANA_ZIG_BIN"

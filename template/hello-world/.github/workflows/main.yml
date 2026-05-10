@@ -18,8 +18,8 @@ env:
   ELF2SBPF_BIN: ${{ github.workspace }}/elf2sbpf/zig-out/bin/elf2sbpf
 
 jobs:
-  test:
-    name: build + test
+  test-fallback:
+    name: build + test (fallback path)
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
@@ -67,6 +67,47 @@ jobs:
         with:
           toolchain: 1.86.0
 
-      - name: Build and test program
+      - name: Build and test program (fallback)
         shell: bash
         run: ./program-test/test.sh zig "$ELF2SBPF_BIN"
+
+  test-fork:
+    name: build + test (solana-zig fork path)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download solana-zig fork
+        shell: bash
+        run: |
+          curl -LO https://github.com/joncinque/solana-zig-bootstrap/releases/download/solana-v1.53.0/zig-x86_64-linux-musl.tar.bz2
+          tar -xjf zig-x86_64-linux-musl.tar.bz2
+          echo "SOLANA_ZIG_BIN=$(pwd)/zig-x86_64-linux-musl-baseline/zig" >> "$GITHUB_ENV"
+
+      - name: Setup Zig (stock)
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Test host code
+        shell: bash
+        run: zig build test --summary all
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            program-test/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('./program-test/Cargo.toml') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.86.0
+
+      - name: Build and test program (fork)
+        shell: bash
+        run: ./program-test/test.sh "$SOLANA_ZIG_BIN"

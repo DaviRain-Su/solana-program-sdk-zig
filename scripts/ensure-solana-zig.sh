@@ -68,8 +68,8 @@ solana-zig fork not found.
 
 Options:
   - Set SOLANA_ZIG_BIN=/path/to/solana-zig-bootstrap/out-smoke/host/bin/zig
-  - Clone and build https://github.com/DaviRain-Su/solana-zig-bootstrap
-    (branch solana-1.52-zig0.16) into a sibling directory
+  - Clone and build https://github.com/joncinque/solana-zig-bootstrap
+    (branch solana-1.52) into a sibling directory
   - Fall back to stock Zig + elf2sbpf via scripts/ensure-elf2sbpf.sh
 EOF
 exit 1

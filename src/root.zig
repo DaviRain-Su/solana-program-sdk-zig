@@ -27,7 +27,8 @@ pub const slot_hashes = @import("slot_hashes.zig");
 pub const blake3 = @import("blake3.zig");
 pub const bpf = @import("bpf.zig");
 
-// Panic handler (only used when explicitly imported)
+// Panic handler namespace
+/// Usage in your program: `pub const panic = solana_program_sdk.panic.Panic;`
 pub const panic = @import("panic.zig");
 
 // Type aliases for convenience

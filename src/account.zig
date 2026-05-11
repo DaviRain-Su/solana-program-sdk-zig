@@ -131,6 +131,24 @@ pub const AccountInfo = struct {
         return pubkey.pubkeyEqComptime(self.key(), expected);
     }
 
+    /// Return `error.MissingRequiredSignature` if this account did not
+    /// sign the transaction.
+    pub inline fn expectSigner(self: AccountInfo) ProgramError!void {
+        if (!self.isSigner()) return error.MissingRequiredSignature;
+    }
+
+    /// Return `error.ImmutableAccount` if this account is not writable.
+    pub inline fn expectWritable(self: AccountInfo) ProgramError!void {
+        if (!self.isWritable()) return error.ImmutableAccount;
+    }
+
+    /// Return `error.InvalidAccountData` if this account is not executable.
+    /// Useful for sanity-checking that an "executable" account passed
+    /// into the program really is a program account.
+    pub inline fn expectExecutable(self: AccountInfo) ProgramError!void {
+        if (!self.executable()) return error.InvalidAccountData;
+    }
+
     /// Read a typed value from account data at the given byte offset.
     /// Zero overhead — compiles to a single pointer dereference.
     ///

@@ -13,6 +13,7 @@ pub fn build(b: *std.Build) !void {
         .{ "benchmark_pda_runtime", "pda_runtime.zig" },
         .{ "benchmark_pda_comptime", "pda_comptime.zig" },
         .{ "benchmark_parse_accounts", "parse_accounts.zig" },
+        .{ "benchmark_parse_accounts_with", "parse_accounts_with.zig" },
         .{ "benchmark_transfer_lamports", "transfer_lamports.zig" },
         .{ "benchmark_transfer_lamports_raw", "transfer_lamports_raw.zig" },
     };

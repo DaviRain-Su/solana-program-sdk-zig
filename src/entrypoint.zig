@@ -183,7 +183,90 @@ pub const InstructionContext = struct {
         }
         return out;
     }
+
+    /// Like `parseAccounts`, but with comptime-declared per-account
+    /// expectations. Each entry is `.{ name, AccountExpectation{...} }`.
+    /// The expectation fields:
+    ///   - `signer`:     if `true`, fail with `MissingRequiredSignature`
+    ///                   when the account did not sign the transaction.
+    ///   - `writable`:   if `true`, fail with `ImmutableAccount`.
+    ///   - `executable`: if `true`, fail with `InvalidAccountData`
+    ///                   when the account is not a program.
+    ///   - `owner`:      optional comptime `Pubkey`; if set, fail with
+    ///                   `IncorrectProgramId` unless the account is
+    ///                   owned by exactly this program id. Uses
+    ///                   `pubkeyEqComptime` so the expected key is
+    ///                   folded into 4 u64 immediates.
+    ///
+    /// All checks are unrolled at compile time — the resulting BPF
+    /// code is byte-identical to hand-written `if`s, but the SDK
+    /// guarantees the correct error variant for each failure (no more
+    /// stray "Custom program error" surprises).
+    ///
+    /// ```zig
+    /// const accs = try ctx.parseAccountsWith(.{
+    ///     .{ "from",           .{ .signer = true, .writable = true } },
+    ///     .{ "to",             .{ .writable = true } },
+    ///     .{ "system_program", .{ .owner = sol.native_loader_id } },
+    /// });
+    /// ```
+    pub inline fn parseAccountsWith(
+        self: *InstructionContext,
+        comptime spec: anytype,
+    ) ProgramError!ParsedAccountsWith(spec) {
+        const T = ParsedAccountsWith(spec);
+        var out: T = undefined;
+        inline for (spec) |entry| {
+            const name = entry[0];
+            const exp: AccountExpectation = entry[1];
+
+            const acc = self.nextAccount() orelse return error.NotEnoughAccountKeys;
+
+            if (exp.signer) try acc.expectSigner();
+            if (exp.writable) try acc.expectWritable();
+            if (exp.executable) try acc.expectExecutable();
+            if (exp.owner) |expected_owner| {
+                if (!acc.isOwnedByComptime(expected_owner)) {
+                    return error.IncorrectProgramId;
+                }
+            }
+
+            @field(out, name) = acc;
+        }
+        return out;
+    }
 };
+
+/// Per-account validation rules for `parseAccountsWith`.
+///
+/// Optional fields default to "no check"; set them to `true` (or a
+/// `Pubkey` value) to enforce them.
+pub const AccountExpectation = struct {
+    signer: bool = false,
+    writable: bool = false,
+    executable: bool = false,
+    owner: ?Pubkey = null,
+};
+
+/// Generate a `ParsedAccounts`-shaped struct from a comptime spec
+/// tuple of `.{ name, AccountExpectation }`. Each field has type
+/// `AccountInfo`.
+pub fn ParsedAccountsWith(comptime spec: anytype) type {
+    var field_names: [spec.len][:0]const u8 = undefined;
+    inline for (spec, 0..) |entry, i| {
+        field_names[i] = entry[0] ++ "";
+    }
+    return @Struct(
+        .auto,
+        null,
+        &field_names,
+        &@as([spec.len]type, @splat(AccountInfo)),
+        &@as(
+            [spec.len]std.builtin.Type.StructField.Attributes,
+            @splat(.{}),
+        ),
+    );
+}
 
 /// Generate a struct type from a tuple of field names. Each field is
 /// of type `AccountInfo`. Used by `parseAccounts`.
@@ -410,4 +493,119 @@ test "entrypoint: parseAccounts errors when too few accounts" {
         error.NotEnoughAccountKeys,
         ctx.parseAccounts(.{"only_one"}),
     );
+}
+
+// Helper that builds an input buffer with two accounts whose
+// signer/writable flags are set by the caller.
+fn buildTwoAccountInput(
+    buf: *[32768]u8,
+    acc0_signer: u8,
+    acc0_writable: u8,
+    acc0_owner: Pubkey,
+    acc1_signer: u8,
+    acc1_writable: u8,
+) void {
+    @memset(buf, 0);
+    var ptr: [*]u8 = buf;
+
+    std.mem.writeInt(u64, ptr[0..8], 2, .little);
+    ptr += 8;
+
+    const acc0: Account = .{
+        .borrow_state = account.NON_DUP_MARKER,
+        .is_signer = acc0_signer,
+        .is_writable = acc0_writable,
+        .is_executable = 0,
+        ._padding = .{0} ** 4,
+        .key = makePubkey(1),
+        .owner = acc0_owner,
+        .lamports = 100,
+        .data_len = 0,
+    };
+    @memcpy(ptr[0..@sizeOf(Account)], std.mem.asBytes(&acc0));
+    ptr += @sizeOf(Account) + MAX_PERMITTED_DATA_INCREASE + 8;
+
+    const acc1: Account = .{
+        .borrow_state = account.NON_DUP_MARKER,
+        .is_signer = acc1_signer,
+        .is_writable = acc1_writable,
+        .is_executable = 0,
+        ._padding = .{0} ** 4,
+        .key = makePubkey(2),
+        .owner = makePubkey(3),
+        .lamports = 100,
+        .data_len = 0,
+    };
+    @memcpy(ptr[0..@sizeOf(Account)], std.mem.asBytes(&acc1));
+    ptr += @sizeOf(Account) + MAX_PERMITTED_DATA_INCREASE + 8;
+
+    std.mem.writeInt(u64, ptr[0..8], 0, .little);
+}
+
+test "entrypoint: parseAccountsWith — happy path" {
+    var input: [32768]u8 align(8) = undefined;
+    buildTwoAccountInput(&input, 1, 1, makePubkey(99), 0, 1);
+
+    var ctx = InstructionContext.init(&input);
+    const accs = try ctx.parseAccountsWith(.{
+        .{ "from", AccountExpectation{ .signer = true, .writable = true } },
+        .{ "to", AccountExpectation{ .writable = true } },
+    });
+    try std.testing.expect(accs.from.isSigner());
+    try std.testing.expect(accs.to.isWritable());
+}
+
+test "entrypoint: parseAccountsWith — missing signer" {
+    var input: [32768]u8 align(8) = undefined;
+    buildTwoAccountInput(&input, 0, 1, makePubkey(99), 0, 1); // acc0 not signing
+
+    var ctx = InstructionContext.init(&input);
+    try std.testing.expectError(
+        error.MissingRequiredSignature,
+        ctx.parseAccountsWith(.{
+            .{ "from", AccountExpectation{ .signer = true } },
+            .{ "to", AccountExpectation{} },
+        }),
+    );
+}
+
+test "entrypoint: parseAccountsWith — not writable" {
+    var input: [32768]u8 align(8) = undefined;
+    buildTwoAccountInput(&input, 1, 0, makePubkey(99), 0, 1); // acc0 not writable
+
+    var ctx = InstructionContext.init(&input);
+    try std.testing.expectError(
+        error.ImmutableAccount,
+        ctx.parseAccountsWith(.{
+            .{ "from", AccountExpectation{ .writable = true } },
+            .{ "to", AccountExpectation{} },
+        }),
+    );
+}
+
+test "entrypoint: parseAccountsWith — wrong owner" {
+    var input: [32768]u8 align(8) = undefined;
+    buildTwoAccountInput(&input, 0, 0, makePubkey(1), 0, 0); // owner=1, not 99
+
+    var ctx = InstructionContext.init(&input);
+    try std.testing.expectError(
+        error.IncorrectProgramId,
+        ctx.parseAccountsWith(.{
+            .{ "from", AccountExpectation{ .owner = comptime makePubkey(99) } },
+            .{ "to", AccountExpectation{} },
+        }),
+    );
+}
+
+test "entrypoint: parseAccountsWith — owner match passes" {
+    const expected_owner = comptime makePubkey(42);
+    var input: [32768]u8 align(8) = undefined;
+    buildTwoAccountInput(&input, 0, 0, expected_owner, 0, 0);
+
+    var ctx = InstructionContext.init(&input);
+    const accs = try ctx.parseAccountsWith(.{
+        .{ "from", AccountExpectation{ .owner = comptime makePubkey(42) } },
+        .{ "to", AccountExpectation{} },
+    });
+    _ = accs;
 }

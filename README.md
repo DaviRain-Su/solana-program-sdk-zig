@@ -94,6 +94,31 @@ try sol.system.transfer(accs.from.toCpiInfo(), accs.to.toCpiInfo(),
 
 Zero runtime overhead vs. hand-written `nextAccount() orelse …`.
 
+### Comptime-validated account parsing
+
+For the common case where you also want to assert each account's
+`signer` / `writable` / `executable` flags or its expected owner,
+`parseAccountsWith` declares the expectations alongside the names.
+Forgetting an `isSigner()` check is a top-five Solana program bug —
+this lets the compiler enforce them for you:
+
+```zig
+const accs = try ctx.parseAccountsWith(.{
+    .{ "from",           .{ .signer = true, .writable = true } },
+    .{ "to",             .{ .writable = true } },
+    .{ "config",         .{ .owner = MY_PROGRAM_ID } },
+});
+```
+
+Each check unrolls into a single `if` at compile time, so the
+generated BPF is byte-identical to hand-written validation — but you
+get the canonical error variant (`MissingRequiredSignature`,
+`ImmutableAccount`, `IncorrectProgramId`) every time, no more stray
+"Custom program error" surprises in your logs.
+
+The same `expectSigner()` / `expectWritable()` / `expectExecutable()`
+helpers are available directly on `AccountInfo` for ad-hoc checks.
+
 ### Reproduce
 
 ```console

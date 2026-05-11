@@ -261,7 +261,14 @@ pub const InstructionContext = struct {
     /// Parse and return the next account
     pub fn nextAccount(self: *InstructionContext) ?AccountInfo {
         if (self.parsed_count >= self.num_accounts) return null;
+        return self.nextAccountUnchecked();
+    }
 
+    /// Parse and return the next account — no bounds check
+    ///
+    /// ⚠️ SAFETY: Caller must ensure there are remaining accounts.
+    ///            Use when you've already checked `remaining()`.
+    pub fn nextAccountUnchecked(self: *InstructionContext) AccountInfo {
         const dup_marker = self.ptr[0];
 
         const result = if (dup_marker != NON_DUP_MARKER) blk: {
@@ -319,6 +326,27 @@ pub const InstructionContext = struct {
         return self.program_id;
     }
 };
+
+/// Branch prediction hint: unlikely branch
+/// Maps to LLVM's __builtin_expect(false)
+/// Use for error paths that are rarely taken
+pub inline fn unlikely(b: bool) bool {
+    if (b) {
+        @branchHint(.cold);
+        return true;
+    }
+    return false;
+}
+
+/// Branch prediction hint: likely branch
+/// Maps to LLVM's __builtin_expect(true)
+pub inline fn likely(b: bool) bool {
+    if (!b) {
+        @branchHint(.cold);
+        return false;
+    }
+    return true;
+}
 
 /// Create a lazy entrypoint — on-demand account parsing
 ///

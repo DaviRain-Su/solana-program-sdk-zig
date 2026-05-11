@@ -15,7 +15,7 @@ fn main() {
         let test_key = Pubkey::from_str("BenchPubkey11111111111111111111111111111112").unwrap();
 
         let mut program_test = ProgramTest::new(
-            "benchmark_pubkey_cmp_raw",
+            "benchmark_pubkey_cmp_safe",
             program_id,
             None,
         );

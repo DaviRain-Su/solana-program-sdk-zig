@@ -14,67 +14,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  ZIG_VERSION: 0.16.0
-  ELF2SBPF_BIN: ${{ github.workspace }}/elf2sbpf/zig-out/bin/elf2sbpf
+  SOLANA_ZIG_VERSION: solana-v1.53.0
 
 jobs:
-  test-fallback:
-    name: build + test (fallback path)
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-      fail-fast: false
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Checkout elf2sbpf
-        uses: actions/checkout@v4
-        with:
-          repository: DaviRain-Su/elf2sbpf
-          path: elf2sbpf
-
-      - name: Setup Zig
-        uses: mlugg/setup-zig@v2
-        with:
-          version: 0.16.0
-
-      - name: zig version
-        shell: bash
-        run: zig version
-
-      - name: Build elf2sbpf
-        shell: bash
-        working-directory: elf2sbpf
-        run: zig build
-
-      - name: Test host code
-        shell: bash
-        run: zig build test --summary all
-
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            program-test/target
-          key: cargo-${{ runner.os }}-${{ hashFiles('./program-test/Cargo.toml') }}
-          restore-keys: |
-            cargo-${{ runner.os }}-
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.86.0
-
-      - name: Build and test program (fallback)
-        shell: bash
-        run: ./program-test/test.sh zig "$ELF2SBPF_BIN"
-        env:
-          ZIG_BUILD_ARGS: "-Dbuild-program"
-
-  test-fork:
-    name: build + test (solana-zig fork path)
+  test:
+    name: build + test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -82,18 +26,19 @@ jobs:
       - name: Download solana-zig fork
         shell: bash
         run: |
-          curl -LO https://github.com/joncinque/solana-zig-bootstrap/releases/download/solana-v1.53.0/zig-x86_64-linux-musl.tar.bz2
+          curl -LO "https://github.com/joncinque/solana-zig-bootstrap/releases/download/${SOLANA_ZIG_VERSION}/zig-x86_64-linux-musl.tar.bz2"
           tar -xjf zig-x86_64-linux-musl.tar.bz2
-          echo "SOLANA_ZIG_BIN=$(pwd)/zig-x86_64-linux-musl-baseline/zig" >> "$GITHUB_ENV"
+          echo "SOLANA_ZIG=$(pwd)/zig-x86_64-linux-musl-baseline/zig" >> "$GITHUB_ENV"
 
-      - name: Setup Zig (stock)
-        uses: mlugg/setup-zig@v2
-        with:
-          version: 0.16.0
+      - name: Test solana-zig version
+        shell: bash
+        run: |
+          "$SOLANA_ZIG" version
+          "$SOLANA_ZIG" targets | grep -i sbf
 
       - name: Test host code
         shell: bash
-        run: zig build test --summary all
+        run: "$SOLANA_ZIG" build test --summary all
 
       - uses: actions/cache@v4
         with:
@@ -110,8 +55,8 @@ jobs:
         with:
           toolchain: 1.86.0
 
-      - name: Build and test program (fork)
+      - name: Build and test program
         shell: bash
-        run: ./program-test/test.sh "$SOLANA_ZIG_BIN"
+        run: ./program-test/test.sh "$SOLANA_ZIG"
         env:
           ZIG_BUILD_ARGS: "-Dbuild-program"

@@ -2,30 +2,22 @@
 
 Write Solana on-chain programs in Zig.
 
-This branch (`solana-zig-fork-0.16`) supports **two build paths** so one
-SDK serves both audiences:
-
-| Path | Compiler | Linker | CU | Install size |
-|------|----------|--------|-----|--------------|
-| **Primary** — `buildProgram` | [solana-zig fork][fork] (Zig 0.16) | built-in `lld` | best (matches `solana-zig` baseline) | ~200 MB |
-| **Fallback** — `buildProgramElf2sbpf` | stock Zig 0.16 | [`elf2sbpf`][elf2sbpf] | worse than baseline (no CU optimizer) | stock Zig + ~2 MB |
+This SDK requires the [solana-zig fork][fork] of Zig 0.16 for building
+on-chain programs. Stock Zig 0.16 is sufficient for host-side unit tests.
 
 [fork]: https://github.com/joncinque/solana-zig-bootstrap/releases/tag/solana-v1.53.0
-[elf2sbpf]: https://github.com/DaviRain-Su/elf2sbpf
-
-Which to pick:
-
-- **have solana-zig fork installed** → use `buildProgram` (fork path) — one
-  call, direct `.so`, optimal CU.
-- **only have stock Zig** → use `buildProgramElf2sbpf` — slightly more CU,
-  zero extra dependencies beyond the `elf2sbpf` binary.
 
 ## Quick start
 
 ```console
-./scripts/bootstrap.sh
-zig build test --summary all
-./program-test/test.sh
+# Download solana-zig fork (Linux x86_64)
+curl -LO https://github.com/joncinque/solana-zig-bootstrap/releases/download/solana-v1.53.0/zig-x86_64-linux-musl.tar.bz2
+tar -xjf zig-x86_64-linux-musl.tar.bz2
+export SOLANA_ZIG="$(pwd)/zig-x86_64-linux-musl-baseline/zig"
+
+# Run tests
+"$SOLANA_ZIG" build test --summary all
+./program-test/test.sh "$SOLANA_ZIG"
 ```
 
 ## Writing a program
@@ -63,17 +55,31 @@ export fn entrypoint(input: [*]u8) u64 {
 }
 ```
 
-`bootstrap.sh` detects both toolchains and prints the environment variables
-to export:
+## Comptime Safety Levels
 
-```text
-export SOLANA_ZIG_BIN=/path/to/solana-zig-bootstrap/out-smoke/host/bin/zig
-export ELF2SBPF_BIN=/path/to/elf2sbpf
+The SDK provides compile-time selectable safety levels for zero-cost
+abstractions:
+
+```zig
+// Safe: full bounds checking (default)
+const account = context.nextAccountEx(.safe);
+
+// Fast: skip bounds check, keep duplicate resolution
+const account = context.nextAccountEx(.fast);
+
+// Unchecked: no checks (max performance, caller guarantees correctness)
+const account = context.nextAccountEx(.unchecked);
 ```
 
-## Using the SDK from your `build.zig`
+**Performance comparison** (pubkey comparison benchmark):
 
-### Primary path (fork Zig, best CU)
+| Safety Level | CU | Binary Size |
+|-------------|-----|-------------|
+| `.safe` | 35 | 2512 bytes |
+| `.fast` | 33 | 2424 bytes |
+| `.unchecked` | 26 | 1592 bytes |
+
+## Using the SDK from your `build.zig`
 
 ```zig
 const std = @import("std");
@@ -88,64 +94,18 @@ pub fn build(b: *std.Build) void {
 }
 ```
 
-Run with the fork Zig:
+Run with the solana-zig fork:
 
 ```console
-"$SOLANA_ZIG_BIN" build
+"$SOLANA_ZIG" build
 ```
 
 One step. The SDK sets `sbf_target`, installs the bpf.ld linker script, and
 writes `zig-out/lib/my_program.so`.
 
-### Fallback path (stock Zig + elf2sbpf)
-
-```zig
-const std = @import("std");
-const solana = @import("solana_program_sdk");
-
-pub fn build(b: *std.Build) void {
-    const target = b.resolveTargetQuery(solana.bpf_target);
-    const optimize = .ReleaseFast;
-    const elf2sbpf_bin = b.option(
-        []const u8,
-        "elf2sbpf-bin",
-        "Path to the elf2sbpf executable",
-    );
-
-    _ = solana.buildProgramElf2sbpf(b, .{
-        .name = "my_program",
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
-        .elf2sbpf_bin = elf2sbpf_bin,
-    });
-}
-```
-
-Run with stock Zig:
-
-```console
-zig build  # elf2sbpf auto-resolved from ELF2SBPF_BIN / .tools / PATH
-```
-
-For CU-optimal Zig programs, use the solana-zig fork path (primary)
-instead — the elf2sbpf fallback path is for users who can't install
-the fork. A `--peephole` rewriter existed in earlier elf2sbpf
-versions but was rolled back 2026-04-19 (miscompile on escrow-class
-programs).
-
 ## Prerequisites
 
-### Stock Zig 0.16 (host tests + fallback program builds)
-
-```console
-zig version
-# -> 0.16.x
-```
-
-### solana-zig fork (primary program builds)
-
-#### Option 1: Download prebuilt binary (recommended)
+### solana-zig fork (required for on-chain program builds)
 
 Download from [GitHub Releases](https://github.com/joncinque/solana-zig-bootstrap/releases/tag/solana-v1.53.0):
 
@@ -153,42 +113,22 @@ Download from [GitHub Releases](https://github.com/joncinque/solana-zig-bootstra
 # Linux x86_64
 curl -LO https://github.com/joncinque/solana-zig-bootstrap/releases/download/solana-v1.53.0/zig-x86_64-linux-musl.tar.bz2
 tar -xjf zig-x86_64-linux-musl.tar.bz2
-export SOLANA_ZIG_BIN="$(pwd)/zig-x86_64-linux-musl-baseline/zig"
+export SOLANA_ZIG="$(pwd)/zig-x86_64-linux-musl-baseline/zig"
 ```
 
 Other platforms: see the release page for `zig-aarch64-linux-musl`,
 `zig-x86_64-macos-none`, etc.
 
-#### Option 2: Build from source
+### Stock Zig 0.16 (host unit tests only)
 
 ```console
-git clone -b solana-1.52 \
-  https://github.com/joncinque/solana-zig-bootstrap \
-  ../solana-zig-bootstrap
-cd ../solana-zig-bootstrap
-git submodule update --init --recursive
-./build native-linux-musl baseline   # or native-macos-none baseline
+zig version
+# -> 0.16.x
 ```
-
-When done:
-
-```console
-export SOLANA_ZIG_BIN=$(pwd)/out-smoke/host/bin/zig
-```
-
-`bootstrap.sh` in this repo also auto-detects a sibling `../solana-zig-bootstrap`
-checkout.
-
-## Exported targets
-
-- `sbf_target` — `.cpu_arch = .sbf`, `.os_tag = .solana`, `.cpu_model = v2`.
-  Only recognized by the fork Zig.
-- `bpf_target` — `.cpu_arch = .bpfel`, `.os_tag = .freestanding`, `.cpu_model = v2`.
-  Works on stock Zig (kernel-BPF-flavored output, then run through `elf2sbpf`).
 
 ## Unit tests
 
-Stock Zig is fine:
+Stock Zig is fine for host-side tests:
 
 ```console
 zig build test --summary all
@@ -197,21 +137,10 @@ zig build test --summary all
 ## Integration tests
 
 ```console
-./program-test/test.sh
-```
-
-The test script auto-detects the solana-zig fork and uses the optimal
-`buildProgram` path when available. Pass a specific Zig binary as the
-first argument if needed:
-
-```console
-./program-test/test.sh /path/to/solana-zig
-./program-test/test.sh /usr/bin/zig        # force stock Zig path
+./program-test/test.sh "$SOLANA_ZIG"
 ```
 
 ## Branch layout
 
 - `main` — original upstream solana-zig based SDK (legacy reference).
-- `dev` / `elf2sbpf-from-4589040` — stock Zig + elf2sbpf only (simpler, narrower
-  scope).
-- **`solana-zig-fork-0.16`** (this branch) — dual path, recommended default.
+- **`solana-zig-fork-0.16`** (this branch) — solana-zig fork only, recommended default.

@@ -29,12 +29,12 @@ pub const LinkedProgram = struct {
 };
 
 // ---------------------------------------------------------------------
-// Target query: sbf-solana-none with SBPF v2 features (fork Zig path).
+// Target query: sbf-solana-none with SBPF v2 features.
 //
-// Requires the `solana-zig-bootstrap` Zig fork (`solana-1.52-zig0.16`
-// branch or later) because stock Zig 0.16 does not know the `.sbf`
-// CPU arch. If you are on stock Zig 0.16, use `bpf_target` +
-// `buildProgramElf2sbpf` instead.
+// Requires the solana-zig-bootstrap fork (solana-v1.53.0 or later)
+// because stock Zig 0.16 does not know the `.sbf` CPU arch.
+//
+// Download: https://github.com/joncinque/solana-zig-bootstrap/releases
 // ---------------------------------------------------------------------
 
 pub const has_sbf_target = @hasField(std.Target.Cpu.Arch, "sbf");
@@ -47,19 +47,11 @@ pub fn sbfTarget() std.Target.Query {
     };
 }
 
-pub const bpf_target: std.Target.Query = .{
-    .cpu_arch = .bpfel,
-    .cpu_model = .{ .explicit = &std.Target.bpf.cpu.v2 },
-    .os_tag = .freestanding,
-};
-
 // ---------------------------------------------------------------------
-// buildProgram — primary (fork Zig) path.
+// buildProgram — primary path.
 //
 // One call produces a deployable `.so` directly. Expects the running
 // Zig compiler to be the solana-zig fork (known to `std.Target.sbf`).
-// If you need the elf2sbpf fallback path for stock Zig, use
-// `buildProgramElf2sbpf` below instead.
 // ---------------------------------------------------------------------
 
 pub const BuildProgramOptions = struct {
@@ -70,7 +62,7 @@ pub const BuildProgramOptions = struct {
 
 pub fn buildProgram(b: *std.Build, options: BuildProgramOptions) LinkedProgram {
     if (!has_sbf_target) {
-        std.log.err("buildProgram requires the solana-zig fork. Use buildProgramElf2sbpf with stock Zig.", .{});
+        std.log.err("buildProgram requires the solana-zig fork. Download from https://github.com/joncinque/solana-zig-bootstrap/releases", .{});
         std.process.exit(1);
     }
     const target = b.resolveTargetQuery(sbfTarget());
@@ -145,103 +137,4 @@ pub fn linkSolanaProgram(b: *std.Build, lib: *std.Build.Step.Compile) void {
     );
     lib.step.dependOn(&write_file_step.step);
     lib.setLinkerScript(linker_script);
-}
-
-// ---------------------------------------------------------------------
-// buildProgramElf2sbpf — fallback (stock Zig) path.
-//
-// For users running stock Zig 0.16 without the solana-zig fork. Emits
-// LLVM bitcode, then uses `zig cc -target bpfel` to produce a BPF
-// object file, then invokes `elf2sbpf` to convert it to a Solana .so.
-// CU numbers are worse than `buildProgram` — stock `bpfel` codegen
-// expands unaligned u64 loads/stores to byte-wise chains that the
-// solana-zig fork avoids. For CU-critical workloads, use the fork
-// path via `buildProgram` above.
-// ---------------------------------------------------------------------
-
-pub fn resolveElf2sbpfBin(b: *std.Build, cli_override: ?[]const u8) []const u8 {
-    if (cli_override) |path| return path;
-
-    if (b.graph.environ_map.get("ELF2SBPF_BIN")) |path| return path;
-
-    const local_candidates = [_][]const u8{
-        ".tools/bin/elf2sbpf",
-        ".tools/elf2sbpf/bin/elf2sbpf",
-        ".tools/elf2sbpf/zig-out/bin/elf2sbpf",
-    };
-    inline for (local_candidates) |candidate| {
-        const abs = b.pathFromRoot(candidate);
-        // Check file existence by trying to open it
-        const file = std.Io.Dir.openFileAbsolute(std.Options.debug_io, abs, .{}) catch null;
-        if (file) |f| {
-            f.close(std.Options.debug_io);
-            return abs;
-        }
-    }
-
-    return b.findProgram(&.{"elf2sbpf"}, &.{}) catch @panic(
-        "elf2sbpf not found. Run ./scripts/bootstrap.sh, set ELF2SBPF_BIN, or pass -Delf2sbpf-bin=/absolute/path/to/elf2sbpf.",
-    );
-}
-
-pub const BuildProgramElf2SbpfOptions = struct {
-    name: []const u8,
-    root_source_file: std.Build.LazyPath,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-    elf2sbpf_bin: ?[]const u8 = null,
-};
-
-pub fn buildProgramElf2sbpf(b: *std.Build, options: BuildProgramElf2SbpfOptions) LinkedProgram {
-    const solana_dep = b.dependency("solana_program_sdk", .{
-        .target = options.target,
-        .optimize = options.optimize,
-    });
-    const solana_mod = solana_dep.module("solana_program_sdk");
-
-    const program_mod = b.createModule(.{
-        .root_source_file = options.root_source_file,
-        .target = options.target,
-        .optimize = options.optimize,
-        .imports = &.{
-            .{ .name = "solana_program_sdk", .module = solana_mod },
-        },
-    });
-    program_mod.pic = true;
-    program_mod.strip = true;
-
-    const bitcode_obj = b.addObject(.{
-        .name = b.fmt("{s}-bitcode", .{options.name}),
-        .root_module = program_mod,
-    });
-    const bitcode = bitcode_obj.getEmittedLlvmBc();
-
-    const zig_cc = b.addSystemCommand(&.{
-        b.graph.zig_exe,
-        "cc",
-        "-target",
-        "bpfel-freestanding",
-        "-mcpu=v2",
-        "-O2",
-        "-mllvm",
-        "-bpf-stack-size=4096",
-        "-c",
-    });
-    zig_cc.addFileArg(bitcode);
-    zig_cc.addArg("-o");
-    const obj = zig_cc.addOutputFileArg(b.fmt("{s}.o", .{options.name}));
-
-    const elf2sbpf_bin = resolveElf2sbpfBin(b, options.elf2sbpf_bin);
-    const link_program = b.addSystemCommand(&.{elf2sbpf_bin});
-    link_program.addFileArg(obj);
-    const so = link_program.addOutputFileArg(b.fmt("{s}.so", .{options.name}));
-
-    b.getInstallStep().dependOn(&b.addInstallLibFile(so, b.fmt("{s}.so", .{options.name})).step);
-
-    return .{
-        .name = options.name,
-        .module = solana_mod,
-        .so = so,
-        .step = &link_program.step,
-    };
 }

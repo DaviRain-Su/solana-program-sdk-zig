@@ -177,29 +177,60 @@ pub fn createWithSeed(
     return address;
 }
 
-/// Compile-time create program address
+/// Compile-time create program address (pure SHA-256, no BPF syscall)
 pub fn comptimeCreateProgramAddress(
     comptime seeds: anytype,
     comptime program_id: Pubkey,
 ) Pubkey {
     return comptime blk: {
-        const result = createProgramAddress(seeds, &program_id) catch |err| {
-            @compileError("Failed to create program address: " ++ @errorName(err));
-        };
-        break :blk result;
+        var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+        for (seeds) |seed| {
+            hasher.update(seed);
+        }
+        hasher.update(&program_id);
+        hasher.update("ProgramDerivedAddress");
+
+        var address: Pubkey = undefined;
+        hasher.final(&address);
+
+        if (pubkey.isPointOnCurve(&address)) {
+            @compileError("Address is on curve, not a valid PDA");
+        }
+
+        break :blk address;
     };
 }
 
-/// Compile-time find program address
+/// Compile-time find program address (pure SHA-256, no BPF syscall)
 pub fn comptimeFindProgramAddress(
     comptime seeds: anytype,
     comptime program_id: Pubkey,
 ) ProgramDerivedAddress {
     return comptime blk: {
-        const result = findProgramAddress(seeds, &program_id) catch |err| {
-            @compileError("Failed to find program address: " ++ @errorName(err));
-        };
-        break :blk result;
+        var bump_seed: u8 = 255;
+        while (true) : (bump_seed -= 1) {
+            var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+            for (seeds) |seed| {
+                hasher.update(seed);
+            }
+            hasher.update(&.{bump_seed});
+            hasher.update(&program_id);
+            hasher.update("ProgramDerivedAddress");
+
+            var address: Pubkey = undefined;
+            hasher.final(&address);
+
+            if (!pubkey.isPointOnCurve(&address)) {
+                break :blk ProgramDerivedAddress{
+                    .address = address,
+                    .bump_seed = bump_seed,
+                };
+            }
+
+            if (bump_seed == 0) {
+                @compileError("Failed to find valid PDA bump seed");
+            }
+        }
     };
 }
 

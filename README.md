@@ -41,6 +41,25 @@ Key results:
 > uses `lazyEntrypoint` with error union (5 CU overhead). Using `lazyEntrypointRaw`
 > or hand-written entrypoint brings it to 15 CU (matching upstream Zig).
 
+### In-repo benchmark (`solana-program-test` 2.3.13)
+
+Local apples-to-apples comparison of `lazyEntrypoint` vs `lazyEntrypointRaw`
+(same program logic, only the entrypoint wrapper differs):
+
+| Program | `lazyEntrypoint` (ProgramResult) | `lazyEntrypointRaw` (u64) | Δ |
+|---|---:|---:|---:|
+| pubkey_cmp_safe (byte-by-byte) | 33 CU | 30 CU | −3 |
+| pubkey_cmp_unchecked (aligned u64) | — | **18 CU** | — |
+| transfer_lamports | 27 CU | **22 CU** | −5 |
+
+The error-union wrapper costs ~3–5 CU. Reproduce with:
+
+```console
+cd benchmark
+$SOLANA_ZIG build
+cargo run --release -- transfer_lamports_raw
+```
+
 ## Architecture
 
 ### Core types

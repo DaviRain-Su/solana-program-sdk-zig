@@ -6,8 +6,10 @@ pub fn build(b: *std.Build) !void {
 
     const benchmarks = .{
         .{ "benchmark_pubkey_cmp_safe", "pubkey_cmp_safe.zig" },
+        .{ "benchmark_pubkey_cmp_safe_raw", "pubkey_cmp_safe_raw.zig" },
         .{ "benchmark_pubkey_cmp_unchecked", "pubkey_cmp_unchecked.zig" },
         .{ "benchmark_transfer_lamports", "transfer_lamports.zig" },
+        .{ "benchmark_transfer_lamports_raw", "transfer_lamports_raw.zig" },
     };
 
     inline for (benchmarks) |bench| {

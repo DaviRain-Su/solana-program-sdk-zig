@@ -23,15 +23,17 @@ fn run_benchmark(benchmark: &'static str) {
             None,
         );
         
-        if benchmark == "transfer_lamports" {
+        if benchmark == "transfer_lamports" || benchmark == "transfer_lamports_raw" {
             let test_key = Pubkey::from_str("BenchPubkey11111111111111111111111111111112").unwrap();
             let dest_key = Pubkey::from_str("BenchPubkey11111111111111111111111111111113").unwrap();
             
-            // Use program_id as owner so the program can modify lamports
+            // Use program_id as owner so the program can modify lamports.
+            // Both accounts must stay rent-exempt after the transfer
+            // (minimum_balance(1) ≈ 897,840 lamports for a 1-byte data account).
             program_test.add_account(
                 test_key,
                 Account {
-                    lamports: 1_000_000,
+                    lamports: 10_000_000,
                     data: vec![0],
                     owner: program_id,
                     ..Account::default()
@@ -40,7 +42,7 @@ fn run_benchmark(benchmark: &'static str) {
             program_test.add_account(
                 dest_key,
                 Account {
-                    lamports: 100_000,
+                    lamports: 10_000_000,
                     data: vec![0],
                     owner: program_id,
                     ..Account::default()

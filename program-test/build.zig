@@ -9,4 +9,10 @@ pub fn build(b: *std.Build) !void {
         .root_source_file = b.path("pubkey/main.zig"),
         .optimize = optimize,
     });
+
+    _ = solana.buildProgram(b, .{
+        .name = "cpi",
+        .root_source_file = b.path("cpi/main.zig"),
+        .optimize = optimize,
+    });
 }

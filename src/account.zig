@@ -166,13 +166,6 @@ pub const CpiAccountInfo = extern struct {
     is_writable: u8,
     is_executable: u8,
     _abi_padding: [5]u8,
-    borrow_state_ptr: *u8,
-    flags: u8,
-    _ext_padding: [6]u8,
-
-    const FLAG_SIGNER: u8 = 1 << 0;
-    const FLAG_WRITABLE: u8 = 1 << 1;
-    const FLAG_EXECUTABLE: u8 = 1 << 2;
 
     pub inline fn fromPtr(ptr: *Account) CpiAccountInfo {
         const dp: [*]u8 = @ptrFromInt(@intFromPtr(ptr) + @sizeOf(Account));
@@ -187,18 +180,7 @@ pub const CpiAccountInfo = extern struct {
             .is_writable = ptr.is_writable,
             .is_executable = ptr.is_executable,
             ._abi_padding = .{0} ** 5,
-            .borrow_state_ptr = &ptr.borrow_state,
-            .flags = makeFlags(ptr.is_signer, ptr.is_writable, ptr.is_executable),
-            ._ext_padding = .{0} ** 6,
         };
-    }
-
-    inline fn makeFlags(s: u8, w: u8, e: u8) u8 {
-        var f: u8 = 0;
-        if (s != 0) f |= FLAG_SIGNER;
-        if (w != 0) f |= FLAG_WRITABLE;
-        if (e != 0) f |= FLAG_EXECUTABLE;
-        return f;
     }
 
     pub inline fn key(self: CpiAccountInfo) *const Pubkey {
@@ -218,17 +200,22 @@ pub const CpiAccountInfo = extern struct {
     }
 
     pub inline fn isSigner(self: CpiAccountInfo) bool {
-        return self.flags & FLAG_SIGNER != 0;
+        return self.is_signer != 0;
     }
 
     pub inline fn isWritable(self: CpiAccountInfo) bool {
-        return self.flags & FLAG_WRITABLE != 0;
+        return self.is_writable != 0;
     }
 
     pub inline fn data(self: CpiAccountInfo) []u8 {
         return self.data_ptr[0..self.dataLen()];
     }
 };
+
+comptime {
+    // SolAccountInfo C ABI is 56 bytes; the syscall reads accounts at this stride.
+    std.debug.assert(@sizeOf(CpiAccountInfo) == 56);
+}
 
 /// Align pointer to BPF u128 alignment
 pub inline fn alignPointer(ptr: usize) usize {

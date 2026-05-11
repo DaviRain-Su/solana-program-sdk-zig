@@ -2068,6 +2068,7 @@ version = "0.0.1"
 dependencies = [
  "mollusk-svm",
  "num_enum",
+ "solana-account",
  "solana-instruction",
  "solana-pubkey",
  "solana-sdk-ids",

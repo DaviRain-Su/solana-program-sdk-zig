@@ -1,6 +1,6 @@
 const sol = @import("solana_program_sdk");
 
-fn processInstruction(context: *sol.entrypoint.InstructionContext) sol.ProgramResult {
+fn processInstruction(context: *sol.entrypoint.InstructionContext(2)) sol.ProgramResult {
     if (sol.entrypoint.unlikely(context.remaining() != 2)) {
         return error.NotEnoughAccountKeys;
     }
@@ -8,11 +8,9 @@ fn processInstruction(context: *sol.entrypoint.InstructionContext) sol.ProgramRe
     const source = context.nextAccountEx(.unchecked);
     const destination = context.nextAccountEx(.unchecked);
 
-    // Get instruction data pointer directly
     const ix_data = context.instructionData();
     if (ix_data.len < 8) return error.InvalidInstructionData;
 
-    // Manual bytes to u64
     const transfer_amount: u64 = @as(u64, ix_data[0]) |
         (@as(u64, ix_data[1]) << 8) |
         (@as(u64, ix_data[2]) << 16) |
@@ -22,11 +20,10 @@ fn processInstruction(context: *sol.entrypoint.InstructionContext) sol.ProgramRe
         (@as(u64, ix_data[6]) << 48) |
         (@as(u64, ix_data[7]) << 56);
 
-    // Direct lamports manipulation
     source.lamports_ptr.* -= transfer_amount;
     destination.lamports_ptr.* += transfer_amount;
 }
 
 export fn entrypoint(input: [*]u8) u64 {
-    return sol.entrypoint.lazyEntrypoint(processInstruction)(input);
+    return sol.entrypoint.lazyEntrypointMax(2, processInstruction)(input);
 }

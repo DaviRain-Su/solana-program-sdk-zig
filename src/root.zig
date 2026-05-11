@@ -12,6 +12,12 @@ pub const allocator = @import("allocator.zig");
 pub const hint = @import("hint.zig");
 pub const memory = @import("memory.zig");
 
+// CPI and program wrappers
+pub const cpi = @import("cpi.zig");
+pub const system = @import("system.zig");
+pub const sysvar = @import("sysvar.zig");
+pub const pda = @import("pda.zig");
+
 // Existing modules
 pub const instruction = @import("instruction.zig");
 pub const clock = @import("clock.zig");

@@ -56,7 +56,7 @@ pub const Account = extern struct {
     is_writable: u8,
 
     /// Indicates whether this account represents a program
-    executable: u8,
+    is_executable: u8,
 
     /// Original data length (u32 LE) stored in padding for resize validation
     /// When account-resize is not enabled, this is just padding
@@ -77,23 +77,41 @@ pub const Account = extern struct {
     // Account data follows immediately in memory after this struct
 };
 
-/// Zero-copy account view — Pinocchio-style flat layout
-/// All fields are direct pointers to avoid repeated base-pointer arithmetic
-pub const AccountInfo = struct {
-    /// Public key of the account (direct pointer)
+/// Zero-copy account view — layout matches Solana C ABI (SolAccountInfo)
+/// This allows passing AccountInfo directly to CPI syscalls without conversion.
+///
+/// C ABI layout (56 bytes):
+///   0-7:   key (*const Pubkey)
+///   8-15:  lamports (*u64)
+///   16-23: data_len (u64)
+///   24-31: data ([*]u8)
+///   32-39: owner (*const Pubkey)
+///   40-47: rent_epoch (u64)
+///   48:    is_signer (bool/u8)
+///   49:    is_writable (bool/u8)
+///   50:    executable (bool/u8)
+///   51-55: padding
+///
+/// Extended fields (after C ABI layout):
+///   56:    borrow_state_ptr (*u8) — for borrow checking
+///   57:    flags (u8) — packed is_signer/is_writable/executable cache
+pub const AccountInfo = extern struct {
+    // === C ABI compatible fields (must match SolAccountInfo exactly) ===
     key_ptr: *const Pubkey,
-    /// Program that owns this account (direct pointer)
-    owner_ptr: *const Pubkey,
-    /// The lamports in the account (direct pointer)
     lamports_ptr: *u64,
-    /// Length of the data (cached, avoids pointer chase)
     data_len: u64,
-    /// Pointer to account data (starts after Account struct)
     data_ptr: [*]u8,
-    /// Borrow state (direct pointer to Account.borrow_state)
+    owner_ptr: *const Pubkey,
+    rent_epoch: u64,
+    is_signer: u8,
+    is_writable: u8,
+    is_executable: u8,
+    _abi_padding: [5]u8,
+
+    // === Extended fields (not part of C ABI, used by SDK) ===
     borrow_state_ptr: *u8,
-    /// Flags packed into a single byte (Pinocchio-style)
     flags: u8,
+    _ext_padding: [6]u8,
 
     // === Flag bit layout ===
     const FLAG_SIGNER: u8 = 1 << 0;
@@ -106,12 +124,18 @@ pub const AccountInfo = struct {
         const data_ptr: [*]u8 = @ptrFromInt(@intFromPtr(ptr) + @sizeOf(Account));
         return .{
             .key_ptr = &ptr.key,
-            .owner_ptr = &ptr.owner,
             .lamports_ptr = &ptr.lamports,
             .data_len = ptr.data_len,
             .data_ptr = data_ptr,
+            .owner_ptr = &ptr.owner,
+            .rent_epoch = 0,
+            .is_signer = ptr.is_signer,
+            .is_writable = ptr.is_writable,
+            .is_executable = ptr.is_executable,
+            ._abi_padding = .{0} ** 5,
             .borrow_state_ptr = &ptr.borrow_state,
-            .flags = makeFlags(ptr.is_signer, ptr.is_writable, ptr.executable),
+            .flags = makeFlags(ptr.is_signer, ptr.is_writable, ptr.is_executable),
+            ._ext_padding = .{0} ** 6,
         };
     }
 
@@ -378,7 +402,7 @@ test "account: AccountInfo accessors" {
         .borrow_state = NOT_BORROWED,
         .is_signer = 1,
         .is_writable = 1,
-        .executable = 0,
+        .is_executable = 0,
         ._padding = .{0} ** 4,
         .key = .{1} ** 32,
         .owner = .{2} ** 32,
@@ -401,7 +425,7 @@ test "account: borrow data" {
         .borrow_state = NOT_BORROWED,
         .is_signer = 0,
         .is_writable = 1,
-        .executable = 0,
+        .is_executable = 0,
         ._padding = .{0} ** 4,
         .key = .{0} ** 32,
         .owner = .{0} ** 32,
@@ -426,7 +450,7 @@ test "account: double mutable borrow fails" {
         .borrow_state = NOT_BORROWED,
         .is_signer = 0,
         .is_writable = 1,
-        .executable = 0,
+        .is_executable = 0,
         ._padding = .{0} ** 4,
         .key = .{0} ** 32,
         .owner = .{0} ** 32,
@@ -448,7 +472,7 @@ test "account: dataUnchecked" {
         .borrow_state = NOT_BORROWED,
         .is_signer = 0,
         .is_writable = 1,
-        .executable = 0,
+        .is_executable = 0,
         ._padding = .{0} ** 4,
         .key = .{0} ** 32,
         .owner = .{0} ** 32,

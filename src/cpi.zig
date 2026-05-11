@@ -135,19 +135,16 @@ pub fn invokeSigned(
     }
 
     for (accounts, 0..) |account_info, i| {
-        const acc = account_info.ptr;
-        const data_ptr: [*]u8 = @ptrFromInt(@intFromPtr(acc) + @sizeOf(account.Account));
-
         sol_account_infos[i] = SolAccountInfo{
-            .key = &acc.key,
-            .lamports = &acc.lamports,
-            .data_len = acc.data_len,
-            .data = data_ptr,
-            .owner = &acc.owner,
+            .key = account_info.key_ptr,
+            .lamports = account_info.lamports_ptr,
+            .data_len = account_info.data_len,
+            .data = account_info.data_ptr,
+            .owner = account_info.owner_ptr,
             .rent_epoch = 0,
-            .is_signer = acc.is_signer != 0,
-            .is_writable = acc.is_writable != 0,
-            .executable = acc.executable != 0,
+            .is_signer = account_info.isSigner(),
+            .is_writable = account_info.isWritable(),
+            .executable = account_info.executable(),
         };
     }
 

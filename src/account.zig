@@ -77,88 +77,129 @@ pub const Account = extern struct {
     // Account data follows immediately in memory after this struct
 };
 
-/// Zero-copy account view — directly points to runtime buffer
+/// Zero-copy account view — Pinocchio-style flat layout
+/// All fields are direct pointers to avoid repeated base-pointer arithmetic
 pub const AccountInfo = struct {
-    /// Pointer to raw account data
-    ptr: *Account,
+    /// Public key of the account (direct pointer)
+    key_ptr: *const Pubkey,
+    /// Program that owns this account (direct pointer)
+    owner_ptr: *const Pubkey,
+    /// The lamports in the account (direct pointer)
+    lamports_ptr: *u64,
+    /// Length of the data (cached, avoids pointer chase)
+    data_len: u64,
+    /// Pointer to account data (starts after Account struct)
+    data_ptr: [*]u8,
+    /// Borrow state (direct pointer to Account.borrow_state)
+    borrow_state_ptr: *u8,
+    /// Flags packed into a single byte (Pinocchio-style)
+    flags: u8,
+
+    // === Flag bit layout ===
+    const FLAG_SIGNER: u8 = 1 << 0;
+    const FLAG_WRITABLE: u8 = 1 << 1;
+    const FLAG_EXECUTABLE: u8 = 1 << 2;
+
+    /// Create AccountInfo from raw Account pointer
+    /// Pre-computes all derived pointers for zero-overhead access
+    pub inline fn fromPtr(ptr: *Account) AccountInfo {
+        const data_ptr: [*]u8 = @ptrFromInt(@intFromPtr(ptr) + @sizeOf(Account));
+        return .{
+            .key_ptr = &ptr.key,
+            .owner_ptr = &ptr.owner,
+            .lamports_ptr = &ptr.lamports,
+            .data_len = ptr.data_len,
+            .data_ptr = data_ptr,
+            .borrow_state_ptr = &ptr.borrow_state,
+            .flags = makeFlags(ptr.is_signer, ptr.is_writable, ptr.executable),
+        };
+    }
+
+    /// Pack boolean flags into a single byte
+    inline fn makeFlags(is_signer: u8, is_writable: u8, is_exec: u8) u8 {
+        var f: u8 = 0;
+        if (is_signer != 0) f |= FLAG_SIGNER;
+        if (is_writable != 0) f |= FLAG_WRITABLE;
+        if (is_exec != 0) f |= FLAG_EXECUTABLE;
+        return f;
+    }
 
     // === Inline accessors (forced inline, zero overhead) ===
 
     /// Get public key
     pub inline fn key(self: AccountInfo) *const Pubkey {
-        return &self.ptr.key;
+        return self.key_ptr;
     }
 
     /// Get owner
     pub inline fn owner(self: AccountInfo) *const Pubkey {
-        return &self.ptr.owner;
+        return self.owner_ptr;
     }
 
     /// Get lamports
     pub inline fn lamports(self: AccountInfo) u64 {
-        return self.ptr.lamports;
+        return self.lamports_ptr.*;
     }
 
     /// Get data length
     pub inline fn dataLen(self: AccountInfo) usize {
-        return @intCast(self.ptr.data_len);
+        return @intCast(self.data_len);
     }
 
     /// Check if signer
     pub inline fn isSigner(self: AccountInfo) bool {
-        return self.ptr.is_signer != 0;
+        return self.flags & FLAG_SIGNER != 0;
     }
 
     /// Check if writable
     pub inline fn isWritable(self: AccountInfo) bool {
-        return self.ptr.is_writable != 0;
+        return self.flags & FLAG_WRITABLE != 0;
     }
 
     /// Check if executable
     pub inline fn executable(self: AccountInfo) bool {
-        return self.ptr.executable != 0;
+        return self.flags & FLAG_EXECUTABLE != 0;
     }
 
     // === Data access (zero-copy) ===
 
     /// Get pointer to account data
     pub inline fn dataPtr(self: AccountInfo) [*]u8 {
-        const ptr = @intFromPtr(self.ptr);
-        return @ptrFromInt(ptr + @sizeOf(Account));
+        return self.data_ptr;
     }
 
     /// Get data slice
     pub inline fn data(self: AccountInfo) []u8 {
-        return self.dataPtr()[0..self.dataLen()];
+        return self.data_ptr[0..self.dataLen()];
     }
 
     // === Unchecked access (highest performance, no borrow checks) ===
 
     /// Borrow data immutably without checking (unsafe)
     pub inline fn dataUnchecked(self: AccountInfo) []const u8 {
-        return self.dataPtr()[0..self.dataLen()];
+        return self.data_ptr[0..self.dataLen()];
     }
 
     /// Borrow data mutably without checking (unsafe)
     pub inline fn dataMutUnchecked(self: AccountInfo) []u8 {
-        return self.dataPtr()[0..self.dataLen()];
+        return self.data_ptr[0..self.dataLen()];
     }
 
     /// Borrow lamports immutably without checking (unsafe)
     pub inline fn lamportsUnchecked(self: AccountInfo) *const u64 {
-        return &self.ptr.lamports;
+        return self.lamports_ptr;
     }
 
     /// Borrow lamports mutably without checking (unsafe)
     pub inline fn lamportsMutUnchecked(self: AccountInfo) *u64 {
-        return &self.ptr.lamports;
+        return self.lamports_ptr;
     }
 
     // === Borrow checking ===
 
     /// Check if can borrow data immutably
     pub fn canBorrowData(self: AccountInfo) ProgramError!void {
-        const borrow_state = self.ptr.borrow_state;
+        const borrow_state = self.borrow_state_ptr.*;
 
         // Check if mutably borrowed
         if (borrow_state & DATA_MUTABLE_BORROW_BITMASK == 0) {
@@ -173,7 +214,7 @@ pub const AccountInfo = struct {
 
     /// Check if can borrow data mutably
     pub fn canBorrowMutData(self: AccountInfo) ProgramError!void {
-        const borrow_state = self.ptr.borrow_state;
+        const borrow_state = self.borrow_state_ptr.*;
 
         // Check if any borrow exists
         if (borrow_state & 0b00001111 != 0b00001111) {
@@ -183,7 +224,7 @@ pub const AccountInfo = struct {
 
     /// Check if can borrow lamports immutably
     pub fn canBorrowLamports(self: AccountInfo) ProgramError!void {
-        const borrow_state = self.ptr.borrow_state;
+        const borrow_state = self.borrow_state_ptr.*;
 
         // Check if mutably borrowed
         if (borrow_state & LAMPORTS_MUTABLE_BORROW_BITMASK == 0) {
@@ -198,7 +239,7 @@ pub const AccountInfo = struct {
 
     /// Check if can borrow lamports mutably
     pub fn canBorrowMutLamports(self: AccountInfo) ProgramError!void {
-        const borrow_state = self.ptr.borrow_state;
+        const borrow_state = self.borrow_state_ptr.*;
 
         // Check if any borrow exists
         if (borrow_state & 0b11110000 != 0b11110000) {
@@ -210,13 +251,12 @@ pub const AccountInfo = struct {
     pub fn tryBorrowData(self: AccountInfo) ProgramError!Ref([]const u8) {
         try self.canBorrowData();
 
-        const borrow_state_ptr = @as(*u8, @ptrCast(&self.ptr.borrow_state));
         // Decrement immutable borrow count
-        borrow_state_ptr.* -= 1 << DATA_BORROW_SHIFT;
+        self.borrow_state_ptr.* -= 1 << DATA_BORROW_SHIFT;
 
         return Ref([]const u8){
-            .value = self.dataPtr()[0..self.dataLen()],
-            .state = borrow_state_ptr,
+            .value = self.data_ptr[0..self.dataLen()],
+            .state = self.borrow_state_ptr,
             .borrow_shift = DATA_BORROW_SHIFT,
         };
     }
@@ -225,13 +265,12 @@ pub const AccountInfo = struct {
     pub fn tryBorrowMutData(self: AccountInfo) ProgramError!RefMut([]u8) {
         try self.canBorrowMutData();
 
-        const borrow_state_ptr = @as(*u8, @ptrCast(&self.ptr.borrow_state));
         // Set mutable borrow bit to 0
-        borrow_state_ptr.* &= ~DATA_MUTABLE_BORROW_BITMASK;
+        self.borrow_state_ptr.* &= ~DATA_MUTABLE_BORROW_BITMASK;
 
         return RefMut([]u8){
-            .value = self.dataPtr()[0..self.dataLen()],
-            .state = borrow_state_ptr,
+            .value = self.data_ptr[0..self.dataLen()],
+            .state = self.borrow_state_ptr,
             .borrow_bitmask = DATA_MUTABLE_BORROW_BITMASK,
         };
     }
@@ -240,13 +279,12 @@ pub const AccountInfo = struct {
     pub fn tryBorrowLamports(self: AccountInfo) ProgramError!Ref(*const u64) {
         try self.canBorrowLamports();
 
-        const borrow_state_ptr = @as(*u8, @ptrCast(&self.ptr.borrow_state));
         // Decrement immutable borrow count
-        borrow_state_ptr.* -= 1 << LAMPORTS_BORROW_SHIFT;
+        self.borrow_state_ptr.* -= 1 << LAMPORTS_BORROW_SHIFT;
 
         return Ref(*const u64){
-            .value = &self.ptr.lamports,
-            .state = borrow_state_ptr,
+            .value = self.lamports_ptr,
+            .state = self.borrow_state_ptr,
             .borrow_shift = LAMPORTS_BORROW_SHIFT,
         };
     }
@@ -255,35 +293,35 @@ pub const AccountInfo = struct {
     pub fn tryBorrowMutLamports(self: AccountInfo) ProgramError!RefMut(*u64) {
         try self.canBorrowMutLamports();
 
-        const borrow_state_ptr = @as(*u8, @ptrCast(&self.ptr.borrow_state));
         // Set mutable borrow bit to 0
-        borrow_state_ptr.* &= ~LAMPORTS_MUTABLE_BORROW_BITMASK;
+        self.borrow_state_ptr.* &= ~LAMPORTS_MUTABLE_BORROW_BITMASK;
 
         return RefMut(*u64){
-            .value = &self.ptr.lamports,
-            .state = borrow_state_ptr,
+            .value = self.lamports_ptr,
+            .state = self.borrow_state_ptr,
             .borrow_bitmask = LAMPORTS_MUTABLE_BORROW_BITMASK,
         };
     }
 
     /// Assign new owner (unsafe - must ensure no active references)
     pub inline fn assign(self: AccountInfo, new_owner: *const Pubkey) void {
-        self.ptr.owner = new_owner.*;
+        // Use @memcpy for volatile-like semantics
+        @memcpy(@constCast(self.owner_ptr)[0..32], new_owner[0..32]);
     }
 
     /// Reallocate account data
     pub fn realloc(self: AccountInfo, new_len: u64) ProgramError!void {
-        const original_data_len = std.mem.readInt(u32, &self.ptr._padding, .little);
+        const original_data_len = std.mem.readInt(u32, @ptrCast(self.borrow_state_ptr + 1), .little);
         const diff = @subWithOverflow(new_len, original_data_len);
         if (diff[1] == 0 and diff[0] > MAX_PERMITTED_DATA_INCREASE) {
             return ProgramError.InvalidRealloc;
         }
-        self.ptr.data_len = new_len;
+        self.data_len = new_len;
     }
 
     /// Check if owned by program
     pub inline fn isOwnedBy(self: AccountInfo, program: *const Pubkey) bool {
-        return pubkey.pubkeyEq(self.owner(), program);
+        return pubkey.pubkeyEq(self.key(), program);
     }
 };
 
@@ -347,7 +385,7 @@ test "account: AccountInfo accessors" {
         .lamports = 1000,
         .data_len = 10,
     };
-    const account = AccountInfo{ .ptr = &data };
+    const account = AccountInfo.fromPtr(&data);
 
     try std.testing.expect(account.isSigner());
     try std.testing.expect(account.isWritable());
@@ -370,7 +408,7 @@ test "account: borrow data" {
         .lamports = 0,
         .data_len = 10,
     };
-    const account = AccountInfo{ .ptr = &runtime_account };
+    const account = AccountInfo.fromPtr(&runtime_account);
 
     // Immutable borrow
     var ref = try account.tryBorrowData();
@@ -395,7 +433,7 @@ test "account: double mutable borrow fails" {
         .lamports = 0,
         .data_len = 10,
     };
-    const account = AccountInfo{ .ptr = &runtime_account };
+    const account = AccountInfo.fromPtr(&runtime_account);
 
     var ref = try account.tryBorrowMutData();
     try std.testing.expectError(ProgramError.AccountBorrowFailed, account.tryBorrowMutData());
@@ -419,7 +457,7 @@ test "account: dataUnchecked" {
     };
     @memcpy(buf[0..@sizeOf(Account)], std.mem.asBytes(&runtime_account));
 
-    const account = AccountInfo{ .ptr = @ptrCast(@alignCast(&buf[0])) };
+    const account = AccountInfo.fromPtr(@ptrCast(@alignCast(&buf[0])));
     const data = account.dataUnchecked();
     try std.testing.expectEqualStrings("hello", data[0..5]);
 }

@@ -131,7 +131,7 @@ pub fn deserialize(
                 // Non-duplicate: Account struct starts here
                 // The first byte (borrow_state) is already 0xFF
                 const account_ptr: *Account = @ptrCast(@alignCast(ptr));
-                accounts_buffer[i] = AccountInfo{ .ptr = account_ptr };
+                accounts_buffer[i] = AccountInfo.fromPtr(account_ptr);
 
                 // Skip past the account struct
                 ptr += @sizeOf(Account);
@@ -272,7 +272,7 @@ pub const InstructionContext = struct {
         } else blk: {
             // New account
             const account_ptr: *Account = @ptrCast(@alignCast(self.ptr));
-            const info = AccountInfo{ .ptr = account_ptr };
+            const info = AccountInfo.fromPtr(account_ptr);
 
             // Skip past account struct + data + padding + alignment + rent_epoch
             self.ptr += @sizeOf(Account);
@@ -544,7 +544,7 @@ test "entrypoint: deserialize duplicate account" {
 
     try std.testing.expectEqual(@as(usize, 2), accounts.len);
     // Both accounts should point to the same underlying account
-    try std.testing.expectEqual(accounts[0].ptr, accounts[1].ptr);
+    try std.testing.expectEqual(accounts[0].key_ptr, accounts[1].key_ptr);
     try std.testing.expect(pubkey.pubkeyEq(program_id, &makePubkey(3)));
 }
 

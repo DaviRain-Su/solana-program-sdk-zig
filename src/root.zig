@@ -27,6 +27,9 @@ pub const slot_hashes = @import("slot_hashes.zig");
 pub const blake3 = @import("blake3.zig");
 pub const bpf = @import("bpf.zig");
 
+// Panic handler (only used when explicitly imported)
+pub const panic = @import("panic.zig");
+
 // Type aliases for convenience
 pub const Pubkey = pubkey.Pubkey;
 pub const PUBKEY_BYTES = pubkey.PUBKEY_BYTES;

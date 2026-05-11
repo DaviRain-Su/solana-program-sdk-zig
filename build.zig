@@ -159,11 +159,6 @@ pub fn linkSolanaProgram(b: *std.Build, lib: *std.Build.Step.Compile) void {
 // path via `buildProgram` above.
 // ---------------------------------------------------------------------
 
-fn fileExists(path: []const u8) bool {
-    std.Io.Dir.accessAbsolute(std.Options.debug_io, path, .{}) catch return false;
-    return true;
-}
-
 pub fn resolveElf2sbpfBin(b: *std.Build, cli_override: ?[]const u8) []const u8 {
     if (cli_override) |path| return path;
 
@@ -176,7 +171,12 @@ pub fn resolveElf2sbpfBin(b: *std.Build, cli_override: ?[]const u8) []const u8 {
     };
     inline for (local_candidates) |candidate| {
         const abs = b.pathFromRoot(candidate);
-        if (fileExists(abs)) return abs;
+        // Check file existence by trying to open it
+        const file = std.Io.Dir.openFileAbsolute(std.Options.debug_io, abs, .{}) catch null;
+        if (file) |f| {
+            f.close(std.Options.debug_io);
+            return abs;
+        }
     }
 
     return b.findProgram(&.{"elf2sbpf"}, &.{}) catch @panic(

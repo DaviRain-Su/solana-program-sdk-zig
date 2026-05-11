@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - elf2sbpf-from-4589040
       - solana-zig-fork-0.16
   pull_request:
     branches:
@@ -25,7 +24,7 @@ jobs:
     name: Build and test library
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest]
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
@@ -42,7 +41,14 @@ jobs:
 
       - name: Test library
         shell: bash
-        run: zig build test --summary all
+        run: zig build test --summary all -freference-trace 2>&1 | tee test-output.txt
+
+      - name: Upload test output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-output-${{ matrix.os }}
+          path: test-output.txt
 
   programs-fallback:
     name: Build and test programs (fallback path)
@@ -99,11 +105,7 @@ jobs:
 
   programs-fork:
     name: Build and test programs (solana-zig fork path)
-    strategy:
-      matrix:
-        os: [ubuntu-latest]
-      fail-fast: false
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 

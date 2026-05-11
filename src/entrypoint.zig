@@ -407,8 +407,8 @@ test "entrypoint: deserialize empty" {
 }
 
 test "entrypoint: deserialize single account" {
-    // Large aligned buffer for the serialized data
-    var input align(8) = [_]u8{0} ** 4096;
+    // Buffer for 1 account + metadata
+    var input align(8) = [_]u8{0} ** (@sizeOf(Account) + MAX_PERMITTED_DATA_INCREASE + @sizeOf(u64) + 64);
     var ptr: [*]u8 = &input;
 
     // num_accounts = 1
@@ -455,7 +455,8 @@ test "entrypoint: deserialize single account" {
 }
 
 test "entrypoint: deserialize with data" {
-    var input align(8) = [_]u8{0} ** 4096;
+    // Buffer for 1 account with data + metadata
+    var input align(8) = [_]u8{0} ** (@sizeOf(Account) + 10 + MAX_PERMITTED_DATA_INCREASE + @sizeOf(u64) + 64);
     var ptr: [*]u8 = &input;
 
     // num_accounts = 1
@@ -507,7 +508,8 @@ test "entrypoint: deserialize with data" {
 }
 
 test "entrypoint: deserialize duplicate account" {
-    var input align(8) = [_]u8{0} ** 4096;
+    // Buffer for 2 accounts + metadata
+    var input align(8) = [_]u8{0} ** (2 * (@sizeOf(Account) + MAX_PERMITTED_DATA_INCREASE + @sizeOf(u64)) + 64);
     var ptr: [*]u8 = &input;
 
     // num_accounts = 2
@@ -622,7 +624,7 @@ test "entrypoint: lazy parsing" {
 }
 
 test "entrypoint: lazy skip accounts" {
-    var input align(8) = [_]u8{0} ** 4096;
+    var input align(8) = [_]u8{0} ** (3 * (@sizeOf(Account) + MAX_PERMITTED_DATA_INCREASE + @sizeOf(u64)) + 64);
     var ptr: [*]u8 = &input;
 
     // num_accounts = 3

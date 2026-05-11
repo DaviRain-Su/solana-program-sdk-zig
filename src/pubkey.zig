@@ -97,8 +97,25 @@ pub fn encodeBase58(bytes: *const Pubkey, out: *[44]u8) usize {
 }
 
 /// Compare two pubkeys for equality
-/// Manual byte-wise comparison to avoid alignment requirements
+/// Uses 8-byte chunks for optimal performance on 64-bit targets
+/// Falls back to byte-wise comparison if alignment is insufficient
 pub inline fn pubkeyEq(a: *const Pubkey, b: *const Pubkey) bool {
+    // Check if both pointers are 8-byte aligned
+    const a_addr = @intFromPtr(a);
+    const b_addr = @intFromPtr(b);
+
+    if (a_addr & 7 == 0 and b_addr & 7 == 0) {
+        // Fast path: 8-byte aligned, compare as four u64 chunks
+        const a_chunks: *const [4]u64 = @ptrCast(@alignCast(a));
+        const b_chunks: *const [4]u64 = @ptrCast(@alignCast(b));
+
+        return a_chunks[0] == b_chunks[0] and
+            a_chunks[1] == b_chunks[1] and
+            a_chunks[2] == b_chunks[2] and
+            a_chunks[3] == b_chunks[3];
+    }
+
+    // Fallback: byte-wise comparison (handles unaligned pointers)
     var i: usize = 0;
     while (i < PUBKEY_BYTES) : (i += 1) {
         if (a[i] != b[i]) return false;

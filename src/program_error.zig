@@ -49,7 +49,8 @@ pub const SUCCESS: u64 = 0;
 pub const ProgramResult = ProgramError!void;
 
 /// Convert ProgramError to u64 error code
-pub fn errorToU64(err: ProgramError) u64 {
+/// Always inlined — the switch is a simple jump table
+pub inline fn errorToU64(err: ProgramError) u64 {
     return switch (err) {
         ProgramError.Custom => 0,
         ProgramError.InvalidArgument => 1,

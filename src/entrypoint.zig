@@ -30,9 +30,6 @@ const NON_DUP_MARKER: u8 = account.NON_DUP_MARKER;
 /// Maximum permitted data increase per instruction
 const MAX_PERMITTED_DATA_INCREASE: usize = account.MAX_PERMITTED_DATA_INCREASE;
 
-/// Static account data size (account header + max data increase)
-const STATIC_ACCOUNT_DATA: usize = @sizeOf(Account) + MAX_PERMITTED_DATA_INCREASE;
-
 /// Heap start address for BPF programs
 pub const HEAP_START_ADDRESS: u64 = 0x300000000;
 
@@ -86,6 +83,24 @@ pub fn entrypoint(
 ///
 /// Performs zero-copy deserialization. All returned values are pointers/slices
 /// into the original input buffer.
+///
+/// Input format (little endian):
+/// ```text
+/// [u64: num_accounts]
+/// For each account:
+///   [u8: duplicate_marker] (0xFF = non-duplicate, else = duplicate index)
+///   If duplicate:
+///     [7 bytes padding]
+///   If non-duplicate:
+///     [Account struct (88 bytes)]
+///     [data bytes]
+///     [10KB padding]
+///     [align to 8 bytes]
+///     [u64: rent_epoch]
+/// [u64: instruction_data_len]
+/// [instruction_data bytes]
+/// [Pubkey: program_id]
+/// ```
 pub fn deserialize(
     input: [*]u8,
     accounts_buffer: []AccountInfo,
@@ -106,36 +121,47 @@ pub fn deserialize(
 
         var i: usize = 0;
         while (i < to_process) : (i += 1) {
-            const account_ptr: *Account = @ptrCast(@alignCast(ptr));
+            // Read duplicate marker (first byte of 8-byte block)
+            const dup_marker = ptr[0];
 
-            // Skip 8 bytes (rent epoch or duplicate marker + padding)
-            ptr += @sizeOf(u64);
-
-            if (account_ptr.borrow_state != NON_DUP_MARKER) {
+            if (dup_marker != NON_DUP_MARKER) {
                 // Duplicate account — reference existing account
-                const dup_index = account_ptr.borrow_state;
+                const dup_index = dup_marker;
                 accounts_buffer[i] = accounts_buffer[dup_index];
+                // Skip 8 bytes (marker + padding)
+                ptr += @sizeOf(u64);
             } else {
-                // New account
+                // Non-duplicate: Account struct starts here
+                // The first byte (borrow_state) is already 0xFF
+                const account_ptr: *Account = @ptrCast(@alignCast(ptr));
                 accounts_buffer[i] = AccountInfo{ .ptr = account_ptr };
 
-                // Skip account struct + data + padding + alignment
-                ptr += STATIC_ACCOUNT_DATA;
+                // Skip past the account struct
+                ptr += @sizeOf(Account);
+                // Skip past data
                 ptr += @as(usize, @intCast(account_ptr.data_len));
+                // Skip past 10KB padding
+                ptr += MAX_PERMITTED_DATA_INCREASE;
+                // Align to 8 bytes
                 ptr = @ptrFromInt(alignPointer(@intFromPtr(ptr)));
+                // Skip rent_epoch
+                ptr += @sizeOf(u64);
             }
             accounts_count += 1;
         }
 
         // Skip remaining accounts if buffer was too small
         while (to_skip > 0) : (to_skip -= 1) {
-            const account_ptr: *Account = @ptrCast(@alignCast(ptr));
-            ptr += @sizeOf(u64);
-
-            if (account_ptr.borrow_state == NON_DUP_MARKER) {
-                ptr += STATIC_ACCOUNT_DATA;
+            const dup_marker = ptr[0];
+            if (dup_marker != NON_DUP_MARKER) {
+                ptr += @sizeOf(u64);
+            } else {
+                const account_ptr: *Account = @ptrCast(@alignCast(ptr));
+                ptr += @sizeOf(Account);
                 ptr += @as(usize, @intCast(account_ptr.data_len));
+                ptr += MAX_PERMITTED_DATA_INCREASE;
                 ptr = @ptrFromInt(alignPointer(@intFromPtr(ptr)));
+                ptr += @sizeOf(u64);
             }
         }
     }
@@ -195,13 +221,16 @@ pub const InstructionContext = struct {
         var skip_ptr = ptr;
         var i: u64 = 0;
         while (i < num_accounts) : (i += 1) {
-            const account_ptr: *Account = @ptrCast(@alignCast(skip_ptr));
-            skip_ptr += @sizeOf(u64);
-
-            if (account_ptr.borrow_state == NON_DUP_MARKER) {
-                skip_ptr += STATIC_ACCOUNT_DATA;
+            const dup_marker = skip_ptr[0];
+            if (dup_marker != NON_DUP_MARKER) {
+                skip_ptr += @sizeOf(u64);
+            } else {
+                const account_ptr: *Account = @ptrCast(@alignCast(skip_ptr));
+                skip_ptr += @sizeOf(Account);
                 skip_ptr += @as(usize, @intCast(account_ptr.data_len));
+                skip_ptr += MAX_PERMITTED_DATA_INCREASE;
                 skip_ptr = @ptrFromInt(alignPointer(@intFromPtr(skip_ptr)));
+                skip_ptr += @sizeOf(u64);
             }
         }
 
@@ -210,8 +239,8 @@ pub const InstructionContext = struct {
         const ix_data_len: usize = @intCast(ix_data_len_ptr.*);
         skip_ptr += @sizeOf(u64);
 
-        // Get instruction data
-        const instruction_data = skip_ptr[0..ix_data_len];
+        // Get instruction data pointer
+        const instruction_data_ptr = skip_ptr;
         skip_ptr += ix_data_len;
 
         // Get program ID
@@ -221,7 +250,7 @@ pub const InstructionContext = struct {
             .ptr = ptr,
             .num_accounts = num_accounts,
             .parsed_count = 0,
-            .instruction_data = instruction_data,
+            .instruction_data = instruction_data_ptr[0..ix_data_len],
             .program_id = program_id,
             ._accounts = undefined,
         };
@@ -236,21 +265,24 @@ pub const InstructionContext = struct {
     pub fn nextAccount(self: *InstructionContext) ?AccountInfo {
         if (self.parsed_count >= self.num_accounts) return null;
 
-        const account_ptr: *Account = @ptrCast(@alignCast(self.ptr));
-        self.ptr += @sizeOf(u64);
+        const dup_marker = self.ptr[0];
 
-        const result = if (account_ptr.borrow_state != NON_DUP_MARKER) blk: {
+        const result = if (dup_marker != NON_DUP_MARKER) blk: {
             // Duplicate account
-            const dup_index = account_ptr.borrow_state;
+            const dup_index = dup_marker;
+            self.ptr += @sizeOf(u64); // skip 8-byte marker
             break :blk self._accounts[dup_index];
         } else blk: {
             // New account
+            const account_ptr: *Account = @ptrCast(@alignCast(self.ptr));
             const info = AccountInfo{ .ptr = account_ptr };
 
-            // Skip account data
-            self.ptr += STATIC_ACCOUNT_DATA;
+            // Skip past account struct + data + padding + alignment + rent_epoch
+            self.ptr += @sizeOf(Account);
             self.ptr += @as(usize, @intCast(account_ptr.data_len));
+            self.ptr += MAX_PERMITTED_DATA_INCREASE;
             self.ptr = @ptrFromInt(alignPointer(@intFromPtr(self.ptr)));
+            self.ptr += @sizeOf(u64);
 
             break :blk info;
         };
@@ -265,13 +297,16 @@ pub const InstructionContext = struct {
     pub fn skipAccounts(self: *InstructionContext, count: u64) void {
         var i: u64 = 0;
         while (i < count and self.parsed_count < self.num_accounts) : (i += 1) {
-            const account_ptr: *Account = @ptrCast(@alignCast(self.ptr));
-            self.ptr += @sizeOf(u64);
-
-            if (account_ptr.borrow_state == NON_DUP_MARKER) {
-                self.ptr += STATIC_ACCOUNT_DATA;
+            const dup_marker = self.ptr[0];
+            if (dup_marker != NON_DUP_MARKER) {
+                self.ptr += @sizeOf(u64);
+            } else {
+                const account_ptr: *Account = @ptrCast(@alignCast(self.ptr));
+                self.ptr += @sizeOf(Account);
                 self.ptr += @as(usize, @intCast(account_ptr.data_len));
+                self.ptr += MAX_PERMITTED_DATA_INCREASE;
                 self.ptr = @ptrFromInt(alignPointer(@intFromPtr(self.ptr)));
+                self.ptr += @sizeOf(u64);
             }
             self.parsed_count += 1;
         }
@@ -309,7 +344,7 @@ pub fn lazyEntrypoint(
 }
 
 // =============================================================================
-// Tests
+// Test Helpers
 // =============================================================================
 
 fn makePubkey(v: u8) Pubkey {
@@ -318,8 +353,41 @@ fn makePubkey(v: u8) Pubkey {
     return pk;
 }
 
+/// Serialize a single account into a test buffer
+/// Returns the new pointer position
+fn serializeAccount(ptr: [*]u8, acc: Account) [*]u8 {
+    var p = ptr;
+    // For non-duplicate, the first byte IS the borrow_state (0xFF)
+    // So we write the Account struct directly
+    @memcpy(p[0..@sizeOf(Account)], std.mem.asBytes(&acc));
+    p += @sizeOf(Account);
+    // Write data
+    p += @as(usize, @intCast(acc.data_len));
+    // Write 10KB padding
+    p += MAX_PERMITTED_DATA_INCREASE;
+    // Align
+    p = @ptrFromInt(alignPointer(@intFromPtr(p)));
+    // Write rent_epoch
+    std.mem.writeInt(u64, p[0..8], 0, .little);
+    p += @sizeOf(u64);
+    return p;
+}
+
+/// Serialize a duplicate account marker
+fn serializeDuplicate(ptr: [*]u8, index: u8) [*]u8 {
+    var p = ptr;
+    p[0] = index; // dup marker (NOT 0xFF)
+    // 7 bytes padding
+    @memset(p[1..8], 0);
+    p += @sizeOf(u64);
+    return p;
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
 test "entrypoint: deserialize empty" {
-    // Use aligned buffer
     var input align(8) = [_]u8{0} ** 48;
     // num_accounts = 0
     std.mem.writeInt(u64, input[0..8], 0, .little);
@@ -339,12 +407,285 @@ test "entrypoint: deserialize empty" {
 }
 
 test "entrypoint: deserialize single account" {
-    // Skip this test — requires exact Solana runtime memory layout
-    // which is hard to replicate in unit tests
-    return error.SkipZigTest;
+    // Large aligned buffer for the serialized data
+    var input align(8) = [_]u8{0} ** 4096;
+    var ptr: [*]u8 = &input;
+
+    // num_accounts = 1
+    std.mem.writeInt(u64, ptr[0..8], 1, .little);
+    ptr += 8;
+
+    // Account 0 (non-duplicate)
+    const acc0: Account = .{
+        .borrow_state = NON_DUP_MARKER,
+        .is_signer = 1,
+        .is_writable = 1,
+        .executable = 0,
+        ._padding = .{0} ** 4,
+        .key = makePubkey(1),
+        .owner = makePubkey(2),
+        .lamports = 1000,
+        .data_len = 0,
+    };
+    ptr = serializeAccount(ptr, acc0);
+
+    // instruction_data_len = 4
+    std.mem.writeInt(u64, ptr[0..8], 4, .little);
+    ptr += 8;
+    // instruction_data
+    @memcpy(ptr[0..4], "test");
+    ptr += 4;
+    // program_id
+    const pk = makePubkey(3);
+    @memcpy(ptr[0..32], &pk);
+
+    var accounts_buffer: [10]AccountInfo = undefined;
+    const program_id, const accounts, const instruction_data =
+        deserialize(&input, &accounts_buffer);
+
+    try std.testing.expectEqual(@as(usize, 1), accounts.len);
+    try std.testing.expect(accounts[0].isSigner());
+    try std.testing.expect(accounts[0].isWritable());
+    try std.testing.expect(!accounts[0].executable());
+    try std.testing.expectEqual(@as(u64, 1000), accounts[0].lamports());
+    try std.testing.expect(pubkey.pubkeyEq(accounts[0].key(), &makePubkey(1)));
+    try std.testing.expect(pubkey.pubkeyEq(accounts[0].owner(), &makePubkey(2)));
+    try std.testing.expect(pubkey.pubkeyEq(program_id, &makePubkey(3)));
+    try std.testing.expectEqualStrings("test", instruction_data);
+}
+
+test "entrypoint: deserialize with data" {
+    var input align(8) = [_]u8{0} ** 4096;
+    var ptr: [*]u8 = &input;
+
+    // num_accounts = 1
+    std.mem.writeInt(u64, ptr[0..8], 1, .little);
+    ptr += 8;
+
+    // Account with data
+    const acc0: Account = .{
+        .borrow_state = NON_DUP_MARKER,
+        .is_signer = 0,
+        .is_writable = 1,
+        .executable = 0,
+        ._padding = .{0} ** 4,
+        .key = makePubkey(1),
+        .owner = makePubkey(2),
+        .lamports = 500,
+        .data_len = 5,
+    };
+    // Write account struct
+    @memcpy(ptr[0..@sizeOf(Account)], std.mem.asBytes(&acc0));
+    ptr += @sizeOf(Account);
+    // Write data
+    @memcpy(ptr[0..5], "hello");
+    ptr += 5;
+    // Skip padding
+    ptr += MAX_PERMITTED_DATA_INCREASE;
+    // Align
+    ptr = @ptrFromInt(alignPointer(@intFromPtr(ptr)));
+    // Rent epoch
+    std.mem.writeInt(u64, ptr[0..8], 0, .little);
+    ptr += 8;
+
+    // instruction_data_len = 0
+    std.mem.writeInt(u64, ptr[0..8], 0, .little);
+    ptr += 8;
+    // program_id
+    const pk = makePubkey(3);
+    @memcpy(ptr[0..32], &pk);
+
+    var accounts_buffer: [10]AccountInfo = undefined;
+    const program_id, const accounts, const ix_data =
+        deserialize(&input, &accounts_buffer);
+    _ = ix_data;
+
+    try std.testing.expectEqual(@as(usize, 1), accounts.len);
+    try std.testing.expectEqual(@as(usize, 5), accounts[0].dataLen());
+    try std.testing.expectEqualStrings("hello", accounts[0].data()[0..5]);
+    try std.testing.expect(pubkey.pubkeyEq(program_id, &makePubkey(3)));
+}
+
+test "entrypoint: deserialize duplicate account" {
+    var input align(8) = [_]u8{0} ** 4096;
+    var ptr: [*]u8 = &input;
+
+    // num_accounts = 2
+    std.mem.writeInt(u64, ptr[0..8], 2, .little);
+    ptr += 8;
+
+    // Account 0 (non-duplicate)
+    const acc0: Account = .{
+        .borrow_state = NON_DUP_MARKER,
+        .is_signer = 1,
+        .is_writable = 1,
+        .executable = 0,
+        ._padding = .{0} ** 4,
+        .key = makePubkey(1),
+        .owner = makePubkey(2),
+        .lamports = 1000,
+        .data_len = 0,
+    };
+    ptr = serializeAccount(ptr, acc0);
+
+    // Account 1 (duplicate of account 0)
+    ptr = serializeDuplicate(ptr, 0);
+
+    // instruction_data_len = 0
+    std.mem.writeInt(u64, ptr[0..8], 0, .little);
+    ptr += 8;
+    // program_id
+    const pk = makePubkey(3);
+    @memcpy(ptr[0..32], &pk);
+
+    var accounts_buffer: [10]AccountInfo = undefined;
+    const program_id, const accounts, const ix_data =
+        deserialize(&input, &accounts_buffer);
+    _ = ix_data;
+
+    try std.testing.expectEqual(@as(usize, 2), accounts.len);
+    // Both accounts should point to the same underlying account
+    try std.testing.expectEqual(accounts[0].ptr, accounts[1].ptr);
+    try std.testing.expect(pubkey.pubkeyEq(program_id, &makePubkey(3)));
 }
 
 test "entrypoint: lazy parsing" {
-    // Skip this test — requires exact Solana runtime memory layout
-    return error.SkipZigTest;
+    var input align(8) = [_]u8{0} ** 32768;
+    var ptr: [*]u8 = &input;
+
+    // num_accounts = 2
+    std.mem.writeInt(u64, ptr[0..8], 2, .little);
+    ptr += 8;
+
+    // Account 0 (non-dup, no data)
+    const acc0: Account = .{
+        .borrow_state = NON_DUP_MARKER,
+        .is_signer = 1,
+        .is_writable = 1,
+        .executable = 0,
+        ._padding = .{0} ** 4,
+        .key = makePubkey(1),
+        .owner = makePubkey(2),
+        .lamports = 1000,
+        .data_len = 0,
+    };
+    ptr = serializeAccount(ptr, acc0);
+
+    // Account 1 (non-dup, no data)
+    const acc1: Account = .{
+        .borrow_state = NON_DUP_MARKER,
+        .is_signer = 0,
+        .is_writable = 0,
+        .executable = 0,
+        ._padding = .{0} ** 4,
+        .key = makePubkey(3),
+        .owner = makePubkey(2),
+        .lamports = 500,
+        .data_len = 0,
+    };
+    ptr = serializeAccount(ptr, acc1);
+
+    // instruction_data_len = 4
+    std.mem.writeInt(u64, ptr[0..8], 4, .little);
+    ptr += 8;
+    @memcpy(ptr[0..4], "test");
+    ptr += 4;
+    // program_id
+    const pk = makePubkey(4);
+    @memcpy(ptr[0..32], &pk);
+
+    var context = InstructionContext.init(&input);
+
+    try std.testing.expectEqual(@as(u64, 2), context.remaining());
+    const ix_data = context.instructionData();
+    try std.testing.expectEqual(@as(usize, 4), ix_data.len);
+    try std.testing.expectEqual(@as(u8, 't'), ix_data[0]);
+    try std.testing.expectEqual(@as(u8, 'e'), ix_data[1]);
+    try std.testing.expectEqual(@as(u8, 's'), ix_data[2]);
+    try std.testing.expectEqual(@as(u8, 't'), ix_data[3]);
+    try std.testing.expect(pubkey.pubkeyEq(context.programId(), &makePubkey(4)));
+
+    const acc0_info = context.nextAccount().?;
+    try std.testing.expect(acc0_info.isSigner());
+    try std.testing.expect(acc0_info.isWritable());
+    try std.testing.expect(pubkey.pubkeyEq(acc0_info.key(), &makePubkey(1)));
+
+    try std.testing.expectEqual(@as(u64, 1), context.remaining());
+
+    const acc1_info = context.nextAccount().?;
+    try std.testing.expect(!acc1_info.isSigner());
+    try std.testing.expect(!acc1_info.isWritable());
+    try std.testing.expect(pubkey.pubkeyEq(acc1_info.key(), &makePubkey(3)));
+
+    try std.testing.expectEqual(@as(u64, 0), context.remaining());
+    try std.testing.expect(context.nextAccount() == null);
+}
+
+test "entrypoint: lazy skip accounts" {
+    var input align(8) = [_]u8{0} ** 4096;
+    var ptr: [*]u8 = &input;
+
+    // num_accounts = 3
+    std.mem.writeInt(u64, ptr[0..8], 3, .little);
+    ptr += 8;
+
+    // Account 0
+    const acc0: Account = .{
+        .borrow_state = NON_DUP_MARKER,
+        .is_signer = 1,
+        .is_writable = 1,
+        .executable = 0,
+        ._padding = .{0} ** 4,
+        .key = makePubkey(1),
+        .owner = makePubkey(2),
+        .lamports = 1000,
+        .data_len = 0,
+    };
+    ptr = serializeAccount(ptr, acc0);
+
+    // Account 1
+    const acc1: Account = .{
+        .borrow_state = NON_DUP_MARKER,
+        .is_signer = 0,
+        .is_writable = 0,
+        .executable = 0,
+        ._padding = .{0} ** 4,
+        .key = makePubkey(3),
+        .owner = makePubkey(2),
+        .lamports = 500,
+        .data_len = 0,
+    };
+    ptr = serializeAccount(ptr, acc1);
+
+    // Account 2
+    const acc2: Account = .{
+        .borrow_state = NON_DUP_MARKER,
+        .is_signer = 0,
+        .is_writable = 1,
+        .executable = 0,
+        ._padding = .{0} ** 4,
+        .key = makePubkey(5),
+        .owner = makePubkey(2),
+        .lamports = 200,
+        .data_len = 0,
+    };
+    ptr = serializeAccount(ptr, acc2);
+
+    // instruction_data_len = 0
+    std.mem.writeInt(u64, ptr[0..8], 0, .little);
+    ptr += 8;
+    // program_id
+    const pk = makePubkey(6);
+    @memcpy(ptr[0..32], &pk);
+
+    var context = InstructionContext.init(&input);
+
+    // Skip first 2 accounts
+    context.skipAccounts(2);
+    try std.testing.expectEqual(@as(u64, 1), context.remaining());
+
+    // Get the 3rd account
+    const acc2_info = context.nextAccount().?;
+    try std.testing.expect(pubkey.pubkeyEq(acc2_info.key(), &makePubkey(5)));
+    try std.testing.expectEqual(@as(u64, 0), context.remaining());
 }

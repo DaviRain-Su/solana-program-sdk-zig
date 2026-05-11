@@ -14,14 +14,8 @@ fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
     const ix_data = ctx.instructionData();
     if (ix_data.len < 8) return error.InvalidInstructionData;
 
-    const transfer_amount: u64 = @as(u64, ix_data[0]) |
-        (@as(u64, ix_data[1]) << 8) |
-        (@as(u64, ix_data[2]) << 16) |
-        (@as(u64, ix_data[3]) << 24) |
-        (@as(u64, ix_data[4]) << 32) |
-        (@as(u64, ix_data[5]) << 40) |
-        (@as(u64, ix_data[6]) << 48) |
-        (@as(u64, ix_data[7]) << 56);
+    // Read little-endian u64 from instruction data (zero overhead)
+    const transfer_amount: u64 = @as(*align(1) const u64, @ptrCast(ix_data[0..8])).*;
 
     source.raw.lamports -= transfer_amount;
     destination.raw.lamports += transfer_amount;

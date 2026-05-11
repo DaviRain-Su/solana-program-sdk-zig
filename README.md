@@ -194,5 +194,7 @@ zig build test --summary all
 
 ## Branch layout
 
-- `main` — original upstream solana-zig based SDK (legacy reference).
-- **`solana-zig-fork-0.16`** (this branch) — solana-zig fork only, recommended default.
+- **`main`** (default) — solana-zig fork based SDK with the Pinocchio-style
+  redesign (current development line).
+- `solana-zig-fork-0.16` — historical staging branch for the rewrite; now
+  merged into `main` and kept for reference.

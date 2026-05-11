@@ -70,6 +70,8 @@ jobs:
       - name: Build and test program (fallback)
         shell: bash
         run: ./program-test/test.sh zig "$ELF2SBPF_BIN"
+        env:
+          ZIG_BUILD_ARGS: "-Dbuild-program"
 
   test-fork:
     name: build + test (solana-zig fork path)
@@ -111,3 +113,5 @@ jobs:
       - name: Build and test program (fork)
         shell: bash
         run: ./program-test/test.sh "$SOLANA_ZIG_BIN"
+        env:
+          ZIG_BUILD_ARGS: "-Dbuild-program"

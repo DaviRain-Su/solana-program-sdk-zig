@@ -18,15 +18,20 @@ is_solana_zig() {
   return 0
 }
 
+# Extra zig build args (e.g. -Dbuild-program) can be passed via ZIG_BUILD_ARGS env var.
+EXTRA_ARGS="${ZIG_BUILD_ARGS:-}"
+
 if is_solana_zig "$ZIG"; then
   echo "Detected solana-zig fork — using buildProgram (sbf target) path"
-  "$ZIG" build -Dsolana-zig --summary all --verbose
+  # shellcheck disable=SC2086
+  "$ZIG" build -Dsolana-zig $EXTRA_ARGS --summary all --verbose
 else
   echo "Using stock Zig — using buildProgramElf2sbpf (bpf + elf2sbpf) fallback path"
   if [[ -z "$ELF2SBPF_BIN" ]]; then
     ELF2SBPF_BIN="$("$ROOT_DIR/scripts/ensure-elf2sbpf.sh")"
   fi
-  "$ZIG" build -Delf2sbpf-bin="$ELF2SBPF_BIN" --summary all --verbose
+  # shellcheck disable=SC2086
+  "$ZIG" build -Delf2sbpf-bin="$ELF2SBPF_BIN" $EXTRA_ARGS --summary all --verbose
 fi
 
 cargo test --manifest-path "$ROOT_DIR/program-test/Cargo.toml"

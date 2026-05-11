@@ -11,18 +11,9 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const base58_dep = b.dependency("base58", .{
-        .target = target,
-        .optimize = optimize,
-    });
-    const base58_mod = base58_dep.module("base58");
-    solana_mod.addImport("base58", base58_mod);
-
     const lib_unit_tests = b.addTest(.{
         .root_module = solana_mod,
     });
-
-    lib_unit_tests.root_module.addImport("base58", base58_mod);
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
@@ -30,38 +21,75 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_lib_unit_tests.step);
 }
 
-// General helper function to do all the tricky build steps, by adding the
-// solana-sdk module, adding the BPF link script
-pub fn buildProgram(b: *std.Build, program: *std.Build.Step.Compile, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *std.Build.Module {
+pub const LinkedProgram = struct {
+    name: []const u8,
+    module: *std.Build.Module,
+    so: std.Build.LazyPath,
+    step: *std.Build.Step,
+};
+
+pub const has_sbf_target = @hasField(std.Target.Cpu.Arch, "sbf");
+
+pub fn sbfTarget() std.Target.Query {
+    return .{
+        .cpu_arch = .sbf,
+        .os_tag = .solana,
+        .cpu_model = .{ .explicit = &std.Target.sbf.cpu.v2 },
+    };
+}
+
+pub const BuildProgramOptions = struct {
+    name: []const u8,
+    root_source_file: std.Build.LazyPath,
+    optimize: std.builtin.OptimizeMode = .ReleaseFast,
+};
+
+pub fn buildProgram(b: *std.Build, options: BuildProgramOptions) LinkedProgram {
+    if (!has_sbf_target) {
+        std.log.err("buildProgram requires the solana-zig fork. Download from https://github.com/joncinque/solana-zig-bootstrap/releases", .{});
+        std.process.exit(1);
+    }
+    const target = b.resolveTargetQuery(sbfTarget());
+    const optimize = options.optimize;
+
     const solana_dep = b.dependency("solana_program_sdk", .{
         .target = target,
         .optimize = optimize,
     });
     const solana_mod = solana_dep.module("solana_program_sdk");
-    program.root_module.addImport("solana_program_sdk", solana_mod);
+
+    const program_mod = b.createModule(.{
+        .root_source_file = options.root_source_file,
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "solana_program_sdk", .module = solana_mod },
+        },
+    });
+    program_mod.pic = true;
+    program_mod.strip = true;
+
+    const program = b.addLibrary(.{
+        .name = options.name,
+        .linkage = .dynamic,
+        .root_module = program_mod,
+    });
+    program.entry = .{ .symbol_name = "entrypoint" };
+    program.stack_size = 4096;
+    program.link_z_notext = true;
     linkSolanaProgram(b, program);
-    return solana_mod;
+
+    const so = program.getEmittedBin();
+    const install = b.addInstallLibFile(so, b.fmt("{s}.so", .{options.name}));
+    b.getInstallStep().dependOn(&install.step);
+
+    return .{
+        .name = options.name,
+        .module = solana_mod,
+        .so = so,
+        .step = &install.step,
+    };
 }
-
-pub const sbf_target: std.Target.Query = .{
-    .cpu_arch = .sbf,
-    .os_tag = .solana,
-};
-
-pub const sbfv2_target: std.Target.Query = .{
-    .cpu_arch = .sbf,
-    .cpu_model = .{
-        .explicit = &std.Target.sbf.cpu.sbfv2,
-    },
-    .os_tag = .solana,
-    .cpu_features_add = std.Target.sbf.cpu.sbfv2.features,
-};
-
-pub const bpf_target: std.Target.Query = .{
-    .cpu_arch = .bpfel,
-    .os_tag = .freestanding,
-    .cpu_features_add = std.Target.bpf.featureSet(&.{.solana}),
-};
 
 pub fn linkSolanaProgram(b: *std.Build, lib: *std.Build.Step.Compile) void {
     const write_file_step = b.addWriteFiles();
@@ -91,13 +119,6 @@ pub fn linkSolanaProgram(b: *std.Build, lib: *std.Build.Step.Compile) void {
         \\}
         \\}
     );
-
     lib.step.dependOn(&write_file_step.step);
-
     lib.setLinkerScript(linker_script);
-    lib.stack_size = 4096;
-    lib.link_z_notext = true;
-    lib.root_module.pic = true;
-    lib.root_module.strip = true;
-    lib.entry = .{ .symbol_name = "entrypoint" };
 }

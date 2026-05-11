@@ -1,0 +1,62 @@
+name: Main
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SOLANA_ZIG_VERSION: solana-v1.53.0
+
+jobs:
+  test:
+    name: build + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download solana-zig fork
+        shell: bash
+        run: |
+          curl -LO "https://github.com/joncinque/solana-zig-bootstrap/releases/download/${SOLANA_ZIG_VERSION}/zig-x86_64-linux-musl.tar.bz2"
+          tar -xjf zig-x86_64-linux-musl.tar.bz2
+          echo "SOLANA_ZIG=$(pwd)/zig-x86_64-linux-musl-baseline/zig" >> "$GITHUB_ENV"
+
+      - name: Test solana-zig version
+        shell: bash
+        run: |
+          "$SOLANA_ZIG" version
+          "$SOLANA_ZIG" targets | grep -i sbf
+
+      - name: Test host code
+        shell: bash
+        run: "$SOLANA_ZIG" build test --summary all
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            program-test/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('./program-test/Cargo.toml') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.86.0
+
+      - name: Build and test program
+        shell: bash
+        run: ./program-test/test.sh "$SOLANA_ZIG"
+        env:
+          ZIG_BUILD_ARGS: "-Dbuild-program"

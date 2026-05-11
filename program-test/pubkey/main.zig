@@ -1,13 +1,12 @@
 const sol = @import("solana_program_sdk");
 
-fn processInstruction(program_id: *sol.PublicKey, accounts: []sol.Account, data: []const u8) sol.ProgramResult {
-    _ = accounts;
-    _ = data;
-    sol.print("Hello zig program: {f}", .{program_id});
-    return .ok;
+pub const panic = sol.panic.Panic;
+
+fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
+    _ = ctx;
+    sol.log.log("Hello zig program");
 }
 
-// Declare the program entrypoint
-comptime {
-    sol.entrypoint(&processInstruction);
+export fn entrypoint(input: [*]u8) u64 {
+    return sol.entrypoint.lazyEntrypoint(process)(input);
 }

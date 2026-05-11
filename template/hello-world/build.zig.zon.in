@@ -1,0 +1,21 @@
+.{
+    .fingerprint = 0x2b420e8ed48f7088,
+    .name = .hello_world_template,
+    .version = "0.1.0",
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .solana_program_sdk = .{
+            .path = "__SOLANA_PROGRAM_SDK_PATH__",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "scripts",
+        "program-test",
+        "README.md",
+        ".github",
+        ".gitignore",
+    },
+}

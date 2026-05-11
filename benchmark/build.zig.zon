@@ -1,0 +1,19 @@
+.{
+    .fingerprint = 0xb70c48fecedb1921,
+    .name = .benchmark,
+    .version = "0.1.0",
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .solana_program_sdk = .{
+            .path = "..",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "pubkey_cmp_fast.zig",
+        "pubkey_cmp_safe.zig",
+        "pubkey_cmp_unchecked.zig",
+        "transfer_lamports.zig",
+    },
+}

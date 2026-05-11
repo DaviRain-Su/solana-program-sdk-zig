@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 
-ZIG="$1"
-ROOT_DIR="$(cd "$(dirname "$0")"/..; pwd)"
-if [[ -z "$ZIG" ]]; then
-  ZIG="$ROOT_DIR/solana-zig/zig"
-fi
+set -euo pipefail
 
-set -e
-cd $ROOT_DIR/program-test
-$ZIG build --summary all --verbose
+ZIG="${1:-zig}"
+ROOT_DIR="$(cd "$(dirname "$0")"/..; pwd)"
+
+cd "$ROOT_DIR/program-test"
+
+echo "Using Zig: $ZIG"
+"$ZIG" version
+
+"$ZIG" build --summary all --verbose
+
 cargo test --manifest-path "$ROOT_DIR/program-test/Cargo.toml"

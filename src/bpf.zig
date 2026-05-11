@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const PublicKey = @import("public_key.zig").PublicKey;
+const PublicKey = @import("pubkey.zig").Pubkey;
 
 pub const bpf_loader_deprecated_program_id = PublicKey.comptimeFromBase58("BPFLoader1111111111111111111111111111111111");
 pub const bpf_loader_program_id = PublicKey.comptimeFromBase58("BPFLoader2111111111111111111111111111111111");
@@ -28,7 +28,5 @@ pub fn getUpgradeableLoaderProgramDataId(program_id: PublicKey) !PublicKey {
 }
 
 pub const is_bpf_program = !builtin.is_test and
-    ((builtin.os.tag == .freestanding and
-        builtin.cpu.arch == .bpfel and
-        std.Target.bpf.featureSetHas(builtin.cpu.features, .solana)) or
+    ((builtin.os.tag == .freestanding and builtin.cpu.arch == .bpfel) or
         builtin.cpu.arch == .sbf);

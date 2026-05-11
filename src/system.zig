@@ -1,0 +1,340 @@
+//! System Program CPI wrappers
+//!
+//! High-level Zig API for common System Program operations.
+//!
+//! ⚠️ WARNING (Zig 0.16 BPF): Always use stack copies for Program IDs.
+//! Module-scope const arrays may be placed at invalid low addresses.
+
+const std = @import("std");
+const pubkey = @import("pubkey.zig");
+const account_mod = @import("account.zig");
+const cpi = @import("cpi.zig");
+const program_error = @import("program_error.zig");
+const instruction = @import("instruction.zig");
+
+const Pubkey = pubkey.Pubkey;
+const CpiAccountInfo = account_mod.CpiAccountInfo;
+const ProgramResult = program_error.ProgramResult;
+
+/// System Program instruction discriminants
+pub const SystemInstruction = enum(u32) {
+    CreateAccount = 0,
+    Assign = 1,
+    Transfer = 2,
+    CreateAccountWithSeed = 3,
+    AdvanceNonceAccount = 4,
+    WithdrawNonceAccount = 5,
+    InitializeNonceAccount = 6,
+    AuthorizeNonceAccount = 7,
+    Allocate = 8,
+    AllocateWithSeed = 9,
+    AssignWithSeed = 10,
+    TransferWithSeed = 11,
+    UpgradeNonceAccount = 12,
+};
+
+/// System Program ID (all zeros)
+/// Use getSystemProgramId() to obtain a valid stack copy
+pub const SYSTEM_PROGRAM_ID: Pubkey = .{0} ** 32;
+
+/// Write the System Program ID into the provided output buffer
+pub inline fn getSystemProgramId(out: *Pubkey) void {
+    out.* = .{0} ** 32;
+}
+
+// Compile-time instruction data builders
+const CreateAccountData = instruction.comptimeInstructionData(
+    u32,
+    extern struct {
+        lamports: u64,
+        space: u64,
+        owner: Pubkey,
+    },
+);
+
+const TransferData = instruction.comptimeInstructionData(
+    u32,
+    extern struct {
+        lamports: u64,
+    },
+);
+
+const AssignData = instruction.comptimeInstructionData(
+    u32,
+    extern struct {
+        owner: Pubkey,
+    },
+);
+
+const AllocateData = instruction.comptimeInstructionData(
+    u32,
+    extern struct {
+        space: u64,
+    },
+);
+
+const ReallocData = instruction.comptimeInstructionData(
+    u32,
+    extern struct {
+        new_space: u64,
+        zero_init: u8,
+    },
+);
+
+/// Create a new account via System Program CPI
+///
+/// Accounts:
+/// - `from`: signer, writable — pays for the new account
+/// - `to`: writable — the account to be created
+pub fn createAccount(
+    from: CpiAccountInfo,
+    to: CpiAccountInfo,
+    lamports: u64,
+    space: u64,
+    owner: *const Pubkey,
+) ProgramResult {
+    var system_program_id: Pubkey = undefined;
+    getSystemProgramId(&system_program_id);
+
+    // Compile-time discriminant, runtime data
+    const ix_data = CreateAccountData.initWithDiscriminant(
+        @intFromEnum(SystemInstruction.CreateAccount),
+        .{ .lamports = lamports, .space = space, .owner = owner.* },
+    );
+
+    const account_metas = [_]cpi.AccountMeta{
+        .{ .pubkey = from.key(), .is_writable = true, .is_signer = true },
+        .{ .pubkey = to.key(), .is_writable = true, .is_signer = true },
+    };
+
+    const ix = cpi.Instruction{
+        .program_id = &system_program_id,
+        .accounts = &account_metas,
+        .data = &ix_data,
+    };
+
+    try cpi.invoke(&ix, &[_]CpiAccountInfo{ from, to });
+}
+
+/// Create a new account with PDA signing
+pub fn createAccountSigned(
+    from: CpiAccountInfo,
+    to: CpiAccountInfo,
+    lamports: u64,
+    space: u64,
+    owner: *const Pubkey,
+    signers_seeds: []const []const u8,
+) ProgramResult {
+    var system_program_id: Pubkey = undefined;
+    getSystemProgramId(&system_program_id);
+
+    const ix_data = CreateAccountData.initWithDiscriminant(
+        @intFromEnum(SystemInstruction.CreateAccount),
+        .{ .lamports = lamports, .space = space, .owner = owner.* },
+    );
+
+    const account_metas = [_]cpi.AccountMeta{
+        .{ .pubkey = from.key(), .is_writable = true, .is_signer = true },
+        .{ .pubkey = to.key(), .is_writable = true, .is_signer = true },
+    };
+
+    const ix = cpi.Instruction{
+        .program_id = &system_program_id,
+        .accounts = &account_metas,
+        .data = &ix_data,
+    };
+
+    try cpi.invokeSigned(&ix, &[_]CpiAccountInfo{ from, to }, signers_seeds);
+}
+
+/// Transfer lamports via System Program CPI
+///
+/// Accounts:
+/// - `from`: signer, writable — source of lamports
+/// - `to`: writable — destination for lamports
+pub fn transfer(
+    from: CpiAccountInfo,
+    to: CpiAccountInfo,
+    lamports: u64,
+) ProgramResult {
+    var system_program_id: Pubkey = undefined;
+    getSystemProgramId(&system_program_id);
+
+    const ix_data = TransferData.initWithDiscriminant(
+        @intFromEnum(SystemInstruction.Transfer),
+        .{ .lamports = lamports },
+    );
+
+    const account_metas = [_]cpi.AccountMeta{
+        .{ .pubkey = from.key(), .is_writable = true, .is_signer = true },
+        .{ .pubkey = to.key(), .is_writable = true, .is_signer = false },
+    };
+
+    const ix = cpi.Instruction{
+        .program_id = &system_program_id,
+        .accounts = &account_metas,
+        .data = &ix_data,
+    };
+
+    try cpi.invoke(&ix, &[_]CpiAccountInfo{ from, to });
+}
+
+/// Assign a new owner to an account
+pub fn assign(
+    account: CpiAccountInfo,
+    owner: *const Pubkey,
+) ProgramResult {
+    var system_program_id: Pubkey = undefined;
+    getSystemProgramId(&system_program_id);
+
+    const ix_data = AssignData.initWithDiscriminant(
+        @intFromEnum(SystemInstruction.Assign),
+        .{ .owner = owner.* },
+    );
+
+    const account_metas = [_]cpi.AccountMeta{
+        .{ .pubkey = account.key(), .is_writable = true, .is_signer = true },
+    };
+
+    const ix = cpi.Instruction{
+        .program_id = &system_program_id,
+        .accounts = &account_metas,
+        .data = &ix_data,
+    };
+
+    try cpi.invoke(&ix, &[_]CpiAccountInfo{account});
+}
+
+/// Allocate space in an account
+pub fn allocate(
+    account: CpiAccountInfo,
+    space: u64,
+) ProgramResult {
+    var system_program_id: Pubkey = undefined;
+    getSystemProgramId(&system_program_id);
+
+    const ix_data = AllocateData.initWithDiscriminant(
+        @intFromEnum(SystemInstruction.Allocate),
+        .{ .space = space },
+    );
+
+    const account_metas = [_]cpi.AccountMeta{
+        .{ .pubkey = account.key(), .is_writable = true, .is_signer = true },
+    };
+
+    const ix = cpi.Instruction{
+        .program_id = &system_program_id,
+        .accounts = &account_metas,
+        .data = &ix_data,
+    };
+
+    try cpi.invoke(&ix, &[_]CpiAccountInfo{account});
+}
+
+/// Reallocate space in an account
+pub fn realloc(
+    account: CpiAccountInfo,
+    new_space: u64,
+    zero_init: bool,
+) ProgramResult {
+    var system_program_id: Pubkey = undefined;
+    getSystemProgramId(&system_program_id);
+
+    const ix_data = ReallocData.initWithDiscriminant(
+        @intFromEnum(SystemInstruction.Allocate), // Note: ReAlloc uses Allocate discriminant
+        .{ .new_space = new_space, .zero_init = if (zero_init) 1 else 0 },
+    );
+
+    const account_metas = [_]cpi.AccountMeta{
+        .{ .pubkey = account.key(), .is_writable = true, .is_signer = true },
+    };
+
+    const ix = cpi.Instruction{
+        .program_id = &system_program_id,
+        .accounts = &account_metas,
+        .data = &ix_data,
+    };
+
+    try cpi.invoke(&ix, &[_]CpiAccountInfo{account});
+}
+
+/// Create account with seed
+pub fn createAccountWithSeed(
+    from: CpiAccountInfo,
+    to: CpiAccountInfo,
+    base: *const Pubkey,
+    seed: []const u8,
+    lamports: u64,
+    space: u64,
+    owner: *const Pubkey,
+) ProgramResult {
+    var system_program_id: Pubkey = undefined;
+    getSystemProgramId(&system_program_id);
+
+    // Variable-length seed requires runtime construction
+    var ix_data: [84]u8 = undefined;
+    @memset(&ix_data, 0);
+
+    std.mem.writeInt(u32, ix_data[0..4], @intFromEnum(SystemInstruction.CreateAccountWithSeed), .little);
+    @memcpy(ix_data[4..36], base[0..32]);
+    std.mem.writeInt(u64, ix_data[36..44], seed.len, .little);
+    @memcpy(ix_data[44..44 + seed.len], seed);
+    const lamports_offset = 44 + seed.len;
+    std.mem.writeInt(u64, ix_data[lamports_offset..][0..8], lamports, .little);
+    std.mem.writeInt(u64, ix_data[lamports_offset + 8..][0..8], space, .little);
+    @memcpy(ix_data[lamports_offset + 16..][0..32], owner[0..32]);
+
+    const account_metas = [_]cpi.AccountMeta{
+        .{ .pubkey = from.key(), .is_writable = true, .is_signer = true },
+        .{ .pubkey = to.key(), .is_writable = true, .is_signer = false },
+    };
+
+    const ix = cpi.Instruction{
+        .program_id = &system_program_id,
+        .accounts = &account_metas,
+        .data = ix_data[0 .. 44 + seed.len + 16 + 32],
+    };
+
+    try cpi.invoke(&ix, &[_]CpiAccountInfo{ from, to });
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+test "system: getSystemProgramId" {
+    var id: Pubkey = undefined;
+    getSystemProgramId(&id);
+    const expected: Pubkey = .{0} ** 32;
+    try std.testing.expectEqual(expected, id);
+}
+
+test "system: instruction data format" {
+    const ix_data = CreateAccountData.initWithDiscriminant(
+        @intFromEnum(SystemInstruction.CreateAccount),
+        .{ .lamports = 500, .space = 128, .owner = .{3} ** 32 },
+    );
+
+    try std.testing.expectEqual(@as(u32, 0), std.mem.readInt(u32, ix_data[0..4], .little));
+    try std.testing.expectEqual(@as(u64, 500), std.mem.readInt(u64, ix_data[4..12], .little));
+    try std.testing.expectEqual(@as(u64, 128), std.mem.readInt(u64, ix_data[12..20], .little));
+    const expected_owner: Pubkey = .{3} ** 32;
+    try std.testing.expectEqual(expected_owner, ix_data[20..52].*);
+}
+
+test "system: transfer instruction data" {
+    const ix_data = TransferData.initWithDiscriminant(
+        @intFromEnum(SystemInstruction.Transfer),
+        .{ .lamports = 100 },
+    );
+
+    try std.testing.expectEqual(@as(u32, 2), std.mem.readInt(u32, ix_data[0..4], .little));
+    try std.testing.expectEqual(@as(u64, 100), std.mem.readInt(u64, ix_data[4..12], .little));
+}
+
+test "system: SystemInstruction discriminant values" {
+    try std.testing.expectEqual(@as(u32, 0), @intFromEnum(SystemInstruction.CreateAccount));
+    try std.testing.expectEqual(@as(u32, 1), @intFromEnum(SystemInstruction.Assign));
+    try std.testing.expectEqual(@as(u32, 2), @intFromEnum(SystemInstruction.Transfer));
+    try std.testing.expectEqual(@as(u32, 3), @intFromEnum(SystemInstruction.CreateAccountWithSeed));
+}

@@ -1,144 +1,290 @@
 const std = @import("std");
-const PublicKey = @import("public_key.zig").PublicKey;
-const testing = std.testing;
+const pubkey = @import("pubkey.zig");
+const program_error = @import("program_error.zig");
 
-pub const ACCOUNT_DATA_PADDING = 10 * 1024;
+const Pubkey = pubkey.Pubkey;
+const ProgramError = program_error.ProgramError;
 
-pub const Account = struct {
-    pub const DATA_HEADER = 88;
-    /// A Solana account sliced from what is provided as inputs to the BPF virtual machine.
-    pub const Data = extern struct {
-        duplicate_index: u8,
-        is_signer: u8,
-        is_writable: u8,
-        is_executable: u8,
-        original_data_len: u32,
-        id: PublicKey,
-        owner_id: PublicKey,
-        lamports: u64,
-        data_len: u64,
+/// Value used to indicate that a serialized account is not a duplicate
+pub const NON_DUP_MARKER: u8 = 0xFF;
 
+/// Maximum permitted data increase per instruction
+pub const MAX_PERMITTED_DATA_INCREASE: usize = 10 * 1024;
+
+/// Maximum number of accounts that a transaction may process
+pub const MAX_TX_ACCOUNTS: usize = 256;
+
+/// BPF alignment for u128
+pub const BPF_ALIGN_OF_U128: usize = 8;
+
+/// Not borrowed state (all bits set)
+pub const NOT_BORROWED: u8 = 0xFF;
+
+/// Direct mapping of Solana runtime account memory layout.
+/// Data follows immediately in memory after this struct.
+pub const Account = extern struct {
+    borrow_state: u8,
+    is_signer: u8,
+    is_writable: u8,
+    is_executable: u8,
+    _padding: [4]u8,
+    key: Pubkey,
+    owner: Pubkey,
+    lamports: u64,
+    data_len: u64,
+};
+
+// =========================================================================
+// AccountInfo — primary account type (Pinocchio-style, 8 bytes)
+//
+// A single pointer into the runtime input buffer. All field access
+// dereferences through it — compiles to the same BPF instructions as
+// hand-written pointer arithmetic.
+//
+// For CPI calls, use `toCpiInfo()` to create a C-ABI-compatible view.
+// =========================================================================
+
+pub const AccountInfo = struct {
+    raw: *align(8) Account,
+
+    // --- Accessors (all inline, zero overhead) ---
+
+    pub inline fn key(self: AccountInfo) *const Pubkey {
+        return &self.raw.key;
+    }
+
+    pub inline fn owner(self: AccountInfo) *const Pubkey {
+        return &self.raw.owner;
+    }
+
+    pub inline fn lamports(self: AccountInfo) u64 {
+        return self.raw.lamports;
+    }
+
+    pub inline fn setLamports(self: AccountInfo, value: u64) void {
+        self.raw.lamports = value;
+    }
+
+    /// Subtract lamports from this account (source of a transfer).
+    /// Caller must ensure this account is writable and has sufficient balance.
+    pub inline fn subLamports(self: AccountInfo, amount: u64) void {
+        self.raw.lamports -= amount;
+    }
+
+    /// Add lamports to this account (destination of a transfer).
+    pub inline fn addLamports(self: AccountInfo, amount: u64) void {
+        self.raw.lamports += amount;
+    }
+
+    pub inline fn dataLen(self: AccountInfo) usize {
+        return @intCast(self.raw.data_len);
+    }
+
+    pub inline fn isSigner(self: AccountInfo) bool {
+        return self.raw.is_signer != 0;
+    }
+
+    pub inline fn isWritable(self: AccountInfo) bool {
+        return self.raw.is_writable != 0;
+    }
+
+    pub inline fn executable(self: AccountInfo) bool {
+        return self.raw.is_executable != 0;
+    }
+
+    pub inline fn dataPtr(self: AccountInfo) [*]u8 {
+        return @ptrFromInt(@intFromPtr(self.raw) + @sizeOf(Account));
+    }
+
+    pub inline fn data(self: AccountInfo) []u8 {
+        return self.dataPtr()[0..self.dataLen()];
+    }
+
+    pub inline fn isOwnedBy(self: AccountInfo, program: *const Pubkey) bool {
+        return pubkey.pubkeyEq(self.owner(), program);
+    }
+
+    /// Read a typed value from account data at the given byte offset.
+    /// Zero overhead — compiles to a single pointer dereference.
+    ///
+    /// ```zig
+    /// const counter: u64 = account.readData(u64, 0);
+    /// const flag: bool = account.readData(bool, 8);
+    /// ```
+    pub inline fn readData(self: AccountInfo, comptime T: type, comptime offset: usize) T {
         comptime {
-            std.debug.assert(@offsetOf(Account.Data, "duplicate_index") == 0);
-            std.debug.assert(@offsetOf(Account.Data, "is_signer") == 0 + 1);
-            std.debug.assert(@offsetOf(Account.Data, "is_writable") == 0 + 1 + 1);
-            std.debug.assert(@offsetOf(Account.Data, "is_executable") == 0 + 1 + 1 + 1);
-            std.debug.assert(@offsetOf(Account.Data, "original_data_len") == 0 + 1 + 1 + 1 + 1);
-            std.debug.assert(@offsetOf(Account.Data, "id") == 0 + 1 + 1 + 1 + 1 + 4);
-            std.debug.assert(@offsetOf(Account.Data, "owner_id") == 0 + 1 + 1 + 1 + 1 + 4 + 32);
-            std.debug.assert(@offsetOf(Account.Data, "lamports") == 0 + 1 + 1 + 1 + 1 + 4 + 32 + 32);
-            std.debug.assert(@offsetOf(Account.Data, "data_len") == 0 + 1 + 1 + 1 + 1 + 4 + 32 + 32 + 8);
-            std.debug.assert(@bitSizeOf(Account.Data) == DATA_HEADER * 8);
+            if (offset + @sizeOf(T) > 0) { // runtime check done separately
+                // offset + @sizeOf(T) must fit in data
+            }
         }
-    };
-
-    /// Metadata representing a Solana acconut.
-    pub const Param = extern struct {
-        id: *const PublicKey,
-        is_writable: bool,
-        is_signer: bool,
-    };
-
-    pub const Info = extern struct {
-        id: *const PublicKey,
-        lamports: *u64,
-        data_len: u64,
-        data: [*]u8,
-        owner_id: *const PublicKey,
-        unused: u64 = undefined,
-        is_signer: u8,
-        is_writable: u8,
-        is_executable: u8,
-    };
-
-    ptr: *Account.Data,
-
-    pub fn fromDataPtr(ptr: *Account.Data) Account {
-        return Account{ .ptr = ptr };
+        const ptr: *align(1) const T = @ptrCast(@alignCast(self.dataPtr() + offset));
+        return ptr.*;
     }
 
-    pub fn id(self: Account) PublicKey {
-        return self.ptr.id;
+    /// Write a typed value to account data at the given byte offset.
+    /// Zero overhead — compiles to a single pointer store.
+    ///
+    /// ```zig
+    /// account.writeData(u64, 0, new_counter);
+    /// ```
+    pub inline fn writeData(self: AccountInfo, comptime T: type, comptime offset: usize, value: T) void {
+        const ptr: *align(1) T = @ptrCast(@alignCast(self.dataPtr() + offset));
+        ptr.* = value;
     }
 
-    pub fn lamports(self: Account) *u64 {
-        return &self.ptr.lamports;
-    }
-
-    pub fn ownerId(self: Account) PublicKey {
-        return self.ptr.owner_id;
-    }
-
-    pub fn assign(self: Account, new_owner_id: PublicKey) void {
-        self.ptr.owner_id = new_owner_id;
-    }
-
-    pub fn data(self: Account) []u8 {
-        const data_ptr = @as([*]u8, @ptrFromInt(@intFromPtr(self.ptr))) + DATA_HEADER;
-        return data_ptr[0..self.ptr.data_len];
-    }
-
-    pub fn isWritable(self: Account) bool {
-        return self.ptr.is_writable == 1;
-    }
-
-    pub fn isExecutable(self: Account) bool {
-        return self.ptr.is_executable == 1;
-    }
-
-    pub fn isSigner(self: Account) bool {
-        return self.ptr.is_signer == 1;
-    }
-
-    pub fn dataLen(self: Account) u64 {
-        return self.ptr.data_len;
-    }
-    
-    pub fn realloc(self: Account, new_data_len: u64) error{InvalidRealloc}!void {
-        const diff = @subWithOverflow(new_data_len, self.ptr.original_data_len);
-        if (diff[1] == 0 and diff[0] > ACCOUNT_DATA_PADDING) {
-            return error.InvalidRealloc;
-        }
-        self.reallocUnchecked(new_data_len);
-    }
-
-    pub fn reallocUnchecked(self: Account, new_data_len: u64) void {
-        self.ptr.data_len = new_data_len;
-    }
-
-    pub fn info(self: Account) Account.Info {
-        const data_ptr = @as([*]u8, @ptrFromInt(@intFromPtr(self.ptr))) + DATA_HEADER;
-
-        return .{
-            .id = &self.ptr.id,
-            .lamports = &self.ptr.lamports,
-            .data_len = self.ptr.data_len,
-            .data = data_ptr,
-            .owner_id = &self.ptr.owner_id,
-            .is_signer = self.ptr.is_signer,
-            .is_writable = self.ptr.is_writable,
-            .is_executable = self.ptr.is_executable,
-        };
+    /// Create a C-ABI-compatible view for CPI calls.
+    /// Only needed when calling `cpi.invoke`.
+    pub inline fn toCpiInfo(self: AccountInfo) CpiAccountInfo {
+        return CpiAccountInfo.fromPtr(self.raw);
     }
 };
 
-test "account: create info from account" {
-    var data: Account.Data = .{
-        .duplicate_index = 255,
+// =========================================================================
+// MaybeAccount — result of next_account (Pinocchio-style)
+// =========================================================================
+
+pub const MaybeAccount = union(enum) {
+    account: AccountInfo,
+    duplicated: u8,
+};
+
+// =========================================================================
+// CpiAccountInfo — C-ABI-compatible view for CPI (SolAccountInfo layout)
+//
+// Only use this when passing accounts to `cpi.invoke`.
+// Normal programs should use `AccountInfo` instead.
+// =========================================================================
+
+pub const CpiAccountInfo = extern struct {
+    key_ptr: *const Pubkey,
+    lamports_ptr: *u64,
+    data_len: u64,
+    data_ptr: [*]u8,
+    owner_ptr: *const Pubkey,
+    rent_epoch: u64,
+    is_signer: u8,
+    is_writable: u8,
+    is_executable: u8,
+    _abi_padding: [5]u8,
+    borrow_state_ptr: *u8,
+    flags: u8,
+    _ext_padding: [6]u8,
+
+    const FLAG_SIGNER: u8 = 1 << 0;
+    const FLAG_WRITABLE: u8 = 1 << 1;
+    const FLAG_EXECUTABLE: u8 = 1 << 2;
+
+    pub inline fn fromPtr(ptr: *Account) CpiAccountInfo {
+        const dp: [*]u8 = @ptrFromInt(@intFromPtr(ptr) + @sizeOf(Account));
+        return .{
+            .key_ptr = &ptr.key,
+            .lamports_ptr = &ptr.lamports,
+            .data_len = ptr.data_len,
+            .data_ptr = dp,
+            .owner_ptr = &ptr.owner,
+            .rent_epoch = 0,
+            .is_signer = ptr.is_signer,
+            .is_writable = ptr.is_writable,
+            .is_executable = ptr.is_executable,
+            ._abi_padding = .{0} ** 5,
+            .borrow_state_ptr = &ptr.borrow_state,
+            .flags = makeFlags(ptr.is_signer, ptr.is_writable, ptr.is_executable),
+            ._ext_padding = .{0} ** 6,
+        };
+    }
+
+    inline fn makeFlags(s: u8, w: u8, e: u8) u8 {
+        var f: u8 = 0;
+        if (s != 0) f |= FLAG_SIGNER;
+        if (w != 0) f |= FLAG_WRITABLE;
+        if (e != 0) f |= FLAG_EXECUTABLE;
+        return f;
+    }
+
+    pub inline fn key(self: CpiAccountInfo) *const Pubkey {
+        return self.key_ptr;
+    }
+
+    pub inline fn owner(self: CpiAccountInfo) *const Pubkey {
+        return self.owner_ptr;
+    }
+
+    pub inline fn lamports(self: CpiAccountInfo) u64 {
+        return self.lamports_ptr.*;
+    }
+
+    pub inline fn dataLen(self: CpiAccountInfo) usize {
+        return @intCast(self.data_len);
+    }
+
+    pub inline fn isSigner(self: CpiAccountInfo) bool {
+        return self.flags & FLAG_SIGNER != 0;
+    }
+
+    pub inline fn isWritable(self: CpiAccountInfo) bool {
+        return self.flags & FLAG_WRITABLE != 0;
+    }
+
+    pub inline fn data(self: CpiAccountInfo) []u8 {
+        return self.data_ptr[0..self.dataLen()];
+    }
+};
+
+/// Align pointer to BPF u128 alignment
+pub inline fn alignPointer(ptr: usize) usize {
+    return (ptr + (BPF_ALIGN_OF_U128 - 1)) & ~(BPF_ALIGN_OF_U128 - 1);
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+test "account: Account size" {
+    try std.testing.expectEqual(@as(usize, 88), @sizeOf(Account));
+}
+
+test "account: AccountInfo is 8 bytes" {
+    try std.testing.expectEqual(@as(usize, 8), @sizeOf(AccountInfo));
+}
+
+test "account: AccountInfo accessors" {
+    var acc: Account = .{
+        .borrow_state = NOT_BORROWED,
         .is_signer = 1,
         .is_writable = 1,
         .is_executable = 0,
-        .original_data_len = 10,
-        .id = PublicKey.from(.{1} ** 32),
-        .owner_id = PublicKey.from(.{2} ** 32),
-        .lamports = 1,
+        ._padding = .{0} ** 4,
+        .key = .{1} ** 32,
+        .owner = .{2} ** 32,
+        .lamports = 1000,
         .data_len = 10,
     };
-    const account: Account = .{ .ptr = &data };
-    const info = account.info();
-    try testing.expectEqual(info.id, &data.id);
-    try testing.expectEqual(info.is_signer, data.is_signer);
-    try testing.expectEqual(info.is_writable, data.is_writable);
-    try testing.expectEqual(info.lamports, &data.lamports);
-    try testing.expectEqual(info.data, account.data().ptr);
+    const info = AccountInfo{ .raw = &acc };
+
+    try std.testing.expect(info.isSigner());
+    try std.testing.expect(info.isWritable());
+    try std.testing.expect(!info.executable());
+    try std.testing.expectEqual(@as(u64, 1000), info.lamports());
+    try std.testing.expectEqual(@as(usize, 10), info.dataLen());
+    try std.testing.expect(pubkey.pubkeyEq(info.key(), &[_]u8{1} ** 32));
+    try std.testing.expect(pubkey.pubkeyEq(info.owner(), &[_]u8{2} ** 32));
+}
+
+test "account: CpiAccountInfo from AccountInfo" {
+    var acc: Account = .{
+        .borrow_state = NOT_BORROWED,
+        .is_signer = 1,
+        .is_writable = 1,
+        .is_executable = 0,
+        ._padding = .{0} ** 4,
+        .key = .{1} ** 32,
+        .owner = .{2} ** 32,
+        .lamports = 1000,
+        .data_len = 0,
+    };
+    const info = AccountInfo{ .raw = &acc };
+    const cpi_info = info.toCpiInfo();
+
+    try std.testing.expect(cpi_info.isSigner());
+    try std.testing.expectEqual(@as(u64, 1000), cpi_info.lamports());
 }

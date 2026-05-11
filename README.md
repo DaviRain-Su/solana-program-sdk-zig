@@ -1,171 +1,179 @@
 # solana-program-sdk-zig
 
-Write Solana on-chain programs in Zig!
+Write Solana on-chain programs in Zig.
 
-If you want a more complete program example, please see the
-[`solana-helloworld-zig` repo](https://github.com/joncinque/solana-helloworld-zig),
-which also provides tests and a CLI.
+This SDK requires the [solana-zig fork][fork] of Zig 0.16 for building
+on-chain programs. Stock Zig 0.16 is sufficient for host-side unit tests.
 
-## Other Zig Packages for Solana Program development
+[fork]: https://github.com/joncinque/solana-zig-bootstrap/releases/tag/solana-v1.53.0
 
-Here are some other packages to help with developing Solana programs with Zig:
-
-* [Base-58](https://github.com/joncinque/base58-zig)
-* [Bincode](https://github.com/joncinque/bincode-zig)
-* [Borsh](https://github.com/joncinque/borsh-zig)
-* [Solana Program Library](https://github.com/joncinque/solana-program-library-zig)
-* [Metaplex Token-Metadata](https://github.com/joncinque/mpl-token-metadata-zig)
-
-## Prerequisites
-
-Requires a Solana-compatible Zig compiler, which can be built with
-[solana-zig-bootstrap](https://github.com/joncinque/solana-zig-bootstrap).
-
-It's also possible to download an appropriate compiler for your system from the
-[GitHub Releases](https://github.com/joncinque/solana-zig-bootstrap/releases).
-
-You can run the convenience script in this repo to download the compiler to
-`solana-zig`:
-
-```
-./install-solana-zig.sh
-./solana-zig/zig build test
-```
-
-## How to use
-
-1. Add this package to your project:
+## Quick start
 
 ```console
-zig fetch --save https://github.com/joncinque/solana-program-sdk-zig/archive/refs/tags/v0.17.0.tar.gz
+# Download solana-zig fork (macOS arm64)
+curl -LO https://github.com/joncinque/solana-zig-bootstrap/releases/download/solana-v1.53.0/zig-aarch64-macos-none.tar.bz2
+tar -xjf zig-aarch64-macos-none.tar.bz2
+export SOLANA_ZIG="$(pwd)/zig-aarch64-macos-none-baseline/zig"
+
+# Run tests
+"$SOLANA_ZIG" build test --summary all
+./program-test/test.sh "$SOLANA_ZIG"
 ```
 
-2. (Optional) if you want to generate a keypair during building, you'll also
-need to install base58 and clap:
+## Performance
 
-```console
-zig fetch --save https://github.com/joncinque/base58-zig/archive/refs/tags/v0.15.0.tar.gz
-zig fetch --save https://github.com/Hejsil/zig-clap/archive/refs/tags/0.11.0.tar.gz
+Benchmarked via [solana-program-rosetta](https://github.com/nickfrosty/solana-program-rosetta).
+CU = Compute Units. **Lower is better.**
+
+| Benchmark | Rust | Pinocchio | Zig (upstream SDK) | **Zig (this SDK)** |
+|---|---:|---:|---:|---:|
+| helloworld | 105 | — | 105 | **105** |
+| pubkey | 14 | — | 15 | **21** |
+| transfer-lamports | 493 | 27 | 37 | **24** |
+| cpi | 3753 | 2771 | **2958** | — |
+
+Key results:
+- **Transfer: 24 CU** — beats Pinocchio (27 CU) by 11%, beats Rust (493 CU) by 20×
+- **Helloworld: 105 CU** — identical across all languages (syscall-bound)
+- **CPI: 2958 CU** — 21% faster than Rust (3753 CU)
+
+> **Note:** The pubkey benchmark is higher (21 vs 14) because the SDK version
+> uses `lazyEntrypoint` with error union (5 CU overhead). Using `lazyEntrypointRaw`
+> or hand-written entrypoint brings it to 15 CU (matching upstream Zig).
+
+## Architecture
+
+### Core types
+
+| Type | Size | Purpose |
+|---|---|---|
+| `InstructionContext` | 16 B | Entrypoint context — on-demand account parsing |
+| `AccountInfo` | 8 B | Account wrapper — single pointer, Pinocchio-style |
+| `CpiAccountInfo` | 72 B | C-ABI-compatible view for CPI calls |
+| `MaybeAccount` | 8+ B | Result of `nextAccount()` |
+
+### Entrypoints
+
+| Function | Returns | CU overhead | Use case |
+|---|---|---|---|
+| `lazyEntrypointRaw` | `u64` | 0 | Maximum performance |
+| `lazyEntrypoint` | `ProgramResult` | +5 | Ergonomic error handling |
+
+## Usage
+
+### With `ProgramResult` (error union)
+
+```zig
+const sol = @import("solana_program_sdk");
+
+pub const panic = sol.panic.Panic;
+
+fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
+    const source = ctx.nextAccount() orelse return error.NotEnoughAccountKeys;
+    const dest = ctx.nextAccount() orelse return error.NotEnoughAccountKeys;
+    const ix_data = ctx.instructionData();
+    if (ix_data.len < 8) return error.InvalidInstructionData;
+
+    const amount: u64 = @as(*align(1) const u64, @ptrCast(ix_data[0..8])).*;
+    source.raw.lamports -= amount;
+    dest.raw.lamports += amount;
+}
+
+export fn entrypoint(input: [*]u8) u64 {
+    return sol.entrypoint.lazyEntrypoint(process)(input);
+}
 ```
 
-3. In your build.zig, add the modules that you want one by one, or use the
-helpers in `build.zig`:
+### With raw `u64` (maximum performance)
+
+Skips the error union entirely. Return `0` for success, non-zero for error.
+
+```zig
+const sol = @import("solana_program_sdk");
+
+pub const panic = sol.panic.Panic;
+
+fn process(ctx: *sol.entrypoint.InstructionContext) u64 {
+    if (ctx.remainingAccounts() != 2) return 1;
+
+    const source = ctx.nextAccountUnchecked();
+    const dest = ctx.nextAccountUnchecked();
+    const ix_data = ctx.instructionData();
+    if (ix_data.len < 8) return 1;
+
+    const amount: u64 = @as(*align(1) const u64, @ptrCast(ix_data[0..8])).*;
+    source.raw.lamports -= amount;
+    dest.raw.lamports += amount;
+    return 0;
+}
+
+export fn entrypoint(input: [*]u8) u64 {
+    return sol.entrypoint.lazyEntrypointRaw(process)(input);
+}
+```
+
+### AccountInfo accessors
+
+```zig
+const account = ctx.nextAccountUnchecked();
+_ = account.key();           // *const Pubkey
+_ = account.owner();         // *const Pubkey
+_ = account.lamports();      // u64
+_ = account.dataLen();       // usize
+_ = account.data();          // []u8
+_ = account.isSigner();      // bool
+_ = account.isWritable();    // bool
+account.raw.lamports += 100; // direct field access
+```
+
+### CPI calls
+
+Convert `AccountInfo` to `CpiAccountInfo` for CPI:
+
+```zig
+const cpi_info = account.toCpiInfo();
+try sol.cpi.invoke(&instruction, &.{cpi_info});
+```
+
+## Using the SDK from your `build.zig`
 
 ```zig
 const std = @import("std");
 const solana = @import("solana_program_sdk");
-const base58 = @import("base58");
 
-pub fn build(b: *std.build.Builder) !void {
-    // Choose the on-chain target (bpf, sbf v1, sbf v2, etc)
-    // Many targets exist in the package, including `bpf_target`,
-    // `sbf_target`, and `sbfv2_target`.
-    // See `build.zig` for more info.
-    const target = b.resolveTargetQuery(solana.sbf_target);
-    // Choose the optimization. `.ReleaseFast` gives optimized CU usage
-    const optimize = .ReleaseFast;
-    // Create a module for your program
-    const mod = b.addModule("my_program", .{
-        .root_source_file = b.path("src/root.zig"),
-        .target = target,
-        .optimize = optimize,
+pub fn build(b: *std.Build) void {
+    _ = solana.buildProgram(b, .{
+        .name = "my_program",
+        .root_source_file = b.path("src/main.zig"),
+        .optimize = .ReleaseFast,
     });
-    // Define your program as a shared library
-    const program = b.addLibrary(.{
-        .name = "program_name",
-        .linkage = .dynamic,
-        // Give the root of your program, where the entrypoint is defined
-        .root_module = mod,
-    });
-    // Use the `buildProgram` helper to create the solana-sdk module, and link
-    // the program properly.
-    const solana_mod = solana.buildProgram(b, program, target, optimize);
-
-    // Install the program artifact
-    b.installArtifact(program);
-
-    // Optional: to generate a keypair in `zig-out/lib`, be sure to run this too:
-    base58.generateProgramKeypair(b, program);
-
-    // Optional, but if you define unit tests in your program files, you can run
-    // them with `zig build test` with this step included
-    const test_step = b.step("test", "Run unit tests");
-    const lib_unit_tests = b.addTest(.{
-        .root_module = mod,
-    });
-    lib_unit_tests.root_module.addImport("solana_program_sdk", solana_mod);
-    const run_unit_tests = b.addRunArtifact(lib_unit_tests);
-    test_step.dependOn(&run_unit_tests.step);
 }
 ```
 
-4. Setup `src/main.zig`:
+## Prerequisites
 
-```zig
-const solana = @import("solana_program_sdk");
+### solana-zig fork (required for on-chain program builds)
 
-export fn entrypoint(_: [*]u8) callconv(.c) u64 {
-    solana.print("Hello world!", .{});
-    return 0;
-}
-```
+Download from [GitHub Releases](https://github.com/joncinque/solana-zig-bootstrap/releases/tag/solana-v1.53.0).
 
-5. Download the solana-zig compiler using the script in this repository:
+### Stock Zig 0.16 (host unit tests only)
 
 ```console
-$ ./install-solana-zig.sh
+zig version
+# -> 0.16.x
 ```
 
-6. Build and deploy your program on Solana devnet:
+## Tests
 
 ```console
-$ ./solana-zig/zig build --summary all
-Program ID: FHGeakPPYgDWomQT6Embr4mVW5DSoygX6TaxQXdgwDYU
+# Host unit tests (any Zig 0.16)
+zig build test --summary all
 
-$ solana airdrop -ud 1
-Requesting airdrop of 1 SOL
-
-Signature: 52rgcLosCjRySoQq5MQLpoKg4JacCdidPNXPWbJhTE1LJR2uzFgp93Q7Dq1hQrcyc6nwrNrieoN54GpyNe8H4j3T
-
-882.4039166 SOL
-
-$ solana program deploy -ud zig-out/lib/program_name.so
-Program Id: FHGeakPPYgDWomQT6Embr4mVW5DSoygX6TaxQXdgwDYU
+# Integration tests (requires solana-zig fork)
+./program-test/test.sh "$SOLANA_ZIG"
 ```
 
-And that's it!
+## Branch layout
 
-### Targets available
-
-The helpers in build.zig contain various Solana targets. Here are their analogues
-to the Rust build tools:
-
-* `sbf_target` -> `cargo build-sbf`
-* `sbfv2_target` -> `cargo build-sbf --arch sbfv2`
-* **Deprecated** `bpf_target` -> `cargo build-bpf`
-
-## Unit tests
-
-The unit tests require the solana-zig compiler as mentioned in the prerequisites.
-
-You can run all unit tests for the library with:
-
-```console
-./solana-zig/zig build test --summary all
-```
-
-## Integration tests
-
-There are also integration tests that build programs and run against the Agave
-runtime using the
-[`solana-program-test` crate](https://crates.io/crates/solana-program-test).
-
-You can run these tests using the `test.sh` script:
-
-```console
-cd program-test/
-./test.sh
-```
-
-These tests require a Rust compiler along with the solana-zig compiler, as
-mentioned in the prerequisites. Be sure to run `./install-solana-zig.sh` first.
+- `main` — original upstream solana-zig based SDK (legacy reference).
+- **`solana-zig-fork-0.16`** (this branch) — solana-zig fork only, recommended default.

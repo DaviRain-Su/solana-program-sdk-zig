@@ -36,7 +36,7 @@ pub const ProgramError = program_error.ProgramError;
 pub const ProgramResult = program_error.ProgramResult;
 pub const SUCCESS = program_error.SUCCESS;
 
-// Constants
+// Re-export commonly used constants
 pub const lamports_per_sol = 1_000_000_000;
 
 // Program IDs (using new comptimeFromBase58)
@@ -46,6 +46,17 @@ pub const sysvar_id = pubkey.comptimeFromBase58("Sysvar1111111111111111111111111
 pub const instructions_id = pubkey.comptimeFromBase58("Sysvar1nstructions1111111111111111111111111");
 pub const ed25519_program_id = pubkey.comptimeFromBase58("Ed25519SigVerify111111111111111111111111111");
 pub const secp256k1_program_id = pubkey.comptimeFromBase58("KeccakSecp256k11111111111111111111111111111");
+
+// Sysvar IDs
+pub const clock_id = sysvar.CLOCK_ID;
+pub const rent_id = sysvar.RENT_ID;
+pub const epoch_schedule_id = sysvar.EPOCH_SCHEDULE_ID;
+pub const slot_hashes_id = sysvar.SLOT_HASHES_ID;
+pub const stake_history_id = sysvar.STAKE_HISTORY_ID;
+pub const instructions_sysvar_id = sysvar.INSTRUCTIONS_ID;
+
+// System Program
+pub const system_program_id = system.SYSTEM_PROGRAM_ID;
 
 test {
     std.testing.refAllDecls(@This());

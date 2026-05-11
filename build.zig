@@ -19,6 +19,17 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
+
+    // Examples step (only works with solana-zig fork)
+    if (has_sbf_target) {
+        const examples_step = b.step("examples", "Build example programs");
+
+        const token_dispatch = buildProgram(b, .{
+            .name = "token_dispatch",
+            .root_source_file = b.path("examples/token_dispatch.zig"),
+        });
+        examples_step.dependOn(token_dispatch.step);
+    }
 }
 
 pub const LinkedProgram = struct {
@@ -68,11 +79,12 @@ pub fn buildProgram(b: *std.Build, options: BuildProgramOptions) LinkedProgram {
     const target = b.resolveTargetQuery(sbfTarget());
     const optimize = options.optimize;
 
-    const solana_dep = b.dependency("solana_program_sdk", .{
+    // Use self as module (not a dependency — this IS the SDK)
+    const solana_mod = b.addModule("solana_program_sdk", .{
+        .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
     });
-    const solana_mod = solana_dep.module("solana_program_sdk");
 
     const program_mod = b.createModule(.{
         .root_source_file = options.root_source_file,

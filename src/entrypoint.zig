@@ -95,6 +95,65 @@ pub const InstructionContext = struct {
     pub inline fn programId(self: *InstructionContext) *const Pubkey {
         return @ptrCast(@alignCast(self.buffer));
     }
+
+    // =====================================================================
+    // Comptime typed deserialization — no more manual pointer casting
+    // =====================================================================
+
+    /// Read a typed value from instruction data at the given byte offset.
+    /// Zero overhead — compiles to a single aligned pointer dereference.
+    ///
+    /// ```zig
+    /// const amount = ctx.readIx(u64, 0);
+    /// const index = ctx.readIx(u32, 8);
+    /// ```
+    pub inline fn readIx(self: *InstructionContext, comptime T: type, comptime offset: usize) T {
+        const data = self.instructionData();
+        const ptr: *align(1) const T = @ptrCast(@alignCast(data.ptr + offset));
+        return ptr.*;
+    }
+
+    /// Read instruction data as a packed struct, starting at byte 0.
+    /// Returns a comptime-typed value — no manual deserialization needed.
+    ///
+    /// ```zig
+    /// const TransferIx = packed struct { amount: u64 };
+    /// const ix = ctx.unpackIx(TransferIx);
+    /// // ix.amount is a plain u64
+    /// ```
+    pub inline fn unpackIx(self: *InstructionContext, comptime T: type) T {
+        const data = self.instructionData();
+        const ptr: *align(1) const T = @ptrCast(@alignCast(data.ptr));
+        return ptr.*;
+    }
+
+    /// Read instruction data as a discriminated enum union.
+    /// First reads the discriminant (default: u32 at offset 0), then returns
+    /// the tagged union value. Comptime — no runtime dispatch overhead.
+    ///
+    /// ```zig
+    /// const MyInstruction = enum(u32) {
+    ///     transfer,
+    ///     burn,
+    /// };
+    /// const tag = ctx.readIxTag(MyInstruction);
+    /// switch (tag) {
+    ///     .transfer => { ... },
+    ///     .burn => { ... },
+    /// }
+    /// ```
+    pub inline fn readIxTag(self: *InstructionContext, comptime Tag: type) Tag {
+        comptime {
+            if (@typeInfo(Tag) != .@"enum") {
+                @compileError("readIxTag requires an enum type");
+            }
+        }
+        const TagInt = comptime blk: {
+            break :blk @typeInfo(Tag).@"enum".tag_type;
+        };
+        const raw = self.readIx(TagInt, 0);
+        return @enumFromInt(raw);
+    }
 };
 
 // =========================================================================

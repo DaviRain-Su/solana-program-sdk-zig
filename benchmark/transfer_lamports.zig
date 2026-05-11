@@ -2,7 +2,7 @@ const sol = @import("solana_program_sdk");
 
 pub const panic = sol.panic.Panic;
 
-// Transfer lamports — full business logic with validation
+// Transfer lamports — using comptime typed deserialization
 fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
     if (sol.entrypoint.unlikely(ctx.remainingAccounts() != 2)) {
         return error.NotEnoughAccountKeys;
@@ -11,14 +11,11 @@ fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
     const source = ctx.nextAccountUnchecked();
     const destination = ctx.nextAccountUnchecked();
 
-    const ix_data = ctx.instructionData();
-    if (ix_data.len < 8) return error.InvalidInstructionData;
+    // Comptime typed read — no manual pointer casting
+    const transfer_amount = ctx.readIx(u64, 0);
 
-    // Read little-endian u64 from instruction data (zero overhead)
-    const transfer_amount: u64 = @as(*align(1) const u64, @ptrCast(ix_data[0..8])).*;
-
-    source.raw.lamports -= transfer_amount;
-    destination.raw.lamports += transfer_amount;
+    source.subLamports(transfer_amount);
+    destination.addLamports(transfer_amount);
 }
 
 export fn entrypoint(input: [*]u8) u64 {

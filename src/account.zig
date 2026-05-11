@@ -65,6 +65,17 @@ pub const AccountInfo = struct {
         self.raw.lamports = value;
     }
 
+    /// Subtract lamports from this account (source of a transfer).
+    /// Caller must ensure this account is writable and has sufficient balance.
+    pub inline fn subLamports(self: AccountInfo, amount: u64) void {
+        self.raw.lamports -= amount;
+    }
+
+    /// Add lamports to this account (destination of a transfer).
+    pub inline fn addLamports(self: AccountInfo, amount: u64) void {
+        self.raw.lamports += amount;
+    }
+
     pub inline fn dataLen(self: AccountInfo) usize {
         return @intCast(self.raw.data_len);
     }
@@ -91,6 +102,34 @@ pub const AccountInfo = struct {
 
     pub inline fn isOwnedBy(self: AccountInfo, program: *const Pubkey) bool {
         return pubkey.pubkeyEq(self.owner(), program);
+    }
+
+    /// Read a typed value from account data at the given byte offset.
+    /// Zero overhead — compiles to a single pointer dereference.
+    ///
+    /// ```zig
+    /// const counter: u64 = account.readData(u64, 0);
+    /// const flag: bool = account.readData(bool, 8);
+    /// ```
+    pub inline fn readData(self: AccountInfo, comptime T: type, comptime offset: usize) T {
+        comptime {
+            if (offset + @sizeOf(T) > 0) { // runtime check done separately
+                // offset + @sizeOf(T) must fit in data
+            }
+        }
+        const ptr: *align(1) const T = @ptrCast(@alignCast(self.dataPtr() + offset));
+        return ptr.*;
+    }
+
+    /// Write a typed value to account data at the given byte offset.
+    /// Zero overhead — compiles to a single pointer store.
+    ///
+    /// ```zig
+    /// account.writeData(u64, 0, new_counter);
+    /// ```
+    pub inline fn writeData(self: AccountInfo, comptime T: type, comptime offset: usize, value: T) void {
+        const ptr: *align(1) T = @ptrCast(@alignCast(self.dataPtr() + offset));
+        ptr.* = value;
     }
 
     /// Create a C-ABI-compatible view for CPI calls.

@@ -157,7 +157,7 @@ pub const panic = sol.panic.Panic;
 fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
     const source = ctx.nextAccount() orelse return error.NotEnoughAccountKeys;
     const dest = ctx.nextAccount() orelse return error.NotEnoughAccountKeys;
-    const ix_data = ctx.instructionData();
+    const ix_data = try ctx.instructionData();
     if (ix_data.len < 8) return error.InvalidInstructionData;
 
     const amount: u64 = @as(*align(1) const u64, @ptrCast(ix_data[0..8])).*;
@@ -184,7 +184,9 @@ fn process(ctx: *sol.entrypoint.InstructionContext) u64 {
 
     const source = ctx.nextAccountUnchecked();
     const dest = ctx.nextAccountUnchecked();
-    const ix_data = ctx.instructionData();
+    // `nextAccountUnchecked` doesn't decrement the remaining counter,
+    // so we use the unchecked instruction-data getter here.
+    const ix_data = ctx.instructionDataUnchecked();
     if (ix_data.len < 8) return 1;
 
     const amount: u64 = @as(*align(1) const u64, @ptrCast(ix_data[0..8])).*;

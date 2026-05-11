@@ -46,7 +46,10 @@ const MintData = packed struct {
 // =========================================================================
 
 fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
-    const ix_data = ctx.instructionData();
+    // Length-check via the unchecked variant; we haven't decremented
+    // the account counter (we use `nextAccountUnchecked` in branches
+    // below), so the safe `instructionData()` would refuse.
+    const ix_data = ctx.instructionDataUnchecked();
     if (ix_data.len < 4) return error.InvalidInstructionData;
 
     // Read discriminant — compiles to a single u32 load

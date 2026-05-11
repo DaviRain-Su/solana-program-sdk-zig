@@ -257,7 +257,7 @@ export fn entrypoint(input: [*]u8) u64 {
 fn processInstruction(context: *sdk.InstructionContext) ProgramResult {
     const payer = context.nextAccount() orelse return error.NotEnoughAccountKeys;
     const account = context.nextAccount() orelse return error.NotEnoughAccountKeys;
-    const data = context.instructionData();
+    const data = try context.instructionData();
     // ...
 }
 ```

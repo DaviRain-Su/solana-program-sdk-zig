@@ -52,15 +52,32 @@ pub const InstructionContext = struct {
         return self.remaining;
     }
 
+    // ---------------------------------------------------------------------
+    // next_account — non-dup fast path
+    //
+    // `nextAccount` / `nextAccountUnchecked` assume the slot is NOT a
+    // duplicate (i.e. `borrow_state == NON_DUP_MARKER`). They step the
+    // buffer past the full account header + data + padding.
+    //
+    // If the runtime ever serializes a duplicate slot, these will
+    // misalign the buffer for subsequent reads. Programs that know
+    // their callers may pass duplicates should use the `Maybe` variants
+    // below.
+    // ---------------------------------------------------------------------
+
     /// Parse the next account. Returns null if none remaining.
+    ///
+    /// Assumes the slot is not a duplicated-account marker. For
+    /// duplicate-aware iteration use `nextAccountMaybe`.
     pub fn nextAccount(self: *InstructionContext) ?AccountInfo {
         if (self.remaining == 0) return null;
         self.remaining -= 1;
         return self.nextAccountUnchecked();
     }
 
-    /// Parse the next account — no bounds check.
-    /// Caller must ensure there are remaining accounts.
+    /// Parse the next account — no bounds check, no dup check.
+    /// Caller must ensure there are remaining accounts AND that the
+    /// slot is not a duplicate marker.
     pub inline fn nextAccountUnchecked(self: *InstructionContext) AccountInfo {
         const account_ptr: *account.Account = @ptrCast(@alignCast(self.buffer));
         const data_len: usize = @intCast(account_ptr.data_len);
@@ -70,31 +87,104 @@ pub const InstructionContext = struct {
         return .{ .raw = account_ptr };
     }
 
-    /// Skip accounts without parsing.
+    // ---------------------------------------------------------------------
+    // next_account_maybe — dup-aware (matches Pinocchio `next_account`)
+    //
+    // Returns `MaybeAccount`, distinguishing between a freshly serialized
+    // account and a duplicate slot that references an earlier account by
+    // index. Buffer is advanced by the correct stride either way:
+    //
+    //   - non-dup:   8-byte rent_epoch + STATIC_ACCOUNT_DATA + data_len +
+    //                MAX_PERMITTED_DATA_INCREASE + 8-byte alignment pad
+    //   - dup:       8 bytes (1-byte index + 7 bytes padding)
+    //
+    // This is the only safe iteration mode for programs whose callers
+    // may pass the same account in more than one slot.
+    // ---------------------------------------------------------------------
+
+    /// Dup-aware next-account. Returns `error.NotEnoughAccountKeys`
+    /// when no accounts remain; otherwise returns `MaybeAccount`
+    /// which the caller pattern-matches:
+    ///
+    /// ```zig
+    /// switch (try ctx.nextAccountMaybe()) {
+    ///     .account => |acc| { ... },
+    ///     .duplicated => |idx| { /* same as earlier accounts[idx] */ },
+    /// }
+    /// ```
+    pub fn nextAccountMaybe(self: *InstructionContext) ProgramError!MaybeAccount {
+        if (self.remaining == 0) return error.NotEnoughAccountKeys;
+        self.remaining -= 1;
+        return self.nextAccountMaybeUnchecked();
+    }
+
+    /// Dup-aware next-account — no bounds check.
+    /// Caller must ensure `remainingAccounts() > 0`.
+    pub inline fn nextAccountMaybeUnchecked(self: *InstructionContext) MaybeAccount {
+        const account_ptr: *account.Account = @ptrCast(@alignCast(self.buffer));
+
+        if (account_ptr.borrow_state == account.NON_DUP_MARKER) {
+            // Non-duplicate: advance past header (which includes the leading
+            // 8-byte rent_epoch padding embedded by the runtime) + data +
+            // MAX_PERMITTED_DATA_INCREASE + alignment.
+            const data_len: usize = @intCast(account_ptr.data_len);
+            self.buffer += @sizeOf(u64) + (@sizeOf(Account) - @sizeOf(u64)) + data_len + MAX_PERMITTED_DATA_INCREASE;
+            self.buffer = @ptrFromInt(alignPointer(@intFromPtr(self.buffer)));
+            self.buffer += @sizeOf(u64);
+            return .{ .account = .{ .raw = account_ptr } };
+        } else {
+            // Duplicate slot: 1-byte index + 7 bytes padding = 8 bytes total.
+            const idx = account_ptr.borrow_state;
+            self.buffer += @sizeOf(u64);
+            return .{ .duplicated = idx };
+        }
+    }
+
+    /// Skip accounts without parsing. Dup-aware: dup slots advance by
+    /// 8 bytes, non-dup slots advance by the full account stride.
     pub fn skipAccounts(self: *InstructionContext, count: u64) void {
         var i: u64 = 0;
         while (i < count and self.remaining > 0) : (i += 1) {
-            const account_ptr: *account.Account = @ptrCast(@alignCast(self.buffer));
-            self.buffer += @sizeOf(u64);
-            const data_len: usize = @intCast(account_ptr.data_len);
-            self.buffer += @sizeOf(Account) - @sizeOf(u64) + data_len + MAX_PERMITTED_DATA_INCREASE;
-            self.buffer = @ptrFromInt(alignPointer(@intFromPtr(self.buffer)));
-            self.buffer += @sizeOf(u64);
+            _ = self.nextAccountMaybeUnchecked();
             self.remaining -= 1;
         }
     }
 
-    /// Get instruction data. Call after all accounts are consumed.
-    pub inline fn instructionData(self: *InstructionContext) []const u8 {
-        const data_len: usize = @intCast(@as(*const u64, @ptrCast(@alignCast(self.buffer))).*);
-        const data = self.buffer[@sizeOf(u64) .. @sizeOf(u64) + data_len];
-        self.buffer += @sizeOf(u64) + data_len;
-        return data;
+    /// Get instruction data. Returns an error if there are still
+    /// unparsed accounts; this is the safe variant matching Pinocchio's
+    /// `instruction_data`.
+    ///
+    /// Does NOT advance the buffer — safe to call multiple times, and
+    /// safe to interleave with `programId()`. Use `instructionDataUnchecked`
+    /// when you've consumed accounts via `nextAccountUnchecked` (which
+    /// leaves `remaining` unchanged).
+    pub inline fn instructionData(self: *const InstructionContext) ProgramError![]const u8 {
+        if (self.remaining > 0) return error.InvalidInstructionData;
+        return self.instructionDataUnchecked();
     }
 
-    /// Get program ID. Call after instructionData().
-    pub inline fn programId(self: *InstructionContext) *const Pubkey {
-        return @ptrCast(@alignCast(self.buffer));
+    /// Get instruction data without checking the remaining-accounts
+    /// counter. Does not advance the buffer.
+    ///
+    /// Mirrors Pinocchio's `instruction_data_unchecked`.
+    pub inline fn instructionDataUnchecked(self: *const InstructionContext) []const u8 {
+        const data_len: usize = @intCast(@as(*const u64, @ptrCast(@alignCast(self.buffer))).*);
+        return self.buffer[@sizeOf(u64) .. @sizeOf(u64) + data_len];
+    }
+
+    /// Get program ID. Returns an error if accounts are still unparsed.
+    /// Mirrors Pinocchio's `program_id`. Does NOT advance the buffer.
+    pub inline fn programId(self: *const InstructionContext) ProgramError!*const Pubkey {
+        if (self.remaining > 0) return error.InvalidInstructionData;
+        return self.programIdUnchecked();
+    }
+
+    /// Get program ID without checks. Does not advance the buffer.
+    /// Skips past the instruction-data length prefix and contents to
+    /// find the program-id at the end of the input layout.
+    pub inline fn programIdUnchecked(self: *const InstructionContext) *const Pubkey {
+        const data_len: usize = @intCast(@as(*const u64, @ptrCast(@alignCast(self.buffer))).*);
+        return @ptrCast(@alignCast(self.buffer + @sizeOf(u64) + data_len));
     }
 
     // =====================================================================
@@ -109,7 +199,7 @@ pub const InstructionContext = struct {
     /// const index = ctx.readIx(u32, 8);
     /// ```
     pub inline fn readIx(self: *InstructionContext, comptime T: type, comptime offset: usize) T {
-        const data = self.instructionData();
+        const data = self.instructionDataUnchecked();
         const ptr: *align(1) const T = @ptrCast(@alignCast(data.ptr + offset));
         return ptr.*;
     }
@@ -123,7 +213,7 @@ pub const InstructionContext = struct {
     /// // ix.amount is a plain u64
     /// ```
     pub inline fn unpackIx(self: *InstructionContext, comptime T: type) T {
-        const data = self.instructionData();
+        const data = self.instructionDataUnchecked();
         const ptr: *align(1) const T = @ptrCast(@alignCast(data.ptr));
         return ptr.*;
     }
@@ -177,8 +267,17 @@ pub const InstructionContext = struct {
     ) ProgramError!ParsedAccounts(names) {
         const T = ParsedAccounts(names);
         var out: T = undefined;
-        inline for (names) |name| {
-            const acc = self.nextAccount() orelse return error.NotEnoughAccountKeys;
+        // Dup-aware: walk the slot list with `nextAccountMaybe`,
+        // resolving duplicates back to the corresponding earlier
+        // AccountInfo via a small parallel array.
+        var seen: [names.len]AccountInfo = undefined;
+        inline for (names, 0..) |name, i| {
+            const slot = try self.nextAccountMaybe();
+            const acc = switch (slot) {
+                .account => |a| a,
+                .duplicated => |idx| seen[idx],
+            };
+            seen[i] = acc;
             @field(out, name) = acc;
         }
         return out;
@@ -216,11 +315,24 @@ pub const InstructionContext = struct {
     ) ProgramError!ParsedAccountsWith(spec) {
         const T = ParsedAccountsWith(spec);
         var out: T = undefined;
-        inline for (spec) |entry| {
+        // Dup-aware: see parseAccounts. Duplicates are resolved against
+        // earlier slots in this same parse call, then the resolved
+        // AccountInfo is still subject to the per-slot expectation
+        // checks (signer/writable/owner) — because a duplicate slot in
+        // an instruction's account list still has its own copy of the
+        // (is_signer, is_writable) flags on the original account, so
+        // re-checking those is correct.
+        var seen: [spec.len]AccountInfo = undefined;
+        inline for (spec, 0..) |entry, i| {
             const name = entry[0];
             const exp: AccountExpectation = entry[1];
 
-            const acc = self.nextAccount() orelse return error.NotEnoughAccountKeys;
+            const slot = try self.nextAccountMaybe();
+            const acc = switch (slot) {
+                .account => |a| a,
+                .duplicated => |idx| seen[idx],
+            };
+            seen[i] = acc;
 
             if (exp.signer) try acc.expectSigner();
             if (exp.writable) try acc.expectWritable();
@@ -435,7 +547,7 @@ test "entrypoint: parse accounts and instruction data" {
     try std.testing.expectEqual(@as(u64, 0), ctx.remainingAccounts());
     try std.testing.expect(ctx.nextAccount() == null);
 
-    const ix_data = ctx.instructionData();
+    const ix_data = try ctx.instructionData();
     try std.testing.expectEqualStrings("test", ix_data);
 }
 
@@ -608,4 +720,125 @@ test "entrypoint: parseAccountsWith — owner match passes" {
         .{ "to", AccountExpectation{} },
     });
     _ = accs;
+}
+
+// =========================================================================
+// Duplicate-account handling tests
+//
+// Build an input buffer where slot 1 is a duplicate of slot 0
+// (encoded as 1 byte index = 0, then 7 bytes padding = 8 bytes total).
+// =========================================================================
+
+fn buildInputWithDup(buf: *[32768]u8) void {
+    @memset(buf, 0);
+    var ptr: [*]u8 = buf;
+
+    // num_accounts = 3 (one real, one dup-of-0, one real)
+    std.mem.writeInt(u64, ptr[0..8], 3, .little);
+    ptr += 8;
+
+    // slot 0: real account
+    const acc0: Account = .{
+        .borrow_state = account.NON_DUP_MARKER,
+        .is_signer = 1,
+        .is_writable = 1,
+        .is_executable = 0,
+        ._padding = .{0} ** 4,
+        .key = makePubkey(0xAA),
+        .owner = makePubkey(0xBB),
+        .lamports = 777,
+        .data_len = 0,
+    };
+    @memcpy(ptr[0..@sizeOf(Account)], std.mem.asBytes(&acc0));
+    ptr += @sizeOf(Account) + MAX_PERMITTED_DATA_INCREASE + 8;
+
+    // slot 1: duplicate marker pointing back to slot 0
+    // (8 bytes: index byte + 7 zero pad)
+    ptr[0] = 0; // dup-of index = 0
+    ptr += 8;
+
+    // slot 2: another real account
+    const acc2: Account = .{
+        .borrow_state = account.NON_DUP_MARKER,
+        .is_signer = 0,
+        .is_writable = 0,
+        .is_executable = 0,
+        ._padding = .{0} ** 4,
+        .key = makePubkey(0xCC),
+        .owner = makePubkey(0xDD),
+        .lamports = 333,
+        .data_len = 0,
+    };
+    @memcpy(ptr[0..@sizeOf(Account)], std.mem.asBytes(&acc2));
+    ptr += @sizeOf(Account) + MAX_PERMITTED_DATA_INCREASE + 8;
+
+    // instruction data: empty
+    std.mem.writeInt(u64, ptr[0..8], 0, .little);
+}
+
+test "entrypoint: nextAccountMaybe handles dup marker" {
+    var input: [32768]u8 align(8) = undefined;
+    buildInputWithDup(&input);
+
+    var ctx = InstructionContext.init(&input);
+    try std.testing.expectEqual(@as(u64, 3), ctx.remainingAccounts());
+
+    const s0 = try ctx.nextAccountMaybe();
+    switch (s0) {
+        .account => |a| try std.testing.expectEqual(@as(u64, 777), a.lamports()),
+        .duplicated => return error.TestUnexpectedDup,
+    }
+
+    const s1 = try ctx.nextAccountMaybe();
+    switch (s1) {
+        .account => return error.TestExpectedDup,
+        .duplicated => |idx| try std.testing.expectEqual(@as(u8, 0), idx),
+    }
+
+    const s2 = try ctx.nextAccountMaybe();
+    switch (s2) {
+        .account => |a| try std.testing.expectEqual(@as(u64, 333), a.lamports()),
+        .duplicated => return error.TestUnexpectedDup,
+    }
+
+    try std.testing.expectEqual(@as(u64, 0), ctx.remainingAccounts());
+}
+
+test "entrypoint: parseAccounts resolves dup back to original" {
+    var input: [32768]u8 align(8) = undefined;
+    buildInputWithDup(&input);
+
+    var ctx = InstructionContext.init(&input);
+    const accs = try ctx.parseAccounts(.{ "owner", "owner_again", "other" });
+
+    // owner and owner_again must refer to the same backing record.
+    try std.testing.expectEqual(@intFromPtr(accs.owner.raw), @intFromPtr(accs.owner_again.raw));
+    try std.testing.expectEqual(@as(u64, 777), accs.owner_again.lamports());
+    try std.testing.expectEqual(@as(u64, 333), accs.other.lamports());
+}
+
+test "entrypoint: parseAccountsWith resolves dup and re-applies checks" {
+    var input: [32768]u8 align(8) = undefined;
+    buildInputWithDup(&input);
+
+    var ctx = InstructionContext.init(&input);
+    const accs = try ctx.parseAccountsWith(.{
+        .{ "owner", AccountExpectation{ .signer = true, .writable = true } },
+        .{ "owner_again", AccountExpectation{ .signer = true, .writable = true } },
+        .{ "other", AccountExpectation{} },
+    });
+    try std.testing.expectEqual(@intFromPtr(accs.owner.raw), @intFromPtr(accs.owner_again.raw));
+    try std.testing.expect(accs.owner_again.isSigner());
+}
+
+test "entrypoint: skipAccounts is dup-aware" {
+    var input: [32768]u8 align(8) = undefined;
+    buildInputWithDup(&input);
+
+    var ctx = InstructionContext.init(&input);
+    ctx.skipAccounts(2); // skip slot 0 (real) + slot 1 (dup)
+    try std.testing.expectEqual(@as(u64, 1), ctx.remainingAccounts());
+
+    const last = ctx.nextAccount().?;
+    try std.testing.expectEqual(@as(u64, 333), last.lamports());
 }

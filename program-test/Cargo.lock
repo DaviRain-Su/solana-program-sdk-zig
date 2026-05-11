@@ -2070,6 +2070,7 @@ dependencies = [
  "num_enum",
  "solana-account",
  "solana-instruction",
+ "solana-program-error",
  "solana-pubkey",
  "solana-sdk-ids",
 ]

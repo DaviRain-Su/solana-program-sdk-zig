@@ -7,6 +7,7 @@ use {
     mollusk_svm::{program::keyed_account_for_system_program, Mollusk},
     solana_account::Account,
     solana_instruction::{AccountMeta, Instruction},
+    solana_program_error::ProgramError,
     solana_pubkey::Pubkey,
     solana_sdk_ids::{bpf_loader_upgradeable, system_program},
 };
@@ -127,8 +128,18 @@ fn test_cpi_insufficient_accounts_fails() {
     let accounts = vec![(from, from_account), (system_pid, system_account)];
 
     let result = mollusk.process_instruction(&instruction, &accounts);
-    assert!(
-        result.program_result.is_err(),
-        "expected program to fail on missing account"
-    );
+    // The program should surface this as the canonical
+    // `NotEnoughAccountKeys` builtin — not as a generic
+    // `Custom program error` (which would mean our u64 encoding is
+    // off by a `<< 32`).
+    match result.program_result {
+        mollusk_svm::result::ProgramResult::Failure(ref err) => {
+            assert_eq!(
+                err,
+                &ProgramError::NotEnoughAccountKeys,
+                "expected NotEnoughAccountKeys, got {err:?}",
+            );
+        }
+        other => panic!("expected program to fail, got {other:?}"),
+    }
 }

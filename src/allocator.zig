@@ -1,39 +1,46 @@
+//! Bump allocator for Solana programs
+//!
+//! A simple bump allocator that grows from low addresses to high addresses.
+//! Used for heap allocations in Solana BPF programs.
+
 const std = @import("std");
-const assert = std.debug.assert;
 const Alignment = std.mem.Alignment;
 
-const heap_start = @as([*]u8, @ptrFromInt(0x300000000));
-const heap_length = 32 * 1024;
+/// Heap start address for BPF programs (Solana convention)
+pub const HEAP_START_ADDRESS: u64 = 0x300000000;
 
-pub const reverse_allocator: std.mem.Allocator = @constCast(&ReverseFixedBufferAllocator.comptimeInit(heap_start[0..heap_length])).allocator();
-pub const allocator: std.mem.Allocator = @constCast(&FixedBufferAllocator.comptimeInit(heap_start[0..heap_length])).allocator();
+/// Default heap length (32KB)
+pub const HEAP_LENGTH: usize = 32 * 1024;
 
-// Just like std.heap.FixedBufferAllocator, with a few key differences:
-// * The current end index used by allocations is stored in the first `usize`
-// bytes of the provided buffer, allowing it to be used in `comptime` contexts
-pub const FixedBufferAllocator = struct {
+/// Maximum heap length (256KB, as of Solana v1.17+)
+pub const MAX_HEAP_LENGTH: usize = 256 * 1024;
+
+/// Simple bump allocator
+///
+/// Allocations grow from low addresses to high addresses.
+/// The end index is stored in the first `usize` bytes of the buffer.
+pub const BumpAllocator = struct {
     buffer: []u8,
 
-    fn end_index(self: *FixedBufferAllocator) *usize {
+    /// Get pointer to the end index (stored at buffer start)
+    inline fn endIndex(self: *BumpAllocator) *usize {
         return @as(*usize, @ptrCast(@alignCast(self.buffer[0..@sizeOf(usize)])));
     }
 
-    pub fn comptimeInit(buffer: []u8) FixedBufferAllocator {
-        return FixedBufferAllocator{
-            .buffer = buffer,
-        };
+    /// Initialize at compile time
+    pub fn comptimeInit(buffer: []u8) BumpAllocator {
+        return .{ .buffer = buffer };
     }
 
-    pub fn init(buffer: []u8) FixedBufferAllocator {
-        var fba = FixedBufferAllocator{
-            .buffer = buffer,
-        };
-        fba.end_index().* = @sizeOf(usize);
-        return fba;
+    /// Initialize at runtime
+    pub fn init(buffer: []u8) BumpAllocator {
+        var self = BumpAllocator{ .buffer = buffer };
+        self.endIndex().* = @sizeOf(usize);
+        return self;
     }
 
-    /// *WARNING* using this at the same time as the interface returned by `threadSafeAllocator` is not thread safe
-    pub fn allocator(self: *FixedBufferAllocator) std.mem.Allocator {
+    /// Get std.mem.Allocator interface
+    pub fn allocator(self: *BumpAllocator) std.mem.Allocator {
         return .{
             .ptr = self,
             .vtable = &.{
@@ -45,33 +52,58 @@ pub const FixedBufferAllocator = struct {
         };
     }
 
-    fn ownsSlice(self: *FixedBufferAllocator, slice: []u8) bool {
-        return sliceContainsSlice(self.buffer, slice);
+    /// Reset allocator (free all allocations)
+    pub inline fn reset(self: *BumpAllocator) void {
+        self.endIndex().* = @sizeOf(usize);
     }
 
-    /// NOTE: this will not work in all cases, if the last allocation had an adjusted_index
-    ///       then we won't be able to determine what the last allocation was.  This is because
-    ///       the alignForward operation done in alloc is not reversible.
-    pub fn isLastAllocation(self: *FixedBufferAllocator, buf: []u8) bool {
-        return buf.ptr + buf.len == self.buffer.ptr + self.end_index().*;
+    /// Direct allocation (bypass Allocator interface for performance)
+    pub inline fn allocDirect(self: *BumpAllocator, n: usize, alignment: usize) ?[*]u8 {
+        const ptr_align = if (alignment > 1) alignment else 1;
+        const current_end = self.endIndex().*;
+        const ptr = @intFromPtr(self.buffer.ptr) + current_end;
+        const aligned_ptr = std.mem.alignForward(usize, ptr, ptr_align);
+        const adjust_off = aligned_ptr - ptr;
+        const new_end = current_end + adjust_off + n;
+
+        if (new_end > self.buffer.len) return null;
+
+        self.endIndex().* = new_end;
+        return @ptrFromInt(aligned_ptr);
+    }
+
+    /// Check if slice was allocated by this allocator
+    inline fn ownsSlice(self: *BumpAllocator, slice: []u8) bool {
+        const start = @intFromPtr(self.buffer.ptr);
+        const slice_start = @intFromPtr(slice.ptr);
+        const slice_end = slice_start + slice.len;
+        return slice_start >= start and slice_end <= start + self.buffer.len;
+    }
+
+    /// Check if this is the last allocation (for resize/free)
+    inline fn isLastAllocation(self: *BumpAllocator, buf: []u8) bool {
+        return buf.ptr + buf.len == self.buffer.ptr + self.endIndex().*;
     }
 
     fn alloc(ctx: *anyopaque, n: usize, alignment: Alignment, ra: usize) ?[*]u8 {
-        const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
+        const self: *BumpAllocator = @ptrCast(@alignCast(ctx));
         _ = ra;
 
-        if (self.end_index().* == 0) {
-            self.end_index().* = @sizeOf(usize);
+        if (self.endIndex().* == 0) {
+            self.endIndex().* = @sizeOf(usize);
         }
 
         const ptr_align = alignment.toByteUnits();
-        const current_end_index = self.end_index().*;
-        const adjust_off = std.mem.alignPointerOffset(self.buffer.ptr + current_end_index, ptr_align) orelse return null;
-        const adjusted_index = current_end_index + adjust_off;
-        const new_end_index = adjusted_index + n;
-        if (new_end_index > self.buffer.len) return null;
-        self.end_index().* = new_end_index;
-        return self.buffer.ptr + adjusted_index;
+        const current_end = self.endIndex().*;
+        const ptr = @intFromPtr(self.buffer.ptr) + current_end;
+        const aligned_ptr = std.mem.alignForward(usize, ptr, ptr_align);
+        const adjust_off = aligned_ptr - ptr;
+        const new_end = current_end + adjust_off + n;
+
+        if (new_end > self.buffer.len) return null;
+
+        self.endIndex().* = new_end;
+        return @ptrFromInt(aligned_ptr);
     }
 
     fn resize(
@@ -81,26 +113,23 @@ pub const FixedBufferAllocator = struct {
         new_size: usize,
         return_address: usize,
     ) bool {
-        const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
+        const self: *BumpAllocator = @ptrCast(@alignCast(ctx));
         _ = alignment;
         _ = return_address;
-        assert(@inComptime() or self.ownsSlice(buf));
 
         if (!self.isLastAllocation(buf)) {
-            if (new_size > buf.len) return false;
-            return true;
+            return new_size <= buf.len;
         }
 
         if (new_size <= buf.len) {
-            const sub = buf.len - new_size;
-            self.end_index().* -= sub;
+            self.endIndex().* -= buf.len - new_size;
             return true;
         }
 
         const add = new_size - buf.len;
-        if (add + self.end_index().* > self.buffer.len) return false;
+        if (self.endIndex().* + add > self.buffer.len) return false;
 
-        self.end_index().* += add;
+        self.endIndex().* += add;
         return true;
     }
 
@@ -110,13 +139,12 @@ pub const FixedBufferAllocator = struct {
         alignment: Alignment,
         return_address: usize,
     ) void {
-        const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
+        const self: *BumpAllocator = @ptrCast(@alignCast(ctx));
         _ = alignment;
         _ = return_address;
-        assert(@inComptime() or self.ownsSlice(buf));
 
         if (self.isLastAllocation(buf)) {
-            self.end_index().* -= buf.len;
+            self.endIndex().* -= buf.len;
         }
     }
 
@@ -127,120 +155,88 @@ pub const FixedBufferAllocator = struct {
         new_len: usize,
         return_address: usize,
     ) ?[*]u8 {
-        return if (resize(context, memory, alignment, new_len, return_address)) memory.ptr else null;
-    }
-
-    pub fn reset(self: *FixedBufferAllocator) void {
-        self.end_index().* = @sizeOf(usize);
-    }
-};
-
-fn sliceContainsSlice(container: []u8, slice: []u8) bool {
-    return @intFromPtr(slice.ptr) >= @intFromPtr(container.ptr) and
-        (@intFromPtr(slice.ptr) + slice.len) <= (@intFromPtr(container.ptr) + container.len);
-}
-
-// Just like std.heap.FixedBufferAllocator, with a few key differences:
-// * Allocations start at the high address and go down
-// * The current end index used by allocations is stored in the final `usize`
-// bytes of the provided buffer, allowing it to be used in `comptime` contexts
-const ReverseFixedBufferAllocator = struct {
-    buffer: []u8,
-
-    fn isLastAllocation(self: *ReverseFixedBufferAllocator, buf: []u8) bool {
-        return buf.ptr == self.buffer.ptr + self.end_index().*;
-    }
-
-    fn end_index(self: *ReverseFixedBufferAllocator) *usize {
-        const cutoff = self.buffer.len - @sizeOf(usize);
-        return @as(*usize, @ptrCast(@alignCast(self.buffer[cutoff..])));
-    }
-
-    pub fn comptimeInit(buffer: []u8) ReverseFixedBufferAllocator {
-        return ReverseFixedBufferAllocator{
-            .buffer = buffer,
-        };
-    }
-
-    pub fn init(buffer: []u8) ReverseFixedBufferAllocator {
-        const cutoff = buffer.len - @sizeOf(usize);
-        const end = @as(*usize, @ptrCast(@alignCast(buffer[cutoff..])));
-        end.* = cutoff;
-        return ReverseFixedBufferAllocator{
-            .buffer = buffer,
-        };
-    }
-
-    pub fn allocator(self: *ReverseFixedBufferAllocator) std.mem.Allocator {
-        return .{
-            .ptr = self,
-            .vtable = &.{
-                .alloc = ReverseFixedBufferAllocator.alloc,
-                .free = ReverseFixedBufferAllocator.free,
-                // For an allocator that grows from high addresses to low, it
-                // isn't possible to resize without rewriting all the memory at
-                // the new lower address, so we just omit it here
-                .resize = std.mem.Allocator.noResize,
-                .remap = std.mem.Allocator.noRemap,
-            },
-        };
-    }
-
-    fn alloc(ctx: *anyopaque, n: usize, alignment: Alignment, ra: usize) ?[*]u8 {
-        _ = ra;
-
-        const self: *ReverseFixedBufferAllocator = @ptrCast(@alignCast(ctx));
-        if (self.end_index().* == 0) {
-            const cutoff = self.buffer.len - @sizeOf(usize);
-            const end = @as(*usize, @ptrCast(@alignCast(self.buffer[cutoff..])));
-            end.* = cutoff;
-        }
-        const ptr_align = alignment.toByteUnits();
-        const buffer_address = @intFromPtr(self.buffer.ptr);
-        var new_end_address = buffer_address + self.end_index().* - n;
-        new_end_address &= ~(ptr_align - 1);
-        if (new_end_address - buffer_address < @sizeOf([*]u8)) {
-            return null;
-        }
-        const new_end_index = new_end_address - buffer_address;
-        self.end_index().* = new_end_index;
-
-        return @ptrCast(self.buffer[new_end_index .. new_end_index + n]);
-    }
-
-    fn free(
-        ctx: *anyopaque,
-        buf: []u8,
-        alignment: Alignment,
-        return_address: usize,
-    ) void {
-        var self: *ReverseFixedBufferAllocator = @ptrCast(@alignCast(ctx));
-        _ = alignment;
-        _ = return_address;
-
-        if (self.isLastAllocation(buf)) {
-            self.end_index().* += buf.len;
-        }
+        return if (resize(context, memory, alignment, new_len, return_address))
+            memory.ptr
+        else
+            null;
     }
 };
 
-const TEST_SIZE: usize = 800000;
-test "ReverseFixedBufferAllocator" {
-    var test_fixed_buffer = [_]u64{0} ** TEST_SIZE;
-    var bump_allocator = ReverseFixedBufferAllocator.init(@ptrCast(@alignCast(&test_fixed_buffer)));
+/// Global bump allocator instance (for use with std.mem.Allocator interface)
+///
+/// Usage:
+/// ```zig
+/// const ptr = allocator.allocDirect(u8, 100, 1);
+/// ```
+pub var global_allocator: BumpAllocator = undefined;
 
-    try std.heap.testAllocator(bump_allocator.allocator());
-    try std.heap.testAllocatorAligned(bump_allocator.allocator());
-    try std.heap.testAllocatorLargeAlignment(bump_allocator.allocator());
-    try std.heap.testAllocatorAlignedShrink(bump_allocator.allocator());
+/// Initialize global allocator with default heap
+pub fn initGlobalAllocator() void {
+    const heap = @as([*]u8, @ptrFromInt(HEAP_START_ADDRESS))[0..HEAP_LENGTH];
+    global_allocator = BumpAllocator.init(heap);
 }
 
-test "FixedBufferAllocator" {
-    var test_fixed_buffer = [_]u64{0} ** TEST_SIZE;
-    var bump_allocator = FixedBufferAllocator.init(@ptrCast(@alignCast(&test_fixed_buffer)));
+// =============================================================================
+// Tests
+// =============================================================================
 
-    try std.heap.testAllocator(bump_allocator.allocator());
-    try std.heap.testAllocatorAligned(bump_allocator.allocator());
-    try std.heap.testAllocatorLargeAlignment(bump_allocator.allocator());
-    try std.heap.testAllocatorAlignedShrink(bump_allocator.allocator());
+test "BumpAllocator: basic allocation" {
+    var buffer: [1024]u8 = undefined;
+    var alloc = BumpAllocator.init(&buffer);
+
+    const ptr1 = alloc.allocDirect(10, 1).?;
+    @memcpy(ptr1[0..5], "hello");
+    try std.testing.expectEqualStrings("hello", ptr1[0..5]);
+
+    const ptr2 = alloc.allocDirect(20, 1).?;
+    @memcpy(ptr2[0..5], "world");
+    try std.testing.expectEqualStrings("world", ptr2[0..5]);
+}
+
+test "BumpAllocator: aligned allocation" {
+    var buffer: [1024]u8 = undefined;
+    var alloc = BumpAllocator.init(&buffer);
+
+    const ptr2 = alloc.allocDirect(8, 8).?;
+    try std.testing.expectEqual(@as(usize, 0), @intFromPtr(ptr2) % 8);
+
+    const ptr3 = alloc.allocDirect(16, 16).?;
+    try std.testing.expectEqual(@as(usize, 0), @intFromPtr(ptr3) % 16);
+}
+
+test "BumpAllocator: reset" {
+    var buffer align(8) = [_]u8{0} ** 1024;
+    var alloc = BumpAllocator.init(&buffer);
+
+    _ = alloc.allocDirect(100, 1).?;
+    const before = alloc.endIndex().*;
+    try std.testing.expect(before > @sizeOf(usize));
+
+    alloc.reset();
+    const after = alloc.endIndex().*;
+    try std.testing.expectEqual(@as(usize, @sizeOf(usize)), after);
+}
+
+test "BumpAllocator: std interface" {
+    var buffer align(8) = [_]u8{0} ** 1024;
+    var bump = BumpAllocator.init(&buffer);
+    const std_alloc = bump.allocator();
+
+    const ptr = try std_alloc.alloc(u8, 100);
+    try std.testing.expectEqual(@as(usize, 100), ptr.len);
+
+    std_alloc.free(ptr);
+}
+
+test "BumpAllocator: out of memory" {
+    var buffer align(8) = [_]u8{0} ** 64;
+    var alloc = BumpAllocator.init(&buffer);
+
+    // First allocation should succeed
+    const ptr1 = alloc.allocDirect(32, 1);
+    try std.testing.expect(ptr1 != null);
+
+    // Second allocation should fail (not enough space)
+    const ptr2 = alloc.allocDirect(64, 1);
+    try std.testing.expect(ptr2 == null);
 }

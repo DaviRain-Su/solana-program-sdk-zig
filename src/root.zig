@@ -9,6 +9,8 @@ pub const entrypoint = @import("entrypoint.zig");
 // Infrastructure
 pub const log = @import("log.zig");
 pub const allocator = @import("allocator.zig");
+pub const hint = @import("hint.zig");
+pub const memory = @import("memory.zig");
 
 // Existing modules
 pub const instruction = @import("instruction.zig");

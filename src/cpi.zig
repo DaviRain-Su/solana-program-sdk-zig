@@ -16,11 +16,28 @@ const SUCCESS = program_error.SUCCESS;
 
 /// Account metadata for CPI instructions.
 ///
-/// Layout matches the C ABI `SolAccountMeta` (`{ const SolPubkey *,
-/// uint8_t is_signer, uint8_t is_writable }`). We use `u8` (not `bool`)
-/// because the runtime may write arbitrary nonzero values into the
-/// signer/writable bytes when re-marshalling for CPI, and Zig `bool`
-/// requires the value to be exactly 0 or 1 (anything else is UB).
+/// Field order matches the Solana C ABI `SolAccountMeta`:
+/// ```c
+/// typedef struct {
+///   SolPubkey *pubkey;
+///   bool       is_writable;
+///   bool       is_signer;
+/// } SolAccountMeta;
+/// ```
+///
+/// We use `u8` (not Zig `bool`) for the two flag fields:
+///   - The C ABI specifies `bool` as a single byte but does not bound
+///     non-zero values to exactly `1`. The runtime may copy these bytes
+///     verbatim when re-marshalling for CPI.
+///   - Zig `bool` is UB for any value other than `0` or `1`, so reading
+///     a 0xFF here would be UB the moment we coerced it back to `bool`.
+///
+/// `@sizeOf(AccountMeta) == 16`: the trailing 6 bytes are alignment
+/// padding so a `[N]AccountMeta` array keeps each `pubkey` pointer
+/// 8-byte aligned. The C struct has no such padding inside a single
+/// element, but its array stride is identical because `bool[2]` is
+/// followed by the next struct's pointer (8-byte aligned), so the
+/// effective layout on the wire matches.
 pub const AccountMeta = extern struct {
     /// Public key of the account
     pubkey: *const Pubkey,
@@ -29,7 +46,8 @@ pub const AccountMeta = extern struct {
     /// Is this account a signer (0 = false, non-zero = true)
     is_signer: u8,
 
-    /// Convenience constructor.
+    /// Convenience constructor. Prefer this over the struct literal
+    /// when you already have Zig `bool`s in hand.
     pub inline fn init(key: *const Pubkey, is_writable: bool, is_signer: bool) AccountMeta {
         return .{
             .pubkey = key,
@@ -38,6 +56,14 @@ pub const AccountMeta = extern struct {
         };
     }
 };
+
+comptime {
+    // Catch regressions in the C ABI layout at build time.
+    std.debug.assert(@sizeOf(AccountMeta) == 16);
+    std.debug.assert(@offsetOf(AccountMeta, "pubkey") == 0);
+    std.debug.assert(@offsetOf(AccountMeta, "is_writable") == 8);
+    std.debug.assert(@offsetOf(AccountMeta, "is_signer") == 9);
+}
 
 /// CPI Instruction
 pub const Instruction = struct {
@@ -212,33 +238,13 @@ pub fn getReturnData(buffer: []u8) ?struct { Pubkey, []const u8 } {
 // =============================================================================
 // Tests
 // =============================================================================
+//
+// AccountMeta layout is asserted at comptime above.
+// CpiAccountInfo size is asserted at comptime in account.zig.
 
-test "cpi: AccountMeta size" {
-    // AccountMeta: 8 (pubkey ptr) + 1 (is_writable) + 1 (is_signer) + 6 (padding) = 16
-    try std.testing.expectEqual(@as(usize, 16), @sizeOf(AccountMeta));
-}
-
-test "cpi: CpiAccountInfo matches C ABI" {
-    // Verify CpiAccountInfo layout matches SolCpiAccountInfo for first 56 bytes
-    const SolCpiAccountInfo = extern struct {
-        key: *const Pubkey,
-        lamports: *u64,
-        data_len: u64,
-        data: [*]u8,
-        owner: *const Pubkey,
-        rent_epoch: u64,
-        is_signer: u8,
-        is_writable: u8,
-        executable: u8,
-        _padding: [5]u8,
-    };
-
-    try std.testing.expectEqual(@sizeOf(SolCpiAccountInfo), 56);
-    
-    // Verify field offsets match
-    const dummy: CpiAccountInfo = undefined;
-    _ = dummy;
-    
-    // If this compiles, CpiAccountInfo can be passed directly to sol_invoke_signed_c
-    _ = dummy;
+test "cpi: AccountMeta.init sets bytes correctly" {
+    const key: Pubkey = .{0} ** 32;
+    const m = AccountMeta.init(&key, true, false);
+    try std.testing.expectEqual(@as(u8, 1), m.is_writable);
+    try std.testing.expectEqual(@as(u8, 0), m.is_signer);
 }

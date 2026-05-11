@@ -8,6 +8,7 @@ pub fn build(b: *std.Build) !void {
         .{ "benchmark_pubkey_cmp_safe", "pubkey_cmp_safe.zig" },
         .{ "benchmark_pubkey_cmp_fast", "pubkey_cmp_fast.zig" },
         .{ "benchmark_pubkey_cmp_unchecked", "pubkey_cmp_unchecked.zig" },
+        .{ "benchmark_transfer_lamports", "transfer_lamports.zig" },
     };
 
     inline for (benchmarks) |bench| {

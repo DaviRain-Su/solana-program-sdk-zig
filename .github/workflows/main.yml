@@ -27,20 +27,18 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-
       - name: Setup Zig
         uses: mlugg/setup-zig@v2
         with:
           version: 0.16.0
-
       - name: zig version
         shell: bash
         run: zig version
-
       - name: Test library
         shell: bash
-        run: zig build test --summary all -freference-trace 2>&1 | tee test-output.txt
-
+        run: |
+          set -o pipefail
+          zig build test --summary all -freference-trace 2>&1 | tee test-output.txt
       - name: Upload test output
         if: always()
         uses: actions/upload-artifact@v4
@@ -53,14 +51,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Download solana-zig fork
         shell: bash
         run: |
           curl -LO "https://github.com/joncinque/solana-zig-bootstrap/releases/download/${SOLANA_ZIG_VERSION}/zig-x86_64-linux-musl.tar.bz2"
           tar -xjf zig-x86_64-linux-musl.tar.bz2
           echo "SOLANA_ZIG=$(pwd)/zig-x86_64-linux-musl-baseline/zig" >> "$GITHUB_ENV"
-
       - name: Test solana-zig version
         shell: bash
         run: |
@@ -70,7 +66,6 @@ jobs:
       - name: Test library with solana-zig
         shell: bash
         run: "$SOLANA_ZIG" build test --summary all
-
       - uses: actions/cache@v4
         with:
           path: |
@@ -80,16 +75,13 @@ jobs:
           key: cargo-${{ runner.os }}-${{ hashFiles('./program-test/Cargo.lock') }}
           restore-keys: |
             cargo-${{ runner.os }}-
-
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.86.0
-
       - name: Install build deps
         shell: bash
         run: ./program-test/install-build-deps.sh
-
       - name: Build and test programs
         shell: bash
         run: ./program-test/test.sh "$SOLANA_ZIG"

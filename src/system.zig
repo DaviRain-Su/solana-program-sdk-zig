@@ -81,22 +81,22 @@ const ReallocData = instruction.comptimeInstructionData(
     },
 );
 
-/// Create a new account via System Program CPI
+/// Create a new account via System Program CPI.
 ///
 /// Accounts:
 /// - `from`: signer, writable — pays for the new account
-/// - `to`: writable — the account to be created
+/// - `to`: signer, writable — the account being created
+/// - `system_program`: read-only — the System Program account, parsed
+///   from the program's input. Required so the syscall can resolve
+///   `instruction.program_id` against a known account.
 pub fn createAccount(
     from: CpiAccountInfo,
     to: CpiAccountInfo,
+    system_program: CpiAccountInfo,
     lamports: u64,
     space: u64,
     owner: *const Pubkey,
 ) ProgramResult {
-    var system_program_id: Pubkey = undefined;
-    getSystemProgramId(&system_program_id);
-
-    // Compile-time discriminant, runtime data
     const ix_data = CreateAccountData.initWithDiscriminant(
         @intFromEnum(SystemInstruction.CreateAccount),
         .{ .lamports = lamports, .space = space, .owner = owner.* },
@@ -108,26 +108,24 @@ pub fn createAccount(
     };
 
     const ix = cpi.Instruction{
-        .program_id = &system_program_id,
+        .program_id = system_program.key(),
         .accounts = &account_metas,
         .data = &ix_data,
     };
 
-    try cpi.invoke(&ix, &[_]CpiAccountInfo{ from, to });
+    try cpi.invoke(&ix, &[_]CpiAccountInfo{ from, to, system_program });
 }
 
-/// Create a new account with PDA signing
+/// Create a new account with PDA signing.
 pub fn createAccountSigned(
     from: CpiAccountInfo,
     to: CpiAccountInfo,
+    system_program: CpiAccountInfo,
     lamports: u64,
     space: u64,
     owner: *const Pubkey,
     signers_seeds: []const []const u8,
 ) ProgramResult {
-    var system_program_id: Pubkey = undefined;
-    getSystemProgramId(&system_program_id);
-
     const ix_data = CreateAccountData.initWithDiscriminant(
         @intFromEnum(SystemInstruction.CreateAccount),
         .{ .lamports = lamports, .space = space, .owner = owner.* },
@@ -139,27 +137,27 @@ pub fn createAccountSigned(
     };
 
     const ix = cpi.Instruction{
-        .program_id = &system_program_id,
+        .program_id = system_program.key(),
         .accounts = &account_metas,
         .data = &ix_data,
     };
 
-    try cpi.invokeSigned(&ix, &[_]CpiAccountInfo{ from, to }, signers_seeds);
+    try cpi.invokeSigned(&ix, &[_]CpiAccountInfo{ from, to, system_program }, signers_seeds);
 }
 
-/// Transfer lamports via System Program CPI
+/// Transfer lamports via System Program CPI.
 ///
 /// Accounts:
 /// - `from`: signer, writable — source of lamports
 /// - `to`: writable — destination for lamports
+/// - `system_program`: read-only — the System Program account, parsed
+///   from the program's input.
 pub fn transfer(
     from: CpiAccountInfo,
     to: CpiAccountInfo,
+    system_program: CpiAccountInfo,
     lamports: u64,
 ) ProgramResult {
-    var system_program_id: Pubkey = undefined;
-    getSystemProgramId(&system_program_id);
-
     const ix_data = TransferData.initWithDiscriminant(
         @intFromEnum(SystemInstruction.Transfer),
         .{ .lamports = lamports },
@@ -171,22 +169,20 @@ pub fn transfer(
     };
 
     const ix = cpi.Instruction{
-        .program_id = &system_program_id,
+        .program_id = system_program.key(),
         .accounts = &account_metas,
         .data = &ix_data,
     };
 
-    try cpi.invoke(&ix, &[_]CpiAccountInfo{ from, to });
+    try cpi.invoke(&ix, &[_]CpiAccountInfo{ from, to, system_program });
 }
 
-/// Assign a new owner to an account
+/// Assign a new owner to an account.
 pub fn assign(
     account: CpiAccountInfo,
+    system_program: CpiAccountInfo,
     owner: *const Pubkey,
 ) ProgramResult {
-    var system_program_id: Pubkey = undefined;
-    getSystemProgramId(&system_program_id);
-
     const ix_data = AssignData.initWithDiscriminant(
         @intFromEnum(SystemInstruction.Assign),
         .{ .owner = owner.* },
@@ -197,22 +193,20 @@ pub fn assign(
     };
 
     const ix = cpi.Instruction{
-        .program_id = &system_program_id,
+        .program_id = system_program.key(),
         .accounts = &account_metas,
         .data = &ix_data,
     };
 
-    try cpi.invoke(&ix, &[_]CpiAccountInfo{account});
+    try cpi.invoke(&ix, &[_]CpiAccountInfo{ account, system_program });
 }
 
-/// Allocate space in an account
+/// Allocate space in an account.
 pub fn allocate(
     account: CpiAccountInfo,
+    system_program: CpiAccountInfo,
     space: u64,
 ) ProgramResult {
-    var system_program_id: Pubkey = undefined;
-    getSystemProgramId(&system_program_id);
-
     const ix_data = AllocateData.initWithDiscriminant(
         @intFromEnum(SystemInstruction.Allocate),
         .{ .space = space },
@@ -223,23 +217,21 @@ pub fn allocate(
     };
 
     const ix = cpi.Instruction{
-        .program_id = &system_program_id,
+        .program_id = system_program.key(),
         .accounts = &account_metas,
         .data = &ix_data,
     };
 
-    try cpi.invoke(&ix, &[_]CpiAccountInfo{account});
+    try cpi.invoke(&ix, &[_]CpiAccountInfo{ account, system_program });
 }
 
-/// Reallocate space in an account
+/// Reallocate space in an account.
 pub fn realloc(
     account: CpiAccountInfo,
+    system_program: CpiAccountInfo,
     new_space: u64,
     zero_init: bool,
 ) ProgramResult {
-    var system_program_id: Pubkey = undefined;
-    getSystemProgramId(&system_program_id);
-
     const ix_data = ReallocData.initWithDiscriminant(
         @intFromEnum(SystemInstruction.Allocate), // Note: ReAlloc uses Allocate discriminant
         .{ .new_space = new_space, .zero_init = if (zero_init) 1 else 0 },
@@ -250,27 +242,25 @@ pub fn realloc(
     };
 
     const ix = cpi.Instruction{
-        .program_id = &system_program_id,
+        .program_id = system_program.key(),
         .accounts = &account_metas,
         .data = &ix_data,
     };
 
-    try cpi.invoke(&ix, &[_]CpiAccountInfo{account});
+    try cpi.invoke(&ix, &[_]CpiAccountInfo{ account, system_program });
 }
 
-/// Create account with seed
+/// Create account with seed.
 pub fn createAccountWithSeed(
     from: CpiAccountInfo,
     to: CpiAccountInfo,
+    system_program: CpiAccountInfo,
     base: *const Pubkey,
     seed: []const u8,
     lamports: u64,
     space: u64,
     owner: *const Pubkey,
 ) ProgramResult {
-    var system_program_id: Pubkey = undefined;
-    getSystemProgramId(&system_program_id);
-
     // Variable-length seed requires runtime construction
     var ix_data: [84]u8 = undefined;
     @memset(&ix_data, 0);
@@ -290,12 +280,12 @@ pub fn createAccountWithSeed(
     };
 
     const ix = cpi.Instruction{
-        .program_id = &system_program_id,
+        .program_id = system_program.key(),
         .accounts = &account_metas,
         .data = ix_data[0 .. 44 + seed.len + 16 + 32],
     };
 
-    try cpi.invoke(&ix, &[_]CpiAccountInfo{ from, to });
+    try cpi.invoke(&ix, &[_]CpiAccountInfo{ from, to, system_program });
 }
 
 // =============================================================================

@@ -10,6 +10,18 @@
 //!
 //! Instruction data: little-endian u64 `amount` (8 bytes).
 
+//! CPI integration test program.
+//!
+//! Transfers `amount` lamports from `from` (signer) to `to` via the
+//! SDK's high-level System Program wrapper: `sol.system.transfer`.
+//!
+//! Accounts (in order):
+//!   0. from           — signer, writable
+//!   1. to             — writable
+//!   2. system program — read-only (required by the CPI syscall)
+//!
+//! Instruction data: little-endian u64 `amount` (8 bytes).
+
 const sol = @import("solana_program_sdk");
 
 pub const panic = sol.panic.Panic;
@@ -25,31 +37,12 @@ fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
 
     const amount = ctx.readIx(u64, 0);
 
-    var ix_data: [12]u8 = undefined;
-    // discriminant: SystemInstruction.Transfer (2)
-    @as(*align(1) u32, @ptrCast(&ix_data[0])).* = @intFromEnum(sol.system.SystemInstruction.Transfer);
-    @as(*align(1) u64, @ptrCast(&ix_data[4])).* = amount;
-
-    const metas = [_]sol.cpi.AccountMeta{
-        .{ .pubkey = from.key(), .is_writable = true, .is_signer = true },
-        .{ .pubkey = to.key(), .is_writable = true, .is_signer = false },
-    };
-
-    // Use the system program's key from the parsed account (lives in the
-    // runtime input buffer — a valid VM address).
-    const ix = sol.cpi.Instruction{
-        .program_id = system_program.key(),
-        .accounts = &metas,
-        .data = &ix_data,
-    };
-
-    const infos = [_]sol.account.CpiAccountInfo{
+    try sol.system.transfer(
         from.toCpiInfo(),
         to.toCpiInfo(),
         system_program.toCpiInfo(),
-    };
-
-    try sol.cpi.invoke(&ix, &infos);
+        amount,
+    );
 }
 
 export fn entrypoint(input: [*]u8) u64 {

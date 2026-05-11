@@ -1,15 +1,16 @@
 const sol = @import("solana_program_sdk");
 
 fn processInstruction(context: *sol.entrypoint.InstructionContext) sol.ProgramResult {
-    // Pinocchio-style: use unlikely() for error path
+    // Pinocchio-style: check account count with unlikely hint
     if (sol.entrypoint.unlikely(context.remaining() != 1)) {
         return error.NotEnoughAccountKeys;
     }
 
-    // Pinocchio-style: use unchecked since we know there's 1 account
-    const account = context.nextAccountUnchecked();
+    // Use compile-time safety level: .unchecked for max performance
+    // This eliminates bounds check at compile time
+    const account = context.nextAccountEx(.unchecked);
 
-    // Pinocchio-style: pubkey comparison
+    // Use aligned comparison (caller guarantees alignment from runtime)
     if (sol.pubkey.pubkeyEqAligned(account.key(), account.owner())) {
         return;
     } else {

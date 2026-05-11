@@ -186,6 +186,16 @@ pub fn deserialize(
 // Lazy Entrypoint (on-demand parsing)
 // =============================================================================
 
+/// Safety level for comptime-checked operations
+pub const SafetyLevel = enum {
+    /// Full safety checks (bounds, alignment, borrow)
+    safe,
+    /// Skip bounds checks, keep alignment/borrow checks
+    fast,
+    /// No checks (caller guarantees correctness)
+    unchecked,
+};
+
 /// Lazy parsing context — accounts are parsed on demand
 pub const InstructionContext = struct {
     /// Current pointer into input buffer
@@ -259,9 +269,12 @@ pub const InstructionContext = struct {
     }
 
     /// Parse and return the next account
+    /// 
+    /// Use `nextAccountEx(.fast)` or `nextAccountEx(.unchecked)` for
+    /// compile-time selectable safety levels.
     pub fn nextAccount(self: *InstructionContext) ?AccountInfo {
         if (self.parsed_count >= self.num_accounts) return null;
-        return self.nextAccountUnchecked();
+        return self.nextAccountEx(.safe);
     }
 
     /// Parse and return the next account — no bounds check
@@ -269,12 +282,45 @@ pub const InstructionContext = struct {
     /// ⚠️ SAFETY: Caller must ensure there are remaining accounts.
     ///            Use when you've already checked `remaining()`.
     pub fn nextAccountUnchecked(self: *InstructionContext) AccountInfo {
+        return self.nextAccountEx(.unchecked);
+    }
+
+    /// Parse and return the next account with compile-time safety level
+    ///
+    /// ```zig
+    /// // Safe: bounds check + duplicate resolution
+    /// const account = context.nextAccountEx(.safe);
+    ///
+    /// // Fast: no bounds check, keep duplicate resolution
+    /// const account = context.nextAccountEx(.fast);
+    ///
+    /// // Unchecked: no checks at all (max performance)
+    /// const account = context.nextAccountEx(.unchecked);
+    /// ```
+    pub inline fn nextAccountEx(self: *InstructionContext, comptime safety: SafetyLevel) AccountInfo {
+        // Bounds check (compile-time selectable)
+        if (safety == .safe) {
+            if (self.parsed_count >= self.num_accounts) {
+                @branchHint(.cold);
+                @panic("nextAccountEx: no remaining accounts");
+            }
+        }
+
         const dup_marker = self.ptr[0];
 
         const result = if (dup_marker != NON_DUP_MARKER) blk: {
             // Duplicate account
             const dup_index = dup_marker;
             self.ptr += @sizeOf(u64); // skip 8-byte marker
+            
+            // In safe mode, validate duplicate index
+            if (safety == .safe) {
+                if (dup_index >= self.parsed_count) {
+                    @branchHint(.cold);
+                    @panic("nextAccountEx: invalid duplicate index");
+                }
+            }
+            
             break :blk self._accounts[dup_index];
         } else blk: {
             // New account
@@ -321,8 +367,33 @@ pub const InstructionContext = struct {
         return self.instruction_data;
     }
 
+    /// Get instruction data with compile-time safety level
+    ///
+    /// `.safe`: verifies all accounts have been parsed first
+    /// `.unchecked`: returns data immediately without validation
+    pub inline fn instructionDataEx(self: InstructionContext, comptime safety: SafetyLevel) []const u8 {
+        if (safety == .safe) {
+            if (self.parsed_count < self.num_accounts) {
+                @branchHint(.cold);
+                @panic("instructionDataEx: not all accounts parsed");
+            }
+        }
+        return self.instruction_data;
+    }
+
     /// Get program ID
     pub inline fn programId(self: InstructionContext) *const Pubkey {
+        return self.program_id;
+    }
+
+    /// Get program ID with compile-time safety level
+    pub inline fn programIdEx(self: InstructionContext, comptime safety: SafetyLevel) *const Pubkey {
+        if (safety == .safe) {
+            if (self.parsed_count < self.num_accounts) {
+                @branchHint(.cold);
+                @panic("programIdEx: not all accounts parsed");
+            }
+        }
         return self.program_id;
     }
 };

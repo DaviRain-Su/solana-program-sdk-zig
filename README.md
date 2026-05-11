@@ -77,6 +77,23 @@ const VAULT = sol.pda.comptimeFindProgramAddress(
 That is a ~3000 CU per-call saving for static PDAs (singletons, vaults,
 treasuries, well-known sysvar accounts, etc.).
 
+There's also a companion `pda.comptimeCreateWithSeed(base, "seed", program_id)`
+for the no-bump-search `create_account_with_seed` case.
+
+### Declarative account parsing
+
+`ctx.parseAccounts(.{ "from", "to", "system_program" })` returns a
+named struct with one `AccountInfo` per requested account, with the
+loop fully unrolled at compile time:
+
+```zig
+const accs = try ctx.parseAccounts(.{ "from", "to", "system_program" });
+try sol.system.transfer(accs.from.toCpiInfo(), accs.to.toCpiInfo(),
+                        accs.system_program.toCpiInfo(), amount);
+```
+
+Zero runtime overhead vs. hand-written `nextAccount() orelse …`.
+
 ### Reproduce
 
 ```console

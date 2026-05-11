@@ -15,6 +15,7 @@ const AccountInfo = account.AccountInfo;
 const MaybeAccount = account.MaybeAccount;
 const Pubkey = pubkey.Pubkey;
 const ProgramResult = program_error.ProgramResult;
+const ProgramError = program_error.ProgramError;
 const SUCCESS = program_error.SUCCESS;
 
 pub const HEAP_START_ADDRESS: u64 = 0x300000000;
@@ -154,7 +155,58 @@ pub const InstructionContext = struct {
         const raw = self.readIx(TagInt, 0);
         return @enumFromInt(raw);
     }
+
+    /// Parse a fixed set of accounts into a named struct.
+    ///
+    /// `names` is a comptime tuple of `[]const u8` field names. The
+    /// returned struct has one `AccountInfo` field per name, in order.
+    /// Returns `error.NotEnoughAccountKeys` if `ctx.remainingAccounts()`
+    /// is smaller than `names.len`.
+    ///
+    /// ```zig
+    /// const accs = try ctx.parseAccounts(.{ "from", "to", "system_program" });
+    /// // accs.from, accs.to, accs.system_program are AccountInfo
+    /// try sol.system.transfer(accs.from, accs.to, accs.system_program, 100);
+    /// ```
+    ///
+    /// Zero runtime overhead vs. hand-written `nextAccount() orelse …`:
+    /// the loop is fully unrolled at compile time.
+    pub inline fn parseAccounts(
+        self: *InstructionContext,
+        comptime names: anytype,
+    ) ProgramError!ParsedAccounts(names) {
+        const T = ParsedAccounts(names);
+        var out: T = undefined;
+        inline for (names) |name| {
+            const acc = self.nextAccount() orelse return error.NotEnoughAccountKeys;
+            @field(out, name) = acc;
+        }
+        return out;
+    }
 };
+
+/// Generate a struct type from a tuple of field names. Each field is
+/// of type `AccountInfo`. Used by `parseAccounts`.
+///
+/// Zig 0.16 replaced `@Type` with per-kind builtins; this uses
+/// `@Struct(layout, backing_int, field_names, field_types, field_attrs)`.
+/// See <https://ziglang.org/download/0.16.0/release-notes.html>.
+pub fn ParsedAccounts(comptime names: anytype) type {
+    var field_names: [names.len][:0]const u8 = undefined;
+    inline for (names, 0..) |name, i| {
+        field_names[i] = name ++ "";
+    }
+    return @Struct(
+        .auto,
+        null,
+        &field_names,
+        &@as([names.len]type, @splat(AccountInfo)),
+        &@as(
+            [names.len]std.builtin.Type.StructField.Attributes,
+            @splat(.{}),
+        ),
+    );
+}
 
 // =========================================================================
 // Entrypoint helpers
@@ -302,4 +354,60 @@ test "entrypoint: parse accounts and instruction data" {
 
     const ix_data = ctx.instructionData();
     try std.testing.expectEqualStrings("test", ix_data);
+}
+
+test "entrypoint: parseAccounts builds named struct" {
+    var input align(8) = [_]u8{0} ** 32768;
+    var ptr: [*]u8 = &input;
+
+    std.mem.writeInt(u64, ptr[0..8], 2, .little);
+    ptr += 8;
+
+    const acc0: Account = .{
+        .borrow_state = account.NON_DUP_MARKER,
+        .is_signer = 1,
+        .is_writable = 1,
+        .is_executable = 0,
+        ._padding = .{0} ** 4,
+        .key = makePubkey(7),
+        .owner = makePubkey(8),
+        .lamports = 100,
+        .data_len = 0,
+    };
+    @memcpy(ptr[0..@sizeOf(Account)], std.mem.asBytes(&acc0));
+    ptr += @sizeOf(Account) + MAX_PERMITTED_DATA_INCREASE + 8;
+
+    const acc1: Account = .{
+        .borrow_state = account.NON_DUP_MARKER,
+        .is_signer = 0,
+        .is_writable = 1,
+        .is_executable = 0,
+        ._padding = .{0} ** 4,
+        .key = makePubkey(9),
+        .owner = makePubkey(8),
+        .lamports = 200,
+        .data_len = 0,
+    };
+    @memcpy(ptr[0..@sizeOf(Account)], std.mem.asBytes(&acc1));
+    ptr += @sizeOf(Account) + MAX_PERMITTED_DATA_INCREASE + 8;
+
+    std.mem.writeInt(u64, ptr[0..8], 0, .little);
+
+    var ctx = InstructionContext.init(&input);
+    const accs = try ctx.parseAccounts(.{ "from", "to" });
+
+    try std.testing.expectEqual(@as(u64, 100), accs.from.lamports());
+    try std.testing.expectEqual(@as(u64, 200), accs.to.lamports());
+    try std.testing.expect(accs.from.isSigner());
+    try std.testing.expect(!accs.to.isSigner());
+}
+
+test "entrypoint: parseAccounts errors when too few accounts" {
+    var input align(8) = [_]u8{0} ** 256;
+    std.mem.writeInt(u64, input[0..8], 0, .little);
+    var ctx = InstructionContext.init(&input);
+    try std.testing.expectError(
+        error.NotEnoughAccountKeys,
+        ctx.parseAccounts(.{"only_one"}),
+    );
 }

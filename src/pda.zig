@@ -182,6 +182,35 @@ pub fn createWithSeed(
     return address;
 }
 
+/// Compile-time `createWithSeed`.
+///
+/// Computes `SHA-256(base || seed || program_id)` at build time, when
+/// all three inputs are compile-time-known. Useful for fixed
+/// `create_account_with_seed` derivations (e.g. nonce accounts owned
+/// by a known base pubkey).
+///
+/// No bump search is involved — the result is unconditionally returned.
+pub fn comptimeCreateWithSeed(
+    comptime base: Pubkey,
+    comptime seed: []const u8,
+    comptime program_id: Pubkey,
+) Pubkey {
+    return comptime blk: {
+        if (seed.len > MAX_SEED_LEN) {
+            @compileError("seed exceeds MAX_SEED_LEN");
+        }
+        @setEvalBranchQuota(1_000_000);
+        var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+        hasher.update(&base);
+        hasher.update(seed);
+        hasher.update(&program_id);
+
+        var address: Pubkey = undefined;
+        hasher.final(&address);
+        break :blk address;
+    };
+}
+
 /// Compile-time `createProgramAddress`.
 ///
 /// Computes the PDA at compile time from a tuple of byte-slice seeds
@@ -315,6 +344,16 @@ test "pda: comptime find produces known address (cross-check)" {
     var expected: Pubkey = undefined;
     _ = try std.fmt.hexToBytes(&expected, expected_hex);
     try std.testing.expectEqualSlices(u8, &expected, &pda.address);
+}
+
+test "pda: comptime createWithSeed matches runtime" {
+    const base: Pubkey = .{1} ** 32;
+    const program_id: Pubkey = .{2} ** 32;
+    const seed = "nonce";
+
+    const ct = comptimeCreateWithSeed(base, seed, program_id);
+    const rt = try createWithSeed(&base, seed, &program_id);
+    try std.testing.expectEqualSlices(u8, &ct, &rt);
 }
 
 test "pda: comptime create matches runtime create" {

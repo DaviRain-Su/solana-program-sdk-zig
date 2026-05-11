@@ -1,11 +1,9 @@
-//! Solana program entrypoint and input deserialization
+//! Solana program entrypoint — InstructionContext (Pinocchio-style)
 //!
-//! ## Lazy Entrypoint (默认推荐)
-//! On-demand account parsing via InstructionContext — **零拷贝、最优 CU**。
-//! 与 Pinocchio `entrypoint!` 行为一致。
+//! Single entrypoint design: on-demand account parsing via InstructionContext.
+//! Accounts returned as `AccountInfo` (8-byte pointer wrapper).
 //!
-//! ## Standard Entrypoint (兼容模式)
-//! Eager parsing — 预分配 account 数组，兼容旧代码。
+//! Matches Pinocchio `lazy_program_entrypoint!` exactly.
 
 const std = @import("std");
 const account = @import("account.zig");
@@ -14,415 +12,97 @@ const program_error = @import("program_error.zig");
 
 const Account = account.Account;
 const AccountInfo = account.AccountInfo;
+const MaybeAccount = account.MaybeAccount;
 const Pubkey = pubkey.Pubkey;
 const ProgramResult = program_error.ProgramResult;
 const SUCCESS = program_error.SUCCESS;
 
-/// BPF alignment for u128
-const BPF_ALIGN_OF_U128: usize = 8;
-
-/// Value used to indicate that a serialized account is not a duplicate
-const NON_DUP_MARKER: u8 = account.NON_DUP_MARKER;
-
-/// Maximum permitted data increase per instruction
-const MAX_PERMITTED_DATA_INCREASE: usize = account.MAX_PERMITTED_DATA_INCREASE;
-
-/// Heap start address for BPF programs
 pub const HEAP_START_ADDRESS: u64 = 0x300000000;
-
-/// Heap length (32KB)
 pub const HEAP_LENGTH: usize = 32 * 1024;
 
-/// Entrypoint function signature
-pub const EntrypointFn = *const fn (
-    program_id: *const Pubkey,
-    accounts: []AccountInfo,
-    instruction_data: []const u8,
-) ProgramResult;
+const MAX_PERMITTED_DATA_INCREASE: usize = account.MAX_PERMITTED_DATA_INCREASE;
 
-/// Lazy entrypoint function signature (generic over max_accounts)
-pub fn LazyEntrypointFn(comptime max_accounts: usize) type {
-    return *const fn (
-        context: *InstructionContext(max_accounts),
-    ) ProgramResult;
-}
-
-/// Align pointer to BPF u128 alignment
 inline fn alignPointer(ptr: usize) usize {
-    return (ptr + (BPF_ALIGN_OF_U128 - 1)) & ~(BPF_ALIGN_OF_U128 - 1);
+    return (ptr + 7) & ~@as(usize, 7);
 }
 
-// =============================================================================
-// Standard Entrypoint (eager parsing)
-// =============================================================================
+// =========================================================================
+// InstructionContext — on-demand input parsing (Pinocchio-style)
+//
+// Only 16 bytes on the stack (buffer pointer + remaining count).
+// `next_account()` returns `AccountInfo` (8 bytes).
+// =========================================================================
 
-/// Create a standard entrypoint with custom max accounts
-/// Parses all accounts upfront into a pre-allocated buffer.
-pub fn entrypoint(
-    comptime max_accounts: usize,
-    comptime process_instruction: EntrypointFn,
-) fn ([*]u8) callconv(.c) u64 {
-    return struct {
-        fn entry(input: [*]u8) callconv(.c) u64 {
-            var accounts_buffer: [max_accounts]AccountInfo = undefined;
+pub const InstructionContext = struct {
+    buffer: [*]u8,
+    remaining: u64,
 
-            const program_id, const accounts, const instruction_data =
-                deserialize(input, &accounts_buffer);
+    /// Create from raw input pointer.
+    pub inline fn init(input: [*]u8) InstructionContext {
+        const num_accounts: u64 = @as(*const u64, @ptrCast(@alignCast(input))).*;
+        return .{
+            .buffer = input + @sizeOf(u64),
+            .remaining = num_accounts,
+        };
+    }
 
-            process_instruction(program_id, accounts, instruction_data) catch |err| {
-                return program_error.errorToU64(err);
-            };
+    /// Number of remaining unparsed accounts.
+    pub inline fn remainingAccounts(self: InstructionContext) u64 {
+        return self.remaining;
+    }
 
-            return SUCCESS;
-        }
-    }.entry;
-}
+    /// Parse the next account. Returns null if none remaining.
+    pub fn nextAccount(self: *InstructionContext) ?AccountInfo {
+        if (self.remaining == 0) return null;
+        self.remaining -= 1;
+        return self.nextAccountUnchecked();
+    }
 
-/// Deserialize the input buffer into program_id, accounts, and instruction_data
-///
-/// Performs zero-copy deserialization. All returned values are pointers/slices
-/// into the original input buffer.
-///
-/// Input format (little endian):
-/// ```text
-/// [u64: num_accounts]
-/// For each account:
-///   [u8: duplicate_marker] (0xFF = non-duplicate, else = duplicate index)
-///   If duplicate:
-///     [7 bytes padding]
-///   If non-duplicate:
-///     [Account struct (88 bytes)]
-///     [data bytes]
-///     [10KB padding]
-///     [align to 8 bytes]
-///     [u64: rent_epoch]
-/// [u64: instruction_data_len]
-/// [instruction_data bytes]
-/// [Pubkey: program_id]
-/// ```
-pub fn deserialize(
-    input: [*]u8,
-    accounts_buffer: []AccountInfo,
-) struct { *const Pubkey, []AccountInfo, []const u8 } {
-    var ptr = input;
-    const max_accounts = accounts_buffer.len;
+    /// Parse the next account — no bounds check.
+    /// Caller must ensure there are remaining accounts.
+    pub inline fn nextAccountUnchecked(self: *InstructionContext) AccountInfo {
+        const account_ptr: *account.Account = @ptrCast(@alignCast(self.buffer));
+        const data_len: usize = @intCast(account_ptr.data_len);
+        self.buffer += @sizeOf(u64) + (@sizeOf(Account) - @sizeOf(u64)) + data_len + MAX_PERMITTED_DATA_INCREASE;
+        self.buffer = @ptrFromInt(alignPointer(@intFromPtr(self.buffer)));
+        self.buffer += @sizeOf(u64);
+        return .{ .raw = account_ptr };
+    }
 
-    // Read number of accounts
-    const num_accounts_ptr: *const u64 = @ptrCast(@alignCast(ptr));
-    const num_accounts: usize = @intCast(num_accounts_ptr.*);
-    ptr += @sizeOf(u64);
-
-    var accounts_count: usize = 0;
-
-    if (num_accounts > 0) {
-        const to_process = @min(num_accounts, max_accounts);
-        var to_skip = num_accounts - to_process;
-
-        var i: usize = 0;
-        while (i < to_process) : (i += 1) {
-            // Read duplicate marker (first byte of 8-byte block)
-            const dup_marker = ptr[0];
-
-            if (dup_marker != NON_DUP_MARKER) {
-                // Duplicate account — reference existing account
-                const dup_index = dup_marker;
-                accounts_buffer[i] = accounts_buffer[dup_index];
-                // Skip 8 bytes (marker + padding)
-                ptr += @sizeOf(u64);
-            } else {
-                // Non-duplicate: Account struct starts here
-                // The first byte (borrow_state) is already 0xFF
-                const account_ptr: *Account = @ptrCast(@alignCast(ptr));
-                accounts_buffer[i] = AccountInfo.fromPtr(account_ptr);
-
-                // Skip past the account struct
-                ptr += @sizeOf(Account);
-                // Skip past data
-                ptr += @as(usize, @intCast(account_ptr.data_len));
-                // Skip past 10KB padding
-                ptr += MAX_PERMITTED_DATA_INCREASE;
-                // Align to 8 bytes
-                ptr = @ptrFromInt(alignPointer(@intFromPtr(ptr)));
-                // Skip rent_epoch
-                ptr += @sizeOf(u64);
-            }
-            accounts_count += 1;
-        }
-
-        // Skip remaining accounts if buffer was too small
-        while (to_skip > 0) : (to_skip -= 1) {
-            const dup_marker = ptr[0];
-            if (dup_marker != NON_DUP_MARKER) {
-                ptr += @sizeOf(u64);
-            } else {
-                const account_ptr: *Account = @ptrCast(@alignCast(ptr));
-                ptr += @sizeOf(Account);
-                ptr += @as(usize, @intCast(account_ptr.data_len));
-                ptr += MAX_PERMITTED_DATA_INCREASE;
-                ptr = @ptrFromInt(alignPointer(@intFromPtr(ptr)));
-                ptr += @sizeOf(u64);
-            }
+    /// Skip accounts without parsing.
+    pub fn skipAccounts(self: *InstructionContext, count: u64) void {
+        var i: u64 = 0;
+        while (i < count and self.remaining > 0) : (i += 1) {
+            const account_ptr: *account.Account = @ptrCast(@alignCast(self.buffer));
+            self.buffer += @sizeOf(u64);
+            const data_len: usize = @intCast(account_ptr.data_len);
+            self.buffer += @sizeOf(Account) - @sizeOf(u64) + data_len + MAX_PERMITTED_DATA_INCREASE;
+            self.buffer = @ptrFromInt(alignPointer(@intFromPtr(self.buffer)));
+            self.buffer += @sizeOf(u64);
+            self.remaining -= 1;
         }
     }
 
-    // Read instruction data length
-    const ix_data_len_ptr: *const u64 = @ptrCast(@alignCast(ptr));
-    const ix_data_len: usize = @intCast(ix_data_len_ptr.*);
-    ptr += @sizeOf(u64);
+    /// Get instruction data. Call after all accounts are consumed.
+    pub inline fn instructionData(self: *InstructionContext) []const u8 {
+        const data_len: usize = @intCast(@as(*const u64, @ptrCast(@alignCast(self.buffer))).*);
+        self.buffer += @sizeOf(u64);
+        return self.buffer[0..data_len];
+    }
 
-    // Get instruction data slice
-    const instruction_data = ptr[0..ix_data_len];
-    ptr += ix_data_len;
-
-    // Get program ID
-    const program_id: *const Pubkey = @ptrCast(@alignCast(ptr));
-
-    return .{
-        program_id,
-        accounts_buffer[0..accounts_count],
-        instruction_data,
-    };
-}
-
-// =============================================================================
-// Lazy Entrypoint (on-demand parsing)
-// =============================================================================
-
-/// Safety level for comptime-checked operations
-pub const SafetyLevel = enum {
-    /// Full safety checks (bounds, alignment, borrow)
-    safe,
-    /// Skip bounds checks, keep alignment/borrow checks
-    fast,
-    /// No checks (caller guarantees correctness)
-    unchecked,
+    /// Get program ID. Call after instruction_data().
+    pub inline fn programId(self: *InstructionContext) *const Pubkey {
+        const data_len: usize = @intCast(@as(*const u64, @ptrCast(@alignCast(self.buffer))).*);
+        self.buffer += @sizeOf(u64) + data_len;
+        return @ptrCast(@alignCast(self.buffer));
+    }
 };
 
-/// Lazy parsing context — accounts are parsed on demand
-/// 
-/// `max_accounts`: comptime-known capacity for duplicate resolution.
-/// Use `lazyEntrypointMax(max_accounts, ...)` to select a smaller
-/// capacity for simple programs (reduces stack usage).
-pub fn InstructionContext(comptime max_accounts: usize) type {
-    return struct {
-        /// Current pointer into input buffer (starts after num_accounts)
-        ptr: [*]u8,
+// =========================================================================
+// Entrypoint helpers
+// =========================================================================
 
-        /// Total number of accounts
-        num_accounts: u64,
-
-        /// Number of accounts already parsed
-        parsed_count: u64,
-
-        /// Instruction data (lazily parsed)
-        instruction_data: []const u8,
-
-        /// Program ID (lazily parsed)
-        program_id: *const Pubkey,
-
-        /// Internal: accounts parsed so far (for duplicate resolution)
-        _accounts: [max_accounts]AccountInfo,
-
-        const Self = @This();
-
-        /// Initialize context from raw input
-        /// 
-        /// Does NOT pre-scan accounts. Instruction data and program ID
-        /// are parsed lazily when first accessed.
-        pub fn init(input: [*]u8) Self {
-            var ptr = input;
-
-            const num_accounts_ptr: *const u64 = @ptrCast(@alignCast(ptr));
-            const num_accounts = num_accounts_ptr.*;
-            ptr += @sizeOf(u64);
-
-            return .{
-                .ptr = ptr,
-                .num_accounts = num_accounts,
-                .parsed_count = 0,
-                .instruction_data = &.{},
-                .program_id = undefined,
-                ._accounts = undefined,
-            };
-        }
-
-        /// Parse instruction data and program ID from current position
-        /// Called lazily when instructionData() or programId() is first used
-        inline fn parseMetadata(self: *Self) void {
-            // Check if already parsed by checking if instruction_data is non-empty
-            // or if we've set program_id (use a flag approach)
-            if (self.instruction_data.len != 0) return; // already parsed
-
-            // Skip remaining unparsed accounts
-            var skip_ptr = self.ptr;
-            var i: u64 = self.parsed_count;
-            while (i < self.num_accounts) : (i += 1) {
-                const dup_marker = skip_ptr[0];
-                if (dup_marker != NON_DUP_MARKER) {
-                    skip_ptr += @sizeOf(u64);
-                } else {
-                    const account_ptr: *Account = @ptrCast(@alignCast(skip_ptr));
-                    skip_ptr += @sizeOf(Account);
-                    skip_ptr += @as(usize, @intCast(account_ptr.data_len));
-                    skip_ptr += MAX_PERMITTED_DATA_INCREASE;
-                    skip_ptr = @ptrFromInt(alignPointer(@intFromPtr(skip_ptr)));
-                    skip_ptr += @sizeOf(u64);
-                }
-            }
-
-            // Read instruction data length
-            const ix_data_len_ptr: *const u64 = @ptrCast(@alignCast(skip_ptr));
-            const ix_data_len: usize = @intCast(ix_data_len_ptr.*);
-            skip_ptr += @sizeOf(u64);
-
-            // Get instruction data
-            self.instruction_data = skip_ptr[0..ix_data_len];
-            skip_ptr += ix_data_len;
-
-            // Get program ID
-            self.program_id = @ptrCast(@alignCast(skip_ptr));
-        }
-
-        /// Get remaining unparsed accounts count
-        pub inline fn remaining(self: Self) u64 {
-            return self.num_accounts - self.parsed_count;
-        }
-
-        /// Parse and return the next account
-        /// 
-        /// Use `nextAccountEx(.fast)` or `nextAccountEx(.unchecked)` for
-        /// compile-time selectable safety levels.
-        pub fn nextAccount(self: *Self) ?*AccountInfo {
-            if (self.parsed_count >= self.num_accounts) return null;
-            return self.nextAccountEx(.safe);
-        }
-
-        /// Parse and return the next account — no bounds check
-        ///
-        /// ⚠️ SAFETY: Caller must ensure there are remaining accounts.
-        ///            Use when you've already checked `remaining()`.
-        pub fn nextAccountUnchecked(self: *Self) *AccountInfo {
-            return self.nextAccountEx(.unchecked);
-        }
-
-        /// Parse and return the next account with compile-time safety level
-        ///
-        /// ```zig
-        /// // Safe: bounds check + duplicate resolution
-        /// const account = context.nextAccountEx(.safe);
-        ///
-        /// // Fast: no bounds check, keep duplicate resolution
-        /// const account = context.nextAccountEx(.fast);
-        ///
-        /// // Unchecked: no checks at all (max performance)
-        /// const account = context.nextAccountEx(.unchecked);
-        /// ```
-        pub inline fn nextAccountEx(self: *Self, comptime safety: SafetyLevel) *AccountInfo {
-            // Bounds check (compile-time selectable)
-            if (safety == .safe) {
-                if (self.parsed_count >= self.num_accounts) {
-                    @branchHint(.cold);
-                    @panic("nextAccountEx: no remaining accounts");
-                }
-            }
-
-            const dup_marker = self.ptr[0];
-
-            const result = if (dup_marker != NON_DUP_MARKER) blk: {
-                // Duplicate account
-                const dup_index = dup_marker;
-                self.ptr += @sizeOf(u64); // skip 8-byte marker
-                
-                // In safe mode, validate duplicate index
-                if (safety == .safe) {
-                    if (dup_index >= self.parsed_count) {
-                        @branchHint(.cold);
-                        @panic("nextAccountEx: invalid duplicate index");
-                    }
-                }
-                
-                break :blk &self._accounts[dup_index];
-            } else blk: {
-                // New account
-                const account_ptr: *Account = @ptrCast(@alignCast(self.ptr));
-                const info = AccountInfo.fromPtr(account_ptr);
-
-                // Skip past account struct + data + padding + alignment + rent_epoch
-                self.ptr += @sizeOf(Account);
-                self.ptr += @as(usize, @intCast(account_ptr.data_len));
-                self.ptr += MAX_PERMITTED_DATA_INCREASE;
-                self.ptr = @ptrFromInt(alignPointer(@intFromPtr(self.ptr)));
-                self.ptr += @sizeOf(u64);
-
-                self._accounts[self.parsed_count] = info;
-                break :blk &self._accounts[self.parsed_count];
-            };
-
-            self.parsed_count += 1;
-
-            return result;
-        }
-
-        /// Skip specified number of accounts without parsing
-        pub fn skipAccounts(self: *Self, count: u64) void {
-            var i: u64 = 0;
-            while (i < count and self.parsed_count < self.num_accounts) : (i += 1) {
-                const dup_marker = self.ptr[0];
-                if (dup_marker != NON_DUP_MARKER) {
-                    self.ptr += @sizeOf(u64);
-                } else {
-                    const account_ptr: *Account = @ptrCast(@alignCast(self.ptr));
-                    self.ptr += @sizeOf(Account);
-                    self.ptr += @as(usize, @intCast(account_ptr.data_len));
-                    self.ptr += MAX_PERMITTED_DATA_INCREASE;
-                    self.ptr = @ptrFromInt(alignPointer(@intFromPtr(self.ptr)));
-                    self.ptr += @sizeOf(u64);
-                }
-                self.parsed_count += 1;
-            }
-        }
-
-        /// Get instruction data (lazily parsed on first call)
-        pub inline fn instructionData(self: *Self) []const u8 {
-            self.parseMetadata();
-            return self.instruction_data;
-        }
-
-        /// Get instruction data with compile-time safety level
-        pub inline fn instructionDataEx(self: *Self, comptime safety: SafetyLevel) []const u8 {
-            if (safety == .safe) {
-                if (self.parsed_count < self.num_accounts) {
-                    @branchHint(.cold);
-                    @panic("instructionDataEx: not all accounts parsed");
-                }
-            }
-            self.parseMetadata();
-            return self.instruction_data;
-        }
-
-        /// Get program ID (lazily parsed on first call)
-        pub inline fn programId(self: *Self) *const Pubkey {
-            self.parseMetadata();
-            return self.program_id;
-        }
-
-        /// Get program ID with compile-time safety level
-        pub inline fn programIdEx(self: *Self, comptime safety: SafetyLevel) *const Pubkey {
-            if (safety == .safe) {
-                if (self.parsed_count < self.num_accounts) {
-                    @branchHint(.cold);
-                    @panic("programIdEx: not all accounts parsed");
-                }
-            }
-            self.parseMetadata();
-            return self.program_id;
-        }
-    };
-}
-
-/// Branch prediction hint: unlikely branch
-/// Maps to LLVM's __builtin_expect(false)
-/// Use for error paths that are rarely taken
+/// Branch prediction hint: unlikely branch.
 pub inline fn unlikely(b: bool) bool {
     if (b) {
         @branchHint(.cold);
@@ -431,8 +111,7 @@ pub inline fn unlikely(b: bool) bool {
     return false;
 }
 
-/// Branch prediction hint: likely branch
-/// Maps to LLVM's __builtin_expect(true)
+/// Branch prediction hint: likely branch.
 pub inline fn likely(b: bool) bool {
     if (!b) {
         @branchHint(.cold);
@@ -441,47 +120,52 @@ pub inline fn likely(b: bool) bool {
     return true;
 }
 
-/// Create a lazy entrypoint — on-demand account parsing
-///
-/// Default capacity: 256 accounts for duplicate resolution.
-/// For simple programs, use `lazyEntrypointMax(max_accounts, ...)`
-/// to reduce stack usage.
-pub fn lazyEntrypoint(
-    comptime process_instruction: LazyEntrypointFn(256),
-) fn ([*]u8) callconv(.c) u64 {
-    return lazyEntrypointMax(256, process_instruction);
-}
-
-/// Create a lazy entrypoint with custom max accounts capacity
-///
-/// Reduces stack usage for simple programs that don't need 256 accounts.
-/// 
+// =========================================================================
+// lazyEntrypoint — the ONLY entrypoint macro (Pinocchio: lazy_program_entrypoint!)
+//
+/// Usage:
 /// ```zig
-/// // For transfer-lamports (2 accounts):
+/// fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
+///     const source = ctx.nextAccount() orelse return error.NotEnoughAccountKeys;
+///     const dest = ctx.nextAccount() orelse return error.NotEnoughAccountKeys;
+///     const ix_data = ctx.instructionData();
+///     // ...
+/// }
+///
 /// export fn entrypoint(input: [*]u8) u64 {
-///     return sol.entrypoint.lazyEntrypointMax(2, processInstruction)(input);
+///     return sol.entrypoint.lazyEntrypoint(process)(input);
 /// }
 /// ```
-pub fn lazyEntrypointMax(
-    comptime max_accounts: usize,
-    comptime process_instruction: LazyEntrypointFn(max_accounts),
+pub fn lazyEntrypoint(
+    comptime process: *const fn (*InstructionContext) ProgramResult,
 ) fn ([*]u8) callconv(.c) u64 {
     return struct {
         fn entry(input: [*]u8) callconv(.c) u64 {
-            var context = InstructionContext(max_accounts).init(input);
-
-            process_instruction(&context) catch |err| {
+            var context = InstructionContext.init(input);
+            process(&context) catch |err| {
                 return program_error.errorToU64(err);
             };
-
             return SUCCESS;
         }
     }.entry;
 }
 
-// =============================================================================
-// Test Helpers
-// =============================================================================
+/// Raw entrypoint — returns u64 directly, no error union overhead.
+/// Use for maximum performance when you don't need ProgramResult.
+pub fn lazyEntrypointRaw(
+    comptime process: *const fn (*InstructionContext) u64,
+) fn ([*]u8) callconv(.c) u64 {
+    return struct {
+        fn entry(input: [*]u8) callconv(.c) u64 {
+            var context = InstructionContext.init(input);
+            return process(&context);
+        }
+    }.entry;
+}
+
+// =========================================================================
+// Tests
+// =========================================================================
 
 fn makePubkey(v: u8) Pubkey {
     var pk: Pubkey = undefined;
@@ -489,71 +173,25 @@ fn makePubkey(v: u8) Pubkey {
     return pk;
 }
 
-/// Serialize a single account into a test buffer
-/// Returns the new pointer position
-fn serializeAccount(ptr: [*]u8, acc: Account) [*]u8 {
-    var p = ptr;
-    // For non-duplicate, the first byte IS the borrow_state (0xFF)
-    // So we write the Account struct directly
-    @memcpy(p[0..@sizeOf(Account)], std.mem.asBytes(&acc));
-    p += @sizeOf(Account);
-    // Write data
-    p += @as(usize, @intCast(acc.data_len));
-    // Write 10KB padding
-    p += MAX_PERMITTED_DATA_INCREASE;
-    // Align
-    p = @ptrFromInt(alignPointer(@intFromPtr(p)));
-    // Write rent_epoch
-    std.mem.writeInt(u64, p[0..8], 0, .little);
-    p += @sizeOf(u64);
-    return p;
+test "entrypoint: InstructionContext size is 16 bytes" {
+    try std.testing.expectEqual(@as(usize, 16), @sizeOf(InstructionContext));
 }
 
-/// Serialize a duplicate account marker
-fn serializeDuplicate(ptr: [*]u8, index: u8) [*]u8 {
-    var p = ptr;
-    p[0] = index; // dup marker (NOT 0xFF)
-    // 7 bytes padding
-    @memset(p[1..8], 0);
-    p += @sizeOf(u64);
-    return p;
+test "entrypoint: AccountInfo size is 8 bytes" {
+    try std.testing.expectEqual(@as(usize, 8), @sizeOf(AccountInfo));
 }
 
-// =============================================================================
-// Tests
-// =============================================================================
-
-test "entrypoint: deserialize empty" {
-    var input align(8) = [_]u8{0} ** 48;
-    // num_accounts = 0
-    std.mem.writeInt(u64, input[0..8], 0, .little);
-    // instruction_data_len = 0
-    std.mem.writeInt(u64, input[8..16], 0, .little);
-    // program_id
-    const pk = makePubkey(1);
-    @memcpy(input[16..48], &pk);
-
-    var accounts_buffer: [10]AccountInfo = undefined;
-    const program_id, const accounts, const ix_data =
-        deserialize(&input, &accounts_buffer);
-    _ = ix_data;
-
-    try std.testing.expectEqual(@as(usize, 0), accounts.len);
-    try std.testing.expect(pubkey.pubkeyEq(program_id, &pk));
-}
-
-test "entrypoint: deserialize single account" {
-    // Buffer for 1 account + metadata
-    var input align(8) = [_]u8{0} ** (@sizeOf(Account) + MAX_PERMITTED_DATA_INCREASE + @sizeOf(u64) + 64);
+test "entrypoint: parse accounts and instruction data" {
+    var input align(8) = [_]u8{0} ** 32768;
     var ptr: [*]u8 = &input;
 
-    // num_accounts = 1
-    std.mem.writeInt(u64, ptr[0..8], 1, .little);
+    // num_accounts = 2
+    std.mem.writeInt(u64, ptr[0..8], 2, .little);
     ptr += 8;
 
-    // Account 0 (non-duplicate)
+    // Account 0
     const acc0: Account = .{
-        .borrow_state = NON_DUP_MARKER,
+        .borrow_state = account.NON_DUP_MARKER,
         .is_signer = 1,
         .is_writable = 1,
         .is_executable = 0,
@@ -563,155 +201,12 @@ test "entrypoint: deserialize single account" {
         .lamports = 1000,
         .data_len = 0,
     };
-    ptr = serializeAccount(ptr, acc0);
-
-    // instruction_data_len = 4
-    std.mem.writeInt(u64, ptr[0..8], 4, .little);
-    ptr += 8;
-    // instruction_data
-    @memcpy(ptr[0..4], "test");
-    ptr += 4;
-    // program_id
-    const pk = makePubkey(3);
-    @memcpy(ptr[0..32], &pk);
-
-    var accounts_buffer: [10]AccountInfo = undefined;
-    const program_id, const accounts, const instruction_data =
-        deserialize(&input, &accounts_buffer);
-
-    try std.testing.expectEqual(@as(usize, 1), accounts.len);
-    try std.testing.expect(accounts[0].isSigner());
-    try std.testing.expect(accounts[0].isWritable());
-    try std.testing.expect(!accounts[0].executable());
-    try std.testing.expectEqual(@as(u64, 1000), accounts[0].lamports());
-    try std.testing.expect(pubkey.pubkeyEq(accounts[0].key(), &makePubkey(1)));
-    try std.testing.expect(pubkey.pubkeyEq(accounts[0].owner(), &makePubkey(2)));
-    try std.testing.expect(pubkey.pubkeyEq(program_id, &makePubkey(3)));
-    try std.testing.expectEqualStrings("test", instruction_data);
-}
-
-test "entrypoint: deserialize with data" {
-    // Buffer for 1 account with data + metadata
-    var input align(8) = [_]u8{0} ** (@sizeOf(Account) + 10 + MAX_PERMITTED_DATA_INCREASE + @sizeOf(u64) + 64);
-    var ptr: [*]u8 = &input;
-
-    // num_accounts = 1
-    std.mem.writeInt(u64, ptr[0..8], 1, .little);
-    ptr += 8;
-
-    // Account with data
-    const acc0: Account = .{
-        .borrow_state = NON_DUP_MARKER,
-        .is_signer = 0,
-        .is_writable = 1,
-        .is_executable = 0,
-        ._padding = .{0} ** 4,
-        .key = makePubkey(1),
-        .owner = makePubkey(2),
-        .lamports = 500,
-        .data_len = 5,
-    };
-    // Write account struct
     @memcpy(ptr[0..@sizeOf(Account)], std.mem.asBytes(&acc0));
-    ptr += @sizeOf(Account);
-    // Write data
-    @memcpy(ptr[0..5], "hello");
-    ptr += 5;
-    // Skip padding
-    ptr += MAX_PERMITTED_DATA_INCREASE;
-    // Align
-    ptr = @ptrFromInt(alignPointer(@intFromPtr(ptr)));
-    // Rent epoch
-    std.mem.writeInt(u64, ptr[0..8], 0, .little);
-    ptr += 8;
+    ptr += @sizeOf(Account) + MAX_PERMITTED_DATA_INCREASE + 8;
 
-    // instruction_data_len = 0
-    std.mem.writeInt(u64, ptr[0..8], 0, .little);
-    ptr += 8;
-    // program_id
-    const pk = makePubkey(3);
-    @memcpy(ptr[0..32], &pk);
-
-    var accounts_buffer: [10]AccountInfo = undefined;
-    const program_id, const accounts, const ix_data =
-        deserialize(&input, &accounts_buffer);
-    _ = ix_data;
-
-    try std.testing.expectEqual(@as(usize, 1), accounts.len);
-    try std.testing.expectEqual(@as(usize, 5), accounts[0].dataLen());
-    try std.testing.expectEqualStrings("hello", accounts[0].data()[0..5]);
-    try std.testing.expect(pubkey.pubkeyEq(program_id, &makePubkey(3)));
-}
-
-test "entrypoint: deserialize duplicate account" {
-    // Buffer for 2 accounts + metadata
-    var input align(8) = [_]u8{0} ** (2 * (@sizeOf(Account) + MAX_PERMITTED_DATA_INCREASE + @sizeOf(u64)) + 64);
-    var ptr: [*]u8 = &input;
-
-    // num_accounts = 2
-    std.mem.writeInt(u64, ptr[0..8], 2, .little);
-    ptr += 8;
-
-    // Account 0 (non-duplicate)
-    const acc0: Account = .{
-        .borrow_state = NON_DUP_MARKER,
-        .is_signer = 1,
-        .is_writable = 1,
-        .is_executable = 0,
-        ._padding = .{0} ** 4,
-        .key = makePubkey(1),
-        .owner = makePubkey(2),
-        .lamports = 1000,
-        .data_len = 0,
-    };
-    ptr = serializeAccount(ptr, acc0);
-
-    // Account 1 (duplicate of account 0)
-    ptr = serializeDuplicate(ptr, 0);
-
-    // instruction_data_len = 0
-    std.mem.writeInt(u64, ptr[0..8], 0, .little);
-    ptr += 8;
-    // program_id
-    const pk = makePubkey(3);
-    @memcpy(ptr[0..32], &pk);
-
-    var accounts_buffer: [10]AccountInfo = undefined;
-    const program_id, const accounts, const ix_data =
-        deserialize(&input, &accounts_buffer);
-    _ = ix_data;
-
-    try std.testing.expectEqual(@as(usize, 2), accounts.len);
-    // Both accounts should point to the same underlying account
-    try std.testing.expectEqual(accounts[0].key_ptr, accounts[1].key_ptr);
-    try std.testing.expect(pubkey.pubkeyEq(program_id, &makePubkey(3)));
-}
-
-test "entrypoint: lazy parsing" {
-    var input align(8) = [_]u8{0} ** 32768;
-    var ptr: [*]u8 = &input;
-
-    // num_accounts = 2
-    std.mem.writeInt(u64, ptr[0..8], 2, .little);
-    ptr += 8;
-
-    // Account 0 (non-dup, no data)
-    const acc0: Account = .{
-        .borrow_state = NON_DUP_MARKER,
-        .is_signer = 1,
-        .is_writable = 1,
-        .is_executable = 0,
-        ._padding = .{0} ** 4,
-        .key = makePubkey(1),
-        .owner = makePubkey(2),
-        .lamports = 1000,
-        .data_len = 0,
-    };
-    ptr = serializeAccount(ptr, acc0);
-
-    // Account 1 (non-dup, no data)
+    // Account 1
     const acc1: Account = .{
-        .borrow_state = NON_DUP_MARKER,
+        .borrow_state = account.NON_DUP_MARKER,
         .is_signer = 0,
         .is_writable = 0,
         .is_executable = 0,
@@ -721,166 +216,32 @@ test "entrypoint: lazy parsing" {
         .lamports = 500,
         .data_len = 0,
     };
-    ptr = serializeAccount(ptr, acc1);
+    @memcpy(ptr[0..@sizeOf(Account)], std.mem.asBytes(&acc1));
+    ptr += @sizeOf(Account) + MAX_PERMITTED_DATA_INCREASE + 8;
 
-    // instruction_data_len = 4
+    // instruction data
     std.mem.writeInt(u64, ptr[0..8], 4, .little);
     ptr += 8;
     @memcpy(ptr[0..4], "test");
-    ptr += 4;
-    // program_id
-    const pk = makePubkey(4);
-    @memcpy(ptr[0..32], &pk);
 
-    var context = InstructionContext(256).init(&input);
+    var ctx = InstructionContext.init(&input);
 
-    try std.testing.expectEqual(@as(u64, 2), context.remaining());
-    const ix_data = context.instructionData();
-    try std.testing.expectEqual(@as(usize, 4), ix_data.len);
-    try std.testing.expectEqual(@as(u8, 't'), ix_data[0]);
-    try std.testing.expectEqual(@as(u8, 'e'), ix_data[1]);
-    try std.testing.expectEqual(@as(u8, 's'), ix_data[2]);
-    try std.testing.expectEqual(@as(u8, 't'), ix_data[3]);
-    try std.testing.expect(pubkey.pubkeyEq(context.programId(), &makePubkey(4)));
+    try std.testing.expectEqual(@as(u64, 2), ctx.remainingAccounts());
 
-    const acc0_info = context.nextAccount().?;
-    try std.testing.expect(acc0_info.isSigner());
-    try std.testing.expect(acc0_info.isWritable());
-    try std.testing.expect(pubkey.pubkeyEq(acc0_info.key(), &makePubkey(1)));
+    const a0 = ctx.nextAccount().?;
+    try std.testing.expect(a0.isSigner());
+    try std.testing.expect(a0.isWritable());
+    try std.testing.expectEqual(@as(u64, 1000), a0.lamports());
+    try std.testing.expect(pubkey.pubkeyEq(a0.key(), &makePubkey(1)));
 
-    try std.testing.expectEqual(@as(u64, 1), context.remaining());
+    const a1 = ctx.nextAccount().?;
+    try std.testing.expect(!a1.isSigner());
+    try std.testing.expectEqual(@as(u64, 500), a1.lamports());
+    try std.testing.expect(pubkey.pubkeyEq(a1.key(), &makePubkey(3)));
 
-    const acc1_info = context.nextAccount().?;
-    try std.testing.expect(!acc1_info.isSigner());
-    try std.testing.expect(!acc1_info.isWritable());
-    try std.testing.expect(pubkey.pubkeyEq(acc1_info.key(), &makePubkey(3)));
+    try std.testing.expectEqual(@as(u64, 0), ctx.remainingAccounts());
+    try std.testing.expect(ctx.nextAccount() == null);
 
-    try std.testing.expectEqual(@as(u64, 0), context.remaining());
-    try std.testing.expect(context.nextAccount() == null);
-}
-
-test "entrypoint: lazy skip accounts" {
-    var input align(8) = [_]u8{0} ** (3 * (@sizeOf(Account) + MAX_PERMITTED_DATA_INCREASE + @sizeOf(u64)) + 64);
-    var ptr: [*]u8 = &input;
-
-    // num_accounts = 3
-    std.mem.writeInt(u64, ptr[0..8], 3, .little);
-    ptr += 8;
-
-    // Account 0
-    const acc0: Account = .{
-        .borrow_state = NON_DUP_MARKER,
-        .is_signer = 1,
-        .is_writable = 1,
-        .is_executable = 0,
-        ._padding = .{0} ** 4,
-        .key = makePubkey(1),
-        .owner = makePubkey(2),
-        .lamports = 1000,
-        .data_len = 0,
-    };
-    ptr = serializeAccount(ptr, acc0);
-
-    // Account 1
-    const acc1: Account = .{
-        .borrow_state = NON_DUP_MARKER,
-        .is_signer = 0,
-        .is_writable = 0,
-        .is_executable = 0,
-        ._padding = .{0} ** 4,
-        .key = makePubkey(3),
-        .owner = makePubkey(2),
-        .lamports = 500,
-        .data_len = 0,
-    };
-    ptr = serializeAccount(ptr, acc1);
-
-    // Account 2
-    const acc2: Account = .{
-        .borrow_state = NON_DUP_MARKER,
-        .is_signer = 0,
-        .is_writable = 1,
-        .is_executable = 0,
-        ._padding = .{0} ** 4,
-        .key = makePubkey(5),
-        .owner = makePubkey(2),
-        .lamports = 200,
-        .data_len = 0,
-    };
-    ptr = serializeAccount(ptr, acc2);
-
-    // instruction_data_len = 0
-    std.mem.writeInt(u64, ptr[0..8], 0, .little);
-    ptr += 8;
-    // program_id
-    const pk = makePubkey(6);
-    @memcpy(ptr[0..32], &pk);
-
-    var context = InstructionContext(256).init(&input);
-
-    // Skip first 2 accounts
-    context.skipAccounts(2);
-    try std.testing.expectEqual(@as(u64, 1), context.remaining());
-
-    // Get the 3rd account
-    const acc2_info = context.nextAccount().?;
-    try std.testing.expect(pubkey.pubkeyEq(acc2_info.key(), &makePubkey(5)));
-    try std.testing.expectEqual(@as(u64, 0), context.remaining());
-}
-
-test "entrypoint: lazy parsing with small capacity" {
-    var input align(8) = [_]u8{0} ** 32768;
-    var ptr: [*]u8 = &input;
-
-    // num_accounts = 2
-    std.mem.writeInt(u64, ptr[0..8], 2, .little);
-    ptr += 8;
-
-    // Account 0
-    const acc0: Account = .{
-        .borrow_state = NON_DUP_MARKER,
-        .is_signer = 1,
-        .is_writable = 1,
-        .is_executable = 0,
-        ._padding = .{0} ** 4,
-        .key = makePubkey(1),
-        .owner = makePubkey(2),
-        .lamports = 1000,
-        .data_len = 0,
-    };
-    ptr = serializeAccount(ptr, acc0);
-
-    // Account 1
-    const acc1: Account = .{
-        .borrow_state = NON_DUP_MARKER,
-        .is_signer = 0,
-        .is_writable = 0,
-        .is_executable = 0,
-        ._padding = .{0} ** 4,
-        .key = makePubkey(3),
-        .owner = makePubkey(2),
-        .lamports = 500,
-        .data_len = 0,
-    };
-    ptr = serializeAccount(ptr, acc1);
-
-    // instruction_data_len = 0
-    std.mem.writeInt(u64, ptr[0..8], 0, .little);
-    ptr += 8;
-    // program_id
-    const pk = makePubkey(4);
-    @memcpy(ptr[0..32], &pk);
-
-    // Use small capacity (2 accounts)
-    var context = InstructionContext(2).init(&input);
-
-    try std.testing.expectEqual(@as(u64, 2), context.remaining());
-
-    const acc0_info = context.nextAccount().?;
-    try std.testing.expect(pubkey.pubkeyEq(acc0_info.key(), &makePubkey(1)));
-
-    const acc1_info = context.nextAccount().?;
-    try std.testing.expect(pubkey.pubkeyEq(acc1_info.key(), &makePubkey(3)));
-
-    try std.testing.expectEqual(@as(u64, 0), context.remaining());
+    const ix_data = ctx.instructionData();
+    try std.testing.expectEqualStrings("test", ix_data);
 }

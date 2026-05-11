@@ -31,19 +31,22 @@ pub const bpf = @import("bpf.zig");
 /// Usage in your program: `pub const panic = solana_program_sdk.panic.Panic;`
 pub const panic = @import("panic.zig");
 
-// Type aliases for convenience
+// Type aliases (Pinocchio naming convention)
 pub const Pubkey = pubkey.Pubkey;
 pub const PUBKEY_BYTES = pubkey.PUBKEY_BYTES;
-pub const AccountInfo = account.AccountInfo;
 pub const Account = account.Account;
+pub const AccountInfo = account.AccountInfo;
+pub const CpiAccountInfo = account.CpiAccountInfo;
+pub const MaybeAccount = account.MaybeAccount;
+pub const InstructionContext = entrypoint.InstructionContext;
 pub const ProgramError = program_error.ProgramError;
 pub const ProgramResult = program_error.ProgramResult;
 pub const SUCCESS = program_error.SUCCESS;
 
-// Re-export commonly used constants
+// Constants
 pub const lamports_per_sol = 1_000_000_000;
 
-// Program IDs (using new comptimeFromBase58)
+// Program IDs
 pub const native_loader_id = pubkey.comptimeFromBase58("NativeLoader1111111111111111111111111111111");
 pub const incinerator_id = pubkey.comptimeFromBase58("1nc1nerator11111111111111111111111111111111");
 pub const sysvar_id = pubkey.comptimeFromBase58("Sysvar1111111111111111111111111111111111111");

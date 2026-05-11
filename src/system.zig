@@ -13,7 +13,7 @@ const program_error = @import("program_error.zig");
 const instruction = @import("instruction.zig");
 
 const Pubkey = pubkey.Pubkey;
-const AccountInfo = account_mod.AccountInfo;
+const CpiAccountInfo = account_mod.CpiAccountInfo;
 const ProgramResult = program_error.ProgramResult;
 
 /// System Program instruction discriminants
@@ -87,8 +87,8 @@ const ReallocData = instruction.comptimeInstructionData(
 /// - `from`: signer, writable — pays for the new account
 /// - `to`: writable — the account to be created
 pub fn createAccount(
-    from: AccountInfo,
-    to: AccountInfo,
+    from: CpiAccountInfo,
+    to: CpiAccountInfo,
     lamports: u64,
     space: u64,
     owner: *const Pubkey,
@@ -113,13 +113,13 @@ pub fn createAccount(
         .data = &ix_data,
     };
 
-    try cpi.invoke(&ix, &[_]AccountInfo{ from, to });
+    try cpi.invoke(&ix, &[_]CpiAccountInfo{ from, to });
 }
 
 /// Create a new account with PDA signing
 pub fn createAccountSigned(
-    from: AccountInfo,
-    to: AccountInfo,
+    from: CpiAccountInfo,
+    to: CpiAccountInfo,
     lamports: u64,
     space: u64,
     owner: *const Pubkey,
@@ -144,7 +144,7 @@ pub fn createAccountSigned(
         .data = &ix_data,
     };
 
-    try cpi.invokeSigned(&ix, &[_]AccountInfo{ from, to }, signers_seeds);
+    try cpi.invokeSigned(&ix, &[_]CpiAccountInfo{ from, to }, signers_seeds);
 }
 
 /// Transfer lamports via System Program CPI
@@ -153,8 +153,8 @@ pub fn createAccountSigned(
 /// - `from`: signer, writable — source of lamports
 /// - `to`: writable — destination for lamports
 pub fn transfer(
-    from: AccountInfo,
-    to: AccountInfo,
+    from: CpiAccountInfo,
+    to: CpiAccountInfo,
     lamports: u64,
 ) ProgramResult {
     var system_program_id: Pubkey = undefined;
@@ -176,12 +176,12 @@ pub fn transfer(
         .data = &ix_data,
     };
 
-    try cpi.invoke(&ix, &[_]AccountInfo{ from, to });
+    try cpi.invoke(&ix, &[_]CpiAccountInfo{ from, to });
 }
 
 /// Assign a new owner to an account
 pub fn assign(
-    account: AccountInfo,
+    account: CpiAccountInfo,
     owner: *const Pubkey,
 ) ProgramResult {
     var system_program_id: Pubkey = undefined;
@@ -202,12 +202,12 @@ pub fn assign(
         .data = &ix_data,
     };
 
-    try cpi.invoke(&ix, &[_]AccountInfo{account});
+    try cpi.invoke(&ix, &[_]CpiAccountInfo{account});
 }
 
 /// Allocate space in an account
 pub fn allocate(
-    account: AccountInfo,
+    account: CpiAccountInfo,
     space: u64,
 ) ProgramResult {
     var system_program_id: Pubkey = undefined;
@@ -228,12 +228,12 @@ pub fn allocate(
         .data = &ix_data,
     };
 
-    try cpi.invoke(&ix, &[_]AccountInfo{account});
+    try cpi.invoke(&ix, &[_]CpiAccountInfo{account});
 }
 
 /// Reallocate space in an account
 pub fn realloc(
-    account: AccountInfo,
+    account: CpiAccountInfo,
     new_space: u64,
     zero_init: bool,
 ) ProgramResult {
@@ -255,13 +255,13 @@ pub fn realloc(
         .data = &ix_data,
     };
 
-    try cpi.invoke(&ix, &[_]AccountInfo{account});
+    try cpi.invoke(&ix, &[_]CpiAccountInfo{account});
 }
 
 /// Create account with seed
 pub fn createAccountWithSeed(
-    from: AccountInfo,
-    to: AccountInfo,
+    from: CpiAccountInfo,
+    to: CpiAccountInfo,
     base: *const Pubkey,
     seed: []const u8,
     lamports: u64,
@@ -295,7 +295,7 @@ pub fn createAccountWithSeed(
         .data = ix_data[0 .. 44 + seed.len + 16 + 32],
     };
 
-    try cpi.invoke(&ix, &[_]AccountInfo{ from, to });
+    try cpi.invoke(&ix, &[_]CpiAccountInfo{ from, to });
 }
 
 // =============================================================================

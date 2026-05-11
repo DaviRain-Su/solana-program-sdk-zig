@@ -1,7 +1,7 @@
 //! Cross-Program Invocation (CPI)
 //!
 //! Provides zero-overhead CPI wrappers.
-//! AccountInfo layout matches Solana C ABI, so no conversion is needed.
+//! CpiAccountInfo layout matches Solana C ABI, so no conversion is needed.
 
 const std = @import("std");
 const account = @import("account.zig");
@@ -9,7 +9,7 @@ const pubkey = @import("pubkey.zig");
 const program_error = @import("program_error.zig");
 const bpf = @import("bpf.zig");
 
-const AccountInfo = account.AccountInfo;
+const CpiAccountInfo = account.CpiAccountInfo;
 const Pubkey = pubkey.Pubkey;
 const ProgramResult = program_error.ProgramResult;
 const SUCCESS = program_error.SUCCESS;
@@ -62,7 +62,7 @@ const SolSignerSeedsC = extern struct {
 
 extern fn sol_invoke_signed_c(
     instruction: *const SolInstruction,
-    account_infos: [*]const AccountInfo,
+    account_infos: [*]const CpiAccountInfo,
     account_infos_len: u64,
     signers_seeds: [*]const SolSignerSeedsC,
     signers_seeds_len: u64,
@@ -77,22 +77,22 @@ extern fn sol_get_return_data(data: [*]u8, len: u64, program_id: *Pubkey) callco
 
 /// Invoke another program
 /// 
-/// ZERO-COPY: AccountInfo layout matches SolAccountInfo C ABI,
+/// ZERO-COPY: CpiAccountInfo layout matches SolCpiAccountInfo C ABI,
 /// so accounts can be passed directly without conversion.
 pub fn invoke(
     instruction: *const Instruction,
-    accounts: []const AccountInfo,
+    accounts: []const CpiAccountInfo,
 ) ProgramResult {
     return invokeSigned(instruction, accounts, &[_][]const u8{});
 }
 
 /// Invoke another program with program derived address signatures
 /// 
-/// ZERO-COPY: AccountInfo layout matches SolAccountInfo C ABI,
+/// ZERO-COPY: CpiAccountInfo layout matches SolCpiAccountInfo C ABI,
 /// so accounts can be passed directly without conversion.
 pub fn invokeSigned(
     instruction: *const Instruction,
-    accounts: []const AccountInfo,
+    accounts: []const CpiAccountInfo,
     signers_seeds: []const []const u8,
 ) ProgramResult {
     if (!bpf.is_bpf_program) {
@@ -139,7 +139,7 @@ pub fn invokeSigned(
 
     const signers_len: u64 = if (signers_seeds.len > 0) 1 else 0;
 
-    // ZERO-COPY: Pass AccountInfo array directly — its layout matches SolAccountInfo
+    // ZERO-COPY: Pass CpiAccountInfo array directly — its layout matches SolCpiAccountInfo
     const result = sol_invoke_signed_c(
         &sol_instruction,
         accounts.ptr,
@@ -185,9 +185,9 @@ test "cpi: AccountMeta size" {
     try std.testing.expectEqual(@as(usize, 16), @sizeOf(AccountMeta));
 }
 
-test "cpi: AccountInfo matches C ABI" {
-    // Verify AccountInfo layout matches SolAccountInfo for first 56 bytes
-    const SolAccountInfo = extern struct {
+test "cpi: CpiAccountInfo matches C ABI" {
+    // Verify CpiAccountInfo layout matches SolCpiAccountInfo for first 56 bytes
+    const SolCpiAccountInfo = extern struct {
         key: *const Pubkey,
         lamports: *u64,
         data_len: u64,
@@ -200,12 +200,12 @@ test "cpi: AccountInfo matches C ABI" {
         _padding: [5]u8,
     };
 
-    try std.testing.expectEqual(@sizeOf(SolAccountInfo), 56);
+    try std.testing.expectEqual(@sizeOf(SolCpiAccountInfo), 56);
     
     // Verify field offsets match
-    const dummy: AccountInfo = undefined;
+    const dummy: CpiAccountInfo = undefined;
     _ = dummy;
     
-    // If this compiles, AccountInfo can be passed directly to sol_invoke_signed_c
+    // If this compiles, CpiAccountInfo can be passed directly to sol_invoke_signed_c
     _ = dummy;
 }

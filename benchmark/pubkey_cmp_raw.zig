@@ -1,11 +1,15 @@
 const sol = @import("solana_program_sdk");
 
-export fn entrypoint(input: [*]u8) u64 {
-    const key_ptr: *const sol.Pubkey = @ptrCast(@alignCast(input + 16));
-    const owner_ptr: *const sol.Pubkey = @ptrCast(@alignCast(input + 16 + 32));
-    if (sol.pubkey.pubkeyEqAligned(key_ptr, owner_ptr)) {
-        return 0;
+fn processInstruction(context: *sol.entrypoint.InstructionContext) sol.ProgramResult {
+    const account = context.nextAccount() orelse return error.NotEnoughAccountKeys;
+
+    if (sol.pubkey.pubkeyEqAligned(account.key(), account.owner())) {
+        return;
     } else {
-        return 1;
+        return error.InvalidArgument;
     }
+}
+
+export fn entrypoint(input: [*]u8) u64 {
+    return sol.entrypoint.lazyEntrypoint(processInstruction)(input);
 }

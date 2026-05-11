@@ -46,6 +46,16 @@ pub const SUCCESS = program_error.SUCCESS;
 // Constants
 pub const lamports_per_sol = 1_000_000_000;
 
+// Well-known program / sysvar IDs.
+//
+// ⚠️ These are module-scope `const` `Pubkey` values. On Zig 0.16 BPF
+// builds, taking `&foo_id` and passing it to a syscall is unsafe — the
+// rodata segment can be placed at low VM addresses that the runtime
+// rejects. Use these constants only for comparisons (`pubkeyEq`,
+// equality checks). For CPI calls, derive the program ID from a parsed
+// `CpiAccountInfo` (e.g. `system_program.key()`) that the caller passed
+// in as part of the instruction's accounts.
+
 // Program IDs
 pub const native_loader_id = pubkey.comptimeFromBase58("NativeLoader1111111111111111111111111111111");
 pub const incinerator_id = pubkey.comptimeFromBase58("1nc1nerator11111111111111111111111111111111");
@@ -62,7 +72,8 @@ pub const slot_hashes_id = sysvar.SLOT_HASHES_ID;
 pub const stake_history_id = sysvar.STAKE_HISTORY_ID;
 pub const instructions_sysvar_id = sysvar.INSTRUCTIONS_ID;
 
-// System Program
+// System Program — see warning above; for CPI use `system_program.key()`
+// from a parsed `CpiAccountInfo`.
 pub const system_program_id = system.SYSTEM_PROGRAM_ID;
 
 test {

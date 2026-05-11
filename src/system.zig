@@ -33,14 +33,16 @@ pub const SystemInstruction = enum(u32) {
     UpgradeNonceAccount = 12,
 };
 
-/// System Program ID (all zeros)
-/// Use getSystemProgramId() to obtain a valid stack copy
+/// System Program ID (all zeros).
+///
+/// ⚠️ On Zig 0.16 BPF builds, module-scope const arrays can land at
+/// invalid low VM addresses, so you generally must **not** take this
+/// constant's address and pass it to a syscall directly. For CPI calls,
+/// always derive the program ID from the System Program account that
+/// the caller passed into the program's input (e.g.
+/// `system_program.key()` from the parsed `CpiAccountInfo`). The
+/// high-level wrappers in this module enforce that pattern.
 pub const SYSTEM_PROGRAM_ID: Pubkey = .{0} ** 32;
-
-/// Write the System Program ID into the provided output buffer
-pub inline fn getSystemProgramId(out: *Pubkey) void {
-    out.* = .{0} ** 32;
-}
 
 // Compile-time instruction data builders
 const CreateAccountData = instruction.comptimeInstructionData(
@@ -73,14 +75,6 @@ const AllocateData = instruction.comptimeInstructionData(
     },
 );
 
-const ReallocData = instruction.comptimeInstructionData(
-    u32,
-    extern struct {
-        new_space: u64,
-        zero_init: u8,
-    },
-);
-
 /// Create a new account via System Program CPI.
 ///
 /// Accounts:
@@ -103,8 +97,8 @@ pub fn createAccount(
     );
 
     const account_metas = [_]cpi.AccountMeta{
-        .{ .pubkey = from.key(), .is_writable = true, .is_signer = true },
-        .{ .pubkey = to.key(), .is_writable = true, .is_signer = true },
+        .{ .pubkey = from.key(), .is_writable = 1, .is_signer = 1 },
+        .{ .pubkey = to.key(), .is_writable = 1, .is_signer = 1 },
     };
 
     const ix = cpi.Instruction{
@@ -117,6 +111,9 @@ pub fn createAccount(
 }
 
 /// Create a new account with PDA signing.
+///
+/// `signers_seeds` follows `cpi.invokeSigned`'s shape: one entry per PDA
+/// signer, each containing the seed slices used to derive that PDA.
 pub fn createAccountSigned(
     from: CpiAccountInfo,
     to: CpiAccountInfo,
@@ -124,7 +121,7 @@ pub fn createAccountSigned(
     lamports: u64,
     space: u64,
     owner: *const Pubkey,
-    signers_seeds: []const []const u8,
+    signers_seeds: []const []const []const u8,
 ) ProgramResult {
     const ix_data = CreateAccountData.initWithDiscriminant(
         @intFromEnum(SystemInstruction.CreateAccount),
@@ -132,8 +129,8 @@ pub fn createAccountSigned(
     );
 
     const account_metas = [_]cpi.AccountMeta{
-        .{ .pubkey = from.key(), .is_writable = true, .is_signer = true },
-        .{ .pubkey = to.key(), .is_writable = true, .is_signer = true },
+        .{ .pubkey = from.key(), .is_writable = 1, .is_signer = 1 },
+        .{ .pubkey = to.key(), .is_writable = 1, .is_signer = 1 },
     };
 
     const ix = cpi.Instruction{
@@ -164,8 +161,8 @@ pub fn transfer(
     );
 
     const account_metas = [_]cpi.AccountMeta{
-        .{ .pubkey = from.key(), .is_writable = true, .is_signer = true },
-        .{ .pubkey = to.key(), .is_writable = true, .is_signer = false },
+        .{ .pubkey = from.key(), .is_writable = 1, .is_signer = 1 },
+        .{ .pubkey = to.key(), .is_writable = 1, .is_signer = 0 },
     };
 
     const ix = cpi.Instruction{
@@ -189,7 +186,7 @@ pub fn assign(
     );
 
     const account_metas = [_]cpi.AccountMeta{
-        .{ .pubkey = account.key(), .is_writable = true, .is_signer = true },
+        .{ .pubkey = account.key(), .is_writable = 1, .is_signer = 1 },
     };
 
     const ix = cpi.Instruction{
@@ -213,7 +210,7 @@ pub fn allocate(
     );
 
     const account_metas = [_]cpi.AccountMeta{
-        .{ .pubkey = account.key(), .is_writable = true, .is_signer = true },
+        .{ .pubkey = account.key(), .is_writable = 1, .is_signer = 1 },
     };
 
     const ix = cpi.Instruction{
@@ -225,30 +222,11 @@ pub fn allocate(
     try cpi.invoke(&ix, &[_]CpiAccountInfo{ account, system_program });
 }
 
-/// Reallocate space in an account.
-pub fn realloc(
-    account: CpiAccountInfo,
-    system_program: CpiAccountInfo,
-    new_space: u64,
-    zero_init: bool,
-) ProgramResult {
-    const ix_data = ReallocData.initWithDiscriminant(
-        @intFromEnum(SystemInstruction.Allocate), // Note: ReAlloc uses Allocate discriminant
-        .{ .new_space = new_space, .zero_init = if (zero_init) 1 else 0 },
-    );
-
-    const account_metas = [_]cpi.AccountMeta{
-        .{ .pubkey = account.key(), .is_writable = true, .is_signer = true },
-    };
-
-    const ix = cpi.Instruction{
-        .program_id = system_program.key(),
-        .accounts = &account_metas,
-        .data = &ix_data,
-    };
-
-    try cpi.invoke(&ix, &[_]CpiAccountInfo{ account, system_program });
-}
+// Note: there is no System Program `Realloc` instruction. Accounts that
+// the program owns can be resized in-place (within
+// `MAX_PERMITTED_DATA_INCREASE`) by writing directly to the runtime's
+// `data_len` slot — no CPI is required. We intentionally do not expose
+// a `system.realloc` wrapper to avoid suggesting otherwise.
 
 /// Create account with seed.
 pub fn createAccountWithSeed(
@@ -275,8 +253,8 @@ pub fn createAccountWithSeed(
     @memcpy(ix_data[lamports_offset + 16..][0..32], owner[0..32]);
 
     const account_metas = [_]cpi.AccountMeta{
-        .{ .pubkey = from.key(), .is_writable = true, .is_signer = true },
-        .{ .pubkey = to.key(), .is_writable = true, .is_signer = false },
+        .{ .pubkey = from.key(), .is_writable = 1, .is_signer = 1 },
+        .{ .pubkey = to.key(), .is_writable = 1, .is_signer = 0 },
     };
 
     const ix = cpi.Instruction{
@@ -292,11 +270,9 @@ pub fn createAccountWithSeed(
 // Tests
 // =============================================================================
 
-test "system: getSystemProgramId" {
-    var id: Pubkey = undefined;
-    getSystemProgramId(&id);
+test "system: SYSTEM_PROGRAM_ID is all zero" {
     const expected: Pubkey = .{0} ** 32;
-    try std.testing.expectEqual(expected, id);
+    try std.testing.expectEqual(expected, SYSTEM_PROGRAM_ID);
 }
 
 test "system: instruction data format" {

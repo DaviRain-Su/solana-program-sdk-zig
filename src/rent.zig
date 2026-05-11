@@ -43,7 +43,12 @@ pub const Rent = struct {
 
         pub fn getMinimumBalance(self: Rent.Data, data_len: usize) u64 {
             const total_data_len: u64 = Rent.account_storage_overhead + data_len;
-            return total_data_len * self.lamports_per_byte_year * @as(u64, @intFromFloat(self.exemption_threshold));
+            // Use f64 arithmetic so non-integer `exemption_threshold`
+            // values (e.g. the canonical 2.0) round-trip cleanly.
+            const cost = @as(f64, @floatFromInt(total_data_len)) *
+                @as(f64, @floatFromInt(self.lamports_per_byte_year)) *
+                self.exemption_threshold;
+            return @intFromFloat(cost);
         }
     };
 

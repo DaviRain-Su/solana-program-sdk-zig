@@ -1,4 +1,5 @@
 const std = @import("std");
+const bpf = @import("bpf.zig");
 
 /// Number of bytes in a pubkey
 pub const PUBKEY_BYTES: usize = 32;
@@ -97,22 +98,20 @@ pub fn encodeBase58(bytes: *const Pubkey, out: *[44]u8) usize {
 }
 
 /// Compare two pubkeys for equality
-/// Uses 8-byte chunks for optimal performance on 64-bit targets
-/// Falls back to byte-wise comparison if alignment is insufficient
+///
+/// On BPF, Pubkeys handed out by the runtime (account keys, owners,
+/// instruction program_id) are always 8-byte aligned, so we go straight
+/// to the four-u64 fast path. On host targets we keep the runtime
+/// alignment check to be safe against arbitrarily aligned callers.
 pub inline fn pubkeyEq(a: *const Pubkey, b: *const Pubkey) bool {
-    // Check if both pointers are 8-byte aligned
+    if (bpf.is_bpf_program) {
+        return pubkeyEqAligned(a, b);
+    }
+
     const a_addr = @intFromPtr(a);
     const b_addr = @intFromPtr(b);
-
     if (a_addr & 7 == 0 and b_addr & 7 == 0) {
-        // Fast path: 8-byte aligned, compare as four u64 chunks
-        const a_chunks: *const [4]u64 = @ptrCast(@alignCast(a));
-        const b_chunks: *const [4]u64 = @ptrCast(@alignCast(b));
-
-        return a_chunks[0] == b_chunks[0] and
-            a_chunks[1] == b_chunks[1] and
-            a_chunks[2] == b_chunks[2] and
-            a_chunks[3] == b_chunks[3];
+        return pubkeyEqAligned(a, b);
     }
 
     // Fallback: byte-wise comparison (handles unaligned pointers)
@@ -140,23 +139,18 @@ pub inline fn pubkeyEqAligned(a: *const Pubkey, b: *const Pubkey) bool {
         a_chunks[3] == b_chunks[3];
 }
 
-/// Check if a pubkey is on the Curve25519 curve
-/// Used for PDA validation (PDAs must NOT be on the curve)
-pub fn isPointOnCurve(pubkey: *const Pubkey) bool {
-    const Y = std.crypto.ecc.Curve25519.Fe.fromBytes(pubkey.*);
-    const Z = std.crypto.ecc.Curve25519.Fe.one;
-    const YY = Y.sq();
-    const u = YY.sub(Z);
-    const v = YY.mul(std.crypto.ecc.Curve25519.Fe.edwards25519d).add(Z);
-
-    const v3 = v.sq().mul(v);
-    const x = v3.sq().mul(u).mul(v).pow2523().mul(v3).mul(u);
-    const vxx = x.sq().mul(v);
-
-    const has_m_root = vxx.sub(u).isZero();
-    const has_p_root = vxx.add(u).isZero();
-
-    return has_m_root or has_p_root;
+/// Check if a pubkey is on the Ed25519 curve.
+/// Used for PDA validation (PDAs must NOT be on the curve, so this must
+/// agree with the Solana runtime's `is_on_curve` for safety).
+///
+/// Implemented via `std.crypto.ecc.Edwards25519.fromBytes`, which
+/// performs full point decompression and rejects encodings that don't
+/// decompress to a valid curve point (including the all-zero pubkey
+/// used by the System Program — not on curve).
+pub fn isPointOnCurve(pk: *const Pubkey) bool {
+    const point = std.crypto.ecc.Edwards25519.fromBytes(pk.*) catch return false;
+    point.rejectIdentity() catch {};
+    return true;
 }
 
 /// Format pubkey as Base58
@@ -193,7 +187,19 @@ test "pubkey: equality" {
 }
 
 test "pubkey: isPointOnCurve" {
-    // A normal pubkey should be on the curve
-    const on_curve = comptimeFromBase58("11111111111111111111111111111111");
-    try std.testing.expect(isPointOnCurve(&on_curve));
+    // Ed25519's identity element y=1 (encoded as 01 00 ... 00) is a
+    // canonical on-curve point.
+    var identity: Pubkey = .{0} ** PUBKEY_BYTES;
+    identity[0] = 1;
+    try std.testing.expect(isPointOnCurve(&identity));
+
+    // The y-coordinate of an Ed25519 point is a field element mod
+    // 2^255 - 19, so the encoding with the low bits set to 2^255-18
+    // (i.e. p = 2^255 - 19 reduced to 0 but with a non-canonical
+    // representation) does not decompress to a valid point. We use a
+    // value that fails `fromBytes`: a non-canonical y whose squared
+    // value yields a non-square `u/v` ratio.
+    var not_on_curve: Pubkey = .{0} ** PUBKEY_BYTES;
+    not_on_curve[0] = 2; // y=2 is not on Edwards25519 (no x exists).
+    try std.testing.expect(!isPointOnCurve(&not_on_curve));
 }

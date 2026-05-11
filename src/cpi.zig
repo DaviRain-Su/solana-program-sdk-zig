@@ -14,15 +14,29 @@ const Pubkey = pubkey.Pubkey;
 const ProgramResult = program_error.ProgramResult;
 const SUCCESS = program_error.SUCCESS;
 
-/// Account metadata for CPI instructions
-/// Field order matches C ABI (SolAccountMeta in sol/cpi.h)
+/// Account metadata for CPI instructions.
+///
+/// Layout matches the C ABI `SolAccountMeta` (`{ const SolPubkey *,
+/// uint8_t is_signer, uint8_t is_writable }`). We use `u8` (not `bool`)
+/// because the runtime may write arbitrary nonzero values into the
+/// signer/writable bytes when re-marshalling for CPI, and Zig `bool`
+/// requires the value to be exactly 0 or 1 (anything else is UB).
 pub const AccountMeta = extern struct {
     /// Public key of the account
     pubkey: *const Pubkey,
-    /// Is this account writable
-    is_writable: bool,
-    /// Is this account a signer
-    is_signer: bool,
+    /// Is this account writable (0 = false, non-zero = true)
+    is_writable: u8,
+    /// Is this account a signer (0 = false, non-zero = true)
+    is_signer: u8,
+
+    /// Convenience constructor.
+    pub inline fn init(key: *const Pubkey, is_writable: bool, is_signer: bool) AccountMeta {
+        return .{
+            .pubkey = key,
+            .is_writable = @intFromBool(is_writable),
+            .is_signer = @intFromBool(is_signer),
+        };
+    }
 };
 
 /// CPI Instruction
@@ -75,25 +89,35 @@ extern fn sol_get_return_data(data: [*]u8, len: u64, program_id: *Pubkey) callco
 // CPI Functions
 // =============================================================================
 
+/// Maximum number of PDA signers per CPI call.
+pub const MAX_CPI_SIGNERS: usize = 8;
+/// Maximum seeds per signer (matches Solana runtime limit).
+pub const MAX_CPI_SEEDS_PER_SIGNER: usize = 16;
+
 /// Invoke another program
-/// 
+///
 /// ZERO-COPY: CpiAccountInfo layout matches SolCpiAccountInfo C ABI,
 /// so accounts can be passed directly without conversion.
 pub fn invoke(
     instruction: *const Instruction,
     accounts: []const CpiAccountInfo,
 ) ProgramResult {
-    return invokeSigned(instruction, accounts, &[_][]const u8{});
+    return invokeSigned(instruction, accounts, &[_][]const []const u8{});
 }
 
-/// Invoke another program with program derived address signatures
-/// 
+/// Invoke another program with program derived address signatures.
+///
+/// `signers_seeds` is a slice of signer entries; each entry is itself a
+/// slice of byte slices (the seeds used to derive that signer's PDA).
+/// For a single PDA signer with seeds `["vault", bump]`, pass
+/// `&.{ &.{ "vault", &.{bump} } }`.
+///
 /// ZERO-COPY: CpiAccountInfo layout matches SolCpiAccountInfo C ABI,
 /// so accounts can be passed directly without conversion.
 pub fn invokeSigned(
     instruction: *const Instruction,
     accounts: []const CpiAccountInfo,
-    signers_seeds: []const []const u8,
+    signers_seeds: []const []const []const u8,
 ) ProgramResult {
     if (!bpf.is_bpf_program) {
         return error.InvalidArgument;
@@ -102,6 +126,10 @@ pub fn invokeSigned(
     // Fast-path validation: check account count matches
     if (instruction.accounts.len > accounts.len) {
         return error.NotEnoughAccountKeys;
+    }
+
+    if (signers_seeds.len > MAX_CPI_SIGNERS) {
+        return error.InvalidArgument;
     }
 
     // Convert instruction to C ABI format
@@ -113,31 +141,34 @@ pub fn invokeSigned(
         .data_len = instruction.data.len,
     };
 
-    // Serialize signer seeds to C ABI format
-    var sol_signer_seeds: [16]SolSignerSeedC = undefined;
-    var sol_signers: [1]SolSignerSeedsC = undefined;
+    // Build the C-ABI signer descriptors on the stack.
+    //
+    // Layout: one SolSignerSeedsC per signer, each pointing to a contiguous
+    // run of SolSignerSeedC entries inside `seed_pool`.
+    var seed_pool: [MAX_CPI_SIGNERS * MAX_CPI_SEEDS_PER_SIGNER]SolSignerSeedC = undefined;
+    var signers_buf: [MAX_CPI_SIGNERS]SolSignerSeedsC = undefined;
 
-    const signers_ptr: [*]const SolSignerSeedsC = if (signers_seeds.len > 0) blk: {
-        if (signers_seeds.len > sol_signer_seeds.len) {
+    var pool_cursor: usize = 0;
+    for (signers_seeds, 0..) |seeds, i| {
+        if (seeds.len > MAX_CPI_SEEDS_PER_SIGNER) {
             return error.InvalidArgument;
         }
-
-        for (signers_seeds, 0..) |seed, i| {
-            sol_signer_seeds[i] = SolSignerSeedC{
+        const start = pool_cursor;
+        for (seeds) |seed| {
+            seed_pool[pool_cursor] = .{
                 .addr = @intFromPtr(seed.ptr),
                 .len = seed.len,
             };
+            pool_cursor += 1;
         }
-
-        sol_signers[0] = SolSignerSeedsC{
-            .addr = @intFromPtr(&sol_signer_seeds),
-            .len = signers_seeds.len,
+        signers_buf[i] = .{
+            .addr = @intFromPtr(&seed_pool[start]),
+            .len = seeds.len,
         };
+    }
 
-        break :blk &sol_signers;
-    } else &sol_signers;
-
-    const signers_len: u64 = if (signers_seeds.len > 0) 1 else 0;
+    const signers_ptr: [*]const SolSignerSeedsC = &signers_buf;
+    const signers_len: u64 = signers_seeds.len;
 
     // ZERO-COPY: Pass CpiAccountInfo array directly — its layout matches SolCpiAccountInfo
     const result = sol_invoke_signed_c(
@@ -149,7 +180,9 @@ pub fn invokeSigned(
     );
 
     if (result != SUCCESS) {
-        return error.InvalidArgument;
+        // Surface the runtime's actual error code instead of collapsing
+        // every failure into InvalidArgument.
+        return program_error.u64ToError(result);
     }
 }
 

@@ -64,14 +64,16 @@ pub fn createProgramAddress(
     }
 
     if (bpf.is_bpf_program) {
-        var address: Pubkey = undefined;
-        var seeds_array: [seeds.len][]const u8 = undefined;
+        // `seeds.len` is runtime, so we cannot size the local array with
+        // it. Use a fixed-size stack buffer of MAX_SEEDS and slice it.
+        var seeds_array: [MAX_SEEDS][]const u8 = undefined;
         for (seeds, 0..) |seed, i| {
             seeds_array[i] = seed;
         }
+        var address: Pubkey = undefined;
 
         const result = sol_create_program_address(
-            &seeds_array,
+            seeds_array[0..seeds.len].ptr,
             seeds.len,
             program_id,
             &address,
@@ -109,14 +111,17 @@ pub fn findProgramAddress(
     program_id: *const Pubkey,
 ) ProgramError!ProgramDerivedAddress {
     if (bpf.is_bpf_program) {
-        var pda: ProgramDerivedAddress = undefined;
-        var seeds_array: [seeds.len][]const u8 = undefined;
+        if (seeds.len > MAX_SEEDS) {
+            return ProgramError.MaxSeedLengthExceeded;
+        }
+        var seeds_array: [MAX_SEEDS][]const u8 = undefined;
         for (seeds, 0..) |seed, i| {
             seeds_array[i] = seed;
         }
+        var pda: ProgramDerivedAddress = undefined;
 
         const result = sol_try_find_program_address(
-            &seeds_array,
+            seeds_array[0..seeds.len].ptr,
             seeds.len,
             program_id,
             &pda.address,

@@ -1,15 +1,30 @@
 //! Sysvar accessors for Solana programs
 //!
 //! Provides types and access patterns for Solana sysvars.
+//!
+//! - `getSysvar(T, account)` deserializes data from a sysvar account the
+//!   caller has passed into the program.
+//! - For the most common sysvars (Clock, Rent) prefer the syscall-based
+//!   wrappers in `clock.zig` / `rent.zig`, which do not require the
+//!   sysvar account to be listed in the instruction's accounts.
 
 const std = @import("std");
 const pubkey = @import("pubkey.zig");
 const account_mod = @import("account.zig");
 const program_error = @import("program_error.zig");
+const clock_mod = @import("clock.zig");
+const rent_mod = @import("rent.zig");
 
 const Pubkey = pubkey.Pubkey;
 const AccountInfo = account_mod.AccountInfo;
 const ProgramError = program_error.ProgramError;
+
+/// Clock sysvar — re-exported from `clock.zig` so it is the single
+/// canonical type in the SDK.
+pub const Clock = clock_mod.Clock;
+
+/// Rent sysvar data — re-exported from `rent.zig`.
+pub const Rent = rent_mod.Rent.Data;
 
 /// Clock sysvar ID
 pub const CLOCK_ID: Pubkey = pubkey.comptimeFromBase58("SysvarC1ock11111111111111111111111111111111");
@@ -34,26 +49,12 @@ pub const INSTRUCTIONS_ID: Pubkey = pubkey.comptimeFromBase58("Sysvar1nstruction
 /// The account must be the sysvar account. This function deserializes
 /// the account data into the requested type.
 pub fn getSysvar(comptime T: type, account: AccountInfo) ProgramError!T {
-    const data = account.dataUnchecked();
+    const data = account.data();
     if (data.len < @sizeOf(T)) {
         return ProgramError.InvalidAccountData;
     }
     return std.mem.bytesToValue(T, data[0..@sizeOf(T)]);
 }
-
-/// Clock sysvar — network time
-pub const Clock = extern struct {
-    /// The current slot
-    slot: u64,
-    /// The bank timestamp for the current slot
-    epoch_start_timestamp: i64,
-    /// The current epoch
-    epoch: u64,
-    /// The leader schedule epoch for the current slot
-    leader_schedule_epoch: u64,
-    /// The real-world timestamp for the current slot
-    unix_timestamp: i64,
-};
 
 /// Epoch schedule sysvar
 pub const EpochSchedule = extern struct {
@@ -69,29 +70,6 @@ pub const EpochSchedule = extern struct {
     first_normal_slot: u64,
 };
 
-/// Rent sysvar
-pub const Rent = extern struct {
-    /// Rental rate in lamports per byte-year
-    lamports_per_byte_year: u64,
-    /// Exemption threshold in years
-    exemption_threshold: f64,
-    /// Burn percentage
-    burn_percent: u8,
-
-    /// Calculate minimum balance for rent exemption
-    pub fn minimumBalance(self: Rent, data_len: usize) u64 {
-        const bytes = data_len + 128; // account overhead
-        return @intFromFloat(@as(f64, @floatFromInt(self.lamports_per_byte_year)) *
-            self.exemption_threshold *
-            @as(f64, @floatFromInt(bytes)));
-    }
-
-    /// Check if balance is exempt from rent
-    pub fn isExempt(self: Rent, balance: u64, data_len: usize) bool {
-        return balance >= self.minimumBalance(data_len);
-    }
-};
-
 /// Slot hash entry
 pub const SlotHash = extern struct {
     slot: u64,
@@ -102,29 +80,11 @@ pub const SlotHash = extern struct {
 // Tests
 // =============================================================================
 
-test "sysvar: Clock size" {
-    try std.testing.expectEqual(@as(usize, 40), @sizeOf(Clock));
+test "sysvar: Clock re-export points to clock.Clock" {
+    try std.testing.expectEqual(@sizeOf(clock_mod.Clock), @sizeOf(Clock));
 }
 
-test "sysvar: Rent minimumBalance" {
-    const rent = Rent{
-        .lamports_per_byte_year = 3480,
-        .exemption_threshold = 2.0,
-        .burn_percent = 50,
-    };
-
-    const min_balance = rent.minimumBalance(100);
-    try std.testing.expect(min_balance > 0);
-}
-
-test "sysvar: Rent isExempt" {
-    const rent = Rent{
-        .lamports_per_byte_year = 3480,
-        .exemption_threshold = 2.0,
-        .burn_percent = 50,
-    };
-
-    const min_balance = rent.minimumBalance(100);
-    try std.testing.expect(rent.isExempt(min_balance, 100));
-    try std.testing.expect(!rent.isExempt(min_balance - 1, 100));
+test "sysvar: Rent re-export points to rent.Rent.Data" {
+    const r: Rent = .{};
+    try std.testing.expect(r.lamports_per_byte_year > 0);
 }

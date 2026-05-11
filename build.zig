@@ -11,18 +11,9 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const base58_dep = b.dependency("base58", .{
-        .target = target,
-        .optimize = optimize,
-    });
-    const base58_mod = base58_dep.module("base58");
-    solana_mod.addImport("base58", base58_mod);
-
     const lib_unit_tests = b.addTest(.{
         .root_module = solana_mod,
     });
-
-    lib_unit_tests.root_module.addImport("base58", base58_mod);
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 

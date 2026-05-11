@@ -1,144 +1,425 @@
 const std = @import("std");
-const PublicKey = @import("public_key.zig").PublicKey;
-const testing = std.testing;
+const pubkey = @import("pubkey.zig");
+const program_error = @import("program_error.zig");
 
-pub const ACCOUNT_DATA_PADDING = 10 * 1024;
+const Pubkey = pubkey.Pubkey;
+const ProgramError = program_error.ProgramError;
 
-pub const Account = struct {
-    pub const DATA_HEADER = 88;
-    /// A Solana account sliced from what is provided as inputs to the BPF virtual machine.
-    pub const Data = extern struct {
-        duplicate_index: u8,
-        is_signer: u8,
-        is_writable: u8,
-        is_executable: u8,
-        original_data_len: u32,
-        id: PublicKey,
-        owner_id: PublicKey,
-        lamports: u64,
-        data_len: u64,
+/// Value used to indicate that a serialized account is not a duplicate
+pub const NON_DUP_MARKER: u8 = 0xFF;
 
-        comptime {
-            std.debug.assert(@offsetOf(Account.Data, "duplicate_index") == 0);
-            std.debug.assert(@offsetOf(Account.Data, "is_signer") == 0 + 1);
-            std.debug.assert(@offsetOf(Account.Data, "is_writable") == 0 + 1 + 1);
-            std.debug.assert(@offsetOf(Account.Data, "is_executable") == 0 + 1 + 1 + 1);
-            std.debug.assert(@offsetOf(Account.Data, "original_data_len") == 0 + 1 + 1 + 1 + 1);
-            std.debug.assert(@offsetOf(Account.Data, "id") == 0 + 1 + 1 + 1 + 1 + 4);
-            std.debug.assert(@offsetOf(Account.Data, "owner_id") == 0 + 1 + 1 + 1 + 1 + 4 + 32);
-            std.debug.assert(@offsetOf(Account.Data, "lamports") == 0 + 1 + 1 + 1 + 1 + 4 + 32 + 32);
-            std.debug.assert(@offsetOf(Account.Data, "data_len") == 0 + 1 + 1 + 1 + 1 + 4 + 32 + 32 + 8);
-            std.debug.assert(@bitSizeOf(Account.Data) == DATA_HEADER * 8);
-        }
-    };
+/// Maximum permitted data increase per instruction
+pub const MAX_PERMITTED_DATA_INCREASE: usize = 10 * 1024;
 
-    /// Metadata representing a Solana acconut.
-    pub const Param = extern struct {
-        id: *const PublicKey,
-        is_writable: bool,
-        is_signer: bool,
-    };
+/// Maximum number of accounts that a transaction may process
+pub const MAX_TX_ACCOUNTS: usize = 256; // u8::MAX
 
-    pub const Info = extern struct {
-        id: *const PublicKey,
-        lamports: *u64,
-        data_len: u64,
-        data: [*]u8,
-        owner_id: *const PublicKey,
-        unused: u64 = undefined,
-        is_signer: u8,
-        is_writable: u8,
-        is_executable: u8,
-    };
+/// BPF alignment for u128
+pub const BPF_ALIGN_OF_U128: usize = 8;
 
-    ptr: *Account.Data,
+/// Not borrowed state (all bits set)
+pub const NOT_BORROWED: u8 = 0xFF;
 
-    pub fn fromDataPtr(ptr: *Account.Data) Account {
-        return Account{ .ptr = ptr };
+/// Borrow state masks
+pub const BorrowState = enum(u8) {
+    /// Mask to check if account is borrowed (any borrow)
+    Borrowed = 0b11111111,
+    /// Mask to check if account is mutably borrowed
+    MutablyBorrowed = 0b10001000,
+};
+
+/// Bit shift for lamports borrow tracking
+const LAMPORTS_BORROW_SHIFT: u3 = 4;
+
+/// Bit shift for data borrow tracking
+const DATA_BORROW_SHIFT: u3 = 0;
+
+/// Bitmask for lamports mutable borrow flag
+const LAMPORTS_MUTABLE_BORROW_BITMASK: u8 = 0b10000000;
+
+/// Bitmask for data mutable borrow flag
+const DATA_MUTABLE_BORROW_BITMASK: u8 = 0b00001000;
+
+/// Direct mapping of Solana runtime account memory layout
+/// Memory structure: [Account header][data][padding(10KB)][align]
+pub const Account = extern struct {
+    /// Borrow state (bit-packed)
+    /// Bits 7-4: lamport borrows (1 mut flag + 3 count bits)
+    /// Bits 3-0: data borrows (1 mut flag + 3 count bits)
+    /// Initial: 0xFF (NOT_BORROWED)
+    borrow_state: u8,
+
+    /// Indicates whether the transaction was signed by this account
+    is_signer: u8,
+
+    /// Indicates whether the account is writable
+    is_writable: u8,
+
+    /// Indicates whether this account represents a program
+    executable: u8,
+
+    /// Original data length (u32 LE) stored in padding for resize validation
+    /// When account-resize is not enabled, this is just padding
+    _padding: [4]u8,
+
+    /// Public key of the account
+    key: Pubkey,
+
+    /// Program that owns this account
+    owner: Pubkey,
+
+    /// The lamports in the account
+    lamports: u64,
+
+    /// Length of the data
+    data_len: u64,
+
+    // Account data follows immediately in memory after this struct
+};
+
+/// Zero-copy account view — directly points to runtime buffer
+pub const AccountInfo = struct {
+    /// Pointer to raw account data
+    ptr: *Account,
+
+    // === Inline accessors (forced inline, zero overhead) ===
+
+    /// Get public key
+    pub inline fn key(self: AccountInfo) *const Pubkey {
+        return &self.ptr.key;
     }
 
-    pub fn id(self: Account) PublicKey {
-        return self.ptr.id;
+    /// Get owner
+    pub inline fn owner(self: AccountInfo) *const Pubkey {
+        return &self.ptr.owner;
     }
 
-    pub fn lamports(self: Account) *u64 {
+    /// Get lamports
+    pub inline fn lamports(self: AccountInfo) u64 {
+        return self.ptr.lamports;
+    }
+
+    /// Get data length
+    pub inline fn dataLen(self: AccountInfo) usize {
+        return @intCast(self.ptr.data_len);
+    }
+
+    /// Check if signer
+    pub inline fn isSigner(self: AccountInfo) bool {
+        return self.ptr.is_signer != 0;
+    }
+
+    /// Check if writable
+    pub inline fn isWritable(self: AccountInfo) bool {
+        return self.ptr.is_writable != 0;
+    }
+
+    /// Check if executable
+    pub inline fn executable(self: AccountInfo) bool {
+        return self.ptr.executable != 0;
+    }
+
+    // === Data access (zero-copy) ===
+
+    /// Get pointer to account data
+    pub inline fn dataPtr(self: AccountInfo) [*]u8 {
+        const ptr = @intFromPtr(self.ptr);
+        return @ptrFromInt(ptr + @sizeOf(Account));
+    }
+
+    /// Get data slice
+    pub inline fn data(self: AccountInfo) []u8 {
+        return self.dataPtr()[0..self.dataLen()];
+    }
+
+    // === Unchecked access (highest performance, no borrow checks) ===
+
+    /// Borrow data immutably without checking (unsafe)
+    pub inline fn dataUnchecked(self: AccountInfo) []const u8 {
+        return self.dataPtr()[0..self.dataLen()];
+    }
+
+    /// Borrow data mutably without checking (unsafe)
+    pub inline fn dataMutUnchecked(self: AccountInfo) []u8 {
+        return self.dataPtr()[0..self.dataLen()];
+    }
+
+    /// Borrow lamports immutably without checking (unsafe)
+    pub inline fn lamportsUnchecked(self: AccountInfo) *const u64 {
         return &self.ptr.lamports;
     }
 
-    pub fn ownerId(self: Account) PublicKey {
-        return self.ptr.owner_id;
+    /// Borrow lamports mutably without checking (unsafe)
+    pub inline fn lamportsMutUnchecked(self: AccountInfo) *u64 {
+        return &self.ptr.lamports;
     }
 
-    pub fn assign(self: Account, new_owner_id: PublicKey) void {
-        self.ptr.owner_id = new_owner_id;
-    }
+    // === Borrow checking ===
 
-    pub fn data(self: Account) []u8 {
-        const data_ptr = @as([*]u8, @ptrFromInt(@intFromPtr(self.ptr))) + DATA_HEADER;
-        return data_ptr[0..self.ptr.data_len];
-    }
+    /// Check if can borrow data immutably
+    pub fn canBorrowData(self: AccountInfo) ProgramError!void {
+        const borrow_state = self.ptr.borrow_state;
 
-    pub fn isWritable(self: Account) bool {
-        return self.ptr.is_writable == 1;
-    }
-
-    pub fn isExecutable(self: Account) bool {
-        return self.ptr.is_executable == 1;
-    }
-
-    pub fn isSigner(self: Account) bool {
-        return self.ptr.is_signer == 1;
-    }
-
-    pub fn dataLen(self: Account) u64 {
-        return self.ptr.data_len;
-    }
-    
-    pub fn realloc(self: Account, new_data_len: u64) error{InvalidRealloc}!void {
-        const diff = @subWithOverflow(new_data_len, self.ptr.original_data_len);
-        if (diff[1] == 0 and diff[0] > ACCOUNT_DATA_PADDING) {
-            return error.InvalidRealloc;
+        // Check if mutably borrowed
+        if (borrow_state & DATA_MUTABLE_BORROW_BITMASK == 0) {
+            return ProgramError.AccountBorrowFailed;
         }
-        self.reallocUnchecked(new_data_len);
+
+        // Check if max immutable borrows reached
+        if (borrow_state & 0b00000111 == 0) {
+            return ProgramError.AccountBorrowFailed;
+        }
     }
 
-    pub fn reallocUnchecked(self: Account, new_data_len: u64) void {
-        self.ptr.data_len = new_data_len;
+    /// Check if can borrow data mutably
+    pub fn canBorrowMutData(self: AccountInfo) ProgramError!void {
+        const borrow_state = self.ptr.borrow_state;
+
+        // Check if any borrow exists
+        if (borrow_state & 0b00001111 != 0b00001111) {
+            return ProgramError.AccountBorrowFailed;
+        }
     }
 
-    pub fn info(self: Account) Account.Info {
-        const data_ptr = @as([*]u8, @ptrFromInt(@intFromPtr(self.ptr))) + DATA_HEADER;
+    /// Check if can borrow lamports immutably
+    pub fn canBorrowLamports(self: AccountInfo) ProgramError!void {
+        const borrow_state = self.ptr.borrow_state;
 
-        return .{
-            .id = &self.ptr.id,
-            .lamports = &self.ptr.lamports,
-            .data_len = self.ptr.data_len,
-            .data = data_ptr,
-            .owner_id = &self.ptr.owner_id,
-            .is_signer = self.ptr.is_signer,
-            .is_writable = self.ptr.is_writable,
-            .is_executable = self.ptr.is_executable,
+        // Check if mutably borrowed
+        if (borrow_state & LAMPORTS_MUTABLE_BORROW_BITMASK == 0) {
+            return ProgramError.AccountBorrowFailed;
+        }
+
+        // Check if max immutable borrows reached
+        if (borrow_state & 0b01110000 == 0) {
+            return ProgramError.AccountBorrowFailed;
+        }
+    }
+
+    /// Check if can borrow lamports mutably
+    pub fn canBorrowMutLamports(self: AccountInfo) ProgramError!void {
+        const borrow_state = self.ptr.borrow_state;
+
+        // Check if any borrow exists
+        if (borrow_state & 0b11110000 != 0b11110000) {
+            return ProgramError.AccountBorrowFailed;
+        }
+    }
+
+    /// Borrow data immutably with RAII guard
+    pub fn tryBorrowData(self: AccountInfo) ProgramError!Ref([]const u8) {
+        try self.canBorrowData();
+
+        const borrow_state_ptr = @as(*u8, @ptrCast(&self.ptr.borrow_state));
+        // Decrement immutable borrow count
+        borrow_state_ptr.* -= 1 << DATA_BORROW_SHIFT;
+
+        return Ref([]const u8){
+            .value = self.dataPtr()[0..self.dataLen()],
+            .state = borrow_state_ptr,
+            .borrow_shift = DATA_BORROW_SHIFT,
         };
+    }
+
+    /// Borrow data mutably with RAII guard
+    pub fn tryBorrowMutData(self: AccountInfo) ProgramError!RefMut([]u8) {
+        try self.canBorrowMutData();
+
+        const borrow_state_ptr = @as(*u8, @ptrCast(&self.ptr.borrow_state));
+        // Set mutable borrow bit to 0
+        borrow_state_ptr.* &= ~DATA_MUTABLE_BORROW_BITMASK;
+
+        return RefMut([]u8){
+            .value = self.dataPtr()[0..self.dataLen()],
+            .state = borrow_state_ptr,
+            .borrow_bitmask = DATA_MUTABLE_BORROW_BITMASK,
+        };
+    }
+
+    /// Borrow lamports immutably with RAII guard
+    pub fn tryBorrowLamports(self: AccountInfo) ProgramError!Ref(*const u64) {
+        try self.canBorrowLamports();
+
+        const borrow_state_ptr = @as(*u8, @ptrCast(&self.ptr.borrow_state));
+        // Decrement immutable borrow count
+        borrow_state_ptr.* -= 1 << LAMPORTS_BORROW_SHIFT;
+
+        return Ref(*const u64){
+            .value = &self.ptr.lamports,
+            .state = borrow_state_ptr,
+            .borrow_shift = LAMPORTS_BORROW_SHIFT,
+        };
+    }
+
+    /// Borrow lamports mutably with RAII guard
+    pub fn tryBorrowMutLamports(self: AccountInfo) ProgramError!RefMut(*u64) {
+        try self.canBorrowMutLamports();
+
+        const borrow_state_ptr = @as(*u8, @ptrCast(&self.ptr.borrow_state));
+        // Set mutable borrow bit to 0
+        borrow_state_ptr.* &= ~LAMPORTS_MUTABLE_BORROW_BITMASK;
+
+        return RefMut(*u64){
+            .value = &self.ptr.lamports,
+            .state = borrow_state_ptr,
+            .borrow_bitmask = LAMPORTS_MUTABLE_BORROW_BITMASK,
+        };
+    }
+
+    /// Assign new owner (unsafe - must ensure no active references)
+    pub inline fn assign(self: AccountInfo, new_owner: *const Pubkey) void {
+        self.ptr.owner = new_owner.*;
+    }
+
+    /// Reallocate account data
+    pub fn realloc(self: AccountInfo, new_len: u64) ProgramError!void {
+        const original_data_len = std.mem.readInt(u32, &self.ptr._padding, .little);
+        const diff = @subWithOverflow(new_len, original_data_len);
+        if (diff[1] == 0 and diff[0] > MAX_PERMITTED_DATA_INCREASE) {
+            return ProgramError.InvalidRealloc;
+        }
+        self.ptr.data_len = new_len;
+    }
+
+    /// Check if owned by program
+    pub inline fn isOwnedBy(self: AccountInfo, program: *const Pubkey) bool {
+        return pubkey.pubkeyEq(self.owner(), program);
     }
 };
 
-test "account: create info from account" {
-    var data: Account.Data = .{
-        .duplicate_index = 255,
+/// RAII guard for immutable borrows
+pub fn Ref(comptime T: type) type {
+    return struct {
+        value: T,
+        state: *u8,
+        borrow_shift: u3,
+
+        const Self = @This();
+
+        /// Release the borrow
+        pub inline fn release(self: *Self) void {
+            // Increment borrow count back
+            self.state.* += @as(u8, 1) << self.borrow_shift;
+        }
+    };
+}
+
+/// RAII guard for mutable borrows
+pub fn RefMut(comptime T: type) type {
+    return struct {
+        value: T,
+        state: *u8,
+        borrow_bitmask: u8,
+
+        const Self = @This();
+
+        /// Release the borrow
+        pub inline fn release(self: *Self) void {
+            // Set mutable borrow bit back to 1
+            self.state.* |= self.borrow_bitmask;
+        }
+    };
+}
+
+/// Align pointer to BPF u128 alignment
+pub inline fn alignPointer(ptr: usize) usize {
+    return (ptr + (BPF_ALIGN_OF_U128 - 1)) & ~(BPF_ALIGN_OF_U128 - 1);
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+test "account: Account size" {
+    // Account struct should be 88 bytes (matching Solana runtime)
+    try std.testing.expectEqual(@as(usize, 88), @sizeOf(Account));
+}
+
+test "account: AccountInfo accessors" {
+    var data: Account = .{
+        .borrow_state = NOT_BORROWED,
         .is_signer = 1,
         .is_writable = 1,
-        .is_executable = 0,
-        .original_data_len = 10,
-        .id = PublicKey.from(.{1} ** 32),
-        .owner_id = PublicKey.from(.{2} ** 32),
-        .lamports = 1,
+        .executable = 0,
+        ._padding = .{0} ** 4,
+        .key = .{1} ** 32,
+        .owner = .{2} ** 32,
+        .lamports = 1000,
         .data_len = 10,
     };
-    const account: Account = .{ .ptr = &data };
-    const info = account.info();
-    try testing.expectEqual(info.id, &data.id);
-    try testing.expectEqual(info.is_signer, data.is_signer);
-    try testing.expectEqual(info.is_writable, data.is_writable);
-    try testing.expectEqual(info.lamports, &data.lamports);
-    try testing.expectEqual(info.data, account.data().ptr);
+    const account = AccountInfo{ .ptr = &data };
+
+    try std.testing.expect(account.isSigner());
+    try std.testing.expect(account.isWritable());
+    try std.testing.expect(!account.executable());
+    try std.testing.expectEqual(@as(u64, 1000), account.lamports());
+    try std.testing.expectEqual(@as(usize, 10), account.dataLen());
+    try std.testing.expect(pubkey.pubkeyEq(account.key(), &[_]u8{1} ** 32));
+    try std.testing.expect(pubkey.pubkeyEq(account.owner(), &[_]u8{2} ** 32));
+}
+
+test "account: borrow data" {
+    var runtime_account: Account = .{
+        .borrow_state = NOT_BORROWED,
+        .is_signer = 0,
+        .is_writable = 1,
+        .executable = 0,
+        ._padding = .{0} ** 4,
+        .key = .{0} ** 32,
+        .owner = .{0} ** 32,
+        .lamports = 0,
+        .data_len = 10,
+    };
+    const account = AccountInfo{ .ptr = &runtime_account };
+
+    // Immutable borrow
+    var ref = try account.tryBorrowData();
+    try std.testing.expectEqual(@as(usize, 10), ref.value.len);
+    ref.release();
+
+    // Mutable borrow
+    var ref_mut = try account.tryBorrowMutData();
+    try std.testing.expectEqual(@as(usize, 10), ref_mut.value.len);
+    ref_mut.release();
+}
+
+test "account: double mutable borrow fails" {
+    var runtime_account: Account = .{
+        .borrow_state = NOT_BORROWED,
+        .is_signer = 0,
+        .is_writable = 1,
+        .executable = 0,
+        ._padding = .{0} ** 4,
+        .key = .{0} ** 32,
+        .owner = .{0} ** 32,
+        .lamports = 0,
+        .data_len = 10,
+    };
+    const account = AccountInfo{ .ptr = &runtime_account };
+
+    var ref = try account.tryBorrowMutData();
+    try std.testing.expectError(ProgramError.AccountBorrowFailed, account.tryBorrowMutData());
+    ref.release();
+}
+
+test "account: dataUnchecked" {
+    var buf align(8) = [_]u8{0} ** 200;
+    @memcpy(buf[@sizeOf(Account)..][0..5], "hello");
+
+    var runtime_account: Account = .{
+        .borrow_state = NOT_BORROWED,
+        .is_signer = 0,
+        .is_writable = 1,
+        .executable = 0,
+        ._padding = .{0} ** 4,
+        .key = .{0} ** 32,
+        .owner = .{0} ** 32,
+        .lamports = 0,
+        .data_len = 5,
+    };
+    @memcpy(buf[0..@sizeOf(Account)], std.mem.asBytes(&runtime_account));
+
+    const account = AccountInfo{ .ptr = @ptrCast(@alignCast(&buf[0])) };
+    const data = account.dataUnchecked();
+    try std.testing.expectEqualStrings("hello", data[0..5]);
 }

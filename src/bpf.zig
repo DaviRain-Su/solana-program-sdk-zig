@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const PublicKey = @import("public_key.zig").PublicKey;
+const PublicKey = @import("pubkey.zig").Pubkey;
 
 pub const bpf_loader_deprecated_program_id = PublicKey.comptimeFromBase58("BPFLoader1111111111111111111111111111111111");
 pub const bpf_loader_program_id = PublicKey.comptimeFromBase58("BPFLoader2111111111111111111111111111111111");

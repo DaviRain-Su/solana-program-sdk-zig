@@ -1,6 +1,6 @@
 const bpf = @import("bpf.zig");
 const log = @import("log.zig");
-const PublicKey = @import("public_key.zig").PublicKey;
+const PublicKey = @import("pubkey.zig").Pubkey;
 
 pub const Rent = struct {
     pub const id = PublicKey.comptimeFromBase58("SysvarRent111111111111111111111111111111111");

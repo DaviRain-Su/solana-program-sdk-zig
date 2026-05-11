@@ -1,6 +1,6 @@
 const bpf = @import("bpf.zig");
 const log = @import("log.zig");
-const PublicKey = @import("public_key.zig").PublicKey;
+const PublicKey = @import("pubkey.zig").Pubkey;
 
 pub const Clock = extern struct {
     pub const id = PublicKey.comptimeFromBase58("SysvarC1ock11111111111111111111111111111111");

@@ -1,5 +1,5 @@
 const std = @import("std");
-const PublicKey = @import("public_key.zig").PublicKey;
+const PublicKey = @import("pubkey.zig").Pubkey;
 
 pub const SlotHashes = struct {
     ptr: [*]SlotHash,

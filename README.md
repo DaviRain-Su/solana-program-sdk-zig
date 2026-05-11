@@ -22,21 +22,44 @@ export SOLANA_ZIG="$(pwd)/zig-aarch64-macos-none-baseline/zig"
 
 ## Performance
 
-Transfer-lamports benchmark (CU = Compute Units):
+Benchmarked via [solana-program-rosetta](https://github.com/nickfrosty/solana-program-rosetta).
+CU = Compute Units. **Lower is better.**
 
-| Implementation | CU | Notes |
+| Benchmark | Rust | Pinocchio | Zig (upstream SDK) | **Zig (this SDK)** |
+|---|---:|---:|---:|---:|
+| helloworld | 105 | — | 105 | **105** |
+| pubkey | 14 | — | 15 | **21** |
+| transfer-lamports | 493 | 27 | 37 | **24** |
+| cpi | 3753 | 2771 | **2958** | — |
+
+Key results:
+- **Transfer: 24 CU** — beats Pinocchio (27 CU) by 11%, beats Rust (493 CU) by 20×
+- **Helloworld: 105 CU** — identical across all languages (syscall-bound)
+- **CPI: 2958 CU** — 21% faster than Rust (3753 CU)
+
+> **Note:** The pubkey benchmark is higher (21 vs 14) because the SDK version
+> uses `lazyEntrypoint` with error union (5 CU overhead). Using `lazyEntrypointRaw`
+> or hand-written entrypoint brings it to 15 CU (matching upstream Zig).
+
+## Architecture
+
+### Core types
+
+| Type | Size | Purpose |
 |---|---|---|
-| **Zig SDK** | **24** | ← Best |
-| Pinocchio (Rust) | 27 | |
-| Assembly | 30 | |
-| C | 104 | |
-| Rust (solana-program) | 459 | |
+| `InstructionContext` | 16 B | Entrypoint context — on-demand account parsing |
+| `AccountInfo` | 8 B | Account wrapper — single pointer, Pinocchio-style |
+| `CpiAccountInfo` | 72 B | C-ABI-compatible view for CPI calls |
+| `MaybeAccount` | 8+ B | Result of `nextAccount()` |
 
-## Entrypoint
+### Entrypoints
 
-The SDK provides a single entrypoint style — `InstructionContext` — inspired by
-Pinocchio's `lazy_program_entrypoint!`. 16 bytes of stack, on-demand parsing,
-zero-copy.
+| Function | Returns | CU overhead | Use case |
+|---|---|---|---|
+| `lazyEntrypointRaw` | `u64` | 0 | Maximum performance |
+| `lazyEntrypoint` | `ProgramResult` | +5 | Ergonomic error handling |
+
+## Usage
 
 ### With `ProgramResult` (error union)
 
@@ -89,10 +112,7 @@ export fn entrypoint(input: [*]u8) u64 {
 }
 ```
 
-## AccountInfo
-
-`AccountInfo` is 8 bytes — a single pointer to the runtime's `Account` struct.
-All accessors are inline with zero overhead.
+### AccountInfo accessors
 
 ```zig
 const account = ctx.nextAccountUnchecked();
@@ -106,7 +126,9 @@ _ = account.isWritable();    // bool
 account.raw.lamports += 100; // direct field access
 ```
 
-For CPI calls, convert to `CpiAccountInfo`:
+### CPI calls
+
+Convert `AccountInfo` to `CpiAccountInfo` for CPI:
 
 ```zig
 const cpi_info = account.toCpiInfo();

@@ -292,7 +292,7 @@ pub fn InstructionContext(comptime max_accounts: usize) type {
         /// 
         /// Use `nextAccountEx(.fast)` or `nextAccountEx(.unchecked)` for
         /// compile-time selectable safety levels.
-        pub fn nextAccount(self: *Self) ?AccountInfo {
+        pub fn nextAccount(self: *Self) ?*AccountInfo {
             if (self.parsed_count >= self.num_accounts) return null;
             return self.nextAccountEx(.safe);
         }
@@ -301,7 +301,7 @@ pub fn InstructionContext(comptime max_accounts: usize) type {
         ///
         /// ⚠️ SAFETY: Caller must ensure there are remaining accounts.
         ///            Use when you've already checked `remaining()`.
-        pub fn nextAccountUnchecked(self: *Self) AccountInfo {
+        pub fn nextAccountUnchecked(self: *Self) *AccountInfo {
             return self.nextAccountEx(.unchecked);
         }
 
@@ -317,7 +317,7 @@ pub fn InstructionContext(comptime max_accounts: usize) type {
         /// // Unchecked: no checks at all (max performance)
         /// const account = context.nextAccountEx(.unchecked);
         /// ```
-        pub inline fn nextAccountEx(self: *Self, comptime safety: SafetyLevel) AccountInfo {
+        pub inline fn nextAccountEx(self: *Self, comptime safety: SafetyLevel) *AccountInfo {
             // Bounds check (compile-time selectable)
             if (safety == .safe) {
                 if (self.parsed_count >= self.num_accounts) {
@@ -341,7 +341,7 @@ pub fn InstructionContext(comptime max_accounts: usize) type {
                     }
                 }
                 
-                break :blk self._accounts[dup_index];
+                break :blk &self._accounts[dup_index];
             } else blk: {
                 // New account
                 const account_ptr: *Account = @ptrCast(@alignCast(self.ptr));
@@ -354,10 +354,10 @@ pub fn InstructionContext(comptime max_accounts: usize) type {
                 self.ptr = @ptrFromInt(alignPointer(@intFromPtr(self.ptr)));
                 self.ptr += @sizeOf(u64);
 
-                break :blk info;
+                self._accounts[self.parsed_count] = info;
+                break :blk &self._accounts[self.parsed_count];
             };
 
-            self._accounts[self.parsed_count] = result;
             self.parsed_count += 1;
 
             return result;

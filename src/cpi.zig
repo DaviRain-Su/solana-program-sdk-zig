@@ -120,15 +120,45 @@ pub const MAX_CPI_SIGNERS: usize = 8;
 /// Maximum seeds per signer (matches Solana runtime limit).
 pub const MAX_CPI_SEEDS_PER_SIGNER: usize = 16;
 
-/// Invoke another program
+/// Invoke another program (no PDA signers).
 ///
-/// ZERO-COPY: CpiAccountInfo layout matches SolCpiAccountInfo C ABI,
+/// Fast path: skips the seed-staging loop entirely. Use this whenever
+/// the called program does not require a PDA signature — saves a few
+/// CU vs. `invokeSigned` with an empty `signers_seeds`.
+///
+/// ZERO-COPY: `CpiAccountInfo` layout matches `SolCpiAccountInfo` C ABI,
 /// so accounts can be passed directly without conversion.
 pub fn invoke(
     instruction: *const Instruction,
     accounts: []const CpiAccountInfo,
 ) ProgramResult {
-    return invokeSigned(instruction, accounts, &[_][]const []const u8{});
+    if (!bpf.is_bpf_program) {
+        return error.InvalidArgument;
+    }
+
+    if (instruction.accounts.len > accounts.len) {
+        return error.NotEnoughAccountKeys;
+    }
+
+    const sol_instruction = SolInstruction{
+        .program_id = instruction.program_id,
+        .accounts = instruction.accounts.ptr,
+        .account_len = instruction.accounts.len,
+        .data = instruction.data.ptr,
+        .data_len = instruction.data.len,
+    };
+
+    const result = sol_invoke_signed_c(
+        &sol_instruction,
+        accounts.ptr,
+        accounts.len,
+        @ptrFromInt(@alignOf(SolSignerSeedsC)), // unused when len = 0
+        0,
+    );
+
+    if (result != SUCCESS) {
+        return program_error.u64ToError(result);
+    }
 }
 
 /// Invoke another program with program derived address signatures.
@@ -138,7 +168,10 @@ pub fn invoke(
 /// For a single PDA signer with seeds `["vault", bump]`, pass
 /// `&.{ &.{ "vault", &.{bump} } }`.
 ///
-/// ZERO-COPY: CpiAccountInfo layout matches SolCpiAccountInfo C ABI,
+/// If you don't need PDA signing, call `invoke` directly — it skips
+/// the seed-staging loop.
+///
+/// ZERO-COPY: `CpiAccountInfo` layout matches `SolCpiAccountInfo` C ABI,
 /// so accounts can be passed directly without conversion.
 pub fn invokeSigned(
     instruction: *const Instruction,
@@ -149,7 +182,10 @@ pub fn invokeSigned(
         return error.InvalidArgument;
     }
 
-    // Fast-path validation: check account count matches
+    if (signers_seeds.len == 0) {
+        return invoke(instruction, accounts);
+    }
+
     if (instruction.accounts.len > accounts.len) {
         return error.NotEnoughAccountKeys;
     }
@@ -158,7 +194,6 @@ pub fn invokeSigned(
         return error.InvalidArgument;
     }
 
-    // Convert instruction to C ABI format
     const sol_instruction = SolInstruction{
         .program_id = instruction.program_id,
         .accounts = instruction.accounts.ptr,
@@ -193,21 +228,15 @@ pub fn invokeSigned(
         };
     }
 
-    const signers_ptr: [*]const SolSignerSeedsC = &signers_buf;
-    const signers_len: u64 = signers_seeds.len;
-
-    // ZERO-COPY: Pass CpiAccountInfo array directly — its layout matches SolCpiAccountInfo
     const result = sol_invoke_signed_c(
         &sol_instruction,
         accounts.ptr,
         accounts.len,
-        signers_ptr,
-        signers_len,
+        &signers_buf,
+        signers_seeds.len,
     );
 
     if (result != SUCCESS) {
-        // Surface the runtime's actual error code instead of collapsing
-        // every failure into InvalidArgument.
         return program_error.u64ToError(result);
     }
 }

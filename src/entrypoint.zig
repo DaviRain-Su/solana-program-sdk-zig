@@ -86,14 +86,13 @@ pub const InstructionContext = struct {
     /// Get instruction data. Call after all accounts are consumed.
     pub inline fn instructionData(self: *InstructionContext) []const u8 {
         const data_len: usize = @intCast(@as(*const u64, @ptrCast(@alignCast(self.buffer))).*);
-        self.buffer += @sizeOf(u64);
-        return self.buffer[0..data_len];
+        const data = self.buffer[@sizeOf(u64) .. @sizeOf(u64) + data_len];
+        self.buffer += @sizeOf(u64) + data_len;
+        return data;
     }
 
-    /// Get program ID. Call after instruction_data().
+    /// Get program ID. Call after instructionData().
     pub inline fn programId(self: *InstructionContext) *const Pubkey {
-        const data_len: usize = @intCast(@as(*const u64, @ptrCast(@alignCast(self.buffer))).*);
-        self.buffer += @sizeOf(u64) + data_len;
         return @ptrCast(@alignCast(self.buffer));
     }
 };

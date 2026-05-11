@@ -1,14 +1,17 @@
 const sol = @import("solana_program_sdk");
 
-fn processInstruction(context: *sol.entrypoint.InstructionContext(2)) sol.ProgramResult {
-    if (sol.entrypoint.unlikely(context.remaining() != 2)) {
+pub const panic = sol.panic.Panic;
+
+// Transfer lamports — full business logic with validation
+fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
+    if (sol.entrypoint.unlikely(ctx.remainingAccounts() != 2)) {
         return error.NotEnoughAccountKeys;
     }
 
-    const source = context.nextAccountEx(.unchecked);
-    const destination = context.nextAccountEx(.unchecked);
+    const source = ctx.nextAccountUnchecked();
+    const destination = ctx.nextAccountUnchecked();
 
-    const ix_data = context.instructionData();
+    const ix_data = ctx.instructionData();
     if (ix_data.len < 8) return error.InvalidInstructionData;
 
     const transfer_amount: u64 = @as(u64, ix_data[0]) |
@@ -20,10 +23,10 @@ fn processInstruction(context: *sol.entrypoint.InstructionContext(2)) sol.Progra
         (@as(u64, ix_data[6]) << 48) |
         (@as(u64, ix_data[7]) << 56);
 
-    source.lamports_ptr.* -= transfer_amount;
-    destination.lamports_ptr.* += transfer_amount;
+    source.raw.lamports -= transfer_amount;
+    destination.raw.lamports += transfer_amount;
 }
 
 export fn entrypoint(input: [*]u8) u64 {
-    return sol.entrypoint.lazyEntrypointMax(2, processInstruction)(input);
+    return sol.entrypoint.lazyEntrypoint(process)(input);
 }

@@ -10,74 +10,108 @@ on-chain programs. Stock Zig 0.16 is sufficient for host-side unit tests.
 ## Quick start
 
 ```console
-# Download solana-zig fork (Linux x86_64)
-curl -LO https://github.com/joncinque/solana-zig-bootstrap/releases/download/solana-v1.53.0/zig-x86_64-linux-musl.tar.bz2
-tar -xjf zig-x86_64-linux-musl.tar.bz2
-export SOLANA_ZIG="$(pwd)/zig-x86_64-linux-musl-baseline/zig"
+# Download solana-zig fork (macOS arm64)
+curl -LO https://github.com/joncinque/solana-zig-bootstrap/releases/download/solana-v1.53.0/zig-aarch64-macos-none.tar.bz2
+tar -xjf zig-aarch64-macos-none.tar.bz2
+export SOLANA_ZIG="$(pwd)/zig-aarch64-macos-none-baseline/zig"
 
 # Run tests
 "$SOLANA_ZIG" build test --summary all
 ./program-test/test.sh "$SOLANA_ZIG"
 ```
 
-## Writing a program
+## Performance
 
-**推荐使用 lazy entrypoint**（与 Pinocchio `entrypoint!` 行为一致，零拷贝、最优 CU）：
+Transfer-lamports benchmark (CU = Compute Units):
+
+| Implementation | CU | Notes |
+|---|---|---|
+| **Zig SDK** | **24** | ← Best |
+| Pinocchio (Rust) | 27 | |
+| Assembly | 30 | |
+| C | 104 | |
+| Rust (solana-program) | 459 | |
+
+## Entrypoint
+
+The SDK provides a single entrypoint style — `InstructionContext` — inspired by
+Pinocchio's `lazy_program_entrypoint!`. 16 bytes of stack, on-demand parsing,
+zero-copy.
+
+### With `ProgramResult` (error union)
 
 ```zig
 const sol = @import("solana_program_sdk");
 
-fn processInstruction(context: *sol.entrypoint.InstructionContext) sol.ProgramResult {
-    const payer = context.nextAccount() orelse return error.NotEnoughAccountKeys;
-    const account = context.nextAccount() orelse return error.NotEnoughAccountKeys;
-    const data = context.instructionData();
-    // ...
+pub const panic = sol.panic.Panic;
+
+fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
+    const source = ctx.nextAccount() orelse return error.NotEnoughAccountKeys;
+    const dest = ctx.nextAccount() orelse return error.NotEnoughAccountKeys;
+    const ix_data = ctx.instructionData();
+    if (ix_data.len < 8) return error.InvalidInstructionData;
+
+    const amount: u64 = @as(*align(1) const u64, @ptrCast(ix_data[0..8])).*;
+    source.raw.lamports -= amount;
+    dest.raw.lamports += amount;
 }
 
 export fn entrypoint(input: [*]u8) u64 {
-    return @call(.always_inline, sol.entrypoint.lazyEntrypoint(processInstruction), .{input});
+    return sol.entrypoint.lazyEntrypoint(process)(input);
 }
 ```
 
-**兼容模式**（eager entrypoint，预解析所有 accounts）：
+### With raw `u64` (maximum performance)
+
+Skips the error union entirely. Return `0` for success, non-zero for error.
 
 ```zig
-fn processInstruction(
-    program_id: *const sol.Pubkey,
-    accounts: []sol.AccountInfo,
-    instruction_data: []const u8,
-) sol.ProgramResult {
-    // ...
+const sol = @import("solana_program_sdk");
+
+pub const panic = sol.panic.Panic;
+
+fn process(ctx: *sol.entrypoint.InstructionContext) u64 {
+    if (ctx.remainingAccounts() != 2) return 1;
+
+    const source = ctx.nextAccountUnchecked();
+    const dest = ctx.nextAccountUnchecked();
+    const ix_data = ctx.instructionData();
+    if (ix_data.len < 8) return 1;
+
+    const amount: u64 = @as(*align(1) const u64, @ptrCast(ix_data[0..8])).*;
+    source.raw.lamports -= amount;
+    dest.raw.lamports += amount;
+    return 0;
 }
 
 export fn entrypoint(input: [*]u8) u64 {
-    return @call(.always_inline, sol.entrypoint.entrypoint(10, processInstruction), .{input});
+    return sol.entrypoint.lazyEntrypointRaw(process)(input);
 }
 ```
 
-## Comptime Safety Levels
+## AccountInfo
 
-The SDK provides compile-time selectable safety levels for zero-cost
-abstractions:
+`AccountInfo` is 8 bytes — a single pointer to the runtime's `Account` struct.
+All accessors are inline with zero overhead.
 
 ```zig
-// Safe: full bounds checking (default)
-const account = context.nextAccountEx(.safe);
-
-// Fast: skip bounds check, keep duplicate resolution
-const account = context.nextAccountEx(.fast);
-
-// Unchecked: no checks (max performance, caller guarantees correctness)
-const account = context.nextAccountEx(.unchecked);
+const account = ctx.nextAccountUnchecked();
+_ = account.key();           // *const Pubkey
+_ = account.owner();         // *const Pubkey
+_ = account.lamports();      // u64
+_ = account.dataLen();       // usize
+_ = account.data();          // []u8
+_ = account.isSigner();      // bool
+_ = account.isWritable();    // bool
+account.raw.lamports += 100; // direct field access
 ```
 
-**Performance comparison** (pubkey comparison benchmark):
+For CPI calls, convert to `CpiAccountInfo`:
 
-| Safety Level | CU | Binary Size |
-|-------------|-----|-------------|
-| `.safe` | 35 | 2512 bytes |
-| `.fast` | 33 | 2424 bytes |
-| `.unchecked` | 26 | 1592 bytes |
+```zig
+const cpi_info = account.toCpiInfo();
+try sol.cpi.invoke(&instruction, &.{cpi_info});
+```
 
 ## Using the SDK from your `build.zig`
 
@@ -94,30 +128,11 @@ pub fn build(b: *std.Build) void {
 }
 ```
 
-Run with the solana-zig fork:
-
-```console
-"$SOLANA_ZIG" build
-```
-
-One step. The SDK sets `sbf_target`, installs the bpf.ld linker script, and
-writes `zig-out/lib/my_program.so`.
-
 ## Prerequisites
 
 ### solana-zig fork (required for on-chain program builds)
 
-Download from [GitHub Releases](https://github.com/joncinque/solana-zig-bootstrap/releases/tag/solana-v1.53.0):
-
-```console
-# Linux x86_64
-curl -LO https://github.com/joncinque/solana-zig-bootstrap/releases/download/solana-v1.53.0/zig-x86_64-linux-musl.tar.bz2
-tar -xjf zig-x86_64-linux-musl.tar.bz2
-export SOLANA_ZIG="$(pwd)/zig-x86_64-linux-musl-baseline/zig"
-```
-
-Other platforms: see the release page for `zig-aarch64-linux-musl`,
-`zig-x86_64-macos-none`, etc.
+Download from [GitHub Releases](https://github.com/joncinque/solana-zig-bootstrap/releases/tag/solana-v1.53.0).
 
 ### Stock Zig 0.16 (host unit tests only)
 
@@ -126,17 +141,13 @@ zig version
 # -> 0.16.x
 ```
 
-## Unit tests
-
-Stock Zig is fine for host-side tests:
+## Tests
 
 ```console
+# Host unit tests (any Zig 0.16)
 zig build test --summary all
-```
 
-## Integration tests
-
-```console
+# Integration tests (requires solana-zig fork)
 ./program-test/test.sh "$SOLANA_ZIG"
 ```
 

@@ -1,7 +1,10 @@
 const sol = @import("solana_program_sdk");
 
-fn processInstruction(context: *sol.entrypoint.InstructionContext(1)) sol.ProgramResult {
-    const account = context.nextAccount() orelse return error.NotEnoughAccountKeys;
+pub const panic = sol.panic.Panic;
+
+// Pubkey comparison — safe (byte-by-byte)
+fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
+    const account = ctx.nextAccount() orelse return error.NotEnoughAccountKeys;
 
     if (sol.pubkey.pubkeyEq(account.key(), account.owner())) {
         return;
@@ -11,5 +14,5 @@ fn processInstruction(context: *sol.entrypoint.InstructionContext(1)) sol.Progra
 }
 
 export fn entrypoint(input: [*]u8) u64 {
-    return sol.entrypoint.lazyEntrypointMax(1, processInstruction)(input);
+    return sol.entrypoint.lazyEntrypoint(process)(input);
 }

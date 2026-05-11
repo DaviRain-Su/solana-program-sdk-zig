@@ -104,6 +104,33 @@ pub const AccountInfo = struct {
         return pubkey.pubkeyEq(self.owner(), program);
     }
 
+    /// Compare this account's owner against a compile-time-known
+    /// program id. Generates four `u64`-immediate compares — no second
+    /// load and no rodata reference to the expected pubkey.
+    ///
+    /// ```zig
+    /// const MY_PROGRAM_ID = sol.pubkey.comptimeFromBase58("...");
+    /// if (!account.isOwnedByComptime(MY_PROGRAM_ID)) {
+    ///     return error.IncorrectProgramId;
+    /// }
+    /// ```
+    pub inline fn isOwnedByComptime(self: AccountInfo, comptime program: Pubkey) bool {
+        return pubkey.pubkeyEqComptime(self.owner(), program);
+    }
+
+    /// Like `isOwnedByComptime`, but returns
+    /// `error.IncorrectProgramId` when the owner doesn't match.
+    pub inline fn assertOwnerComptime(self: AccountInfo, comptime program: Pubkey) ProgramError!void {
+        if (!pubkey.pubkeyEqComptime(self.owner(), program)) {
+            return error.IncorrectProgramId;
+        }
+    }
+
+    /// Compare this account's key against a compile-time-known pubkey.
+    pub inline fn keyEqComptime(self: AccountInfo, comptime expected: Pubkey) bool {
+        return pubkey.pubkeyEqComptime(self.key(), expected);
+    }
+
     /// Read a typed value from account data at the given byte offset.
     /// Zero overhead — compiles to a single pointer dereference.
     ///

@@ -48,11 +48,36 @@ Local apples-to-apples comparison of `lazyEntrypoint` vs `lazyEntrypointRaw`
 
 | Program | `lazyEntrypoint` (ProgramResult) | `lazyEntrypointRaw` (u64) | Δ |
 |---|---:|---:|---:|
-| pubkey_cmp_safe (byte-by-byte) | 33 CU | 30 CU | −3 |
+| pubkey_cmp_safe (byte-by-byte) | 22 CU | 18 CU | −4 |
 | pubkey_cmp_unchecked (aligned u64) | — | **18 CU** | — |
+| pubkey_cmp_comptime (`pubkeyEqComptime`) | 26 CU | — | — |
 | transfer_lamports | 27 CU | **22 CU** | −5 |
 
 The error-union wrapper costs ~3–5 CU. Reproduce with:
+
+### Compile-time PDA derivation
+
+When all seeds and the program id are known at compile time, the SDK
+computes the PDA at build time and emits two plain constants — no
+`sol_try_find_program_address` syscall is needed:
+
+```zig
+const VAULT = sol.pda.comptimeFindProgramAddress(
+    .{ "vault" },
+    MY_PROGRAM_ID,
+);
+// VAULT.address and VAULT.bump_seed are baked into the binary.
+```
+
+| Program | CU |
+|---|---:|
+| `pda_runtime` (`findProgramAddress` syscall) | 3025 |
+| `pda_comptime` (`comptimeFindProgramAddress`) | **9** |
+
+That is a ~3000 CU per-call saving for static PDAs (singletons, vaults,
+treasuries, well-known sysvar accounts, etc.).
+
+### Reproduce
 
 ```console
 cd benchmark

@@ -139,6 +139,43 @@ pub inline fn pubkeyEqAligned(a: *const Pubkey, b: *const Pubkey) bool {
         a_chunks[3] == b_chunks[3];
 }
 
+/// Compare a runtime pubkey against a compile-time-known pubkey.
+///
+/// The expected value is split into four `u64` immediates at compile
+/// time, so the generated BPF code reads four `u64`s from the runtime
+/// pubkey and compares each against an `imm64` — no second pointer to
+/// dereference, no `&MY_ID` rodata load (which on BPF can land at an
+/// invalid low address).
+///
+/// Prefer this over `pubkeyEq(a, &MY_PROGRAM_ID)` whenever the right
+/// operand is a `pub const` / literal pubkey.
+pub inline fn pubkeyEqComptime(
+    a: *const Pubkey,
+    comptime expected: Pubkey,
+) bool {
+    const e: [4]u64 = comptime blk: {
+        var out: [4]u64 = undefined;
+        var i: usize = 0;
+        while (i < 4) : (i += 1) {
+            out[i] = std.mem.readInt(u64, expected[i * 8 ..][0..8], .little);
+        }
+        break :blk out;
+    };
+
+    if (bpf.is_bpf_program) {
+        const a_chunks: *const [4]u64 = @ptrCast(@alignCast(a));
+        return a_chunks[0] == e[0] and
+            a_chunks[1] == e[1] and
+            a_chunks[2] == e[2] and
+            a_chunks[3] == e[3];
+    }
+
+    // Host: unaligned-safe path
+    var buf: [4]u64 = undefined;
+    @memcpy(std.mem.sliceAsBytes(buf[0..]), a[0..]);
+    return buf[0] == e[0] and buf[1] == e[1] and buf[2] == e[2] and buf[3] == e[3];
+}
+
 /// Check if a pubkey is on the Ed25519 curve.
 /// Used for PDA validation (PDAs must NOT be on the curve, so this must
 /// agree with the Solana runtime's `is_on_curve` for safety).
@@ -184,6 +221,24 @@ test "pubkey: equality" {
     const a = comptimeFromBase58("11111111111111111111111111111111");
     const b = comptimeFromBase58("11111111111111111111111111111111");
     try std.testing.expect(pubkeyEq(&a, &b));
+}
+
+test "pubkey: pubkeyEqComptime matches/mismatches" {
+    const same = comptimeFromBase58("SysvarRent111111111111111111111111111111111");
+    try std.testing.expect(pubkeyEqComptime(
+        &same,
+        comptime comptimeFromBase58("SysvarRent111111111111111111111111111111111"),
+    ));
+
+    const different = comptimeFromBase58("SysvarC1ock11111111111111111111111111111111");
+    try std.testing.expect(!pubkeyEqComptime(
+        &different,
+        comptime comptimeFromBase58("SysvarRent111111111111111111111111111111111"),
+    ));
+
+    // Smoke-test the all-zero (System Program) case
+    const zero: Pubkey = .{0} ** PUBKEY_BYTES;
+    try std.testing.expect(pubkeyEqComptime(&zero, comptime .{0} ** PUBKEY_BYTES));
 }
 
 test "pubkey: isPointOnCurve" {

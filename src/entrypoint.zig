@@ -1,14 +1,11 @@
 //! Solana program entrypoint and input deserialization
 //!
-//! Provides both standard (eager) and lazy entrypoint styles.
+//! ## Lazy Entrypoint (默认推荐)
+//! On-demand account parsing via InstructionContext — **零拷贝、最优 CU**。
+//! 与 Pinocchio `entrypoint!` 行为一致。
 //!
-//! ## Standard Entrypoint
-//! Parses all accounts upfront into a pre-allocated buffer.
-//! Best for programs with many instructions or complex account handling.
-//!
-//! ## Lazy Entrypoint
-//! Provides on-demand account parsing via InstructionContext.
-//! Best for simple programs with few instructions — minimal CU overhead.
+//! ## Standard Entrypoint (兼容模式)
+//! Eager parsing — 预分配 account 数组，兼容旧代码。
 
 const std = @import("std");
 const account = @import("account.zig");

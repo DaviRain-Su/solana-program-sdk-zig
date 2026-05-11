@@ -1,17 +1,11 @@
 const sol = @import("solana_program_sdk");
 
-fn processInstruction(
-    program_id: *const sol.Pubkey,
-    accounts: []sol.AccountInfo,
-    instruction_data: []const u8,
-) sol.ProgramResult {
-    _ = program_id;
-    _ = accounts;
-    _ = instruction_data;
+fn processInstruction(context: *sol.entrypoint.InstructionContext) sol.ProgramResult {
+    _ = context;
     sol.log.log("Hello from the hello-world template");
     return;
 }
 
 export fn entrypoint(input: [*]u8) u64 {
-    return @call(.always_inline, sol.entrypoint.entrypoint(10, processInstruction), .{input});
+    return @call(.always_inline, sol.entrypoint.lazyEntrypoint(processInstruction), .{input});
 }

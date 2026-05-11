@@ -28,6 +28,41 @@ zig build test --summary all
 ./program-test/test.sh
 ```
 
+## Writing a program
+
+**推荐使用 lazy entrypoint**（与 Pinocchio `entrypoint!` 行为一致，零拷贝、最优 CU）：
+
+```zig
+const sol = @import("solana_program_sdk");
+
+fn processInstruction(context: *sol.entrypoint.InstructionContext) sol.ProgramResult {
+    const payer = context.nextAccount() orelse return error.NotEnoughAccountKeys;
+    const account = context.nextAccount() orelse return error.NotEnoughAccountKeys;
+    const data = context.instructionData();
+    // ...
+}
+
+export fn entrypoint(input: [*]u8) u64 {
+    return @call(.always_inline, sol.entrypoint.lazyEntrypoint(processInstruction), .{input});
+}
+```
+
+**兼容模式**（eager entrypoint，预解析所有 accounts）：
+
+```zig
+fn processInstruction(
+    program_id: *const sol.Pubkey,
+    accounts: []sol.AccountInfo,
+    instruction_data: []const u8,
+) sol.ProgramResult {
+    // ...
+}
+
+export fn entrypoint(input: [*]u8) u64 {
+    return @call(.always_inline, sol.entrypoint.entrypoint(10, processInstruction), .{input});
+}
+```
+
 `bootstrap.sh` detects both toolchains and prints the environment variables
 to export:
 

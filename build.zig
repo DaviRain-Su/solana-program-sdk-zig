@@ -19,17 +19,6 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
-
-    // Examples step (only works with solana-zig fork)
-    if (has_sbf_target) {
-        const examples_step = b.step("examples", "Build example programs");
-
-        const token_dispatch = buildProgram(b, .{
-            .name = "token_dispatch",
-            .root_source_file = b.path("examples/token_dispatch.zig"),
-        });
-        examples_step.dependOn(token_dispatch.step);
-    }
 }
 
 pub const LinkedProgram = struct {
@@ -38,15 +27,6 @@ pub const LinkedProgram = struct {
     so: std.Build.LazyPath,
     step: *std.Build.Step,
 };
-
-// ---------------------------------------------------------------------
-// Target query: sbf-solana-none with SBPF v2 features.
-//
-// Requires the solana-zig-bootstrap fork (solana-v1.53.0 or later)
-// because stock Zig 0.16 does not know the `.sbf` CPU arch.
-//
-// Download: https://github.com/joncinque/solana-zig-bootstrap/releases
-// ---------------------------------------------------------------------
 
 pub const has_sbf_target = @hasField(std.Target.Cpu.Arch, "sbf");
 
@@ -57,13 +37,6 @@ pub fn sbfTarget() std.Target.Query {
         .cpu_model = .{ .explicit = &std.Target.sbf.cpu.v2 },
     };
 }
-
-// ---------------------------------------------------------------------
-// buildProgram — primary path.
-//
-// One call produces a deployable `.so` directly. Expects the running
-// Zig compiler to be the solana-zig fork (known to `std.Target.sbf`).
-// ---------------------------------------------------------------------
 
 pub const BuildProgramOptions = struct {
     name: []const u8,
@@ -79,12 +52,11 @@ pub fn buildProgram(b: *std.Build, options: BuildProgramOptions) LinkedProgram {
     const target = b.resolveTargetQuery(sbfTarget());
     const optimize = options.optimize;
 
-    // Use self as module (not a dependency — this IS the SDK)
-    const solana_mod = b.addModule("solana_program_sdk", .{
-        .root_source_file = b.path("src/root.zig"),
+    const solana_dep = b.dependency("solana_program_sdk", .{
         .target = target,
         .optimize = optimize,
     });
+    const solana_mod = solana_dep.module("solana_program_sdk");
 
     const program_mod = b.createModule(.{
         .root_source_file = options.root_source_file,

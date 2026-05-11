@@ -65,7 +65,8 @@ jobs:
 
       - name: Test library with solana-zig
         shell: bash
-        run: "$SOLANA_ZIG" build test --summary all
+        run: |
+          "$SOLANA_ZIG" build test --summary all
       - uses: actions/cache@v4
         with:
           path: |

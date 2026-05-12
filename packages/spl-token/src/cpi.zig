@@ -24,6 +24,15 @@ const Instruction = sol.cpi.Instruction;
 const Signer = sol.cpi.Signer;
 const ProgramResult = sol.ProgramResult;
 
+// Pull the per-instruction wire-format specs into scope. The
+// builders' signatures already enforce that any local scratch
+// buffer must match the spec's `accounts_len` / `data_len` — so
+// re-typing the array shapes via `metasArray(spec)` /
+// `dataArray(spec)` keeps the wrappers honest by construction
+// (change the spec, every call site moves with it).
+const metasArray = instruction.metasArray;
+const dataArray = instruction.dataArray;
+
 /// Make a `cpi.Instruction` carry the caller-supplied program ID
 /// instead of the comptime classic-SPL-Token ID — necessary so the
 /// same wrappers work against Token-2022.
@@ -42,8 +51,8 @@ pub fn transfer(
     authority: CpiAccountInfo,
     amount: u64,
 ) ProgramResult {
-    var metas: [3]AccountMeta = undefined;
-    var data: [9]u8 = undefined;
+    var metas: metasArray(instruction.transfer_spec) = undefined;
+    var data: dataArray(instruction.transfer_spec) = undefined;
     const ix = rebrand(
         instruction.transfer(source.key(), destination.key(), authority.key(), amount, &metas, &data),
         token_program.key(),
@@ -59,8 +68,8 @@ pub fn transferSigned(
     amount: u64,
     signers: []const Signer,
 ) ProgramResult {
-    var metas: [3]AccountMeta = undefined;
-    var data: [9]u8 = undefined;
+    var metas: metasArray(instruction.transfer_spec) = undefined;
+    var data: dataArray(instruction.transfer_spec) = undefined;
     const ix = rebrand(
         instruction.transfer(source.key(), destination.key(), authority.key(), amount, &metas, &data),
         token_program.key(),
@@ -85,8 +94,8 @@ pub fn transferChecked(
     amount: u64,
     decimals: u8,
 ) ProgramResult {
-    var metas: [4]AccountMeta = undefined;
-    var data: [10]u8 = undefined;
+    var metas: metasArray(instruction.transfer_checked_spec) = undefined;
+    var data: dataArray(instruction.transfer_checked_spec) = undefined;
     const ix = rebrand(
         instruction.transferChecked(
             source.key(),
@@ -116,8 +125,8 @@ pub fn transferCheckedSigned(
     decimals: u8,
     signers: []const Signer,
 ) ProgramResult {
-    var metas: [4]AccountMeta = undefined;
-    var data: [10]u8 = undefined;
+    var metas: metasArray(instruction.transfer_checked_spec) = undefined;
+    var data: dataArray(instruction.transfer_checked_spec) = undefined;
     const ix = rebrand(
         instruction.transferChecked(
             source.key(),
@@ -149,8 +158,8 @@ pub fn mintTo(
     authority: CpiAccountInfo,
     amount: u64,
 ) ProgramResult {
-    var metas: [3]AccountMeta = undefined;
-    var data: [9]u8 = undefined;
+    var metas: metasArray(instruction.mint_to_spec) = undefined;
+    var data: dataArray(instruction.mint_to_spec) = undefined;
     const ix = rebrand(
         instruction.mintTo(mint.key(), destination.key(), authority.key(), amount, &metas, &data),
         token_program.key(),
@@ -166,8 +175,8 @@ pub fn mintToSigned(
     amount: u64,
     signers: []const Signer,
 ) ProgramResult {
-    var metas: [3]AccountMeta = undefined;
-    var data: [9]u8 = undefined;
+    var metas: metasArray(instruction.mint_to_spec) = undefined;
+    var data: dataArray(instruction.mint_to_spec) = undefined;
     const ix = rebrand(
         instruction.mintTo(mint.key(), destination.key(), authority.key(), amount, &metas, &data),
         token_program.key(),
@@ -187,8 +196,8 @@ pub fn mintToChecked(
     amount: u64,
     decimals: u8,
 ) ProgramResult {
-    var metas: [3]AccountMeta = undefined;
-    var data: [10]u8 = undefined;
+    var metas: metasArray(instruction.mint_to_checked_spec) = undefined;
+    var data: dataArray(instruction.mint_to_checked_spec) = undefined;
     const ix = rebrand(
         instruction.mintToChecked(
             mint.key(),
@@ -215,8 +224,8 @@ pub fn burn(
     authority: CpiAccountInfo,
     amount: u64,
 ) ProgramResult {
-    var metas: [3]AccountMeta = undefined;
-    var data: [9]u8 = undefined;
+    var metas: metasArray(instruction.burn_spec) = undefined;
+    var data: dataArray(instruction.burn_spec) = undefined;
     const ix = rebrand(
         instruction.burn(source.key(), mint.key(), authority.key(), amount, &metas, &data),
         token_program.key(),
@@ -232,8 +241,8 @@ pub fn burnChecked(
     amount: u64,
     decimals: u8,
 ) ProgramResult {
-    var metas: [3]AccountMeta = undefined;
-    var data: [10]u8 = undefined;
+    var metas: metasArray(instruction.burn_checked_spec) = undefined;
+    var data: dataArray(instruction.burn_checked_spec) = undefined;
     const ix = rebrand(
         instruction.burnChecked(
             source.key(),
@@ -259,8 +268,8 @@ pub fn closeAccount(
     destination: CpiAccountInfo,
     authority: CpiAccountInfo,
 ) ProgramResult {
-    var metas: [3]AccountMeta = undefined;
-    var data: [1]u8 = undefined;
+    var metas: metasArray(instruction.close_account_spec) = undefined;
+    var data: dataArray(instruction.close_account_spec) = undefined;
     const ix = rebrand(
         instruction.closeAccount(account.key(), destination.key(), authority.key(), &metas, &data),
         token_program.key(),
@@ -275,8 +284,8 @@ pub fn closeAccountSigned(
     authority: CpiAccountInfo,
     signers: []const Signer,
 ) ProgramResult {
-    var metas: [3]AccountMeta = undefined;
-    var data: [1]u8 = undefined;
+    var metas: metasArray(instruction.close_account_spec) = undefined;
+    var data: dataArray(instruction.close_account_spec) = undefined;
     const ix = rebrand(
         instruction.closeAccount(account.key(), destination.key(), authority.key(), &metas, &data),
         token_program.key(),
@@ -298,8 +307,8 @@ pub fn initializeAccount3(
     mint: CpiAccountInfo,
     owner: *const Pubkey,
 ) ProgramResult {
-    var metas: [2]AccountMeta = undefined;
-    var data: [33]u8 = undefined;
+    var metas: metasArray(instruction.initialize_account3_spec) = undefined;
+    var data: dataArray(instruction.initialize_account3_spec) = undefined;
     const ix = rebrand(
         instruction.initializeAccount3(account.key(), mint.key(), owner, &metas, &data),
         token_program.key(),
@@ -314,8 +323,8 @@ pub fn initializeMint2(
     mint_authority: *const Pubkey,
     freeze_authority: ?*const Pubkey,
 ) ProgramResult {
-    var metas: [1]AccountMeta = undefined;
-    var data: [1 + 1 + 32 + 4 + 32]u8 = undefined;
+    var metas: metasArray(instruction.initialize_mint2_spec) = undefined;
+    var data: dataArray(instruction.initialize_mint2_spec) = undefined;
     const ix = rebrand(
         instruction.initializeMint2(
             mint.key(),

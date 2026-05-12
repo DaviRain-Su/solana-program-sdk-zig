@@ -7,24 +7,21 @@
 //!
 //! Reference: <https://github.com/solana-program/token/blob/main/program/src/instruction.rs>
 //!
-//! ## Discriminant table (first byte of `data`)
+//! ## Single source of truth: `Spec`
 //!
-//! |  # | Instruction        | Body                                         |
-//! |---:|--------------------|----------------------------------------------|
-//! |  3 | Transfer           | `u64 amount`                                 |
-//! |  7 | MintTo             | `u64 amount`                                 |
-//! |  8 | Burn               | `u64 amount`                                 |
-//! |  9 | CloseAccount       | —                                            |
-//! | 12 | TransferChecked    | `u64 amount, u8 decimals`                    |
-//! | 14 | MintToChecked      | `u64 amount, u8 decimals`                    |
-//! | 15 | BurnChecked        | `u64 amount, u8 decimals`                    |
-//! | 18 | InitializeAccount3 | `Pubkey owner`                               |
-//! | 20 | InitializeMint2    | `u8 decimals, Pubkey mint_auth, COption fa`  |
+//! Every instruction is described by a comptime `Spec` value that
+//! pins down the *three* numbers the on-chain wire format is built
+//! from — discriminant byte, number of `AccountMeta`s, payload byte
+//! count. Both the builder signatures and the CPI wrapper scratch
+//! buffers derive their array lengths from these specs (via
+//! `metasArray(spec)` / `dataArray(spec)`), so the constants live in
+//! exactly one place.
 //!
-//! We use the "3" / "2" suffixed initialize-* variants because they
-//! drop the rent sysvar requirement and embed the owner /
-//! freeze-authority directly in the data payload — they're what
-//! modern client code (and Token-2022) emits.
+//! A `comptime` audit block at the bottom of this file re-derives
+//! the canonical numbers from first principles (1-byte disc + named
+//! field sizes) and `@compileError`s if any spec drifts — that's
+//! the editor-typo-catcher you want when the SPL Token protocol
+//! gains a new field or someone fat-fingers a count.
 
 const std = @import("std");
 const sol = @import("solana_program_sdk");
@@ -50,6 +47,100 @@ pub const TokenInstruction = enum(u8) {
 };
 
 // =============================================================================
+// Spec — single source of truth per instruction.
+// =============================================================================
+
+/// Per-instruction wire-format spec. All three fields are part of
+/// the on-chain protocol — change them only if upstream SPL Token
+/// changes its layout.
+///
+/// Consumers should read these as `transfer_spec.accounts_len` /
+/// `.data_len` rather than re-deriving the numbers; the comptime
+/// audit block at the bottom of this file verifies each spec
+/// against the canonical 1-byte-disc + field-byte-count formula.
+pub const Spec = struct {
+    /// First byte of the wire-format `data` buffer.
+    disc: TokenInstruction,
+    /// Number of `AccountMeta`s the instruction's metas slice
+    /// carries (NOT counting the token-program account itself,
+    /// which is appended to the CPI `accounts` slice separately).
+    accounts_len: usize,
+    /// Total `data` length in bytes (1 discriminator + payload).
+    data_len: usize,
+};
+
+pub const transfer_spec: Spec = .{ .disc = .transfer, .accounts_len = 3, .data_len = 1 + 8 };
+pub const transfer_checked_spec: Spec = .{ .disc = .transfer_checked, .accounts_len = 4, .data_len = 1 + 8 + 1 };
+pub const mint_to_spec: Spec = .{ .disc = .mint_to, .accounts_len = 3, .data_len = 1 + 8 };
+pub const mint_to_checked_spec: Spec = .{ .disc = .mint_to_checked, .accounts_len = 3, .data_len = 1 + 8 + 1 };
+pub const burn_spec: Spec = .{ .disc = .burn, .accounts_len = 3, .data_len = 1 + 8 };
+pub const burn_checked_spec: Spec = .{ .disc = .burn_checked, .accounts_len = 3, .data_len = 1 + 8 + 1 };
+pub const close_account_spec: Spec = .{ .disc = .close_account, .accounts_len = 3, .data_len = 1 };
+pub const initialize_account3_spec: Spec = .{ .disc = .initialize_account3, .accounts_len = 2, .data_len = 1 + 32 };
+pub const initialize_mint2_spec: Spec = .{ .disc = .initialize_mint2, .accounts_len = 1, .data_len = 1 + 1 + 32 + 4 + 32 };
+
+/// Builder/wrapper-side helper: typed scratch-array sizes derived
+/// from a `Spec`. Using the function form means every call site
+/// reads `metasArray(transfer_spec)` instead of a bare `[3]`, so
+/// rebinding the spec to a different instruction propagates.
+pub fn metasArray(comptime spec: Spec) type {
+    return [spec.accounts_len]AccountMeta;
+}
+
+pub fn dataArray(comptime spec: Spec) type {
+    return [spec.data_len]u8;
+}
+
+// =============================================================================
+// Comptime audit — re-derive each spec from first principles.
+//
+// If the SPL Token protocol ever adds a field, the canonical
+// formula here will disagree with the spec's `data_len` constant
+// and the build will fail with a precise message — no silent
+// misencoding shipping to the cluster.
+// =============================================================================
+
+comptime {
+    const PUBKEY_LEN: usize = 32;
+    const COPTION_PUBKEY_LEN: usize = 4 + PUBKEY_LEN; // bincode COption<Pubkey>
+    const AMOUNT_LEN: usize = 8;
+    const DECIMALS_LEN: usize = 1;
+    const DISC_LEN: usize = 1;
+
+    // Each tuple = ( spec , expected accounts , expected payload-byte sum )
+    const audits = .{
+        .{ transfer_spec, 3, AMOUNT_LEN },
+        .{ transfer_checked_spec, 4, AMOUNT_LEN + DECIMALS_LEN },
+        .{ mint_to_spec, 3, AMOUNT_LEN },
+        .{ mint_to_checked_spec, 3, AMOUNT_LEN + DECIMALS_LEN },
+        .{ burn_spec, 3, AMOUNT_LEN },
+        .{ burn_checked_spec, 3, AMOUNT_LEN + DECIMALS_LEN },
+        .{ close_account_spec, 3, 0 },
+        .{ initialize_account3_spec, 2, PUBKEY_LEN },
+        .{ initialize_mint2_spec, 1, DECIMALS_LEN + PUBKEY_LEN + COPTION_PUBKEY_LEN },
+    };
+
+    for (audits) |a| {
+        const spec: Spec = a[0];
+        const want_accounts: usize = a[1];
+        const want_payload: usize = a[2];
+        const want_data = DISC_LEN + want_payload;
+        if (spec.accounts_len != want_accounts) {
+            @compileError(std.fmt.comptimePrint(
+                "spl-token spec drift: {s} accounts_len={d} but protocol says {d}",
+                .{ @tagName(spec.disc), spec.accounts_len, want_accounts },
+            ));
+        }
+        if (spec.data_len != want_data) {
+            @compileError(std.fmt.comptimePrint(
+                "spl-token spec drift: {s} data_len={d} but protocol says {d}={d}+payload({d})",
+                .{ @tagName(spec.disc), spec.data_len, want_data, DISC_LEN, want_payload },
+            ));
+        }
+    }
+}
+
+// =============================================================================
 // Comptime instruction-data builders — one extern struct per shape.
 // =============================================================================
 
@@ -72,10 +163,20 @@ const InitAccount3Ix = sol.instruction.comptimeInstructionData(
     extern struct { owner: Pubkey align(1) },
 );
 
-// `InitializeMint2` has a variable suffix (COption<Pubkey> for the
-// freeze authority — 4-byte tag + 32 bytes that are zero when the
-// option is None). Easier to fill byte-by-byte; total = 67 bytes.
-const INIT_MINT2_LEN: usize = 1 + 1 + 32 + 4 + 32;
+// Sanity-check: the comptime-builder byte counts agree with the
+// matching specs. Without this, the two layers could drift silently
+// (spec says 10, builder writes 17 because someone forgot
+// `align(1)`). The audit fires *before* the build emits any
+// program code.
+comptime {
+    std.debug.assert(AmountIx.bytes == transfer_spec.data_len);
+    std.debug.assert(AmountIx.bytes == mint_to_spec.data_len);
+    std.debug.assert(AmountIx.bytes == burn_spec.data_len);
+    std.debug.assert(AmountDecimalsIx.bytes == transfer_checked_spec.data_len);
+    std.debug.assert(AmountDecimalsIx.bytes == mint_to_checked_spec.data_len);
+    std.debug.assert(AmountDecimalsIx.bytes == burn_checked_spec.data_len);
+    std.debug.assert(InitAccount3Ix.bytes == initialize_account3_spec.data_len);
+}
 
 // =============================================================================
 // Account-meta wiring — every instruction below documents its
@@ -101,13 +202,13 @@ pub fn transfer(
     destination: *const Pubkey,
     authority: *const Pubkey,
     amount: u64,
-    /// Caller-owned scratch buffer for the three account metas.
-    metas: *[3]AccountMeta,
-    /// Caller-owned scratch buffer for the 9-byte instruction body
-    /// (1 disc + 8 amount). Keeping the buffer external lets the
-    /// returned `Instruction` outlive this function without an
-    /// allocator.
-    data: *[1 + 8]u8,
+    /// Caller-owned scratch — must be sized exactly to
+    /// `transfer_spec.accounts_len` / `.data_len`. Both arrays are
+    /// declared via `metasArray(transfer_spec)` /
+    /// `dataArray(transfer_spec)` so the type checker rejects any
+    /// caller whose buffer doesn't match the on-chain protocol.
+    metas: *metasArray(transfer_spec),
+    data: *dataArray(transfer_spec),
 ) Instruction {
     data.* = AmountIx.initWithDiscriminant(
         @intFromEnum(TokenInstruction.transfer),
@@ -137,8 +238,8 @@ pub fn transferChecked(
     authority: *const Pubkey,
     amount: u64,
     decimals: u8,
-    metas: *[4]AccountMeta,
-    data: *[1 + 8 + 1]u8,
+    metas: *metasArray(transfer_checked_spec),
+    data: *dataArray(transfer_checked_spec),
 ) Instruction {
     data.* = AmountDecimalsIx.initWithDiscriminant(
         @intFromEnum(TokenInstruction.transfer_checked),
@@ -166,8 +267,8 @@ pub fn mintTo(
     destination: *const Pubkey,
     authority: *const Pubkey,
     amount: u64,
-    metas: *[3]AccountMeta,
-    data: *[1 + 8]u8,
+    metas: *metasArray(mint_to_spec),
+    data: *dataArray(mint_to_spec),
 ) Instruction {
     data.* = AmountIx.initWithDiscriminant(
         @intFromEnum(TokenInstruction.mint_to),
@@ -191,8 +292,8 @@ pub fn mintToChecked(
     authority: *const Pubkey,
     amount: u64,
     decimals: u8,
-    metas: *[3]AccountMeta,
-    data: *[1 + 8 + 1]u8,
+    metas: *metasArray(mint_to_checked_spec),
+    data: *dataArray(mint_to_checked_spec),
 ) Instruction {
     data.* = AmountDecimalsIx.initWithDiscriminant(
         @intFromEnum(TokenInstruction.mint_to_checked),
@@ -219,8 +320,8 @@ pub fn burn(
     mint: *const Pubkey,
     authority: *const Pubkey,
     amount: u64,
-    metas: *[3]AccountMeta,
-    data: *[1 + 8]u8,
+    metas: *metasArray(burn_spec),
+    data: *dataArray(burn_spec),
 ) Instruction {
     data.* = AmountIx.initWithDiscriminant(
         @intFromEnum(TokenInstruction.burn),
@@ -243,8 +344,8 @@ pub fn burnChecked(
     authority: *const Pubkey,
     amount: u64,
     decimals: u8,
-    metas: *[3]AccountMeta,
-    data: *[1 + 8 + 1]u8,
+    metas: *metasArray(burn_checked_spec),
+    data: *dataArray(burn_checked_spec),
 ) Instruction {
     data.* = AmountDecimalsIx.initWithDiscriminant(
         @intFromEnum(TokenInstruction.burn_checked),
@@ -270,8 +371,8 @@ pub fn closeAccount(
     account: *const Pubkey,
     destination: *const Pubkey,
     authority: *const Pubkey,
-    metas: *[3]AccountMeta,
-    data: *[1]u8,
+    metas: *metasArray(close_account_spec),
+    data: *dataArray(close_account_spec),
 ) Instruction {
     data[0] = @intFromEnum(TokenInstruction.close_account);
     metas[0] = AccountMeta.writable(account);
@@ -296,8 +397,8 @@ pub fn initializeAccount3(
     account: *const Pubkey,
     mint: *const Pubkey,
     owner: *const Pubkey,
-    metas: *[2]AccountMeta,
-    data: *[1 + 32]u8,
+    metas: *metasArray(initialize_account3_spec),
+    data: *dataArray(initialize_account3_spec),
 ) Instruction {
     data.* = InitAccount3Ix.initWithDiscriminant(
         @intFromEnum(TokenInstruction.initialize_account3),
@@ -328,8 +429,8 @@ pub fn initializeMint2(
     decimals: u8,
     mint_authority: *const Pubkey,
     freeze_authority: ?*const Pubkey,
-    metas: *[1]AccountMeta,
-    data: *[INIT_MINT2_LEN]u8,
+    metas: *metasArray(initialize_mint2_spec),
+    data: *dataArray(initialize_mint2_spec),
 ) Instruction {
     data[0] = @intFromEnum(TokenInstruction.initialize_mint2);
     data[1] = decimals;
@@ -413,7 +514,7 @@ test "initializeMint2: Some-vs-None freeze authority encoding" {
     const auth: Pubkey = .{0x22} ** 32;
     const fa: Pubkey = .{0x33} ** 32;
     var metas: [1]AccountMeta = undefined;
-    var data: [INIT_MINT2_LEN]u8 = undefined;
+    var data: dataArray(initialize_mint2_spec) = undefined;
 
     _ = initializeMint2(&m, 9, &auth, &fa, &metas, &data);
     try std.testing.expectEqual(@as(u8, 20), data[0]);

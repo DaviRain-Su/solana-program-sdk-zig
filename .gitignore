@@ -7,3 +7,5 @@ zig-out/
 zig-pkg/
 .zig-cache/
 .tools/
+
+.pi

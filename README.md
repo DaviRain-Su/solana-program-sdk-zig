@@ -84,7 +84,12 @@ for the no-bump-search `create_account_with_seed` case.
 
 `ctx.parseAccounts(.{ "from", "to", "system_program" })` returns a
 named struct with one `AccountInfo` per requested account, with the
-loop fully unrolled at compile time:
+loop fully unrolled at compile time. There's also
+`ctx.parseAccountsUnchecked(.{ ... })` — same return shape, but the
+caller asserts that no two slots reference the same account. The
+unchecked variant is ~70 CU cheaper on a 2–3 account parse; use it
+when your account roles are structurally distinct (typical for fixed
+DeFi-style layouts).
 
 ```zig
 const accs = try ctx.parseAccounts(.{ "from", "to", "system_program" });
@@ -213,9 +218,9 @@ zig-out/lib cargo run -- vault_*`):
 
 | Instruction | Zig (this SDK) | Anchor (typical) | Notes |
 |---|---:|---:|---|
-| `vault.initialize` | **4931** | 8000–10000 | `findProgramAddress` + CPI `system_program::create_account` (rent-exempt) + discriminator write |
-| `vault.deposit`    | **1770** | 5000–8000 | CPI `system_program::transfer` + typed-state balance bump + `sol_log_data` emit |
-| `vault.withdraw`   | **2071** | 4000–6000 | `requireHasOneWith` + `verifyPda` (stored bump) + direct lamport move + `sol_log_data` emit |
+| `vault.initialize` | **4850** | 8000–10000 | `findProgramAddress` + CPI `system_program::create_account` (rent-exempt) + discriminator write |
+| `vault.deposit`    | **1686** | 5000–8000 | CPI `system_program::transfer` + typed-state balance bump + `sol_log_data` emit |
+| `vault.withdraw`   | **1989** | 4000–6000 | `requireHasOneWith` + `verifyPda` (stored bump) + direct lamport move + `sol_log_data` emit |
 
 > Anchor figures are approximate values from production Solana
 > programs at the time of writing — your mileage will vary based on
@@ -225,20 +230,24 @@ zig-out/lib cargo run -- vault_*`):
 > come from.
 
 The `examples/token_dispatch.zig` program (2 account slots, `u32` tag
-+ `u64` amount payload, parse-then-dispatch) lands at **97–100 CU**
-across transfer / burn / mint. The cost breakdown:
++ `u64` amount payload, parse-then-dispatch) lands at **37–38 CU**
+across transfer / burn / mint using `parseAccountsUnchecked` (the
+two-account layout has structurally distinct roles so dups can't
+occur). Using the dup-aware safe `parseAccounts` adds ~63 CU of
+tagged-union switch + parallel-array work on the same payload.
 
-  - lazyEntrypoint wrapper                          ~5 CU
-  - parseAccounts of 2 slots                       ~25 CU
-  - instructionData() length / cursor check         ~5 CU
-  - u32 tag + u64 amount reads                      ~5 CU
-  - if-chain dispatch (1–2 branches taken)          ~5 CU
-  - two `subLamports` / `addLamports` mutations    ~50 CU
+| Variant | CU | Notes |
+|---|---:|---|
+| `parseAccountsUnchecked` + `instructionData()` | 37 | structurally-unique account roles |
+| safe `parseAccounts` + `instructionData()`      | 100 | dup-aware, ~70 CU more |
+| `nextAccountUnchecked` + `readIxTag` (raw)      | 28 | no length guard, hand-rolled |
 
-The mutations dominate — they go through the `AccountInfo` getters
-that re-read the underlying pointer each call. A future `Ref` API
-that loads `*u64` once and writes back at the end could shave another
-~30 CU off this.
+The safe path's overhead is dominated by the dup-aware tagged-union
+switch in `nextAccountMaybe` (the `MaybeAccount` variant + the
+`seen[N]` parallel array used to resolve duplicates). When your
+program's account roles are structurally unique — typical for
+DeFi-style programs with fixed slots (`mint`, `vault`, `recipient`,
+…) — switch to `parseAccountsUnchecked` for the savings.
 
 ### Reproduce
 

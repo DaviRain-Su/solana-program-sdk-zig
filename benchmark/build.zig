@@ -18,6 +18,7 @@ pub fn build(b: *std.Build) !void {
         .{ "benchmark_transfer_lamports_raw", "transfer_lamports_raw.zig" },
         .{ "example_vault", "../examples/vault.zig" },
         .{ "example_token_dispatch", "../examples/token_dispatch.zig" },
+        .{ "benchmark_token_dispatch_unchecked", "token_dispatch_unchecked.zig" },
     };
 
     inline for (benchmarks) |bench| {

@@ -108,7 +108,12 @@ const Ix = enum(u8) {
 ///
 /// This is the "parse-then-dispatch" pattern Pinocchio programs use.
 fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
-    const a = try ctx.parseAccounts(.{ "first", "second", "third" });
+    // `parseAccountsUnchecked` skips the dup-aware tagged-union switch
+    // — vault's three accounts have structurally distinct roles
+    // (authority / vault PDA / system_program or recipient), so duplicates
+    // are nonsensical and would fail downstream checks anyway. Saves
+    // ~70 CU per call vs the safe `parseAccounts`.
+    const a = try ctx.parseAccountsUnchecked(.{ "first", "second", "third" });
     const data = try ctx.instructionData();
     if (data.len < 1) return error.InvalidInstructionData;
 

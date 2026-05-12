@@ -95,10 +95,23 @@ async fn run_benchmark(name: &'static str) {
         "vault_deposit" => run_vault_deposit().await,
         "vault_withdraw" => run_vault_withdraw().await,
 
-        // Token dispatch
-        "token_dispatch_transfer" => run_token_dispatch(0, 100).await,
-        "token_dispatch_burn" => run_token_dispatch(1, 50).await,
-        "token_dispatch_mint" => run_token_dispatch(2, 25).await,
+        // Token dispatch — safe (parseAccounts) variant
+        "token_dispatch_transfer" => run_token_dispatch("example_token_dispatch", 0, 100).await,
+        "token_dispatch_burn" => run_token_dispatch("example_token_dispatch", 1, 50).await,
+        "token_dispatch_mint" => run_token_dispatch("example_token_dispatch", 2, 25).await,
+
+        // Token dispatch — unchecked (nextAccountUnchecked + readIxTag)
+        // variant. Same shape, no `parseAccounts` / `instructionData()`
+        // guards. Use this to isolate the cost of the safety layer.
+        "token_dispatch_unchecked_transfer" => {
+            run_token_dispatch("benchmark_token_dispatch_unchecked", 0, 100).await
+        }
+        "token_dispatch_unchecked_burn" => {
+            run_token_dispatch("benchmark_token_dispatch_unchecked", 1, 50).await
+        }
+        "token_dispatch_unchecked_mint" => {
+            run_token_dispatch("benchmark_token_dispatch_unchecked", 2, 25).await
+        }
 
         // Primitives: pubkey_*, pda_*, parse_*, transfer_*
         n if n.starts_with("transfer_lamports") => {
@@ -386,9 +399,9 @@ async fn run_vault_withdraw() {
 // Token dispatch benchmarks
 // ---------------------------------------------------------------------------
 
-async fn run_token_dispatch(tag: u32, amount: u64) {
+async fn run_token_dispatch(program_name: &'static str, tag: u32, amount: u64) {
     let program_id = Pubkey::from_str(BENCH_PROGRAM_ID).unwrap();
-    let mut pt = ProgramTest::new("example_token_dispatch", program_id, None);
+    let mut pt = ProgramTest::new(program_name, program_id, None);
 
     let source = Pubkey::from_str("BenchPubkey11111111111111111111111111111112").unwrap();
     let dest = Pubkey::from_str("BenchPubkey11111111111111111111111111111113").unwrap();

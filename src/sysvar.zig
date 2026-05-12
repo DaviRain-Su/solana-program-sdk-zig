@@ -110,7 +110,7 @@ pub fn getSysvarBytes(
     length: u64,
 ) ProgramError!void {
     if (dst.len < length) {
-        return program_error.fail("sysvar:dst_too_small", ProgramError.InvalidArgument);
+        return program_error.fail(@src(), "sysvar:dst_too_small", ProgramError.InvalidArgument);
     }
 
     if (bpf.is_bpf_program) {
@@ -122,9 +122,9 @@ pub fn getSysvarBytes(
         );
         return switch (rc) {
             0 => {},
-            1 => program_error.fail("sysvar:offset_out_of_range", ProgramError.InvalidArgument),
-            2 => program_error.fail("sysvar:not_found", ProgramError.UnsupportedSysvar),
-            else => program_error.fail("sysvar:unexpected", ProgramError.UnsupportedSysvar),
+            1 => program_error.fail(@src(), "sysvar:offset_out_of_range", ProgramError.InvalidArgument),
+            2 => program_error.fail(@src(), "sysvar:not_found", ProgramError.UnsupportedSysvar),
+            else => program_error.fail(@src(), "sysvar:unexpected", ProgramError.UnsupportedSysvar),
         };
     } else {
         return ProgramError.UnsupportedSysvar;

@@ -174,7 +174,7 @@ pub fn getInstructionRelative(
     const current = try loadCurrentIndexChecked(info);
     const target_i64 = @as(i64, @intCast(current)) + relative;
     if (target_i64 < 0) {
-        return program_error.fail("sysvar_ix:relative_underflow", error.InvalidArgument);
+        return program_error.fail(@src(), "sysvar_ix:relative_underflow", error.InvalidArgument);
     }
     const target: u16 = @intCast(target_i64);
     return deserialize(target, info.data());
@@ -194,7 +194,7 @@ fn deserialize(idx: u16, data: []const u8) ProgramError!IntrospectedInstruction 
     if (data.len < 2) return error.InvalidAccountData;
     const num_instructions = readU16LE(data, 0);
     if (idx >= num_instructions) {
-        return program_error.fail("sysvar_ix:index_out_of_range", error.InvalidArgument);
+        return program_error.fail(@src(), "sysvar_ix:index_out_of_range", error.InvalidArgument);
     }
 
     // Read the offset of instruction `idx` from the table at byte 2.

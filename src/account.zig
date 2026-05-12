@@ -232,6 +232,7 @@ pub const AccountInfo = struct {
                 const owner_val: Pubkey = val;
                 if (!pubkey.pubkeyEqComptime(self.owner(), owner_val)) {
                     return program_error.fail(
+                        @src(),
                         "expect:owner_mismatch",
                         error.IncorrectProgramId,
                     );
@@ -241,6 +242,7 @@ pub const AccountInfo = struct {
                 // Useful for "either SPL Token or Token-2022" patterns.
                 if (!pubkey.pubkeyEqAny(self.owner(), val)) {
                     return program_error.fail(
+                        @src(),
                         "expect:owner_any_mismatch",
                         error.IncorrectProgramId,
                     );
@@ -248,11 +250,11 @@ pub const AccountInfo = struct {
             } else if (comptime std.mem.eql(u8, name, "key")) {
                 const key_val: Pubkey = val;
                 if (!pubkey.pubkeyEqComptime(self.key(), key_val)) {
-                    return program_error.fail("expect:key_mismatch", error.InvalidArgument);
+                    return program_error.fail(@src(), "expect:key_mismatch", error.InvalidArgument);
                 }
             } else if (comptime std.mem.eql(u8, name, "key_any")) {
                 if (!pubkey.pubkeyEqAny(self.key(), val)) {
-                    return program_error.fail("expect:key_any_mismatch", error.InvalidArgument);
+                    return program_error.fail(@src(), "expect:key_any_mismatch", error.InvalidArgument);
                 }
             } else {
                 @compileError("Unknown expectation field: '" ++ name ++
@@ -272,7 +274,7 @@ pub const AccountInfo = struct {
     ) ProgramError!void {
         if (!self.isSigner()) return error.MissingRequiredSignature;
         if (!pubkey.pubkeyEq(self.key(), expected)) {
-            return program_error.fail("expect:signer_key_mismatch", error.InvalidArgument);
+            return program_error.fail(@src(), "expect:signer_key_mismatch", error.InvalidArgument);
         }
     }
 
@@ -284,7 +286,7 @@ pub const AccountInfo = struct {
     ) ProgramError!void {
         if (!self.isSigner()) return error.MissingRequiredSignature;
         if (!pubkey.pubkeyEqComptime(self.key(), expected)) {
-            return program_error.fail("expect:signer_key_mismatch", error.InvalidArgument);
+            return program_error.fail(@src(), "expect:signer_key_mismatch", error.InvalidArgument);
         }
     }
 

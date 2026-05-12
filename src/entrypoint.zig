@@ -162,6 +162,7 @@ pub const InstructionContext = struct {
     pub inline fn instructionData(self: *const InstructionContext) ProgramError![]const u8 {
         if (self.remaining > 0) {
             return program_error.fail(
+                @src(),
                 "ctx:accounts_not_consumed",
                 error.InvalidInstructionData,
             );
@@ -183,6 +184,7 @@ pub const InstructionContext = struct {
     pub inline fn programId(self: *const InstructionContext) ProgramError!*const Pubkey {
         if (self.remaining > 0) {
             return program_error.fail(
+                @src(),
                 "ctx:accounts_not_consumed",
                 error.InvalidInstructionData,
             );
@@ -380,18 +382,21 @@ pub const InstructionContext = struct {
 
             if (exp.signer and !acc.isSigner()) {
                 return program_error.fail(
+                    @src(),
                     "parse:" ++ name ++ ":not_signer",
                     error.MissingRequiredSignature,
                 );
             }
             if (exp.writable and !acc.isWritable()) {
                 return program_error.fail(
+                    @src(),
                     "parse:" ++ name ++ ":not_writable",
                     error.ImmutableAccount,
                 );
             }
             if (exp.executable and !acc.executable()) {
                 return program_error.fail(
+                    @src(),
                     "parse:" ++ name ++ ":not_executable",
                     error.InvalidAccountData,
                 );
@@ -399,6 +404,7 @@ pub const InstructionContext = struct {
             if (exp.owner) |expected_owner| {
                 if (!acc.isOwnedByComptime(expected_owner)) {
                     return program_error.fail(
+                        @src(),
                         "parse:" ++ name ++ ":wrong_owner",
                         error.IncorrectProgramId,
                     );
@@ -407,6 +413,7 @@ pub const InstructionContext = struct {
             if (exp.key) |expected_key| {
                 if (!pubkey.pubkeyEqComptime(acc.key(), expected_key)) {
                     return program_error.fail(
+                        @src(),
                         "parse:" ++ name ++ ":key_mismatch",
                         error.InvalidArgument,
                     );

@@ -411,52 +411,65 @@ into the same wire code. The convention across Rust SDK / Anchor /
 SPL is to print a short `msg!(...)` immediately before returning, so
 Explorer / RPC logs pinpoint *which* constraint actually fired.
 
-This SDK exposes that pattern as two layers.
+This SDK exposes that pattern as two layers, both of which embed the
+caller's `file:line` automatically (the Zig equivalent of Anchor's
+`file!() / line!()`).
 
-**`sol.fail(tag, err)`** — log `tag`, return `err`. The primitive.
-The comptime `tag` compiles down to a single `sol_log_` call.
+**`sol.fail(@src(), tag, err)`** — log `<file>:<line> <tag>`, return
+`err`. The primitive. The whole prefix is built at `comptime` so the
+runtime cost is exactly one `sol_log_` syscall.
 
 ```zig
-return sol.fail("vault:wrong_authority", error.IncorrectAuthority);
-return sol.failFmt("ix:bad_tag", "got={d}", .{tag}, error.InvalidInstructionData);
+return sol.fail(@src(), "vault:wrong_authority", error.IncorrectAuthority);
+// Program log: vault.zig:142 vault:wrong_authority
+
+return sol.failFmt(@src(), "ix:bad_tag", "got={d}", .{tag}, error.InvalidInstructionData);
+// Program log: entrypoint.zig:84 ix:bad_tag got=7
 ```
+
+> **Why `@src()` is passed explicitly.** Rust macros expand at the
+> call site, so Anchor's `require!` can grab `file!() / line!()`
+> implicitly. Zig's `@src()` is a builtin that expands at *function
+> definition* site, so a helper calling `@src()` internally gets
+> its own location, not the caller's. The 8-character `@src(), `
+> prefix is the price of seeing real file:line in your logs.
 
 **`sol.require*`** — Anchor's `require_*!` macro family, as inline
 functions. Happy path compiles to a single branch (zero overhead);
-failure path logs the tag and returns:
+failure path logs the tagged location and returns:
 
 | Anchor (Rust) | This SDK (Zig) |
 |---|---|
-| `require!(cond, err)` | `try sol.require(cond, "tag", err)` |
-| `require_eq!(a, b, err)` | `try sol.requireEq(a, b, "tag", err)` |
-| `require_neq!(a, b, err)` | `try sol.requireNeq(a, b, "tag", err)` |
-| `require_keys_eq!(a, b, err)` | `try sol.requireKeysEq(&a, &b, "tag", err)` |
-| `require_keys_neq!(a, b, err)` | `try sol.requireKeysNeq(&a, &b, "tag", err)` |
+| `require!(cond, err)` | `try sol.require(@src(), cond, "tag", err)` |
+| `require_eq!(a, b, err)` | `try sol.requireEq(@src(), a, b, "tag", err)` |
+| `require_neq!(a, b, err)` | `try sol.requireNeq(@src(), a, b, "tag", err)` |
+| `require_keys_eq!(a, b, err)` | `try sol.requireKeysEq(@src(), &a, &b, "tag", err)` |
+| `require_keys_neq!(a, b, err)` | `try sol.requireKeysNeq(@src(), &a, &b, "tag", err)` |
 
 ```zig
 fn process(ctx: *sol.InstructionContext) sol.ProgramResult {
     const a = try ctx.parseAccountsWith(.{ ... });
 
-    try sol.requireKeysEq(a.authority.key(), &state.authority,
+    try sol.requireKeysEq(@src(), a.authority.key(), &state.authority,
         "vault:wrong_authority", error.IncorrectAuthority);
 
-    try sol.require(amount > 0, "vault:zero_amount", error.InvalidArgument);
+    try sol.require(@src(), amount > 0, "vault:zero_amount", error.InvalidArgument);
 }
 ```
 
-CU cost: failure path is `~100 CU base + 1 CU per byte of the tag`
-(per the runtime's `sol_log_` pricing). Happy path: zero. Failures
-are panic-level events so this is negligible in practice — and you
-get a `Program log: vault:wrong_authority` in every failed
-transaction, instead of just `Custom program error: 0x...`.
+CU cost: failure path is `~100 CU base + ~1 CU per byte of the
+"<file>:<line> <tag>"` (per the runtime's `sol_log_` pricing).
+Happy path: zero. Failures are panic-level events so the extra
+~15 CU vs. a bare-tag log is negligible in practice — and you get
+a `Program log: vault.zig:142 vault:wrong_authority` in every
+failed transaction, instead of just `Custom program error: 0x...`.
 
-**SDK-internal failures already log tags.** The same pattern is used
-inside every constraint helper this SDK exposes (`parseAccountsWith`'s
-expectations, `expectSigner`, `getSysvarBytes`, the CPI builders,
-sysvar-instructions index checks, …) — when one of them fails you
-see `parse:authority:not_signer` / `expect:owner_mismatch` /
-`sysvar:offset_out_of_range` / etc. in the logs, not just the
-builtin name.
+**SDK-internal failures already log tagged locations.** The same
+pattern is used inside every constraint helper this SDK exposes
+(`parseAccountsWith`'s expectations, `expectSigner`, `getSysvarBytes`,
+the CPI builders, sysvar-instructions index checks, …) — when one
+of them fails you see `account.zig:251 expect:owner_mismatch` /
+`sysvar.zig:125 sysvar:offset_out_of_range` / etc. in the logs.
 
 ### End-to-end vault program (CU vs. Pinocchio vs. Anchor)
 

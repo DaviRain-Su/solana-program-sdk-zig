@@ -218,7 +218,7 @@ zig-out/lib cargo run -- vault_*`):
 
 | Instruction | Zig (this SDK) | Anchor (typical) | Notes |
 |---|---:|---:|---|
-| `vault.initialize` | **4850** | 8000–10000 | `findProgramAddress` + CPI `system_program::create_account` (rent-exempt) + discriminator write |
+| `vault.initialize` | **1823** | 8000–10000 | client-supplied bump + CPI `system_program::create_account` (rent-exempt) + discriminator write |
 | `vault.deposit`    | **1686** | 5000–8000 | CPI `system_program::transfer` + typed-state balance bump + `sol_log_data` emit |
 | `vault.withdraw`   | **1989** | 4000–6000 | `requireHasOneWith` + `verifyPda` (stored bump) + direct lamport move + `sol_log_data` emit |
 
@@ -228,6 +228,19 @@ zig-out/lib cargo run -- vault_*`):
 > the Anchor IDL preflight, the borsh (de)serialization round-trip,
 > and the `RefCell` borrow checks, which is where most of the savings
 > come from.
+
+The `vault.initialize` instruction uses the **client-supplied bump**
+pattern: instead of running the up-to-255-iteration
+`find_program_address` syscall on-chain (~3000-5000 CU), the client
+derives the canonical bump off-chain via `Pubkey::find_program_address`
+and passes it as the second byte of the instruction data. The program
+then runs a single `create_program_address` (one SHA-256, ~1500 CU)
+as part of the system_program create CPI's signer-seed proof.
+
+Security: if the client lies about the bump, the CPI's runtime-level
+signer-seed check fails (the derived address won't match the
+account's claimed key) and the create aborts — no separate `verifyPda`
+call is needed up front.
 
 The `examples/token_dispatch.zig` program (2 account slots, `u32` tag
 + `u64` amount payload, parse-then-dispatch) lands at **37–38 CU**

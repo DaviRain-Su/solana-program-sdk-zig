@@ -234,10 +234,10 @@ async fn run_vault_initialize() {
     );
     let (banks_client, payer, recent_blockhash) = pt.start().await;
 
-    let (vault_pda, _bump) = derive_vault(&auth.pubkey());
+    let (vault_pda, bump) = derive_vault(&auth.pubkey());
 
-    // Initialize: tag = 0
-    let ix_data = vec![0u8];
+    // Initialize: tag = 0, bump = derived off-chain
+    let ix_data = vec![0u8, bump];
     let ix = Instruction::new_with_bytes(
         program_id,
         &ix_data,
@@ -269,14 +269,14 @@ async fn run_vault_deposit() {
     );
     let (banks_client, payer, recent_blockhash) = pt.start().await;
 
-    let (vault_pda, _bump) = derive_vault(&auth.pubkey());
+    let (vault_pda, bump) = derive_vault(&auth.pubkey());
 
-    // Step 1: initialize
+    // Step 1: initialize (off-chain bump in ix data)
     {
         let mut tx = Transaction::new_with_payer(
             &[Instruction::new_with_bytes(
                 program_id,
-                &[0u8],
+                &[0u8, bump],
                 vec![
                     AccountMeta::new(auth.pubkey(), true),
                     AccountMeta::new(vault_pda, false),
@@ -326,15 +326,15 @@ async fn run_vault_withdraw() {
     );
     let (banks_client, payer, recent_blockhash) = pt.start().await;
 
-    let (vault_pda, _bump) = derive_vault(&auth.pubkey());
+    let (vault_pda, bump) = derive_vault(&auth.pubkey());
     let recipient = Keypair::new();
 
-    // Step 1: initialize
+    // Step 1: initialize (off-chain bump in ix data)
     {
         let mut tx = Transaction::new_with_payer(
             &[Instruction::new_with_bytes(
                 program_id,
-                &[0u8],
+                &[0u8, bump],
                 vec![
                     AccountMeta::new(auth.pubkey(), true),
                     AccountMeta::new(vault_pda, false),
@@ -350,11 +350,12 @@ async fn run_vault_withdraw() {
             .expect("init for withdraw");
     }
 
-    // Step 2: deposit (so the vault has something to withdraw)
+    // Step 2: deposit (so the vault has something to withdraw —
+    // enough that the recipient lands above the rent-exempt floor)
     {
         let blockhash = banks_client.get_latest_blockhash().await.unwrap();
         let mut data = vec![1u8];
-        data.extend_from_slice(&2_000_000u64.to_le_bytes());
+        data.extend_from_slice(&5_000_000u64.to_le_bytes());
         let mut tx = Transaction::new_with_payer(
             &[Instruction::new_with_bytes(
                 program_id,
@@ -374,10 +375,14 @@ async fn run_vault_withdraw() {
             .expect("deposit for withdraw");
     }
 
-    // Step 3: withdraw (measure this)
+    // Step 3: withdraw (measure this).
+    // Use an amount large enough that the recipient lands above the
+    // rent-exempt minimum for a zero-data system account
+    // (~890_880 lamports), otherwise the runtime aborts with "insufficient
+    // funds for rent" on the recipient.
     let blockhash = banks_client.get_latest_blockhash().await.unwrap();
     let mut data = vec![2u8];
-    data.extend_from_slice(&500_000u64.to_le_bytes());
+    data.extend_from_slice(&1_500_000u64.to_le_bytes());
     let ix = Instruction::new_with_bytes(
         program_id,
         &data,

@@ -782,9 +782,21 @@ Week 4: Phase 7
 
 | 指令 | Zig (this SDK) | Anchor (典型) | 备注 |
 |---|---:|---:|---|
-| `vault.initialize` | 4850 CU | 8000–10000 CU | findProgramAddress + system_program CPI 创建 + 写 discriminator |
+| `vault.initialize` | 1823 CU | 8000–10000 CU | client-supplied bump + system_program CPI 创建 + 写 discriminator |
 | `vault.deposit`    | 1686 CU | 5000–8000 CU  | system_program transfer CPI + balance bump + emit |
 | `vault.withdraw`   | 1989 CU | 4000–6000 CU  | has_one + verifyPda(储存 bump) + 直接 lamport 转移 + emit |
+
+`vault.initialize` 的关键优化：把 `findProgramAddress` 从程序内部
+移到 client 端。Client 在交易构造阶段调用 `Pubkey::find_program_address`
+（host 侧，免费）得到 canonical bump，把 bump 塞进 ix data 第二字节，
+program 侧只用 `createProgramAddress`（一次 SHA-256，~1500 CU）。
+节省了 `findProgramAddress` 的 256 次循环（~3000-5000 CU）。
+
+安全保证来自 system_program create CPI 的 signer-seed 证明：runtime
+会用我们传入的 seeds（含 bump）重新算 PDA，跟账户的 claimed key
+比对，client 谎报 bump 直接 abort。不需要额外 `verifyPda`。
+
+实测节省：4850 → 1823 CU（−3027 CU，**−62%**）。
 
 `examples/token_dispatch.zig`（u32 tag + u64 payload, 2 个账户 slot，
 parse-then-dispatch）：**37–38 CU** for transfer / burn / mint

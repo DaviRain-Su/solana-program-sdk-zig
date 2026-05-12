@@ -118,7 +118,7 @@ fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
     if (data.len < 1) return error.InvalidInstructionData;
 
     const tag: Ix = @enumFromInt(data[0]);
-    if (tag == .initialize) return processInitialize(a.first, a.second, a.third);
+    if (tag == .initialize) return processInitialize(a.first, a.second, a.third, data);
     if (tag == .deposit) return processDeposit(a.first, a.second, a.third, data);
     if (tag == .withdraw) return processWithdraw(a.first, a.second, a.third, data);
     return error.InvalidInstructionData;
@@ -134,17 +134,28 @@ fn processInitialize(
     authority: AccountInfo,
     vault: AccountInfo,
     system_program: AccountInfo,
+    data: []const u8,
 ) sol.ProgramResult {
-    // Per-ix expectations (the comptime checks parseAccountsWith would
-    // have run; we apply them here after dispatch).
+    // Per-ix expectations.
     try authority.expectSigner();
     try authority.expectWritable();
     try vault.expectWritable();
 
+    // ix-data layout: [tag:1][bump:1]. The client passes the canonical
+    // bump (found off-chain via `find_program_address`) so we only need
+    // ONE `create_program_address` syscall (~1500 CU) instead of the
+    // up-to-255 SHA-256s of `find_program_address` (~3000-5000 CU).
+    //
+    // Security: `verifyPda` (via the seeds we feed into the CPI's
+    // signer_seeds list, which the runtime checks against the vault's
+    // claimed key) is what makes this safe — if the client lies about
+    // the bump, the CPI's signer-seed proof fails and the create
+    // aborts. We don't need a separate up-front PDA check.
+    if (data.len < 2) return error.InvalidInstructionData;
+    const bump: u8 = data[1];
+
     const auth_key = authority.key().*;
-    const seeds = [_][]const u8{ "vault", auth_key[0..] };
-    const found = try sol.pda.findProgramAddress(&seeds, &PROGRAM_ID);
-    const bump_seed = [_]u8{found.bump_seed};
+    const bump_seed = [_]u8{bump};
 
     try sol.system.createRentExempt(.{
         .payer = authority.toCpiInfo(),
@@ -159,7 +170,7 @@ fn processInitialize(
         .discriminator = undefined,
         .authority = auth_key,
         .balance = 0,
-        .bump = found.bump_seed,
+        .bump = bump,
     });
 }
 

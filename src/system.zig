@@ -17,6 +17,9 @@ const Pubkey = pubkey.Pubkey;
 const CpiAccountInfo = account_mod.CpiAccountInfo;
 const ProgramResult = program_error.ProgramResult;
 const MAX_SEED_LEN = pda.MAX_SEED_LEN;
+const DISCRIMINANT_BYTES = @sizeOf(u32);
+const U64_BYTES = @sizeOf(u64);
+const PUBKEY_BYTES = @sizeOf(Pubkey);
 pub const NONCE_STATE_SIZE: u64 = 80;
 
 /// System Program instruction discriminants
@@ -47,48 +50,86 @@ pub const SystemInstruction = enum(u32) {
 /// high-level wrappers in this module enforce that pattern.
 pub const SYSTEM_PROGRAM_ID: Pubkey = .{0} ** 32;
 
-// Compile-time instruction data builders
-const CreateAccountData = instruction.comptimeInstructionData(
-    u32,
-    extern struct {
-        lamports: u64,
-        space: u64,
-        owner: Pubkey,
-    },
-);
+const CreateAccountPayload = extern struct {
+    lamports: u64,
+    space: u64,
+    owner: Pubkey,
+};
 
-const TransferData = instruction.comptimeInstructionData(
-    u32,
-    extern struct {
-        lamports: u64,
-    },
-);
+const TransferPayload = extern struct {
+    lamports: u64,
+};
 
-const AssignData = instruction.comptimeInstructionData(
-    u32,
-    extern struct {
-        owner: Pubkey,
-    },
-);
+const AssignPayload = extern struct {
+    owner: Pubkey,
+};
 
-const AllocateData = instruction.comptimeInstructionData(
-    u32,
-    extern struct {
-        space: u64,
-    },
-);
+const AllocatePayload = extern struct {
+    space: u64,
+};
 
-const NonceAuthorityData = instruction.comptimeInstructionData(
-    u32,
-    extern struct {
-        authority: Pubkey,
-    },
-);
+const NonceAuthorityPayload = extern struct {
+    authority: Pubkey,
+};
 
-fn discriminantOnlyData(discriminant: SystemInstruction) [4]u8 {
-    var ix_data: [4]u8 = undefined;
-    std.mem.writeInt(u32, ix_data[0..4], @intFromEnum(discriminant), .little);
-    return ix_data;
+fn fixedIxData(comptime discriminant: SystemInstruction, comptime Payload: type, payload: Payload) [DISCRIMINANT_BYTES + @sizeOf(Payload)]u8 {
+    return instruction.comptimeInstructionData(u32, Payload).initWithDiscriminant(
+        @intFromEnum(discriminant),
+        payload,
+    );
+}
+
+fn variableSeedIxCapacity(comptime fixed_bytes_without_seed: usize) usize {
+    return fixed_bytes_without_seed + MAX_SEED_LEN;
+}
+
+fn StackIxDataWriter(comptime capacity: usize) type {
+    return struct {
+        buf: [capacity]u8 = undefined,
+        len: usize = 0,
+
+        const Self = @This();
+
+        inline fn init() Self {
+            return .{};
+        }
+
+        inline fn writeDiscriminant(self: *Self, discriminant: SystemInstruction) void {
+            self.writeU32(@intFromEnum(discriminant));
+        }
+
+        inline fn writeU32(self: *Self, value: u32) void {
+            std.mem.writeInt(u32, self.buf[self.len..][0..DISCRIMINANT_BYTES], value, .little);
+            self.len += DISCRIMINANT_BYTES;
+        }
+
+        inline fn writeU64(self: *Self, value: u64) void {
+            std.mem.writeInt(u64, self.buf[self.len..][0..U64_BYTES], value, .little);
+            self.len += U64_BYTES;
+        }
+
+        inline fn writePubkey(self: *Self, key: *const Pubkey) void {
+            self.writeBytes(key[0..PUBKEY_BYTES]);
+        }
+
+        inline fn writeSeed(self: *Self, seed: []const u8) void {
+            self.writeU64(seed.len);
+            self.writeBytes(seed);
+        }
+
+        inline fn writeBytes(self: *Self, bytes: []const u8) void {
+            @memcpy(self.buf[self.len..][0..bytes.len], bytes);
+            self.len += bytes.len;
+        }
+
+        inline fn written(self: *const Self) []const u8 {
+            return self.buf[0..self.len];
+        }
+    };
+}
+
+fn discriminantOnlyData(comptime discriminant: SystemInstruction) [DISCRIMINANT_BYTES]u8 {
+    return instruction.comptimeDiscriminantOnly(@as(u32, @intFromEnum(discriminant)));
 }
 
 /// Create a new account via System Program CPI.
@@ -107,10 +148,7 @@ pub fn createAccount(
     space: u64,
     owner: *const Pubkey,
 ) ProgramResult {
-    const ix_data = CreateAccountData.initWithDiscriminant(
-        @intFromEnum(SystemInstruction.CreateAccount),
-        .{ .lamports = lamports, .space = space, .owner = owner.* },
-    );
+    const ix_data = fixedIxData(SystemInstruction.CreateAccount, CreateAccountPayload, .{ .lamports = lamports, .space = space, .owner = owner.* });
 
     const account_metas = [_]cpi.AccountMeta{
         cpi.AccountMeta.signerWritable(from.key()),
@@ -143,10 +181,7 @@ pub fn createAccountSigned(
     owner: *const Pubkey,
     signers_seeds: []const []const []const u8,
 ) ProgramResult {
-    const ix_data = CreateAccountData.initWithDiscriminant(
-        @intFromEnum(SystemInstruction.CreateAccount),
-        .{ .lamports = lamports, .space = space, .owner = owner.* },
-    );
+    const ix_data = fixedIxData(SystemInstruction.CreateAccount, CreateAccountPayload, .{ .lamports = lamports, .space = space, .owner = owner.* });
 
     const account_metas = [_]cpi.AccountMeta{
         cpi.AccountMeta.signerWritable(from.key()),
@@ -189,10 +224,7 @@ pub fn createAccountSignedRaw(
     owner: *const Pubkey,
     signers: []const cpi.Signer,
 ) ProgramResult {
-    const ix_data = CreateAccountData.initWithDiscriminant(
-        @intFromEnum(SystemInstruction.CreateAccount),
-        .{ .lamports = lamports, .space = space, .owner = owner.* },
-    );
+    const ix_data = fixedIxData(SystemInstruction.CreateAccount, CreateAccountPayload, .{ .lamports = lamports, .space = space, .owner = owner.* });
 
     const account_metas = [_]cpi.AccountMeta{
         cpi.AccountMeta.signerWritable(from.key()),
@@ -234,10 +266,7 @@ pub inline fn createAccountSignedSingle(
     owner: *const Pubkey,
     signer_seeds: anytype,
 ) ProgramResult {
-    const ix_data = CreateAccountData.initWithDiscriminant(
-        @intFromEnum(SystemInstruction.CreateAccount),
-        .{ .lamports = lamports, .space = space, .owner = owner.* },
-    );
+    const ix_data = fixedIxData(SystemInstruction.CreateAccount, CreateAccountPayload, .{ .lamports = lamports, .space = space, .owner = owner.* });
 
     const account_metas = [_]cpi.AccountMeta{
         cpi.AccountMeta.signerWritable(from.key()),
@@ -266,10 +295,7 @@ pub fn transfer(
     system_program: CpiAccountInfo,
     lamports: u64,
 ) ProgramResult {
-    const ix_data = TransferData.initWithDiscriminant(
-        @intFromEnum(SystemInstruction.Transfer),
-        .{ .lamports = lamports },
-    );
+    const ix_data = fixedIxData(SystemInstruction.Transfer, TransferPayload, .{ .lamports = lamports });
 
     const account_metas = [_]cpi.AccountMeta{
         cpi.AccountMeta.signerWritable(from.key()),
@@ -290,10 +316,7 @@ pub fn assign(
     system_program: CpiAccountInfo,
     owner: *const Pubkey,
 ) ProgramResult {
-    const ix_data = AssignData.initWithDiscriminant(
-        @intFromEnum(SystemInstruction.Assign),
-        .{ .owner = owner.* },
-    );
+    const ix_data = fixedIxData(SystemInstruction.Assign, AssignPayload, .{ .owner = owner.* });
 
     const account_metas = [_]cpi.AccountMeta{
         cpi.AccountMeta.signerWritable(account.key()),
@@ -310,10 +333,7 @@ pub fn allocate(
     system_program: CpiAccountInfo,
     space: u64,
 ) ProgramResult {
-    const ix_data = AllocateData.initWithDiscriminant(
-        @intFromEnum(SystemInstruction.Allocate),
-        .{ .space = space },
-    );
+    const ix_data = fixedIxData(SystemInstruction.Allocate, AllocatePayload, .{ .space = space });
 
     const account_metas = [_]cpi.AccountMeta{
         cpi.AccountMeta.signerWritable(account.key()),
@@ -552,20 +572,15 @@ pub fn createAccountWithSeed(
 ) ProgramResult {
     if (seed.len > MAX_SEED_LEN) return error.MaxSeedLengthExceeded;
 
-    // Variable-length seed requires runtime construction.
-    // Max layout: discrim(4) + base(32) + seed_len(8) + seed(32)
-    // + lamports(8) + space(8) + owner(32) = 124 bytes.
-    var ix_data: [124]u8 = undefined;
-    @memset(&ix_data, 0);
-
-    std.mem.writeInt(u32, ix_data[0..4], @intFromEnum(SystemInstruction.CreateAccountWithSeed), .little);
-    @memcpy(ix_data[4..36], base[0..32]);
-    std.mem.writeInt(u64, ix_data[36..44], seed.len, .little);
-    @memcpy(ix_data[44 .. 44 + seed.len], seed);
-    const lamports_offset = 44 + seed.len;
-    std.mem.writeInt(u64, ix_data[lamports_offset..][0..8], lamports, .little);
-    std.mem.writeInt(u64, ix_data[lamports_offset + 8..][0..8], space, .little);
-    @memcpy(ix_data[lamports_offset + 16..][0..32], owner[0..32]);
+    var ix_data = StackIxDataWriter(variableSeedIxCapacity(
+        DISCRIMINANT_BYTES + PUBKEY_BYTES + U64_BYTES + U64_BYTES + U64_BYTES + PUBKEY_BYTES,
+    )).init();
+    ix_data.writeDiscriminant(SystemInstruction.CreateAccountWithSeed);
+    ix_data.writePubkey(base);
+    ix_data.writeSeed(seed);
+    ix_data.writeU64(lamports);
+    ix_data.writeU64(space);
+    ix_data.writePubkey(owner);
 
     const account_metas = [_]cpi.AccountMeta{
         cpi.AccountMeta.signerWritable(from.key()),
@@ -575,7 +590,7 @@ pub fn createAccountWithSeed(
     const ix = cpi.Instruction.fromCpiAccount(
         system_program,
         &account_metas,
-        ix_data[0 .. 44 + seed.len + 16 + 32],
+        ix_data.written(),
     );
 
     // We construct both `account_metas` and the accounts slice inline,
@@ -594,16 +609,13 @@ pub fn assignWithSeed(
 ) ProgramResult {
     if (seed.len > MAX_SEED_LEN) return error.MaxSeedLengthExceeded;
 
-    // discrim(4) + base(32) + seed_len(8) + seed(32) + owner(32)
-    var ix_data: [108]u8 = undefined;
-    @memset(&ix_data, 0);
-
-    std.mem.writeInt(u32, ix_data[0..4], @intFromEnum(SystemInstruction.AssignWithSeed), .little);
-    @memcpy(ix_data[4..36], base.key()[0..32]);
-    std.mem.writeInt(u64, ix_data[36..44], seed.len, .little);
-    @memcpy(ix_data[44 .. 44 + seed.len], seed);
-    const owner_offset = 44 + seed.len;
-    @memcpy(ix_data[owner_offset .. owner_offset + 32], owner[0..32]);
+    var ix_data = StackIxDataWriter(variableSeedIxCapacity(
+        DISCRIMINANT_BYTES + PUBKEY_BYTES + U64_BYTES + PUBKEY_BYTES,
+    )).init();
+    ix_data.writeDiscriminant(SystemInstruction.AssignWithSeed);
+    ix_data.writePubkey(base.key());
+    ix_data.writeSeed(seed);
+    ix_data.writePubkey(owner);
 
     const account_metas = [_]cpi.AccountMeta{
         cpi.AccountMeta.writable(account.key()),
@@ -613,7 +625,7 @@ pub fn assignWithSeed(
     const ix = cpi.Instruction.fromCpiAccount(
         system_program,
         &account_metas,
-        ix_data[0 .. 44 + seed.len + 32],
+        ix_data.written(),
     );
 
     try cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ account, base, system_program });
@@ -630,17 +642,14 @@ pub fn allocateWithSeed(
 ) ProgramResult {
     if (seed.len > MAX_SEED_LEN) return error.MaxSeedLengthExceeded;
 
-    // discrim(4) + base(32) + seed_len(8) + seed(32) + space(8) + owner(32)
-    var ix_data: [116]u8 = undefined;
-    @memset(&ix_data, 0);
-
-    std.mem.writeInt(u32, ix_data[0..4], @intFromEnum(SystemInstruction.AllocateWithSeed), .little);
-    @memcpy(ix_data[4..36], base.key()[0..32]);
-    std.mem.writeInt(u64, ix_data[36..44], seed.len, .little);
-    @memcpy(ix_data[44 .. 44 + seed.len], seed);
-    const space_offset = 44 + seed.len;
-    std.mem.writeInt(u64, ix_data[space_offset..][0..8], space, .little);
-    @memcpy(ix_data[space_offset + 8..][0..32], owner[0..32]);
+    var ix_data = StackIxDataWriter(variableSeedIxCapacity(
+        DISCRIMINANT_BYTES + PUBKEY_BYTES + U64_BYTES + U64_BYTES + PUBKEY_BYTES,
+    )).init();
+    ix_data.writeDiscriminant(SystemInstruction.AllocateWithSeed);
+    ix_data.writePubkey(base.key());
+    ix_data.writeSeed(seed);
+    ix_data.writeU64(space);
+    ix_data.writePubkey(owner);
 
     const account_metas = [_]cpi.AccountMeta{
         cpi.AccountMeta.writable(account.key()),
@@ -650,7 +659,7 @@ pub fn allocateWithSeed(
     const ix = cpi.Instruction.fromCpiAccount(
         system_program,
         &account_metas,
-        ix_data[0 .. 44 + seed.len + 8 + 32],
+        ix_data.written(),
     );
 
     try cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ account, base, system_program });
@@ -668,16 +677,13 @@ pub fn transferWithSeed(
 ) ProgramResult {
     if (from_seed.len > MAX_SEED_LEN) return error.MaxSeedLengthExceeded;
 
-    // discrim(4) + lamports(8) + seed_len(8) + seed(32) + owner(32)
-    var ix_data: [84]u8 = undefined;
-    @memset(&ix_data, 0);
-
-    std.mem.writeInt(u32, ix_data[0..4], @intFromEnum(SystemInstruction.TransferWithSeed), .little);
-    std.mem.writeInt(u64, ix_data[4..12], lamports, .little);
-    std.mem.writeInt(u64, ix_data[12..20], from_seed.len, .little);
-    @memcpy(ix_data[20 .. 20 + from_seed.len], from_seed);
-    const owner_offset = 20 + from_seed.len;
-    @memcpy(ix_data[owner_offset .. owner_offset + 32], from_owner[0..32]);
+    var ix_data = StackIxDataWriter(variableSeedIxCapacity(
+        DISCRIMINANT_BYTES + U64_BYTES + U64_BYTES + PUBKEY_BYTES,
+    )).init();
+    ix_data.writeDiscriminant(SystemInstruction.TransferWithSeed);
+    ix_data.writeU64(lamports);
+    ix_data.writeSeed(from_seed);
+    ix_data.writePubkey(from_owner);
 
     const account_metas = [_]cpi.AccountMeta{
         cpi.AccountMeta.writable(from.key()),
@@ -688,7 +694,7 @@ pub fn transferWithSeed(
     const ix = cpi.Instruction.fromCpiAccount(
         system_program,
         &account_metas,
-        ix_data[0 .. 20 + from_seed.len + 32],
+        ix_data.written(),
     );
 
     try cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ from, base, to, system_program });
@@ -702,10 +708,7 @@ pub fn initializeNonceAccount(
     system_program: CpiAccountInfo,
     authority: *const Pubkey,
 ) ProgramResult {
-    const ix_data = NonceAuthorityData.initWithDiscriminant(
-        @intFromEnum(SystemInstruction.InitializeNonceAccount),
-        .{ .authority = authority.* },
-    );
+    const ix_data = fixedIxData(SystemInstruction.InitializeNonceAccount, NonceAuthorityPayload, .{ .authority = authority.* });
 
     const account_metas = [_]cpi.AccountMeta{
         cpi.AccountMeta.writable(nonce_account.key()),
@@ -818,10 +821,7 @@ pub fn withdrawNonceAccount(
     system_program: CpiAccountInfo,
     lamports: u64,
 ) ProgramResult {
-    const ix_data = TransferData.initWithDiscriminant(
-        @intFromEnum(SystemInstruction.WithdrawNonceAccount),
-        .{ .lamports = lamports },
-    );
+    const ix_data = fixedIxData(SystemInstruction.WithdrawNonceAccount, TransferPayload, .{ .lamports = lamports });
 
     const account_metas = [_]cpi.AccountMeta{
         cpi.AccountMeta.writable(nonce_account.key()),
@@ -850,10 +850,7 @@ pub fn authorizeNonceAccount(
     system_program: CpiAccountInfo,
     new_authority: *const Pubkey,
 ) ProgramResult {
-    const ix_data = NonceAuthorityData.initWithDiscriminant(
-        @intFromEnum(SystemInstruction.AuthorizeNonceAccount),
-        .{ .authority = new_authority.* },
-    );
+    const ix_data = fixedIxData(SystemInstruction.AuthorizeNonceAccount, NonceAuthorityPayload, .{ .authority = new_authority.* });
 
     const account_metas = [_]cpi.AccountMeta{
         cpi.AccountMeta.writable(nonce_account.key()),
@@ -891,10 +888,7 @@ test "system: SYSTEM_PROGRAM_ID is all zero" {
 }
 
 test "system: instruction data format" {
-    const ix_data = CreateAccountData.initWithDiscriminant(
-        @intFromEnum(SystemInstruction.CreateAccount),
-        .{ .lamports = 500, .space = 128, .owner = .{3} ** 32 },
-    );
+    const ix_data = fixedIxData(SystemInstruction.CreateAccount, CreateAccountPayload, .{ .lamports = 500, .space = 128, .owner = .{3} ** 32 });
 
     try std.testing.expectEqual(@as(u32, 0), std.mem.readInt(u32, ix_data[0..4], .little));
     try std.testing.expectEqual(@as(u64, 500), std.mem.readInt(u64, ix_data[4..12], .little));
@@ -904,10 +898,7 @@ test "system: instruction data format" {
 }
 
 test "system: transfer instruction data" {
-    const ix_data = TransferData.initWithDiscriminant(
-        @intFromEnum(SystemInstruction.Transfer),
-        .{ .lamports = 100 },
-    );
+    const ix_data = fixedIxData(SystemInstruction.Transfer, TransferPayload, .{ .lamports = 100 });
 
     try std.testing.expectEqual(@as(u32, 2), std.mem.readInt(u32, ix_data[0..4], .little));
     try std.testing.expectEqual(@as(u64, 100), std.mem.readInt(u64, ix_data[4..12], .little));
@@ -916,24 +907,15 @@ test "system: transfer instruction data" {
 test "system: nonce instruction data formats" {
     const authority: Pubkey = .{7} ** 32;
 
-    const initialize_data = NonceAuthorityData.initWithDiscriminant(
-        @intFromEnum(SystemInstruction.InitializeNonceAccount),
-        .{ .authority = authority },
-    );
+    const initialize_data = fixedIxData(SystemInstruction.InitializeNonceAccount, NonceAuthorityPayload, .{ .authority = authority });
     try std.testing.expectEqual(@as(u32, 6), std.mem.readInt(u32, initialize_data[0..4], .little));
     try std.testing.expectEqual(authority, initialize_data[4..36].*);
 
-    const withdraw_data = TransferData.initWithDiscriminant(
-        @intFromEnum(SystemInstruction.WithdrawNonceAccount),
-        .{ .lamports = 42 },
-    );
+    const withdraw_data = fixedIxData(SystemInstruction.WithdrawNonceAccount, TransferPayload, .{ .lamports = 42 });
     try std.testing.expectEqual(@as(u32, 5), std.mem.readInt(u32, withdraw_data[0..4], .little));
     try std.testing.expectEqual(@as(u64, 42), std.mem.readInt(u64, withdraw_data[4..12], .little));
 
-    const authorize_data = NonceAuthorityData.initWithDiscriminant(
-        @intFromEnum(SystemInstruction.AuthorizeNonceAccount),
-        .{ .authority = authority },
-    );
+    const authorize_data = fixedIxData(SystemInstruction.AuthorizeNonceAccount, NonceAuthorityPayload, .{ .authority = authority });
     try std.testing.expectEqual(@as(u32, 7), std.mem.readInt(u32, authorize_data[0..4], .little));
     try std.testing.expectEqual(authority, authorize_data[4..36].*);
 

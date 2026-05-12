@@ -127,6 +127,11 @@ pub const BuildProgramOptions = struct {
     name: []const u8,
     root_source_file: std.Build.LazyPath,
     optimize: std.builtin.OptimizeMode = .ReleaseFast,
+    /// Extra modules to expose to the program in addition to
+    /// `solana_program_sdk`. Use this when a program depends on a
+    /// monorepo sub-package (e.g. `spl_memo`) — supply
+    /// `dep.module("spl_memo")` from the consumer's `build.zig`.
+    extra_imports: []const std.Build.Module.Import = &.{},
 };
 
 pub fn buildProgram(b: *std.Build, options: BuildProgramOptions) LinkedProgram {
@@ -143,13 +148,24 @@ pub fn buildProgram(b: *std.Build, options: BuildProgramOptions) LinkedProgram {
     });
     const solana_mod = solana_dep.module("solana_program_sdk");
 
+    // Concatenate the mandatory SDK import with any caller-supplied
+    // extras (sub-packages such as `spl_memo`). The extras' modules
+    // must be resolved against the same SBF target — the monorepo's
+    // sub-package `build.zig` arranges this via the dependency's
+    // shared target/optimize options. Allocations use the build
+    // graph's arena so the slice outlives this function.
+    const imports = b.allocator.alloc(
+        std.Build.Module.Import,
+        1 + options.extra_imports.len,
+    ) catch @panic("OOM");
+    imports[0] = .{ .name = "solana_program_sdk", .module = solana_mod };
+    for (options.extra_imports, 0..) |imp, i| imports[i + 1] = imp;
+
     const program_mod = b.createModule(.{
         .root_source_file = options.root_source_file,
         .target = target,
         .optimize = optimize,
-        .imports = &.{
-            .{ .name = "solana_program_sdk", .module = solana_mod },
-        },
+        .imports = imports,
     });
     program_mod.pic = true;
     program_mod.strip = true;

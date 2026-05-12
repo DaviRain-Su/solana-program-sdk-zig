@@ -7,6 +7,9 @@
         .solana_program_sdk = .{
             .path = "..",
         },
+        .spl_memo = .{
+            .path = "../packages/spl-memo",
+        },
     },
 
     .paths = .{

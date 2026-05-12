@@ -984,6 +984,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "mollusk-svm-programs-memo"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5343685049cbf2202168815afb37b43e371f7b2baf1e1a25b6070b6bbc44f64a"
+dependencies = [
+ "mollusk-svm",
+ "solana-account",
+ "solana-pubkey",
+]
+
+[[package]]
 name = "mollusk-svm-result"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2067,6 +2078,7 @@ name = "solana-sdk-zig-program-test"
 version = "0.0.1"
 dependencies = [
  "mollusk-svm",
+ "mollusk-svm-programs-memo",
  "num_enum",
  "solana-account",
  "solana-instruction",

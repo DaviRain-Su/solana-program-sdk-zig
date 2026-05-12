@@ -1,5 +1,5 @@
 .{
-    .fingerprint = 0xe4ee413c7636bba5,
+    .fingerprint = 0xe4ee413cfa7348bd,
     .name = .spl_memo,
     .version = "0.1.0",
     .minimum_zig_version = "0.16.0",

@@ -25,4 +25,25 @@ pub fn build(b: *std.Build) !void {
             .optimize = optimize,
         });
     }
+
+    // Sub-package programs — built with the SDK plus the sub-package
+    // as an extra import. The sub-package's `build.zig` exports a
+    // module against the SBF target requested here, so the program
+    // can `@import("spl_memo")` and CPI into the real on-chain Memo
+    // program during program-test.
+    const target = b.resolveTargetQuery(solana.sbfTarget());
+    const spl_memo_dep = b.dependency("spl_memo", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const spl_memo_mod = spl_memo_dep.module("spl_memo");
+
+    _ = solana.buildProgram(b, .{
+        .name = "example_spl_memo_cpi",
+        .root_source_file = b.path("../packages/spl-memo/examples/cpi_demo.zig"),
+        .optimize = optimize,
+        .extra_imports = &.{
+            .{ .name = "spl_memo", .module = spl_memo_mod },
+        },
+    });
 }

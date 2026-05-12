@@ -36,6 +36,30 @@
 const std = @import("std");
 const program_error = @import("program_error.zig");
 
+/// Module-local slot for the most recent custom error code.
+///
+/// BPF programs are single-threaded (one invocation per VM), so a
+/// plain module-level `var` is safe — the value is overwritten each
+/// time `toError` is called, and read at most once per invocation
+/// (by the entrypoint, in the error path).
+///
+/// `entrypointWith` reads this slot when the program returns
+/// `error.Custom`, recovering the original `u32` discriminator.
+///
+/// Cost: one stxw on the error path, one ldxw + cmp in the entrypoint.
+/// The happy path is **zero overhead** — the slot is never touched.
+var last_custom_code: u32 = 0;
+
+/// Read the slot. Used by `entrypointWith`.
+pub fn lastCustomCode() u32 {
+    return last_custom_code;
+}
+
+/// Reset the slot. Useful in tests; programs don't need to call this.
+pub fn resetLastCustomCode() void {
+    last_custom_code = 0;
+}
+
 /// Wrap a user `enum(u32)` so it acts as a typed custom-error namespace.
 ///
 /// Returns a struct with two helpers:
@@ -71,12 +95,24 @@ pub fn ErrorCode(comptime E: type) type {
             return program_error.customError(@intFromEnum(code));
         }
 
-        /// Convert to a `ProgramError` for use in `try` chains. All
-        /// custom codes collapse to `error.Custom`; the actual `u32`
-        /// is preserved separately (you can stash it via
-        /// `lazyEntrypointWith` if you want; for plain `lazyEntrypoint`
-        /// the wire format goes through `toU64` directly).
-        pub inline fn toError(_: E) program_error.ProgramError {
+        /// Convert to a `ProgramError` for use in `try` chains.
+        ///
+        /// Zig error sets can't carry payload (every variant is a
+        /// global-interned name), so we stash the original `u32`
+        /// discriminator in a module-local slot before returning
+        /// `error.Custom`. Use one of:
+        ///
+        ///   - `entrypoint.lazyEntrypointWith` / `programEntrypointWith`:
+        ///     reads the slot on `error.Custom` and emits the real wire
+        ///     code. **Use these if you call `toError`.**
+        ///
+        ///   - `toU64(.X)` + `lazyEntrypointRaw`: bypass the error
+        ///     channel entirely. Same wire format, no slot dance.
+        ///
+        /// Cost: one `stxw` on the error path (cold). Zero CU on the
+        /// happy path — the slot is never touched.
+        pub inline fn toError(code: E) program_error.ProgramError {
+            last_custom_code = @intFromEnum(code);
             return error.Custom;
         }
 
@@ -118,11 +154,20 @@ test "ErrorCode: toU64 maps Custom(0) to sentinel" {
     try std.testing.expectEqual(program_error.CUSTOM_ZERO, ZeroErr.toU64(.ZeroCode));
 }
 
-test "ErrorCode: toError yields Custom variant" {
+test "ErrorCode: toError yields Custom variant and stashes discriminator" {
+    resetLastCustomCode();
+    try std.testing.expectEqual(@as(u32, 0), lastCustomCode());
+
     try std.testing.expectEqual(
         program_error.ProgramError.Custom,
         DemoErr.toError(.Overflow),
     );
+    try std.testing.expectEqual(@as(u32, 6001), lastCustomCode());
+
+    // Subsequent calls overwrite the slot.
+    const e2 = DemoErr.toError(.Unauthorized);
+    try std.testing.expectEqual(program_error.ProgramError.Custom, e2);
+    try std.testing.expectEqual(@as(u32, 6002), lastCustomCode());
 }
 
 test "ErrorCode: rejects non-u32 enums at compile time" {

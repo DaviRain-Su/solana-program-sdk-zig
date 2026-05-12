@@ -303,5 +303,11 @@ fn processWithdraw(
 // =========================================================================
 
 export fn entrypoint(input: [*]u8) u64 {
-    return sol.entrypoint.lazyEntrypoint(process)(input);
+    // Use the `With` variant because `process` calls
+    // `VaultErr.toError(.X)` — that helper stashes the original `u32`
+    // discriminator in a module-local slot, and `lazyEntrypointWith`
+    // reads it on the `error.Custom` path so the runtime sees the
+    // correct wire code. Plain `lazyEntrypoint` would collapse every
+    // VaultErr variant to `CUSTOM_ZERO`.
+    return sol.entrypoint.lazyEntrypointWith(process)(input);
 }

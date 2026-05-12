@@ -242,6 +242,64 @@ when you want discriminator validation; use `dataAs(T)` when the
 caller has already proven the layout (e.g. for raw SPL Token account
 parsing where the type IS the layout).
 
+### Sysvar syscall wrappers
+
+Reading sysvars via syscall is **~250-300 CU** and removes the need
+for the client to list the sysvar account in the instruction's
+accounts. Five sysvars expose direct syscall wrappers:
+
+```zig
+const clock = try sol.Clock.get();
+const rent = try sol.rent.Rent.get();
+const epoch_schedule = try sol.sysvar.EpochSchedule.get();
+const last_restart = try sol.sysvar.LastRestartSlot.get();
+const epoch_rewards = try sol.sysvar.EpochRewards.get();
+```
+
+For sysvars without syscalls (Instructions, SlotHashes, StakeHistory),
+use the account-based path:
+
+```zig
+const slot_hashes = try sol.sysvar.getSysvar(sol.sysvar.SlotHash, sysvar_account);
+```
+
+### Custom error codes with `ErrorCode` + `lazyEntrypointWith`
+
+Solana programs report errors via a `u32` "Custom" code, but Zig
+error sets can't carry payloads (every variant is a globally-interned
+name). `ErrorCode(MyEnum)` bridges the gap:
+
+```zig
+const VaultErr = sol.ErrorCode(enum(u32) {
+    NotInitialized = 6000,
+    AmountOverflow,
+    InsufficientBalance,
+    Unauthorized,
+});
+
+fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
+    // ...
+    if (overflow) return VaultErr.toError(.AmountOverflow);
+    // ...
+}
+
+// Use `lazyEntrypointWith` (NOT `lazyEntrypoint`!) so the original
+// `u32` discriminator survives to the wire.
+export fn entrypoint(input: [*]u8) u64 {
+    return sol.entrypoint.lazyEntrypointWith(process)(input);
+}
+```
+
+**How it works**: `toError(.X)` stashes `@intFromEnum(.X)` in a
+module-local `u32` slot and returns `error.Custom`. The `With`
+entrypoint reads that slot on the `error.Custom` path and emits the
+real wire code. BPF programs are single-threaded so the slot is
+safe; the happy path never touches it. Plain `lazyEntrypoint` would
+collapse every custom variant to `CUSTOM_ZERO`, losing the
+discriminator — that's a footgun the `With` variants close.
+
+There's also `programEntrypointWith` for the eager-parse variant.
+
 ### Anchor-style foundations (no framework required)
 
 The SDK ships a few building blocks for "Anchor-style" programs while
@@ -315,9 +373,15 @@ fn deposit(ctx: *sol.InstructionContext) sol.ProgramResult {
     try sol.system.transfer(a.payer.toCpiInfo(), a.vault.toCpiInfo(),
                             a.system_program.toCpiInfo(), amount);
 
-    const new_balance, const ovf = @addWithOverflow(vault.read().balance, amount);
-    if (ovf != 0) return VaultErr.toError(.AmountOverflow);
+    const new_balance = sol.math.tryAdd(vault.read().balance, amount)
+        orelse return VaultErr.toError(.AmountOverflow);
     vault.write().balance = new_balance;
+}
+
+export fn entrypoint(input: [*]u8) u64 {
+    // `lazyEntrypointWith` (not plain `lazyEntrypoint`!) so the
+    // `VaultErr.toError(.X)` discriminator survives.
+    return sol.entrypoint.lazyEntrypointWith(process)(input);
 }
 ```
 
@@ -566,7 +630,9 @@ BPF_OUT_DIR=$(pwd)/zig-out/lib cargo run --release -- vault_deposit
 |---|---|---|
 | `lazyEntrypointRaw(*fn(*Ctx) u64)` | u64 return, on-demand account parsing | Maximum performance, custom error handling |
 | `lazyEntrypoint(*fn(*Ctx) ProgramResult)` | error union, on-demand account parsing | Default — most programs |
+| `lazyEntrypointWith(*fn(*Ctx) ProgramResult)` | error union + custom-code recovery | When `process` uses `ErrorCode.toError(.X)` |
 | `programEntrypoint(N, *fn(*[N]AccountInfo, []const u8, *Pubkey) ProgramResult)` | error union, eager account parsing | Ergonomic alternative when account count is comptime-known |
+| `programEntrypointWith(N, *fn(...))` | eager parse + custom-code recovery | Same as `programEntrypoint`, but preserves `ErrorCode.toError` discriminator |
 
 `programEntrypoint` reads more naturally for handlers with a fixed
 account count (positional `accounts[0]` access, no `InstructionContext`

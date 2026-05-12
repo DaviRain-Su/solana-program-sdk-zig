@@ -9,6 +9,7 @@ const std = @import("std");
 const account = @import("account.zig");
 const pubkey = @import("pubkey.zig");
 const program_error = @import("program_error.zig");
+const error_code = @import("error_code.zig");
 
 const Account = account.Account;
 const AccountInfo = account.AccountInfo;
@@ -601,6 +602,46 @@ pub fn programEntrypoint(
     }.entry;
 }
 
+/// `programEntrypoint` + the `ErrorCode.toError` discriminator
+/// recovery from `lazyEntrypointWith`. See that function's doc for
+/// the rationale.
+pub fn programEntrypointWith(
+    comptime account_count: usize,
+    comptime process: *const fn (
+        accounts: *const [account_count]AccountInfo,
+        data: []const u8,
+        program_id: *const Pubkey,
+    ) ProgramResult,
+) fn ([*]u8) callconv(.c) u64 {
+    return struct {
+        fn entry(input: [*]u8) callconv(.c) u64 {
+            const num_accounts: u64 = @as(*const u64, @ptrCast(@alignCast(input))).*;
+            if (num_accounts < account_count) {
+                return program_error.errorToU64(error.NotEnoughAccountKeys);
+            }
+
+            var accounts: [account_count]AccountInfo = undefined;
+            var buf: [*]u8 = input + @sizeOf(u64);
+
+            inline for (0..account_count) |i| {
+                const account_ptr: *Account = @ptrCast(@alignCast(buf));
+                const data_len: usize = @intCast(account_ptr.data_len);
+                buf += @sizeOf(u64) + (@sizeOf(Account) - @sizeOf(u64)) + data_len + MAX_PERMITTED_DATA_INCREASE;
+                buf = @ptrFromInt(alignPointer(@intFromPtr(buf)));
+                buf += @sizeOf(u64);
+                accounts[i] = .{ .raw = account_ptr };
+            }
+
+            const data_len: usize = @intCast(@as(*const u64, @ptrCast(@alignCast(buf))).*);
+            const data: []const u8 = buf[@sizeOf(u64) .. @sizeOf(u64) + data_len];
+            const program_id: *const Pubkey = @ptrCast(@alignCast(buf + @sizeOf(u64) + data_len));
+
+            process(&accounts, data, program_id) catch |err| return errorToU64WithCustom(err);
+            return SUCCESS;
+        }
+    }.entry;
+}
+
 /// Raw entrypoint — returns u64 directly, no error union overhead.
 /// Use for maximum performance when you don't need ProgramResult.
 pub fn lazyEntrypointRaw(
@@ -610,6 +651,49 @@ pub fn lazyEntrypointRaw(
         fn entry(input: [*]u8) callconv(.c) u64 {
             var context = InstructionContext.init(input);
             return process(&context);
+        }
+    }.entry;
+}
+
+/// Convert a `ProgramError` to its wire u64, with special handling
+/// for `error.Custom`: read the slot stashed by `ErrorCode.toError`
+/// to recover the original `u32` discriminator.
+///
+/// Use this in your entrypoint's `catch |err|` block if your code
+/// calls `MyErr.toError(.X)`; otherwise the discriminator is lost.
+pub inline fn errorToU64WithCustom(err: ProgramError) u64 {
+    if (err == ProgramError.Custom) {
+        return program_error.customError(error_code.lastCustomCode());
+    }
+    return program_error.errorToU64(err);
+}
+
+/// Variant of `lazyEntrypoint` that recovers the original custom
+/// error discriminator stashed by `ErrorCode.toError`.
+///
+/// Without this, every `MyErr.toError(.X)` produces `error.Custom`
+/// which the default `errorToU64` maps to `CUSTOM_ZERO` — losing the
+/// `u32` code. This variant reads the module-local slot in
+/// `error_code` on the `error.Custom` path and emits the real wire
+/// code instead.
+///
+/// Use this entrypoint if your `process` calls `MyErr.toError(.X)`
+/// anywhere. The happy path costs the same as `lazyEntrypoint`; the
+/// error path adds one `ldxw + cmp`.
+///
+/// ```zig
+/// export fn entrypoint(input: [*]u8) u64 {
+///     return sol.entrypoint.lazyEntrypointWith(process)(input);
+/// }
+/// ```
+pub fn lazyEntrypointWith(
+    comptime process: *const fn (*InstructionContext) ProgramResult,
+) fn ([*]u8) callconv(.c) u64 {
+    return struct {
+        fn entry(input: [*]u8) callconv(.c) u64 {
+            var context = InstructionContext.init(input);
+            process(&context) catch |err| return errorToU64WithCustom(err);
+            return SUCCESS;
         }
     }.entry;
 }
@@ -630,6 +714,32 @@ test "entrypoint: InstructionContext size is 16 bytes" {
 
 test "entrypoint: AccountInfo size is 8 bytes" {
     try std.testing.expectEqual(@as(usize, 8), @sizeOf(AccountInfo));
+}
+
+test "entrypoint: errorToU64WithCustom recovers ErrorCode discriminator" {
+    const Demo = enum(u32) { First = 6000, Second = 6042 };
+    const DemoErr = error_code.ErrorCode(Demo);
+
+    // Plain errorToU64 collapses to CUSTOM_ZERO.
+    try std.testing.expectEqual(
+        program_error.CUSTOM_ZERO,
+        program_error.errorToU64(error.Custom),
+    );
+
+    // With recovery: returns the actual u32 code.
+    const e2: ProgramError = DemoErr.toError(.Second);
+    try std.testing.expectEqual(ProgramError.Custom, e2);
+    try std.testing.expectEqual(@as(u64, 6042), errorToU64WithCustom(error.Custom));
+
+    const e1: ProgramError = DemoErr.toError(.First);
+    try std.testing.expectEqual(ProgramError.Custom, e1);
+    try std.testing.expectEqual(@as(u64, 6000), errorToU64WithCustom(error.Custom));
+
+    // Builtin errors pass through unchanged.
+    try std.testing.expectEqual(
+        program_error.errorToU64(error.InvalidArgument),
+        errorToU64WithCustom(error.InvalidArgument),
+    );
 }
 
 test "entrypoint: parse accounts and instruction data" {

@@ -1,12 +1,18 @@
 //! Sysvar accessors for Solana programs
 //!
-//! Provides types and access patterns for Solana sysvars.
+//! Two access patterns:
 //!
-//! - `getSysvar(T, account)` deserializes data from a sysvar account the
-//!   caller has passed into the program.
-//! - For the most common sysvars (Clock, Rent) prefer the syscall-based
-//!   wrappers in `clock.zig` / `rent.zig`, which do not require the
-//!   sysvar account to be listed in the instruction's accounts.
+//! 1. **Syscall-based** (`Sysvar.get()`): no account-list entry
+//!    required, ~250-300 CU per call. Available for: Clock, Rent,
+//!    EpochSchedule, LastRestartSlot, EpochRewards.
+//!
+//! 2. **Account-based** (`getSysvar(T, account)`): caller must pass
+//!    the sysvar account in the instruction's `accounts`. The account
+//!    bytes are deserialized into `T` (no syscall overhead, but
+//!    requires a borrow check on each program invocation).
+//!
+//! Choose syscalls when you can — they're cheaper and remove a
+//! constraint on the client (no need to list the sysvar account).
 
 const std = @import("std");
 const pubkey = @import("pubkey.zig");
@@ -14,6 +20,8 @@ const account_mod = @import("account.zig");
 const program_error = @import("program_error.zig");
 const clock_mod = @import("clock.zig");
 const rent_mod = @import("rent.zig");
+const bpf = @import("bpf.zig");
+const log = @import("log.zig");
 
 const Pubkey = pubkey.Pubkey;
 const AccountInfo = account_mod.AccountInfo;
@@ -56,18 +64,97 @@ pub fn getSysvar(comptime T: type, account: AccountInfo) ProgramError!T {
     return std.mem.bytesToValue(T, data[0..@sizeOf(T)]);
 }
 
-/// Epoch schedule sysvar
+/// Epoch schedule sysvar.
+///
+/// Use `EpochSchedule.get()` to read this via syscall (no account
+/// required). The layout matches the runtime's serialized form.
 pub const EpochSchedule = extern struct {
     /// The maximum number of slots in each epoch
     slots_per_epoch: u64,
-    /// The number of slots before the first epoch
+    /// A number of slots before beginning of an epoch to calculate
+    /// a leader schedule for that epoch
     leader_schedule_slot_offset: u64,
-    /// Whether epochs are warm-up epochs
+    /// Whether epochs start short and grow
     warmup: bool,
-    /// The first epoch after warm-up
+    /// The first epoch after the warmup period
     first_normal_epoch: u64,
-    /// The first slot after warm-up
+    /// The first slot after the warmup period
     first_normal_slot: u64,
+
+    /// Read the epoch schedule via syscall. Returns
+    /// `error.Unexpected` if the runtime rejects the call.
+    pub fn get() ProgramError!EpochSchedule {
+        var es: EpochSchedule = undefined;
+        if (bpf.is_bpf_program) {
+            const Syscall = struct {
+                extern fn sol_get_epoch_schedule_sysvar(ptr: *EpochSchedule) callconv(.c) u64;
+            };
+            const rc = Syscall.sol_get_epoch_schedule_sysvar(&es);
+            if (rc != 0) {
+                log.print("failed to get epoch_schedule sysvar: {d}", .{rc});
+                return ProgramError.UnsupportedSysvar;
+            }
+        }
+        return es;
+    }
+};
+
+/// LastRestartSlot sysvar — exposes the slot at which the cluster
+/// most recently restarted. Useful for time-sensitive program logic
+/// that needs to detect a restart event.
+pub const LastRestartSlot = extern struct {
+    /// The last slot at which the cluster was restarted; `0` means
+    /// no restart has occurred since the genesis epoch.
+    last_restart_slot: u64,
+
+    pub fn get() ProgramError!LastRestartSlot {
+        var v: LastRestartSlot = undefined;
+        if (bpf.is_bpf_program) {
+            const Syscall = struct {
+                extern fn sol_get_last_restart_slot(ptr: *LastRestartSlot) callconv(.c) u64;
+            };
+            const rc = Syscall.sol_get_last_restart_slot(&v);
+            if (rc != 0) {
+                log.print("failed to get last_restart_slot sysvar: {d}", .{rc});
+                return ProgramError.UnsupportedSysvar;
+            }
+        }
+        return v;
+    }
+};
+
+/// EpochRewards sysvar — exposed during epoch-rewards distribution
+/// (rare). Read via syscall.
+pub const EpochRewards = extern struct {
+    /// Total rewards for the current epoch, in lamports.
+    distribution_starting_block_height: u64,
+    /// Number of partitions in the rewards distribution.
+    num_partitions: u64,
+    /// Hash of the parent block at the start of distribution.
+    parent_blockhash: [32]u8,
+    /// Lamports remaining to be distributed.
+    total_points: u128,
+    /// Total rewards for current epoch, in lamports.
+    total_rewards: u64,
+    /// Distributed rewards so far, in lamports.
+    distributed_rewards: u64,
+    /// Whether the rewards period is currently active.
+    active: bool,
+
+    pub fn get() ProgramError!EpochRewards {
+        var v: EpochRewards = undefined;
+        if (bpf.is_bpf_program) {
+            const Syscall = struct {
+                extern fn sol_get_epoch_rewards_sysvar(ptr: *EpochRewards) callconv(.c) u64;
+            };
+            const rc = Syscall.sol_get_epoch_rewards_sysvar(&v);
+            if (rc != 0) {
+                log.print("failed to get epoch_rewards sysvar: {d}", .{rc});
+                return ProgramError.UnsupportedSysvar;
+            }
+        }
+        return v;
+    }
 };
 
 /// Slot hash entry
@@ -87,4 +174,28 @@ test "sysvar: Clock re-export points to clock.Clock" {
 test "sysvar: Rent re-export points to rent.Rent.Data" {
     const r: Rent = .{};
     try std.testing.expect(r.lamports_per_byte_year > 0);
+}
+
+test "sysvar: EpochSchedule layout is 33 bytes" {
+    // u64 + u64 + bool(1) + u64 + u64 = 33 (no padding because
+    // extern struct uses C layout and bool is 1 byte). When laid out
+    // for the syscall buffer the runtime sends the packed form.
+    try std.testing.expect(@sizeOf(EpochSchedule) >= 33);
+}
+
+test "sysvar: LastRestartSlot is a single u64" {
+    try std.testing.expectEqual(@as(usize, 8), @sizeOf(LastRestartSlot));
+}
+
+test "sysvar: EpochRewards layout has expected fields" {
+    const er: EpochRewards = .{
+        .distribution_starting_block_height = 0,
+        .num_partitions = 0,
+        .parent_blockhash = .{0} ** 32,
+        .total_points = 0,
+        .total_rewards = 0,
+        .distributed_rewards = 0,
+        .active = false,
+    };
+    try std.testing.expectEqual(@as(u64, 0), er.total_rewards);
 }

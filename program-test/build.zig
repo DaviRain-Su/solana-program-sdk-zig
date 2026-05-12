@@ -4,13 +4,14 @@ const solana = @import("solana_program_sdk");
 pub fn build(b: *std.Build) !void {
     const optimize = .ReleaseFast;
 
+    // Every program-test program is built from `examples/` so the
+    // tree has one single source of truth for "real, deployable
+    // example programs". The names below are kept stable because
+    // the Rust integration tests reference them via
+    // `zig-out/lib/<name>.so`.
     const programs = .{
-        // In-tree test programs.
-        .{ "pubkey", "pubkey/main.zig" },
-        .{ "cpi", "cpi/main.zig" },
-        // Example programs from `examples/` — wired into the
-        // program-test build so Mollusk tests can exercise their
-        // actual on-chain behaviour (not just host-side unit tests).
+        .{ "pubkey", "../examples/pubkey.zig" },
+        .{ "cpi", "../examples/cpi.zig" },
         .{ "example_hello", "../examples/hello.zig" },
         .{ "example_counter", "../examples/counter.zig" },
         .{ "example_vault", "../examples/vault.zig" },

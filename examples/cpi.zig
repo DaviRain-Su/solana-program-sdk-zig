@@ -1,19 +1,8 @@
-//! CPI integration test program.
+//! CPI — minimal cross-program invocation example.
 //!
 //! Transfers `amount` lamports from `from` (signer) to `to` via a
-//! System Program CPI.
-//!
-//! Accounts (in order):
-//!   0. from           — signer, writable
-//!   1. to             — writable
-//!   2. system program — read-only (required by CPI)
-//!
-//! Instruction data: little-endian u64 `amount` (8 bytes).
-
-//! CPI integration test program.
-//!
-//! Transfers `amount` lamports from `from` (signer) to `to` via the
-//! SDK's high-level System Program wrapper: `sol.system.transfer`.
+//! System Program CPI, using the SDK's high-level wrapper
+//! `sol.system.transfer`.
 //!
 //! Accounts (in order):
 //!   0. from           — signer, writable
@@ -21,6 +10,9 @@
 //!   2. system program — read-only (required by the CPI syscall)
 //!
 //! Instruction data: little-endian u64 `amount` (8 bytes).
+//!
+//! Cost: a System Program CPI is ~1200 CU runtime-imposed; this
+//! program adds only the parsing + dispatch overhead on top.
 
 const sol = @import("solana_program_sdk");
 

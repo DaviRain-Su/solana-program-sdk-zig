@@ -97,8 +97,8 @@ pub fn createAccount(
     );
 
     const account_metas = [_]cpi.AccountMeta{
-        .{ .pubkey = from.key(), .is_writable = 1, .is_signer = 1 },
-        .{ .pubkey = to.key(), .is_writable = 1, .is_signer = 1 },
+        cpi.AccountMeta.signerWritable(from.key()),
+        cpi.AccountMeta.signerWritable(to.key()),
     };
 
     const ix = cpi.Instruction{
@@ -137,8 +137,8 @@ pub fn createAccountSigned(
     );
 
     const account_metas = [_]cpi.AccountMeta{
-        .{ .pubkey = from.key(), .is_writable = 1, .is_signer = 1 },
-        .{ .pubkey = to.key(), .is_writable = 1, .is_signer = 1 },
+        cpi.AccountMeta.signerWritable(from.key()),
+        cpi.AccountMeta.signerWritable(to.key()),
     };
 
     const ix = cpi.Instruction{
@@ -187,8 +187,8 @@ pub fn createAccountSignedRaw(
     );
 
     const account_metas = [_]cpi.AccountMeta{
-        .{ .pubkey = from.key(), .is_writable = 1, .is_signer = 1 },
-        .{ .pubkey = to.key(), .is_writable = 1, .is_signer = 1 },
+        cpi.AccountMeta.signerWritable(from.key()),
+        cpi.AccountMeta.signerWritable(to.key()),
     };
 
     const ix = cpi.Instruction{
@@ -223,8 +223,8 @@ pub fn transfer(
     );
 
     const account_metas = [_]cpi.AccountMeta{
-        .{ .pubkey = from.key(), .is_writable = 1, .is_signer = 1 },
-        .{ .pubkey = to.key(), .is_writable = 1, .is_signer = 0 },
+        cpi.AccountMeta.signerWritable(from.key()),
+        cpi.AccountMeta.writable(to.key()),
     };
 
     const ix = cpi.Instruction{
@@ -251,7 +251,7 @@ pub fn assign(
     );
 
     const account_metas = [_]cpi.AccountMeta{
-        .{ .pubkey = account.key(), .is_writable = 1, .is_signer = 1 },
+        cpi.AccountMeta.signerWritable(account.key()),
     };
 
     const ix = cpi.Instruction{
@@ -275,7 +275,7 @@ pub fn allocate(
     );
 
     const account_metas = [_]cpi.AccountMeta{
-        .{ .pubkey = account.key(), .is_writable = 1, .is_signer = 1 },
+        cpi.AccountMeta.signerWritable(account.key()),
     };
 
     const ix = cpi.Instruction{
@@ -481,8 +481,8 @@ pub fn createAccountWithSeed(
     @memcpy(ix_data[lamports_offset + 16..][0..32], owner[0..32]);
 
     const account_metas = [_]cpi.AccountMeta{
-        .{ .pubkey = from.key(), .is_writable = 1, .is_signer = 1 },
-        .{ .pubkey = to.key(), .is_writable = 1, .is_signer = 0 },
+        cpi.AccountMeta.signerWritable(from.key()),
+        cpi.AccountMeta.writable(to.key()),
     };
 
     const ix = cpi.Instruction{

@@ -190,6 +190,35 @@ pub inline fn pubkeyEqComptime(
     return buf[0] == e[0] and buf[1] == e[1] and buf[2] == e[2] and buf[3] == e[3];
 }
 
+/// Compare a runtime pubkey against multiple comptime-known pubkeys.
+///
+/// Returns `true` if `a` matches **any** of the entries in
+/// `comptime allowed`. Each comparison uses the same 4×u64 immediate
+/// shape as `pubkeyEqComptime`, so a 2-way check is ~2× the CU of a
+/// single `pubkeyEqComptime` call.
+///
+/// Typical use: a program accepting either SPL Token or Token-2022 as
+/// the mint/account owner:
+///
+/// ```zig
+/// if (!sol.pubkey.pubkeyEqAny(mint.owner(), &.{
+///     sol.spl_token_program_id,
+///     sol.spl_token_2022_program_id,
+/// })) return error.IncorrectProgramId;
+/// ```
+///
+/// The `inline for` unrolls at compile time; for N == 1 this folds to
+/// `pubkeyEqComptime` exactly.
+pub inline fn pubkeyEqAny(
+    a: *const Pubkey,
+    comptime allowed: []const Pubkey,
+) bool {
+    inline for (allowed) |expected| {
+        if (pubkeyEqComptime(a, expected)) return true;
+    }
+    return false;
+}
+
 /// Check if a pubkey is on the Ed25519 curve.
 /// Used for PDA validation (PDAs must NOT be on the curve, so this must
 /// agree with the Solana runtime's `is_on_curve` for safety).
@@ -253,6 +282,31 @@ test "pubkey: pubkeyEqComptime matches/mismatches" {
     // Smoke-test the all-zero (System Program) case
     const zero: Pubkey = .{0} ** PUBKEY_BYTES;
     try std.testing.expect(pubkeyEqComptime(&zero, comptime .{0} ** PUBKEY_BYTES));
+}
+
+test "pubkey: pubkeyEqAny matches first / second / none" {
+    const k1: Pubkey = .{1} ** PUBKEY_BYTES;
+    const k2: Pubkey = .{2} ** PUBKEY_BYTES;
+    const k3: Pubkey = .{3} ** PUBKEY_BYTES;
+    const allowed = comptime [_]Pubkey{ k1, k2 };
+
+    try std.testing.expect(pubkeyEqAny(&k1, &allowed));
+    try std.testing.expect(pubkeyEqAny(&k2, &allowed));
+    try std.testing.expect(!pubkeyEqAny(&k3, &allowed));
+}
+
+test "pubkey: pubkeyEqAny single-element collapses to pubkeyEqComptime" {
+    const k1: Pubkey = .{42} ** PUBKEY_BYTES;
+    const k2: Pubkey = .{99} ** PUBKEY_BYTES;
+    const allowed = comptime [_]Pubkey{k1};
+
+    try std.testing.expect(pubkeyEqAny(&k1, &allowed));
+    try std.testing.expect(!pubkeyEqAny(&k2, &allowed));
+}
+
+test "pubkey: pubkeyEqAny empty list always returns false" {
+    const k: Pubkey = .{0} ** PUBKEY_BYTES;
+    try std.testing.expect(!pubkeyEqAny(&k, &.{}));
 }
 
 test "pubkey: isPointOnCurve" {

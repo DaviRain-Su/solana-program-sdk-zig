@@ -64,6 +64,7 @@ fn print_usage(prog: &str) {
         "pubkey_cmp_safe_raw",
         "pubkey_cmp_unchecked",
         "pubkey_cmp_comptime",
+        "pubkey_cmp_any_2",
         "pubkey_cmp_runtime_const",
         "pda_runtime",
         "pda_comptime",

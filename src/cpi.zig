@@ -55,6 +55,30 @@ pub const AccountMeta = extern struct {
             .is_signer = @intFromBool(is_signer),
         };
     }
+
+    /// Read-only, non-signer. Typical for sysvars / read-only program
+    /// accounts passed to a CPI.
+    pub inline fn readonly(key: *const Pubkey) AccountMeta {
+        return .{ .pubkey = key, .is_writable = 0, .is_signer = 0 };
+    }
+
+    /// Writable but not a signer. Typical for destination accounts in
+    /// a transfer.
+    pub inline fn writable(key: *const Pubkey) AccountMeta {
+        return .{ .pubkey = key, .is_writable = 1, .is_signer = 0 };
+    }
+
+    /// Signer but not writable. Rare — usually programs that need a
+    /// signing authority but don't mutate it.
+    pub inline fn signer(key: *const Pubkey) AccountMeta {
+        return .{ .pubkey = key, .is_writable = 0, .is_signer = 1 };
+    }
+
+    /// Signer and writable. Typical for the payer in a CreateAccount
+    /// CPI, or a token-account authority paying for a transfer.
+    pub inline fn signerWritable(key: *const Pubkey) AccountMeta {
+        return .{ .pubkey = key, .is_writable = 1, .is_signer = 1 };
+    }
 };
 
 comptime {
@@ -363,4 +387,28 @@ test "cpi: AccountMeta.init sets bytes correctly" {
     const m = AccountMeta.init(&key, true, false);
     try std.testing.expectEqual(@as(u8, 1), m.is_writable);
     try std.testing.expectEqual(@as(u8, 0), m.is_signer);
+}
+
+test "cpi: AccountMeta convenience constructors set correct flag bytes" {
+    const key: Pubkey = .{42} ** 32;
+
+    const ro = AccountMeta.readonly(&key);
+    try std.testing.expectEqual(@as(u8, 0), ro.is_writable);
+    try std.testing.expectEqual(@as(u8, 0), ro.is_signer);
+
+    const w = AccountMeta.writable(&key);
+    try std.testing.expectEqual(@as(u8, 1), w.is_writable);
+    try std.testing.expectEqual(@as(u8, 0), w.is_signer);
+
+    const s = AccountMeta.signer(&key);
+    try std.testing.expectEqual(@as(u8, 0), s.is_writable);
+    try std.testing.expectEqual(@as(u8, 1), s.is_signer);
+
+    const sw = AccountMeta.signerWritable(&key);
+    try std.testing.expectEqual(@as(u8, 1), sw.is_writable);
+    try std.testing.expectEqual(@as(u8, 1), sw.is_signer);
+
+    // All constructors point at the same key.
+    try std.testing.expectEqual(&key, ro.pubkey);
+    try std.testing.expectEqual(&key, sw.pubkey);
 }

@@ -144,6 +144,28 @@ pub const AccountInfo = struct {
         }
     }
 
+    /// True if this account's owner matches **any** of the
+    /// comptime-known program IDs. Use for programs that accept
+    /// either SPL Token or Token-2022 (or any other multi-program
+    /// scenario).
+    ///
+    /// ```zig
+    /// if (!mint.isOwnedByAny(&.{
+    ///     sol.spl_token_program_id,
+    ///     sol.spl_token_2022_program_id,
+    /// })) return error.IncorrectProgramId;
+    /// ```
+    pub inline fn isOwnedByAny(self: AccountInfo, comptime allowed: []const Pubkey) bool {
+        return pubkey.pubkeyEqAny(self.owner(), allowed);
+    }
+
+    /// Error-returning counterpart to `isOwnedByAny`.
+    pub inline fn assertOwnerAny(self: AccountInfo, comptime allowed: []const Pubkey) ProgramError!void {
+        if (!pubkey.pubkeyEqAny(self.owner(), allowed)) {
+            return error.IncorrectProgramId;
+        }
+    }
+
     /// Compare this account's key against a compile-time-known pubkey.
     pub inline fn keyEqComptime(self: AccountInfo, comptime expected: Pubkey) bool {
         return pubkey.pubkeyEqComptime(self.key(), expected);
@@ -211,14 +233,24 @@ pub const AccountInfo = struct {
                 if (!pubkey.pubkeyEqComptime(self.owner(), owner_val)) {
                     return error.IncorrectProgramId;
                 }
+            } else if (comptime std.mem.eql(u8, name, "owner_any")) {
+                // Multi-program owner check: comptime slice of Pubkeys.
+                // Useful for "either SPL Token or Token-2022" patterns.
+                if (!pubkey.pubkeyEqAny(self.owner(), val)) {
+                    return error.IncorrectProgramId;
+                }
             } else if (comptime std.mem.eql(u8, name, "key")) {
                 const key_val: Pubkey = val;
                 if (!pubkey.pubkeyEqComptime(self.key(), key_val)) {
                     return error.InvalidArgument;
                 }
+            } else if (comptime std.mem.eql(u8, name, "key_any")) {
+                if (!pubkey.pubkeyEqAny(self.key(), val)) {
+                    return error.InvalidArgument;
+                }
             } else {
                 @compileError("Unknown expectation field: '" ++ name ++
-                    "'. Allowed: signer, writable, executable, owner, key.");
+                    "'. Allowed: signer, writable, executable, owner, owner_any, key, key_any.");
             }
         }
     }
@@ -548,6 +580,62 @@ test "account: expect — wrong key" {
     try std.testing.expectError(
         error.InvalidArgument,
         info.expect(.{ .key = .{99} ** 32 }),
+    );
+}
+
+test "account: isOwnedByAny / assertOwnerAny" {
+    const token_a: pubkey.Pubkey = .{7} ** 32;
+    const token_b: pubkey.Pubkey = .{8} ** 32;
+
+    var acc: Account = .{
+        .borrow_state = NOT_BORROWED,
+        .is_signer = 0,
+        .is_writable = 0,
+        .is_executable = 0,
+        ._padding = .{0} ** 4,
+        .key = .{0} ** 32,
+        .owner = token_b,
+        .lamports = 0,
+        .data_len = 0,
+    };
+    const info = AccountInfo{ .raw = &acc };
+
+    try std.testing.expect(info.isOwnedByAny(&.{ token_a, token_b }));
+    try std.testing.expect(!info.isOwnedByAny(&.{token_a}));
+
+    try info.assertOwnerAny(&.{ token_a, token_b });
+    try std.testing.expectError(
+        error.IncorrectProgramId,
+        info.assertOwnerAny(&.{token_a}),
+    );
+}
+
+test "account: expect supports owner_any / key_any" {
+    const allowed_a: pubkey.Pubkey = .{10} ** 32;
+    const allowed_b: pubkey.Pubkey = .{20} ** 32;
+
+    var acc: Account = .{
+        .borrow_state = NOT_BORROWED,
+        .is_signer = 0,
+        .is_writable = 0,
+        .is_executable = 0,
+        ._padding = .{0} ** 4,
+        .key = allowed_a,
+        .owner = allowed_b,
+        .lamports = 0,
+        .data_len = 0,
+    };
+    const info = AccountInfo{ .raw = &acc };
+
+    try info.expect(.{ .owner_any = &.{ allowed_a, allowed_b }, .key_any = &.{allowed_a} });
+
+    try std.testing.expectError(
+        error.IncorrectProgramId,
+        info.expect(.{ .owner_any = &.{allowed_a} }),
+    );
+    try std.testing.expectError(
+        error.InvalidArgument,
+        info.expect(.{ .key_any = &.{allowed_b} }),
     );
 }
 

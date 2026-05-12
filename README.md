@@ -212,11 +212,20 @@ write `@addWithOverflow`, not when you'd write `if (a < b)`.
 try authority.expect(.{ .signer = true, .writable = true });
 try mint.expect(.{ .owner = sol.spl_token_program_id });
 try rent_sysvar.expect(.{ .key = sol.sysvar.RENT_ID });
+
+// Multi-program accept: useful for "either SPL Token or Token-2022".
+try mint.expect(.{ .owner_any = &.{
+    sol.spl_token_program_id,
+    sol.spl_token_2022_program_id,
+}});
 ```
 
 Each field is comptime-gated — only the requested checks generate
 code. `key` and `owner` use the comptime-Pubkey fast path (4 u64
-immediate compares, no rodata lookup). `parseAccountsWith` also now
+immediate compares, no rodata lookup). `owner_any` and `key_any`
+take a comptime slice and short-circuit on the first match — a
+2-way check on the failure path costs ~18 CU (measured via
+`pubkey_cmp_any_2` benchmark). `parseAccountsWith` also now
 accepts a `.key` expectation for asserting well-known sysvars,
 system programs, or pre-derived PDAs in a single declarative spec.
 
@@ -718,6 +727,22 @@ Convert `AccountInfo` to `CpiAccountInfo` for CPI:
 const cpi_info = account.toCpiInfo();
 try sol.cpi.invoke(&instruction, &.{cpi_info});
 ```
+
+`AccountMeta` ships four convenience constructors that read like the
+account's role (instead of a struct literal with two `0`/`1`
+fields):
+
+```zig
+const metas = [_]sol.cpi.AccountMeta{
+    sol.cpi.AccountMeta.signerWritable(payer.key()),  // .is_writable=1 .is_signer=1
+    sol.cpi.AccountMeta.writable(dest.key()),         // .is_writable=1 .is_signer=0
+    sol.cpi.AccountMeta.signer(authority.key()),      // .is_writable=0 .is_signer=1
+    sol.cpi.AccountMeta.readonly(sysvar.key()),       // .is_writable=0 .is_signer=0
+};
+```
+
+All four are `inline fn` — same BPF as the struct literal. The SDK's
+own `system.zig` uses these throughout.
 
 ## Using the SDK from your `build.zig`
 

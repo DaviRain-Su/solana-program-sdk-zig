@@ -772,3 +772,20 @@ Week 4: Phase 7
 未做（哲学不符）:
 - 借用安全 (`Ref<T>` / `RefMut<T>`) — Pinocchio 有，我们不做，工具箱哲学
 - 约束 DSL (整体 `#[account(...)]` 宏) — 留给未来 Anchor-for-Zig 框架
+
+### 附录：Anchor-style 三 ix vault 的实测 CU
+
+`examples/vault.zig` 同时演示 `parseAccounts`, `TypedAccount(VaultState)`,
+`discriminatorFor`, `ErrorCode`, `system.createRentExempt`,
+`comptimeFromBase58` (PROGRAM_ID), `verifyPda`, `requireHasOneWith`,
+`sol.emit`。`BPF_OUT_DIR=zig-out/lib cargo run -- vault_*` 实测：
+
+| 指令 | Zig (this SDK) | Anchor (典型) | 备注 |
+|---|---:|---:|---|
+| `vault.initialize` | 4931 CU | 8000–10000 CU | findProgramAddress + system_program CPI 创建 + 写 discriminator |
+| `vault.deposit`    | 1770 CU | 5000–8000 CU  | system_program transfer CPI + balance bump + emit |
+| `vault.withdraw`   | 2071 CU | 4000–6000 CU  | has_one + verifyPda(储存 bump) + 直接 lamport 转移 + emit |
+
+`examples/token_dispatch.zig`（u32 tag + u64 payload, 1 个账户）：
+**13 CU** for transfer / burn / mint — 这是"懒解析 1 个账户 + 1 个
+算术操作"的下限。

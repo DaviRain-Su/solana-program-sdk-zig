@@ -202,12 +202,48 @@ Each line is independently usable — `TypedAccount` doesn't require
 discriminators, `parseAccountsWith` doesn't require `TypedAccount`,
 nothing requires anything else. Use only the pieces you need.
 
+### End-to-end vault program (CU vs. Anchor)
+
+The `examples/vault.zig` program exercises the SDK's Anchor-style
+surface end-to-end: PDA account creation via CPI, typed state with an
+8-byte discriminator, `has_one` authority check, stored-bump PDA
+verification, structured event emission via `sol_log_data`. CU
+numbers from the in-repo `solana-program-test` runner (`BPF_OUT_DIR=
+zig-out/lib cargo run -- vault_*`):
+
+| Instruction | Zig (this SDK) | Anchor (typical) | Notes |
+|---|---:|---:|---|
+| `vault.initialize` | **4931** | 8000–10000 | `findProgramAddress` + CPI `system_program::create_account` (rent-exempt) + discriminator write |
+| `vault.deposit`    | **1770** | 5000–8000 | CPI `system_program::transfer` + typed-state balance bump + `sol_log_data` emit |
+| `vault.withdraw`   | **2071** | 4000–6000 | `requireHasOneWith` + `verifyPda` (stored bump) + direct lamport move + `sol_log_data` emit |
+
+> Anchor figures are approximate values from production Solana
+> programs at the time of writing — your mileage will vary based on
+> account layout, IDL size, and Anchor version. The Zig SDK avoids
+> the Anchor IDL preflight, the borsh (de)serialization round-trip,
+> and the `RefCell` borrow checks, which is where most of the savings
+> come from.
+
+The `examples/token_dispatch.zig` program (1× signer-less ix tag, 1×
+account, 8-byte payload) lands at **13 CU** for transfer/burn/mint —
+this is essentially the floor of "lazy-parse one account + apply one
+arithmetic op".
+
 ### Reproduce
+
+```console
+# Run every benchmark and emit a markdown table (uses a fixed
+# authority keypair so PDA bump-search lands at the same depth every
+# run → stable vault CU numbers).
+./scripts/bench.sh
+```
+
+Or drive a single one by hand:
 
 ```console
 cd benchmark
 $SOLANA_ZIG build
-cargo run --release -- transfer_lamports_raw
+BPF_OUT_DIR=$(pwd)/zig-out/lib cargo run --release -- vault_deposit
 ```
 
 ## Architecture

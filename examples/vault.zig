@@ -121,9 +121,9 @@ fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
     // ~70 CU per call vs the safe `parseAccounts`.
     const a = try ctx.parseAccountsUnchecked(.{ "first", "second", "third" });
     const data = try ctx.instructionData();
-    if (data.len < 1) return error.InvalidInstructionData;
 
-    const tag: Ix = @enumFromInt(data[0]);
+    const tag = sol.instruction.parseTag(Ix, data) orelse
+        return error.InvalidInstructionData;
     if (tag == .initialize) return processInitialize(a.first, a.second, a.third, data);
     if (tag == .deposit) return processDeposit(a.first, a.second, a.third, data);
     if (tag == .withdraw) return processWithdraw(a.first, a.second, a.third, data);
@@ -157,8 +157,8 @@ fn processInitialize(
     // claimed key) is what makes this safe — if the client lies about
     // the bump, the CPI's signer-seed proof fails and the create
     // aborts. We don't need a separate up-front PDA check.
-    if (data.len < 2) return error.InvalidInstructionData;
-    const bump: u8 = data[1];
+    const bump = sol.instruction.tryReadUnaligned(u8, data, 1) orelse
+        return error.InvalidInstructionData;
 
     const bump_seed = [_]u8{bump};
 
@@ -210,8 +210,8 @@ fn processDeposit(
     try vault_info.expectWritable();
     try vault_info.assertOwnerComptime(PROGRAM_ID);
 
-    if (data.len < 9) return error.InvalidInstructionData;
-    const amount = sol.instruction.readUnaligned(u64, data, 1);
+    const amount = sol.instruction.tryReadUnaligned(u64, data, 1) orelse
+        return error.InvalidInstructionData;
 
     // `bind` enforces the 8-byte discriminator. `assertOwnerComptime`
     // above already proved we own the account, so a type-confusion
@@ -253,8 +253,8 @@ fn processWithdraw(
     try vault_info.assertOwnerComptime(PROGRAM_ID);
     try recipient.expectWritable();
 
-    if (data.len < 9) return error.InvalidInstructionData;
-    const amount = sol.instruction.readUnaligned(u64, data, 1);
+    const amount = sol.instruction.tryReadUnaligned(u64, data, 1) orelse
+        return error.InvalidInstructionData;
 
     // See deposit: `assertOwnerComptime` already proved this is our
     // VaultState account, so the discriminator check is redundant.

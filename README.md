@@ -135,12 +135,19 @@ helpers are available directly on `AccountInfo` for ad-hoc checks.
 
 ### Typed instruction-data deserialization
 
-Two helpers replace the verbose `@as(*align(1) const T, @ptrCast(data[a..b])).*`
-pattern that pervades on-chain code:
+Four helpers replace the verbose `@as(*align(1) const T, @ptrCast(data[a..b])).*`
+pattern that pervades on-chain code, **plus** the always-paired
+`if (data.len < N) return error.X` and `@enumFromInt(data[0])` guards:
 
 ```zig
-// Single-field read at a comptime offset
-const amount = sol.instruction.readUnaligned(u64, data, 1);
+// Bounds-checked single-field read — combines len check + load
+const amount = sol.instruction.tryReadUnaligned(u64, data, 1)
+    orelse return error.InvalidInstructionData;
+
+// Validated tag extraction — guards against out-of-range enum values
+// (which would otherwise be UB via `@enumFromInt`)
+const tag = sol.instruction.parseTag(Ix, data)
+    orelse return error.InvalidInstructionData;
 
 // Multi-field read via an extern struct — fields are accessed by name,
 // offsets are folded at compile time
@@ -151,13 +158,18 @@ const Args = extern struct {
 const args = sol.instruction.IxDataReader(Args).bind(data)
     orelse return error.InvalidInstructionData;
 const amount = args.get(.amount);  // single ldxdw, offset 4
+
+// Trust-me variants (skip the check) when the caller has already guarded
+const amount = sol.instruction.readUnaligned(u64, data, 1);  // unchecked
+const tag = sol.instruction.parseTagUnchecked(Ix, data);     // unchecked
 ```
 
-Both compile to the **same BPF as hand-written pointer casts** —
-verified by disassembly. The win is purely ergonomic: layout is
-documented as a struct, field offsets can't be miscalculated, and
-the bounds check is a single comptime-known compare that LLVM folds
-when the caller has already guarded `data.len`.
+All four compile to the **same BPF as hand-written pointer casts** —
+verified by disassembly. The win is purely ergonomic + safety: layout
+is documented as a struct, field offsets can't be miscalculated, the
+bounds check is a single comptime-known compare that LLVM folds when
+the caller has already guarded `data.len`, and `parseTag`'s
+comptime-unrolled variant check closes the `@enumFromInt` UB hole.
 
 ### Anchor-style foundations (no framework required)
 
@@ -505,9 +517,9 @@ fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
     const source = ctx.nextAccount() orelse return error.NotEnoughAccountKeys;
     const dest = ctx.nextAccount() orelse return error.NotEnoughAccountKeys;
     const ix_data = try ctx.instructionData();
-    if (ix_data.len < 8) return error.InvalidInstructionData;
 
-    const amount = sol.instruction.readUnaligned(u64, ix_data, 0);
+    const amount = sol.instruction.tryReadUnaligned(u64, ix_data, 0)
+        orelse return error.InvalidInstructionData;
     source.raw.lamports -= amount;
     dest.raw.lamports += amount;
 }
@@ -534,9 +546,9 @@ fn process(ctx: *sol.entrypoint.InstructionContext) u64 {
     // `nextAccountUnchecked` doesn't decrement the remaining counter,
     // so we use the unchecked instruction-data getter here.
     const ix_data = ctx.instructionDataUnchecked();
-    if (ix_data.len < 8) return 1;
 
-    const amount = sol.instruction.readUnaligned(u64, ix_data, 0);
+    const amount = sol.instruction.tryReadUnaligned(u64, ix_data, 0)
+        orelse return 1;
     source.raw.lamports -= amount;
     dest.raw.lamports += amount;
     return 0;

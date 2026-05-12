@@ -108,6 +108,11 @@ const Ix = enum(u8) {
 ///      already-parsed accounts.
 ///
 /// This is the "parse-then-dispatch" pattern Pinocchio programs use.
+///
+/// `programEntrypoint(3, ...)` would also work here and read marginally
+/// cleaner (positional `accounts[0]` access, no InstructionContext),
+/// but the CU cost is identical — LLVM optimizes the lazy +
+/// `parseAccountsUnchecked` path into the same straight-line code.
 fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
     // `parseAccountsUnchecked` skips the dup-aware tagged-union switch
     // — vault's three accounts have structurally distinct roles

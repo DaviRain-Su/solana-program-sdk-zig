@@ -488,6 +488,108 @@ pub fn lazyEntrypoint(
     }.entry;
 }
 
+// =========================================================================
+// programEntrypoint — eager-parse entrypoint (ergonomic alternative)
+//
+// Pre-parses a comptime-known account count and instruction data into
+// a flat array, then hands everything to user `process` in one call.
+//
+// Performance: **measurably tied with lazyEntrypoint** under
+// ReleaseFast. The benchmark `program_entry_1` vs `program_entry_lazy_1`
+// shows a 1-CU difference (in either direction depending on the body).
+// LLVM aggressively optimizes the lazy path so there's no real
+// throughput win here — pick this entrypoint for **ergonomic
+// reasons** (positional `accounts[0]` access, no InstructionContext
+// indirection, account count enforced at the entrypoint level so
+// per-handler bounds checks are unnecessary), not for CU savings.
+//
+// Trade-offs vs. lazyEntrypoint:
+//   + Account count enforced at the entry boundary — handlers can
+//     index `accounts[i]` without bounds checks.
+//   + No `try ctx.parseAccountsUnchecked(...)` boilerplate at the
+//     top of `process`.
+//   + Cleaner signature: `(accounts, data, program_id)`.
+//   - Requires the account count to be known at compile time. For
+//     dispatch patterns where account count varies between
+//     instructions, use `lazyEntrypoint` and `parseAccountsUnchecked`.
+//
+// All accounts MUST be non-duplicate slots (i.e. distinct positions
+// in the transaction). If your program may receive duplicate accounts,
+// use lazyEntrypoint + `nextAccountMaybe`.
+// =========================================================================
+
+/// Parse exactly `account_count` non-duplicate accounts plus the
+/// instruction data and program id, then call
+/// `process(accounts, data, program_id)`.
+///
+/// CU cost is essentially identical to `lazyEntrypoint` +
+/// `parseAccountsUnchecked` — choose based on style preference, not
+/// performance. (Measured 1-CU swing in the
+/// `benchmark_program_entry_*` micro-benches.)
+///
+/// Usage:
+/// ```zig
+/// fn process(
+///     accounts: *const [3]sol.AccountInfo,
+///     data: []const u8,
+///     _: *const sol.Pubkey,
+/// ) sol.ProgramResult {
+///     try accounts[0].expectSigner();
+///     // ...
+/// }
+///
+/// export fn entrypoint(input: [*]u8) u64 {
+///     return sol.entrypoint.programEntrypoint(3, process)(input);
+/// }
+/// ```
+///
+/// Returns `error.NotEnoughAccountKeys` if the runtime serialized
+/// fewer accounts than `account_count`. Programs whose account count
+/// differs across instructions should use `lazyEntrypoint` instead.
+pub fn programEntrypoint(
+    comptime account_count: usize,
+    comptime process: *const fn (
+        accounts: *const [account_count]AccountInfo,
+        data: []const u8,
+        program_id: *const Pubkey,
+    ) ProgramResult,
+) fn ([*]u8) callconv(.c) u64 {
+    return struct {
+        fn entry(input: [*]u8) callconv(.c) u64 {
+            // First 8 bytes: num_accounts (u64 LE).
+            const num_accounts: u64 = @as(*const u64, @ptrCast(@alignCast(input))).*;
+            if (num_accounts < account_count) {
+                return program_error.errorToU64(error.NotEnoughAccountKeys);
+            }
+
+            var accounts: [account_count]AccountInfo = undefined;
+            var buf: [*]u8 = input + @sizeOf(u64);
+
+            // Unrolled at comptime — the loop body is straight-line BPF
+            // assembly with `i` baked into the array store index.
+            inline for (0..account_count) |i| {
+                const account_ptr: *Account = @ptrCast(@alignCast(buf));
+                const data_len: usize = @intCast(account_ptr.data_len);
+                buf += @sizeOf(u64) + (@sizeOf(Account) - @sizeOf(u64)) + data_len + MAX_PERMITTED_DATA_INCREASE;
+                buf = @ptrFromInt(alignPointer(@intFromPtr(buf)));
+                buf += @sizeOf(u64);
+                accounts[i] = .{ .raw = account_ptr };
+            }
+
+            // After `account_count` accounts the buffer points at the
+            // instruction-data length prefix.
+            const data_len: usize = @intCast(@as(*const u64, @ptrCast(@alignCast(buf))).*);
+            const data: []const u8 = buf[@sizeOf(u64) .. @sizeOf(u64) + data_len];
+            const program_id: *const Pubkey = @ptrCast(@alignCast(buf + @sizeOf(u64) + data_len));
+
+            process(&accounts, data, program_id) catch |err| {
+                return program_error.errorToU64(err);
+            };
+            return SUCCESS;
+        }
+    }.entry;
+}
+
 /// Raw entrypoint — returns u64 directly, no error union overhead.
 /// Use for maximum performance when you don't need ProgramResult.
 pub fn lazyEntrypointRaw(
@@ -898,4 +1000,98 @@ test "entrypoint: skipAccounts is dup-aware" {
 
     const last = ctx.nextAccount().?;
     try std.testing.expectEqual(@as(u64, 333), last.lamports());
+}
+
+// =========================================================================
+// programEntrypoint tests
+// =========================================================================
+//
+// We exercise programEntrypoint directly by constructing a serialized
+// input buffer (same shape the runtime hands the BPF program) and
+// calling the closure it returns. Since we're on the host, the test
+// runs in plain native code — there's no BPF runtime emulation here.
+
+// A scratch buffer for the test process function to record what it saw.
+var test_observed_count: usize = 0;
+var test_observed_lamports: [4]u64 = .{ 0, 0, 0, 0 };
+var test_observed_data: [16]u8 = .{0} ** 16;
+var test_observed_data_len: usize = 0;
+
+fn testProcess2(
+    accounts: *const [2]AccountInfo,
+    data: []const u8,
+    _: *const Pubkey,
+) ProgramResult {
+    test_observed_count = 2;
+    test_observed_lamports[0] = accounts[0].lamports();
+    test_observed_lamports[1] = accounts[1].lamports();
+    test_observed_data_len = data.len;
+    @memcpy(test_observed_data[0..data.len], data);
+    return;
+}
+
+test "entrypoint: programEntrypoint parses 2 accounts + ix data" {
+    var input align(8) = [_]u8{0} ** 32768;
+    var ptr: [*]u8 = &input;
+
+    std.mem.writeInt(u64, ptr[0..8], 2, .little);
+    ptr += 8;
+
+    const acc0: Account = .{
+        .borrow_state = account.NON_DUP_MARKER,
+        .is_signer = 1, .is_writable = 1, .is_executable = 0,
+        ._padding = .{0} ** 4,
+        .key = makePubkey(1), .owner = makePubkey(2),
+        .lamports = 12345, .data_len = 0,
+    };
+    @memcpy(ptr[0..@sizeOf(Account)], std.mem.asBytes(&acc0));
+    ptr += @sizeOf(Account) + MAX_PERMITTED_DATA_INCREASE + 8;
+
+    const acc1: Account = .{
+        .borrow_state = account.NON_DUP_MARKER,
+        .is_signer = 0, .is_writable = 0, .is_executable = 0,
+        ._padding = .{0} ** 4,
+        .key = makePubkey(3), .owner = makePubkey(2),
+        .lamports = 67890, .data_len = 0,
+    };
+    @memcpy(ptr[0..@sizeOf(Account)], std.mem.asBytes(&acc1));
+    ptr += @sizeOf(Account) + MAX_PERMITTED_DATA_INCREASE + 8;
+
+    // instruction data: "hello" (5 bytes)
+    std.mem.writeInt(u64, ptr[0..8], 5, .little);
+    ptr += 8;
+    @memcpy(ptr[0..5], "hello");
+    ptr += 5;
+    // program id (just zeros; we don't inspect it)
+    ptr += @sizeOf(Pubkey);
+
+    test_observed_count = 0;
+    test_observed_data_len = 0;
+
+    const entry = programEntrypoint(2, testProcess2);
+    const result = entry(&input);
+
+    try std.testing.expectEqual(SUCCESS, result);
+    try std.testing.expectEqual(@as(usize, 2), test_observed_count);
+    try std.testing.expectEqual(@as(u64, 12345), test_observed_lamports[0]);
+    try std.testing.expectEqual(@as(u64, 67890), test_observed_lamports[1]);
+    try std.testing.expectEqualStrings("hello", test_observed_data[0..test_observed_data_len]);
+}
+
+fn testProcess3Noop(
+    _: *const [3]AccountInfo,
+    _: []const u8,
+    _: *const Pubkey,
+) ProgramResult {
+    return;
+}
+
+test "entrypoint: programEntrypoint errors on too-few accounts" {
+    var input align(8) = [_]u8{0} ** 32768;
+    // num_accounts = 1, but we request 3
+    std.mem.writeInt(u64, input[0..8], 1, .little);
+    const entry = programEntrypoint(3, testProcess3Noop);
+    const result = entry(&input);
+    // NotEnoughAccountKeys
+    try std.testing.expect(result != SUCCESS);
 }

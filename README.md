@@ -379,10 +379,18 @@ BPF_OUT_DIR=$(pwd)/zig-out/lib cargo run --release -- vault_deposit
 
 ### Entrypoints
 
-| Function | Returns | CU overhead | Use case |
-|---|---|---|---|
-| `lazyEntrypointRaw` | `u64` | 0 | Maximum performance |
-| `lazyEntrypoint` | `ProgramResult` | +5 | Ergonomic error handling |
+| Function | Shape | Use case |
+|---|---|---|
+| `lazyEntrypointRaw(*fn(*Ctx) u64)` | u64 return, on-demand account parsing | Maximum performance, custom error handling |
+| `lazyEntrypoint(*fn(*Ctx) ProgramResult)` | error union, on-demand account parsing | Default — most programs |
+| `programEntrypoint(N, *fn(*[N]AccountInfo, []const u8, *Pubkey) ProgramResult)` | error union, eager account parsing | Ergonomic alternative when account count is comptime-known |
+
+`programEntrypoint` reads more naturally for handlers with a fixed
+account count (positional `accounts[0]` access, no `InstructionContext`
+threading), but the CU cost is essentially tied with `lazyEntrypoint`
+under ReleaseFast — measured 1-CU swing on the `program_entry_1` vs
+`program_entry_lazy_1` micro-benches. Choose based on style, not
+performance.
 
 ## Usage
 

@@ -60,6 +60,8 @@ BENCHES=(
     "pda_runtime"
     "pda_comptime"
     "parse_accounts_with"
+    "program_entry_1"
+    "program_entry_lazy_1"
     "transfer_lamports"
     "transfer_lamports_raw"
     "token_dispatch_transfer"

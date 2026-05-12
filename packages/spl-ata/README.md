@@ -1,19 +1,18 @@
 # spl-ata (Zig)
 
-Status: 🚧 **planned** — not yet implemented.
+Status: ✅ **v0.1** — released.
 
 Zig client for the [SPL Associated Token Account](https://github.com/solana-program/associated-token-account)
 program. Dual-target (on-chain CPI + off-chain ix builder), mirroring
 the Rust [`spl-associated-token-account`](https://docs.rs/spl-associated-token-account)
 crate.
 
-## Planned API
+## API
 
 ```zig
 const spl_ata = @import("spl_ata");
 
-// PDA derivation — comptime when wallet & mint are comptime-known,
-// runtime otherwise:
+// PDA derivation for classic SPL Token or Token-2022:
 const ata = spl_ata.findAddress(&wallet, &mint, &token_program_id);
 
 // On-chain: create the ATA via CPI
@@ -31,11 +30,13 @@ const ix = spl_ata.instruction.createIdempotent(.{
     .payer = payer_pubkey,
     .wallet = wallet_pubkey,
     .mint = mint_pubkey,
+    .token_program = token_program_id,
 });
 ```
 
-## First-pass scope
+## Implemented scope
 
-- `findAddress` — PDA derivation (comptime + runtime variants)
-- `createAssociatedTokenAccount`
-- `createIdempotent` (recommended over the non-idempotent form)
+- ATA PDA derivation for both classic SPL Token and Token-2022.
+- `create` / `createIdempotent` instruction builders.
+- On-chain CPI wrappers for ATA creation.
+- Real Mollusk integration coverage via `program-test/tests/spl_ata.rs`.

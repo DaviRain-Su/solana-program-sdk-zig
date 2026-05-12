@@ -8,8 +8,8 @@ the root SDK via a path import.
 
 | Package | Target | Status | Purpose |
 |---|---|---|---|
-| [`spl-token`](./spl-token) | dual (on-chain CPI + off-chain ix builder) | 🚧 planned | SPL Token (transfer / mintTo / burn / …) |
-| [`spl-ata`](./spl-ata) | dual | 🚧 planned | Associated Token Account address derivation + create CPI |
+| [`spl-token`](./spl-token) | dual (on-chain CPI + off-chain ix builder) | ✅ v0.1 | SPL Token (transfer / mintTo / burn / …) |
+| [`spl-ata`](./spl-ata) | dual | ✅ v0.1 | Associated Token Account address derivation + create CPI |
 | [`spl-memo`](./spl-memo) | dual | ✅ v0.1 | SPL Memo program CPI |
 
 See [`../ROADMAP.md`](../ROADMAP.md#monorepo-分层) for the full

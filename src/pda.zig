@@ -325,6 +325,12 @@ pub fn verifyPda(
     program_id: *const Pubkey,
 ) ProgramError!void {
     // Append bump as the final seed.
+    //
+    // Tried calling sol_create_program_address directly here to skip
+    // createProgramAddress's own staging copy — measured 0 CU change;
+    // LLVM SROAs the second copy when the seed count is comptime
+    // bounded (which it is here, via MAX_SEEDS). Keep the cleaner
+    // shape that goes through createProgramAddress.
     if (seeds.len + 1 > MAX_SEEDS) return ProgramError.MaxSeedLengthExceeded;
     var seeds_with_bump: [MAX_SEEDS][]const u8 = undefined;
     for (seeds, 0..) |s, i| seeds_with_bump[i] = s;

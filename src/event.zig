@@ -88,12 +88,17 @@ pub fn emit(value: anytype) void {
     // calling `sol_log_data` with two slices (disc + value) — the
     // runtime charges a per-slice base fee that exceeds the memcpy
     // cost for typical small events.
-    var buf: [MAX_EVENT_SIZE]u8 = undefined;
+    //
+    // Buffer is sized at comptime to the exact payload — no need to
+    // reserve a full MAX_EVENT_SIZE worth of stack at every emit site
+    // when the actual event might be only a few bytes.
+    const payload_size = comptime DISCRIMINATOR_LEN + @sizeOf(T);
+    var buf: [payload_size]u8 = undefined;
     @memcpy(buf[0..DISCRIMINATOR_LEN], &disc);
     const value_bytes = std.mem.asBytes(&value);
-    @memcpy(buf[DISCRIMINATOR_LEN .. DISCRIMINATOR_LEN + @sizeOf(T)], value_bytes);
+    @memcpy(buf[DISCRIMINATOR_LEN..payload_size], value_bytes);
 
-    const payload: []const u8 = buf[0 .. DISCRIMINATOR_LEN + @sizeOf(T)];
+    const payload: []const u8 = &buf;
 
     if (bpf.is_bpf_program) {
         const slices = [_][]const u8{payload};

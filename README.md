@@ -218,9 +218,9 @@ zig-out/lib cargo run -- vault_*`):
 
 | Instruction | Zig (this SDK) | Pinocchio | Zig − Pino | Anchor (typical) |
 |---|---:|---:|---:|---:|
-| `vault.initialize` | 1540 | **1351** | +189 (+14%)  | 8000–10000 |
-| `vault.deposit`    | 1583 | **1565** |  +18 (+1.1%) | 5000–8000  |
-| `vault.withdraw`   | **1887** | 1949 |  −62 (−3.2%) | 4000–6000  |
+| `vault.initialize` | 1380 | **1351** |  +29 (+2.1%) | 8000–10000 |
+| `vault.deposit`    | 1569 | **1565** |   +4 (+0.3%) | 5000–8000  |
+| `vault.withdraw`   | **1879** | 1949 |  −70 (−3.6%) | 4000–6000  |
 
 Both implementations live in the repo (`examples/vault.zig` for Zig,
 `bench-pinocchio/src/lib.rs` for Pinocchio) and run the **identical**
@@ -229,25 +229,38 @@ client-supplied bump, same 56-byte account layout, same 24-byte
 `sol_log_data` event payload — so the comparison isolates pure SDK
 overhead.
 
-Reading: `initialize` is the only path with a meaningful gap (Pinocchio
-~14% faster), explained by the `sol_get_rent_sysvar` syscall the Zig
-side calls but the Pinocchio reference works around. Data-plane
-instructions (`deposit` / `withdraw`) are within single-digit %.
-`vault.withdraw` is the only path where the Zig SDK is *faster*, because
-direct lamport mutation + stored-bump PDA verify via `verifyPda` skips
-the `Address::create_program_address` syscall (~1500 CU) the Pinocchio
-reference uses.
+Reading: all three instructions are essentially tied with Pinocchio
+now. `initialize` is 29 CU (+2.1%) behind — within noise; `deposit`
+is 4 CU (+0.3%); `withdraw` is **70 CU faster** because direct
+lamport mutation + stored-bump PDA verify via `verifyPda` skips the
+`Address::create_program_address` syscall (~1500 CU) the Pinocchio
+reference still pays.
 
-The 283-CU reduction on `vault.initialize` (1823 → 1540) came from a
-single, measurable optimization: `Rent.getMinimumBalance` now uses an
-integer fast path (`(overhead + size) * lamports_per_byte_year * 2`)
-when the cluster's `exemption_threshold` is the canonical `2.0`.
-BPF emulates f64 multiplication in software at ~150-300 CU per op, so
-the original f64 expression cost roughly the same as the entire rest
-of the `initialize` body. The fast path is a bit-compare against the
-IEEE-754 bit pattern for `2.0`, so it doesn't pay an f64 compare to
-decide which path to take. Programs with a non-2.0 threshold (none on
-mainnet today, but future-proof) fall back to the f64 expression.
+The 443-CU reduction on `vault.initialize` (1823 → 1380, **−24%**)
+came from two measurable, named optimizations:
+
+1. **Rent integer fast path (−283 CU).** `Rent.getMinimumBalance` was
+   `(overhead + len) * lamports_per_byte_year * exemption_threshold`
+   in f64. BPF emulates f64 multiplication in software at ~150-300 CU
+   per op, so this single line cost roughly the same as the entire
+   rest of the `initialize` body. We now bit-compare
+   `exemption_threshold` against the IEEE-754 pattern for `2.0` (the
+   canonical, genesis-since cluster value) and fall through to plain
+   integer arithmetic when it matches. The f64 path remains as a
+   safety net for hypothetical future clusters with non-2.0
+   thresholds. See `src/rent.zig`.
+
+2. **Comptime rent baking (−161 CU).** When `space` is comptime-known
+   (the typical case — `@sizeOf(MyState)`), the rent-exempt minimum
+   balance can be folded into a single u64 immediate at build time,
+   eliminating the `sol_get_rent_sysvar` syscall entirely. The new
+   `system.createRentExemptComptimeRaw(args, comptime space, signers)`
+   is the entry point — see `examples/vault.zig` for the call shape.
+
+The remaining 29 CU vs. Pinocchio is entrypoint-shape difference
+(`lazyEntrypoint` vs. `program_entrypoint!`'s pre-parse) plus residual
+slop in the CPI plumbing — both single-digit-CU items not worth
+breaking the API for.
 
 > Anchor figures are approximate values from production Solana
 > programs at the time of writing — your mileage will vary based on

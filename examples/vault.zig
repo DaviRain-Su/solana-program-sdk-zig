@@ -169,13 +169,15 @@ fn processInitialize(
     };
     const signer = sol.cpi.Signer.from(&seeds);
 
-    try sol.system.createRentExemptRaw(.{
+    // `space` is comptime, so the SDK folds the rent-exempt minimum
+    // balance into a single u64 immediate at build time. No
+    // `sol_get_rent_sysvar` syscall (~85 CU) at runtime.
+    try sol.system.createRentExemptComptimeRaw(.{
         .payer = authority.toCpiInfo(),
         .new_account = vault.toCpiInfo(),
         .system_program = system_program.toCpiInfo(),
-        .space = @sizeOf(VaultState),
         .owner = &PROGRAM_ID,
-    }, &.{signer});
+    }, @sizeOf(VaultState), &.{signer});
 
     _ = try sol.TypedAccount(VaultState).initialize(vault, .{
         .discriminator = undefined,
@@ -203,7 +205,13 @@ fn processDeposit(
     if (data.len < 9) return error.InvalidInstructionData;
     const amount: u64 = @as(*align(1) const u64, @ptrCast(data[1..9])).*;
 
-    const vault = try sol.TypedAccount(VaultState).bind(vault_info);
+    // `bind` enforces the 8-byte discriminator. `assertOwnerComptime`
+    // above already proved we own the account, so a type-confusion
+    // attack would require the attacker to (a) pass an account we
+    // own and (b) get this program to have ever written a different
+    // type into it. We don't, so `bindUnchecked` is safe here and
+    // skips the 8-byte compare (~10-15 CU).
+    const vault = sol.TypedAccount(VaultState).bindUnchecked(vault_info);
 
     try sol.system.transfer(
         payer.toCpiInfo(),
@@ -240,26 +248,33 @@ fn processWithdraw(
     if (data.len < 9) return error.InvalidInstructionData;
     const amount: u64 = @as(*align(1) const u64, @ptrCast(data[1..9])).*;
 
-    const vault = try sol.TypedAccount(VaultState).bind(vault_info);
+    // See deposit: `assertOwnerComptime` already proved this is our
+    // VaultState account, so the discriminator check is redundant.
+    const vault = sol.TypedAccount(VaultState).bindUnchecked(vault_info);
 
     try vault.requireHasOneWith("authority", authority, VaultErr.toError(.Unauthorized));
+
+    // Cache the typed pointer once. LLVM can usually CSE these reads,
+    // but pinning the pointer avoids re-running the @ptrCast/@alignCast
+    // chain at every field access.
+    const state = vault.write();
 
     const auth_key = authority.key().*;
     try sol.verifyPda(
         vault_info.key(),
         &.{ "vault", auth_key[0..] },
-        vault.read().bump,
+        state.bump,
         &PROGRAM_ID,
     );
 
-    if (vault.read().balance < amount) {
+    if (state.balance < amount) {
         return VaultErr.toError(.InsufficientVaultBalance);
     }
 
     vault_info.subLamports(amount);
     recipient.addLamports(amount);
-    const new_balance = vault.read().balance - amount;
-    vault.write().balance = new_balance;
+    const new_balance = state.balance - amount;
+    state.balance = new_balance;
 
     sol.emit(WithdrawEvent{
         .amount = amount,

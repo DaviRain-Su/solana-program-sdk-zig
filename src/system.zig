@@ -357,6 +357,58 @@ pub fn createRentExempt(args: CreateRentExemptArgs) ProgramResult {
     );
 }
 
+/// Comptime rent-exempt account creation with pre-built PDA signers.
+///
+/// `space` is a `comptime` parameter so the rent-exempt minimum
+/// balance is computed at build time and baked into the binary as a
+/// single u64 immediate — no `sol_get_rent_sysvar` syscall (~85 CU)
+/// runs at execution time.
+///
+/// This assumes the cluster's rent parameters never change from the
+/// canonical values (lamports_per_byte_year = 3480,
+/// exemption_threshold = 2.0). They've been stable since genesis and
+/// changing them would require a feature gate, so for >99.99% of
+/// programs this is a free win. If you genuinely need to read live
+/// rent params (e.g. you're writing tooling that has to handle
+/// future cluster changes), use `createRentExemptRaw` instead.
+///
+/// ```zig
+/// const seeds = [_]sol.cpi.Seed{ .from("vault"), .from(auth_key[0..]), .from(&bump_seed) };
+/// const signer = sol.cpi.Signer.from(&seeds);
+/// try sol.system.createRentExemptComptimeRaw(
+///     .{ .payer = ..., .new_account = ..., .system_program = ..., .owner = &PROGRAM_ID },
+///     @sizeOf(VaultState),
+///     &.{signer},
+/// );
+/// ```
+pub fn createRentExemptComptimeRaw(
+    args: struct {
+        payer: CpiAccountInfo,
+        new_account: CpiAccountInfo,
+        system_program: CpiAccountInfo,
+        owner: *const Pubkey,
+    },
+    comptime space: u64,
+    signers: []const cpi.Signer,
+) ProgramResult {
+    const rent_mod = @import("rent.zig");
+    // Comptime-folded: (128 + space) * 3480 * 2.
+    const lamports: u64 = comptime blk: {
+        const total: u64 = rent_mod.Rent.account_storage_overhead + space;
+        break :blk total * rent_mod.Rent.default_lamports_per_byte_year * 2;
+    };
+
+    return createAccountSignedRaw(
+        args.payer,
+        args.new_account,
+        args.system_program,
+        lamports,
+        space,
+        args.owner,
+        signers,
+    );
+}
+
 /// Fast-path rent-exempt account creation with pre-built PDA signers.
 ///
 /// Saves ~80-120 CU vs. `createRentExempt` on the common PDA case

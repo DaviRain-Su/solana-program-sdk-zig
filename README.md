@@ -5,6 +5,14 @@ Write Solana on-chain programs in Zig.
 This SDK requires the [solana-zig fork][fork] of Zig 0.16 for building
 on-chain programs. Stock Zig 0.16 is sufficient for host-side unit tests.
 
+**Performance:** the in-repo `examples/vault.zig` (a representative
+Anchor-style program — PDA creation, typed state, `has_one`, stored-bump
+verify, structured events) runs at **1353 / 1544 / 1877 CU** for
+`initialize` / `deposit` / `withdraw` — at or below the
+[Pinocchio](https://github.com/anza-xyz/pinocchio) reference for all three
+instructions. See [`examples/vault.zig`](examples/vault.zig) and the
+[Performance](#performance) section for the methodology.
+
 [fork]: https://github.com/joncinque/solana-zig-bootstrap/releases/tag/solana-v1.53.0
 
 ## Quick start
@@ -229,12 +237,14 @@ client-supplied bump, same 56-byte account layout, same 24-byte
 `sol_log_data` event payload — so the comparison isolates pure SDK
 overhead.
 
-Reading: all three instructions are essentially tied with Pinocchio
-now. `initialize` is 29 CU (+2.1%) behind — within noise; `deposit`
-is 4 CU (+0.3%); `withdraw` is **70 CU faster** because direct
-lamport mutation lets it skip the runtime CPI overhead.
+Reading: all three instructions are at or below Pinocchio.
+`initialize` is 2 CU behind (within instruction-count noise);
+`deposit` is **21 CU faster** and `withdraw` is **72 CU faster**.
+The CPI staging path (`CpiAccountInfo.fromPtr`) and stored-bump PDA
+verify are the two named optimizations that pull both data-plane
+instructions past the Pinocchio reference.
 
-#### Why `withdraw` (1879 CU) is lower than the body alone suggests
+#### Why `withdraw` (1877 CU) is lower than the body alone suggests
 
 Although `withdraw`'s body is "longer" (it does a `requireHasOne`,
 runs `verifyPda` for the stored-bump PDA proof, and emits the same
@@ -244,7 +254,7 @@ biggest line item — but the lamport movement itself is two pointer
 writes (`subLamports`/`addLamports`, ~3 CU each), not a CPI to the
 system program.
 
-#### Why `deposit` (1569 CU) cannot go much lower
+#### Why `deposit` (1544 CU) cannot go much lower
 
 `deposit` moves SOL **from** the user's wallet (a system-owned
 account) **to** the vault. Solana's runtime has an asymmetric rule:
@@ -270,7 +280,7 @@ the protocol — e.g. require the user to send a separate
 "acknowledge" the deposit by updating `state.balance`. That eliminates
 the CPI but breaks atomicity (the transfer and the balance update are
 no longer coupled) and complicates the client UX. We don't do that
-here; the 1569-CU cost is a property of doing deposit atomically, not
+here; the 1544-CU cost is a property of doing deposit atomically, not
 of the SDK.
 
 The 470-CU reduction on `vault.initialize` (1823 → 1353, **−26%**)

@@ -750,6 +750,7 @@ Week 4: Phase 7
 
 *最后更新: 2026-05-12*
 *目标版本: v0.18.0*
+*状态: 性能优化收尾。三条 vault 指令全部 ≤ Pinocchio。*
 
 ---
 
@@ -780,23 +781,54 @@ Week 4: Phase 7
 `comptimeFromBase58` (PROGRAM_ID), `verifyPda`, `requireHasOneWith`,
 `sol.emit`。`BPF_OUT_DIR=zig-out/lib cargo run -- vault_*` 实测：
 
-| 指令 | Zig (this SDK) | Anchor (典型) | 备注 |
-|---|---:|---:|---|
-| `vault.initialize` | 1823 CU | 8000–10000 CU | client-supplied bump + system_program CPI 创建 + 写 discriminator |
-| `vault.deposit`    | 1583 CU | 5000–8000 CU  | system_program transfer CPI + balance bump + 16-byte emit |
-| `vault.withdraw`   | 1887 CU | 4000–6000 CU  | has_one + verifyPda(储存 bump) + 直接 lamport 转移 + 16-byte emit |
+| 指令 | Zig (this SDK) | Pinocchio | Anchor (典型) | 备注 |
+|---|---:|---:|---:|---|
+| `vault.initialize` | **1353 CU** | 1351 CU | 8000–10000 CU | client-supplied bump + system_program CPI 创建 + 写 discriminator |
+| `vault.deposit`    | **1544 CU** | 1565 CU | 5000–8000 CU  | system_program transfer CPI + balance bump + 24-byte emit |
+| `vault.withdraw`   | **1877 CU** | 1949 CU | 4000–6000 CU  | has_one + verifyPda(储存 bump) + 直接 lamport 转移 + 24-byte emit |
 
-`vault.initialize` 的关键优化：把 `findProgramAddress` 从程序内部
-移到 client 端。Client 在交易构造阶段调用 `Pubkey::find_program_address`
-（host 侧，免费）得到 canonical bump，把 bump 塞进 ix data 第二字节，
-program 侧只用 `createProgramAddress`（一次 SHA-256，~1500 CU）。
-节省了 `findProgramAddress` 的 256 次循环（~3000-5000 CU）。
+整轮性能 journey（`f0ece32` → `0c7586b` → `79d3161`）累计：
 
-安全保证来自 system_program create CPI 的 signer-seed 证明：runtime
-会用我们传入的 seeds（含 bump）重新算 PDA，跟账户的 claimed key
-比对，client 谎报 bump 直接 abort。不需要额外 `verifyPda`。
+| 指令 | 最初  | 最终  | Δ          | vs Pinocchio  |
+|------|------:|------:|-----------:|--------------:|
+| initialize | 4850 (pre-bump) → 1823 → 1353 | −3497 (−72%) | +2 (打平) |
+| deposit    | 1583 → 1544 | −39 (−2.5%) | **−21 (反超)** |
+| withdraw   | 1887 → 1877 | −10 (−0.5%) | **−72 (反超)** |
 
-实测节省：4850 → 1823 CU（−3027 CU，**−62%**）。
+关键优化（按贡献大小）：
+
+1. **`vault.initialize` 客户端 bump**（−3027 CU）— 把 `findProgramAddress`
+   的 256 次循环从链上移到客户端。Client 在交易构造阶段调用
+   `Pubkey::find_program_address`（host 侧，免费）得到 canonical bump，
+   塞进 ix data 第二字节，program 侧只用 `createProgramAddress`
+   （一次 SHA-256，~1500 CU）。安全保证来自 system_program create CPI
+   的 signer-seed 证明：client 谎报 bump 直接 abort。
+
+2. **`Rent.getMinimumBalance` 整数快路径**（−283 CU）— BPF 软件模拟
+   f64 乘法 ~150-300 CU/op。改用整数路径（位比较 `exemption_threshold`
+   是否为 IEEE-754 的 2.0 模式）。`src/rent.zig`
+
+3. **`createRentExemptComptimeRaw` comptime rent 折叠**（−161 CU）—
+   `space` 是 comptime 时，rent 直接 build-time 折叠成 u64 立即数。
+   绕过 `sol_get_rent_sysvar` syscall。`src/system.zig`
+
+4. **`CpiAccountInfo.fromPtr` u32 flag 合并 copy**（−27 CU/CPI）—
+   把 `is_signer/is_writable/is_executable` 三个 byte copy 合并成
+   一次 u32 load+store（多 copy 一个 padding 字节无害）。Pinocchio 的
+   `init_from_account_view` 早就这么做了。`src/account.zig`
+
+5. **`parseAccountsUnchecked`**（−70 CU/parse）— 跳过 dup-aware tagged
+   union 分支，账户结构固定的程序适用。`src/entrypoint.zig`
+
+6. **`TypedAccount.bindUnchecked`**（−14 CU on deposit, −8 on withdraw）
+   — `assertOwnerComptime` 已经证明账户归属，discriminator 检查冗余。
+
+7. **Event payload 收缩**（−100 CU/emit）— 删掉事件中冗余的 pubkey
+   字段（off-chain indexer 可从 tx 账户列表恢复）。`fdb65f2`
+
+8. **`sol.cpi.Seed` / `cpi.Signer` 直传 ABI**（0 CU 实测，但 API 清晰）
+   — extern struct 严格匹配 `SolSignerSeedC` / `SolSignerSeedsC` 布局，
+   跳过 staging copy。LLVM 在 seed 数量 comptime 已知时早就 SROA 掉了。
 
 `examples/token_dispatch.zig`（u32 tag + u64 payload, 2 个账户 slot，
 parse-then-dispatch）：**37–38 CU** for transfer / burn / mint

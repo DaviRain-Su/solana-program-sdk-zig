@@ -149,6 +149,28 @@ pub const AccountInfo = struct {
         if (!self.executable()) return error.InvalidAccountData;
     }
 
+    /// Combined `expectSigner + expectWritable` — checks both flags
+    /// with a single u16 load instead of two byte loads. The happy
+    /// path is one compare against `0x0101` (both bytes = 1). Saves
+    /// 2-3 CU vs. calling the two helpers in sequence.
+    ///
+    /// On failure: prefers `MissingRequiredSignature` over
+    /// `ImmutableAccount`, matching the order of the equivalent
+    /// hand-written `try expectSigner(); try expectWritable();`.
+    pub inline fn expectSignerWritable(self: AccountInfo) ProgramError!void {
+        // is_signer at offset 1, is_writable at offset 2. Both bytes
+        // are 0 or 1 (never anything else). Combined u16 LE pattern
+        // for "signer && writable" is 0x0101.
+        const flags_ptr: *align(1) const u16 = @ptrCast(&self.raw.is_signer);
+        if (flags_ptr.* != 0x0101) {
+            // Fall back to individual checks to produce the right
+            // error variant. Cold path — only runs when one of the
+            // two flags is actually missing.
+            if (!self.isSigner()) return error.MissingRequiredSignature;
+            return error.ImmutableAccount;
+        }
+    }
+
     /// Read a typed value from account data at the given byte offset.
     /// Zero overhead — compiles to a single pointer dereference.
     ///

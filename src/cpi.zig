@@ -174,6 +174,24 @@ pub fn invoke(
         return error.NotEnoughAccountKeys;
     }
 
+    return invokeRaw(instruction, accounts);
+}
+
+/// Invoke another program with no bounds check.
+///
+/// Identical to `invoke` but skips the
+/// `instruction.accounts.len > accounts.len` runtime check. Callers
+/// must ensure they're passing the right slice (every `system.*`
+/// helper does this by construction since it builds both arrays
+/// inline). Saves ~2-4 CU per CPI.
+pub fn invokeRaw(
+    instruction: *const Instruction,
+    accounts: []const CpiAccountInfo,
+) ProgramResult {
+    if (!bpf.is_bpf_program) {
+        return error.InvalidArgument;
+    }
+
     const sol_instruction = SolInstruction{
         .program_id = instruction.program_id,
         .accounts = instruction.accounts.ptr,

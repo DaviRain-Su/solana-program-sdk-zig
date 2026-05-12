@@ -88,19 +88,21 @@ pub fn comptimeInstructionData(
 
         /// Create instruction data with a compile-time fixed discriminant.
         /// Only data fields are passed at runtime.
+        ///
+        /// Builds an extern struct on the stack with the comptime
+        /// discriminant baked into the field initializer, then
+        /// bitcasts to the byte array. This lets LLVM emit a single
+        /// sized-immediate store for the discriminant instead of a
+        /// `@memcpy` of 1-8 bytes — matches what Pinocchio's
+        /// `CreateAccount.invoke_signed` does with raw
+        /// `copy_nonoverlapping` calls.
         pub inline fn initWithDiscriminant(comptime discriminant: Discriminant, data: Data) [total_bytes]u8 {
-            var result: [total_bytes]u8 = undefined;
-
-            // Write compile-time discriminant
-            const d_bytes = std.mem.asBytes(&discriminant);
-            @memcpy(result[0..d_bytes.len], d_bytes);
-
-            // Write runtime data
-            const data_start = d_bytes.len;
-            const data_bytes = std.mem.asBytes(&data);
-            @memcpy(result[data_start..][0..data_bytes.len], data_bytes);
-
-            return result;
+            const Packed = extern struct {
+                disc: Discriminant align(1),
+                payload: Data align(1),
+            };
+            const packed_val = Packed{ .disc = discriminant, .payload = data };
+            return @bitCast(packed_val);
         }
     };
 }

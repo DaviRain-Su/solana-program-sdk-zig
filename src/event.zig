@@ -89,15 +89,16 @@ pub fn emit(value: anytype) void {
     // runtime charges a per-slice base fee that exceeds the memcpy
     // cost for typical small events.
     //
-    // Buffer is sized at comptime to the exact payload — no need to
-    // reserve a full MAX_EVENT_SIZE worth of stack at every emit site
-    // when the actual event might be only a few bytes.
-    const payload_size = comptime DISCRIMINATOR_LEN + @sizeOf(T);
-    var buf: [payload_size]u8 = undefined;
-    @memcpy(buf[0..DISCRIMINATOR_LEN], &disc);
-    const value_bytes = std.mem.asBytes(&value);
-    @memcpy(buf[DISCRIMINATOR_LEN..payload_size], value_bytes);
-
+    // Build `disc || value` as a single extern-struct bitcast. LLVM
+    // sees the comptime-known discriminator as an immediate and
+    // emits a 64-bit store + a single memcpy for the payload, no
+    // separate `@memcpy` for the 8 disc bytes.
+    const Packed = extern struct {
+        disc: [DISCRIMINATOR_LEN]u8 align(1),
+        payload: T align(1),
+    };
+    const packed_val = Packed{ .disc = disc, .payload = value };
+    const buf: [@sizeOf(Packed)]u8 = @bitCast(packed_val);
     const payload: []const u8 = &buf;
 
     if (bpf.is_bpf_program) {

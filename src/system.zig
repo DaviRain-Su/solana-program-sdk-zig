@@ -107,7 +107,10 @@ pub fn createAccount(
         .data = &ix_data,
     };
 
-    try cpi.invoke(&ix, &[_]CpiAccountInfo{ from, to, system_program });
+    // We construct both `account_metas` and the accounts slice inline,
+    // so the bounds check in `cpi.invoke` is provably-true at compile
+    // time — skip it.
+    try cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ from, to, system_program });
 }
 
 /// Create a new account with PDA signing.
@@ -230,7 +233,10 @@ pub fn transfer(
         .data = &ix_data,
     };
 
-    try cpi.invoke(&ix, &[_]CpiAccountInfo{ from, to, system_program });
+    // We construct both `account_metas` and the accounts slice inline,
+    // so the bounds check in `cpi.invoke` is provably-true at compile
+    // time — skip it.
+    try cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ from, to, system_program });
 }
 
 /// Assign a new owner to an account.
@@ -254,7 +260,7 @@ pub fn assign(
         .data = &ix_data,
     };
 
-    try cpi.invoke(&ix, &[_]CpiAccountInfo{ account, system_program });
+    try cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ account, system_program });
 }
 
 /// Allocate space in an account.
@@ -278,7 +284,7 @@ pub fn allocate(
         .data = &ix_data,
     };
 
-    try cpi.invoke(&ix, &[_]CpiAccountInfo{ account, system_program });
+    try cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ account, system_program });
 }
 
 // Note: there is no System Program `Realloc` instruction. Accounts that
@@ -485,7 +491,10 @@ pub fn createAccountWithSeed(
         .data = ix_data[0 .. 44 + seed.len + 16 + 32],
     };
 
-    try cpi.invoke(&ix, &[_]CpiAccountInfo{ from, to, system_program });
+    // We construct both `account_metas` and the accounts slice inline,
+    // so the bounds check in `cpi.invoke` is provably-true at compile
+    // time — skip it.
+    try cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ from, to, system_program });
 }
 
 // =============================================================================

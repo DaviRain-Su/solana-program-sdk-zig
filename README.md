@@ -653,11 +653,77 @@ try vault.close(a.receiver);
 `originalDataLen()` exposes the runtime-captured pre-instruction
 length, which is the basis of the resize-budget check.
 
-### SHA-256 / Keccak-256 / Blake3 + the `Hash` newtype
+### `sol.crypto` — all crypto syscalls in one place
 
-`src/hash.zig` wraps the three hash syscalls behind a uniform API.
-The same functions work on host (via `std.crypto.hash`) and on-chain
-(via `sol_sha256` / `sol_keccak256` / `sol_blake3`):
+Everything hash / curve / signature lives under `sol.crypto`:
+
+| Sub-module | Syscalls |
+|------------|----------|
+| `sol.crypto.hash` | `sol_sha256`, `sol_keccak256`, `sol_blake3` |
+| `sol.crypto.secp256k1_recover` | `sol_secp256k1_recover` |
+| `sol.crypto.alt_bn128` | `sol_alt_bn128_group_op` (G1 add/sub/mul, pairing) |
+| `sol.crypto.poseidon` | `sol_poseidon` |
+
+Each is also re-exported flat (`sol.sha256`, `sol.alt_bn128.…`) so
+existing call sites keep working — use whichever spelling reads better.
+
+```zig
+// SHA-256 / Keccak-256 / Blake3 — one-shot hash, host & on-chain.
+const h = sol.crypto.sha256(&.{"namespace:", payload});
+const k = sol.crypto.keccak256(&.{message_bytes});
+
+// secp256k1 ECDSA public-key recovery (Ethereum `ecrecover` parity).
+const pubkey64 = try sol.crypto.secp256k1_recover.recover(
+    hash_bytes,            // 32-byte keccak256 of the signed message
+    recovery_id,           // 0..3
+    signature_bytes_64,    // compact (r || s)
+);
+// To derive an Ethereum address: keccak256(pubkey64.bytes)[12..32]
+
+// alt_bn128 (BN254) — the same primitive Ethereum exposes via EIP-196/197.
+// Used inside Groth16 / PLONK verifiers.
+var sum: [sol.crypto.alt_bn128.G1_POINT_SIZE]u8 = undefined;
+try sol.crypto.alt_bn128.g1AdditionLE(&combined_input_128, &sum);
+
+var pairing_out: [sol.crypto.alt_bn128.PAIRING_OUTPUT_SIZE]u8 = undefined;
+try sol.crypto.alt_bn128.pairingBE(verifier_input, &pairing_out);
+// pairing_out == [0,…,0,1] (BE) when the multi-pairing equation holds.
+
+// Poseidon — ZK-friendly hash (BN254 X5).
+var ph: [sol.crypto.poseidon.HASH_LEN]u8 = undefined;
+try sol.crypto.poseidon.hashv(.bn254_x5, .big_endian, &.{leaf_a, leaf_b}, &ph);
+```
+
+All wrappers map the syscall's numeric return codes to typed error
+variants (e.g. `error.InvalidSignature`, `error.InvalidInputData`,
+`error.InvalidNumberOfInputs`) so callers get Zig-native error
+handling instead of `u64` magic constants.
+
+### StakeHistory sysvar
+
+Reading historical stake activation requires passing the
+`SysvarStakeHistory…` account into the instruction (no direct
+syscall exists for it). The accessor parses zero-copy:
+
+```zig
+const sh = try sol.stake_history.StakeHistory.fromAccount(a.stake_history);
+if (sh.get(target_epoch)) |entry| {
+    // entry.effective / entry.activating / entry.deactivating
+}
+// Most recent entry:
+const head = sh.latest().?;
+```
+
+`Entry` is a `extern struct { epoch, effective, activating,
+deactivating: u64 }` matching the runtime's serialized 32-byte
+layout. Binary-searches by epoch in `O(log n)`.
+
+### Hash newtype + on-host fallback
+
+`src/hash.zig` (re-exported via `sol.crypto.hash` and flat as
+`sol.sha256` etc.) gives the three hash syscalls a uniform API that
+works on both host (via `std.crypto.hash`) and on-chain (via the
+syscalls):
 
 ```zig
 const h = sol.sha256(&.{"namespace:", payload});  // Hash newtype

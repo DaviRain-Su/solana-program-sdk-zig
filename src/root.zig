@@ -31,9 +31,19 @@ pub const stack = @import("stack.zig");
 pub const math = @import("math.zig");
 pub const clock = @import("clock.zig");
 pub const rent = @import("rent.zig");
-pub const hash = @import("hash.zig");
 pub const slot_hashes = @import("slot_hashes.zig");
+pub const stake_history = @import("stake_history.zig");
 pub const bpf = @import("bpf.zig");
+
+// Cryptographic primitives — aggregated namespace covering all
+// hash / curve / signature syscalls. Sub-modules are also re-exported
+// flat below for backwards compatibility (so existing `sol.sha256(...)`
+// / `sol.alt_bn128.pairingBE(...)` call sites keep working).
+pub const crypto = @import("crypto.zig");
+pub const hash = @import("hash.zig");
+pub const secp256k1_recover = @import("secp256k1_recover.zig");
+pub const alt_bn128 = @import("alt_bn128.zig");
+pub const poseidon = @import("poseidon.zig");
 
 // Panic handler namespace
 /// Usage in your program: `pub const panic = solana_program_sdk.panic.Panic;`

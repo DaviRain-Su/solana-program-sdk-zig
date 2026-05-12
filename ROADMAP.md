@@ -1,4 +1,79 @@
-# solana-program-sdk-zig v2 Roadmap
+# solana-sdk-mono Roadmap
+
+## 仓库定位
+
+`solana-sdk-mono` 是 Solana 生态的 Zig monorepo —— 同时托管核心 on-chain
+SDK 和围绕它的多个独立 Zig package，避免分散到多个 repo 同时维护。
+
+### Monorepo 分层
+
+按"代码跑在哪"分类，命名规则写死，避免歧义：
+
+#### On-chain 专属（含 `program` 字样）
+- **`solana_program_sdk`**（当前 repo 根） — 写链上程序的核心
+  SDK：entrypoint、AccountInfo、syscalls、CPI 框架。仅 `sbf` /
+  `bpfel` 目标。
+
+#### 双用：链上 CPI + 链下 ix builder（`spl_*` 前缀）
+- **`spl_token`** — SPL Token 客户端：transfer / mintTo / burn /
+  approve / closeAccount 等
+- **`spl_token_2022`** — Token-2022 扩展（计划中）
+- **`spl_ata`** — Associated Token Account address derivation +
+  create CPI
+- **`spl_memo`** — Memo program CPI
+- 其它 SPL 程序按需添加（governance / stake-pool / name-service
+  …），统一遵循"`instruction.zig` 双用、`cpi.zig` 链上语法糖"模式。
+
+#### Off-chain 专属（计划中，无 `program` 字样）
+- **`solana_client`** — RPC HTTP/WebSocket 客户端
+- **`solana_keypair`** — Ed25519 密钥生成 + 文件 I/O
+- **`solana_tx`** — 链下交易构造 + 签名
+
+### 命名规则（外部用户视角）
+
+1. 包名含 `program` → **严格 on-chain**，只能在 `sbf` / `bpfel` 目标下用
+2. 包名以 `spl_` 开头 → **双用**，host 和 BPF 都能编
+3. 其它 `solana_*` → **严格 off-chain**，host-only
+
+这套规则直接对应 Rust 生态的 `solana-program` / `solana-sdk` / `spl-*`
+分层，没有"SDK 到底是不是链上"的歧义。
+
+### 子包目录约定
+
+```
+packages/<name>/
+├── README.md
+├── build.zig
+├── build.zig.zon                ← 通过 path = "../.." 依赖 root SDK
+├── src/
+│   ├── root.zig                 ← re-exports
+│   ├── id.zig                   ← Program ID + 常量
+│   ├── state.zig                ← extern struct 字节布局（双用）
+│   ├── instruction.zig          ← ix builder（双用，纯字节构造）
+│   └── cpi.zig                  ← 链上 invoke 包装（语法糖）
+├── examples/                    ← 该包的演示程序
+└── program-test/                ← Rust 集成测试（拉真程序的 .so）
+```
+
+### 子包外部引用方式
+
+```zig
+.dependencies = .{
+    .solana_program_sdk = .{
+        .url = "git+https://github.com/DaviRain-Su/solana-sdk-mono#<commit>",
+        .hash = "...",
+    },
+    .spl_token = .{
+        .url = "git+https://github.com/DaviRain-Su/solana-sdk-mono?path=packages/spl-token#<commit>",
+        .hash = "...",
+    },
+}
+```
+
+Zig 包系统的 `?path=` 查询参数让 monorepo 子包能被精准引用，外部用户
+体验等同独立 repo。
+
+---
 
 ## 目标
 

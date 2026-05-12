@@ -1,9 +1,50 @@
-# solana-program-sdk-zig
+# solana-sdk-mono
+
+A Zig monorepo for the Solana ecosystem — core on-chain SDK plus
+companion packages for SPL programs, kept in lockstep.
+
+> Top-level repo: [`solana-sdk-mono`](https://github.com/DaviRain-Su/solana-sdk-mono).
+> The package surfaced by *this* directory is the on-chain core,
+> `solana_program_sdk`. Companion packages live under
+> [`packages/`](./packages) — see the [Packages](#packages) table
+> below.
 
 Write Solana on-chain programs in Zig.
 
 This SDK requires the [solana-zig fork][fork] of Zig 0.16 for building
 on-chain programs. Stock Zig 0.16 is sufficient for host-side unit tests.
+
+## Packages
+
+This repo is a monorepo. Each subpackage has its own `build.zig.zon`
+and can be depended on individually from outside the repo via
+`?path=packages/<name>` in the Git URL.
+
+| Package | Path | Target | Status | Purpose |
+|---|---|---|---|---|
+| **`solana_program_sdk`** | (repo root) | on-chain | ✅ released | Core SDK for writing Solana on-chain programs in Zig |
+| **`spl_token`** | `packages/spl-token` | dual (on-chain CPI + off-chain ix builder) | 🚧 planned | SPL Token client (transfer / mintTo / burn / …) |
+| **`spl_ata`** | `packages/spl-ata` | dual | 🚧 planned | Associated Token Account address derivation + create CPI |
+| **`spl_memo`** | `packages/spl-memo` | dual | 🚧 planned | SPL Memo program CPI |
+| *(future)* `solana_client` | `packages/solana-client` | off-chain | 🔮 idea | RPC client for off-chain code |
+| *(future)* `solana_tx` | `packages/solana-tx` | off-chain | 🔮 idea | Off-chain transaction construction + signing |
+
+### Naming convention
+
+1. Packages containing `program` (e.g. `solana_program_sdk`) are
+   **strictly on-chain** — they use `sol_*` syscalls and only build
+   under the `sbf` / `bpfel` targets.
+2. Packages starting with `spl_` are **dual-target**: the
+   `instruction.zig` submodule builds raw instruction bytes (usable
+   both on-chain via the SDK's CPI helpers, and off-chain as part of
+   a host-built transaction), while `cpi.zig` adds an on-chain
+   convenience wrapper.
+3. Other `solana_*` packages (planned) are **strictly off-chain** —
+   RPC clients, key management, host-side transaction tooling.
+
+This mirrors the Rust ecosystem's distinction between
+`solana-program` (on-chain), `solana-sdk` (off-chain), and the
+dual-purpose `spl-*` crates.
 
 **Performance:** the in-repo `examples/vault.zig` (a representative
 Anchor-style program — PDA creation, typed state, `has_one`, stored-bump

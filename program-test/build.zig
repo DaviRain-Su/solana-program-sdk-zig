@@ -61,4 +61,19 @@ pub fn build(b: *std.Build) !void {
             .{ .name = "spl_token", .module = spl_token_mod },
         },
     });
+
+    const spl_ata_dep = b.dependency("spl_ata", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const spl_ata_mod = spl_ata_dep.module("spl_ata");
+
+    _ = solana.buildProgram(b, .{
+        .name = "example_spl_ata_cpi",
+        .root_source_file = b.path("../packages/spl-ata/examples/cpi_demo.zig"),
+        .optimize = optimize,
+        .extra_imports = &.{
+            .{ .name = "spl_ata", .module = spl_ata_mod },
+        },
+    });
 }

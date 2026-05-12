@@ -13,6 +13,9 @@
         .spl_token = .{
             .path = "../packages/spl-token",
         },
+        .spl_ata = .{
+            .path = "../packages/spl-ata",
+        },
     },
 
     .paths = .{

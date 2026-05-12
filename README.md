@@ -145,6 +145,22 @@ opt-in and composable with the raw `[*]u8` entrypoint:
   `system.createAccount` (or `createAccountSigned` when you provide
   `signer_seeds`).
 
+- **`pda.verifyPda(key, seeds, bump, program_id)`** — Anchor's
+  `seeds = [...], bump = state.bump` equivalent. Asserts that a
+  passed-in account key matches the canonical PDA for the given seeds.
+  One SHA-256 (~1500 CU) using the stored bump. Also
+  `verifyPdaCanonical` if you need to walk bumps.
+
+- **`vault.requireHasOne("authority", a.authority)`** — Anchor's
+  `#[account(has_one = authority)]` equivalent. Asserts that a
+  `Pubkey` field in the typed state equals another account's key.
+  Field name is comptime so the offset is folded.
+
+- **`sol.emit(MyEvent{...})`** — structured event logging via
+  `sol_log_data`. `MyEvent` must be an `extern struct`; on-wire format
+  is `discriminator(8B) || raw(value)`, compatible with off-chain
+  indexers that decode `sol_log_data` slices.
+
 Putting them together (see `examples/vault.zig` for the full file):
 
 ```zig

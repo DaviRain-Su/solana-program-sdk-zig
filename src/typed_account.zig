@@ -128,6 +128,57 @@ pub fn TypedAccount(comptime T: type) type {
             }
             return .{ .info = info };
         }
+
+        /// `has_one` constraint — Anchor's
+        /// `#[account(has_one = authority)]` equivalent.
+        ///
+        /// Asserts that the `field_name` member of the typed state
+        /// equals `expected.key().*`. Returns `error.IncorrectAuthority`
+        /// on mismatch (or `error.IncorrectProgramId` if you want a
+        /// different variant — see `requireHasOneWith`).
+        ///
+        /// The field type must be `Pubkey`. Field name is comptime,
+        /// so the offset is folded into a single load + 32-byte compare
+        /// in BPF code.
+        ///
+        /// ```zig
+        /// const vault = try sol.TypedAccount(VaultState).bind(a.vault);
+        /// try vault.requireHasOne("authority", a.authority_signer);
+        /// ```
+        pub inline fn requireHasOne(
+            self: Self,
+            comptime field_name: []const u8,
+            expected: AccountInfo,
+        ) ProgramError!void {
+            return self.requireHasOneWith(field_name, expected, error.IncorrectAuthority);
+        }
+
+        /// Like `requireHasOne` but lets you pick the error variant.
+        /// Useful when "authority mismatch" is not the right semantic
+        /// for your domain (e.g. `error.InvalidArgument` for a
+        /// `delegate` field).
+        pub inline fn requireHasOneWith(
+            self: Self,
+            comptime field_name: []const u8,
+            expected: AccountInfo,
+            comptime err: program_error.ProgramError,
+        ) ProgramError!void {
+            comptime {
+                if (!@hasField(T, field_name)) {
+                    @compileError("requireHasOne: type " ++ @typeName(T) ++
+                        " has no field named `" ++ field_name ++ "`");
+                }
+                const FieldT = @TypeOf(@field(@as(T, undefined), field_name));
+                if (FieldT != @import("pubkey.zig").Pubkey) {
+                    @compileError("requireHasOne: field `" ++ field_name ++
+                        "` of " ++ @typeName(T) ++
+                        " must be a Pubkey, got " ++ @typeName(FieldT));
+                }
+            }
+            const stored = &@field(self.read().*, field_name);
+            const pk = @import("pubkey.zig");
+            if (!pk.pubkeyEq(stored, expected.key())) return err;
+        }
     };
 }
 
@@ -264,4 +315,45 @@ test "TypedAccount: bind enforces minimum size" {
 test "TypedAccount: has_discriminator metadata" {
     try std.testing.expect(!TypedAccount(Simple).has_discriminator);
     try std.testing.expect(TypedAccount(Stateful).has_discriminator);
+}
+
+test "TypedAccount: requireHasOne accepts matching key" {
+    var vault_buf: [256]u8 align(8) = undefined;
+    var auth_buf: [256]u8 align(8) = undefined;
+
+    const auth_key: Pubkey = .{0xA1} ** 32;
+    const auth_info = makeAccount(&auth_buf, 0xA1);
+
+    const vault_info = makeAccount(&vault_buf, 1);
+
+    const TA = TypedAccount(Stateful);
+    _ = try TA.initialize(vault_info, .{
+        .discriminator = undefined,
+        .counter = 0,
+        .owner = auth_key,
+    });
+
+    const vault = try TA.bind(vault_info);
+    try vault.requireHasOne("owner", auth_info);
+}
+
+test "TypedAccount: requireHasOne rejects mismatching key" {
+    var vault_buf: [256]u8 align(8) = undefined;
+    var auth_buf: [256]u8 align(8) = undefined;
+
+    const auth_info = makeAccount(&auth_buf, 0xA1); // key = 0xA1...
+    const vault_info = makeAccount(&vault_buf, 1);
+
+    const TA = TypedAccount(Stateful);
+    _ = try TA.initialize(vault_info, .{
+        .discriminator = undefined,
+        .counter = 0,
+        .owner = .{0xB2} ** 32, // different from auth.key()
+    });
+
+    const vault = try TA.bind(vault_info);
+    try std.testing.expectError(
+        error.IncorrectAuthority,
+        vault.requireHasOne("owner", auth_info),
+    );
 }

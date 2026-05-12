@@ -764,8 +764,11 @@ Week 4: Phase 7
 | `ErrorCode(E)` | `src/error_code.zig` | 自定义 `enum(u32)` 错误码 → 运行时 `Custom(N)` wire format | ✅ |
 | `system.createRentExempt` | `src/system.zig` | 一行创建账户：自动查 Rent sysvar + 可选 PDA 签名 | ✅ |
 | Native program 常量 | `src/root.zig` | spl_token / token-2022 / ATA / BPF loader / memo IDs | ✅ |
+| `verifyPda` / `verifyPdaCanonical` | `src/pda.zig` | Anchor `seeds = [...], bump` 等价；用储存 bump 时 ~1500 CU | ✅ |
+| `TypedAccount.requireHasOne` | `src/typed_account.zig` | Anchor `has_one = field` 等价；comptime 字段偏移折叠 | ✅ |
+| `event.emit` | `src/event.zig` | 结构化事件 → `sol_log_data`；`extern struct` + comptime discriminator | ✅ |
 | `examples/vault.zig` | — | 把以上全部组合的 demo program | ✅ |
 
 未做（哲学不符）:
 - 借用安全 (`Ref<T>` / `RefMut<T>`) — Pinocchio 有，我们不做，工具箱哲学
-- 约束 DSL (`has_one`, `seeds = [...]`) — 等到上一层 Anchor-like 框架去做
+- 约束 DSL (整体 `#[account(...)]` 宏) — 留给未来 Anchor-for-Zig 框架

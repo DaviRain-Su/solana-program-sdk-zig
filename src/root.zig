@@ -18,10 +18,11 @@ pub const system = @import("system.zig");
 pub const sysvar = @import("sysvar.zig");
 pub const pda = @import("pda.zig");
 
-// Anchor-style foundations (typed accounts, discriminators, error codes)
+// Anchor-style foundations (typed accounts, discriminators, error codes, events)
 pub const discriminator = @import("discriminator.zig");
 pub const typed_account = @import("typed_account.zig");
 pub const error_code = @import("error_code.zig");
+pub const event = @import("event.zig");
 
 // Existing modules
 pub const instruction = @import("instruction.zig");
@@ -55,6 +56,9 @@ pub const ErrorCode = error_code.ErrorCode;
 pub const discriminatorFor = discriminator.forAccount;
 pub const eventDiscriminatorFor = discriminator.forEvent;
 pub const DISCRIMINATOR_LEN = discriminator.DISCRIMINATOR_LEN;
+pub const emit = event.emit;
+pub const verifyPda = pda.verifyPda;
+pub const verifyPdaCanonical = pda.verifyPdaCanonical;
 
 // Constants
 pub const lamports_per_sol = 1_000_000_000;

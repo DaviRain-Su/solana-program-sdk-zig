@@ -298,6 +298,67 @@ pub fn comptimeFindProgramAddress(
 }
 
 // =============================================================================
+// PDA verification — Anchor `seeds = [...], bump` equivalent
+//
+// Pattern: an account was passed in claiming to be a PDA. Verify it
+// by deriving the expected address from the canonical seeds and
+// comparing. Two flavours:
+//
+//   verifyPda(account_key, seeds, bump, program_id)
+//     Caller already knows the bump (typically stored inside the
+//     account, e.g. `vault.bump`). One SHA-256 → ~1500 CU.
+//
+//   verifyPdaCanonical(account_key, seeds, program_id) -> bump
+//     Walks bumps 255..0 (`sol_try_find_program_address`) to verify
+//     the account is the canonical PDA, returning the bump. ~3000 CU.
+//     Use only when you can't trust a stored bump.
+// =============================================================================
+
+/// Verify that `expected_key` is the PDA derived from
+/// `seeds || [bump]` for `program_id`. Returns `error.InvalidSeeds` on
+/// mismatch. Costs one SHA-256 (~1500 CU) — the same as Anchor's
+/// `seeds = [...], bump = vault.bump` constraint.
+pub fn verifyPda(
+    expected_key: *const Pubkey,
+    seeds: []const []const u8,
+    bump: u8,
+    program_id: *const Pubkey,
+) ProgramError!void {
+    // Append bump as the final seed.
+    if (seeds.len + 1 > MAX_SEEDS) return ProgramError.MaxSeedLengthExceeded;
+    var seeds_with_bump: [MAX_SEEDS][]const u8 = undefined;
+    for (seeds, 0..) |s, i| seeds_with_bump[i] = s;
+    const bump_slice: []const u8 = (&[_]u8{bump})[0..];
+    seeds_with_bump[seeds.len] = bump_slice;
+
+    const derived = try createProgramAddress(
+        seeds_with_bump[0 .. seeds.len + 1],
+        program_id,
+    );
+    if (!pubkey.pubkeyEq(&derived, expected_key)) {
+        return ProgramError.InvalidSeeds;
+    }
+}
+
+/// Verify that `expected_key` is the **canonical** PDA (highest valid
+/// bump) for `seeds, program_id`. Returns the canonical bump on
+/// success. Costs a full `findProgramAddress` (~3000-5000 CU).
+///
+/// Most programs should store the bump in account data and use
+/// `verifyPda` instead — that saves a lot of CU.
+pub fn verifyPdaCanonical(
+    expected_key: *const Pubkey,
+    seeds: []const []const u8,
+    program_id: *const Pubkey,
+) ProgramError!u8 {
+    const found = try findProgramAddress(seeds, program_id);
+    if (!pubkey.pubkeyEq(&found.address, expected_key)) {
+        return ProgramError.InvalidSeeds;
+    }
+    return found.bump_seed;
+}
+
+// =============================================================================
 // Tests
 // =============================================================================
 
@@ -366,4 +427,41 @@ test "pda: comptime create matches runtime create" {
         &program_id,
     );
     try std.testing.expectEqualSlices(u8, &ct, &rt);
+}
+
+test "pda: verifyPda accepts canonical address" {
+    const program_id: Pubkey = .{0} ** 32;
+    const found = try findProgramAddress(&.{"vault"}, &program_id);
+
+    try verifyPda(&found.address, &.{"vault"}, found.bump_seed, &program_id);
+}
+
+test "pda: verifyPda rejects wrong key" {
+    const program_id: Pubkey = .{0} ** 32;
+    const wrong: Pubkey = .{0xAB} ** 32;
+
+    try std.testing.expectError(
+        ProgramError.InvalidSeeds,
+        verifyPda(&wrong, &.{"vault"}, 254, &program_id),
+    );
+}
+
+test "pda: verifyPda rejects wrong bump" {
+    const program_id: Pubkey = .{0} ** 32;
+    const found = try findProgramAddress(&.{"vault"}, &program_id);
+
+    // off-by-one bump produces a different address (or InvalidSeeds)
+    const wrong_bump: u8 = found.bump_seed -% 1;
+    try std.testing.expectError(
+        ProgramError.InvalidSeeds,
+        verifyPda(&found.address, &.{"vault"}, wrong_bump, &program_id),
+    );
+}
+
+test "pda: verifyPdaCanonical returns canonical bump" {
+    const program_id: Pubkey = .{0} ** 32;
+    const found = try findProgramAddress(&.{"vault"}, &program_id);
+
+    const bump = try verifyPdaCanonical(&found.address, &.{"vault"}, &program_id);
+    try std.testing.expectEqual(found.bump_seed, bump);
 }

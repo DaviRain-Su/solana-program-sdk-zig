@@ -6,7 +6,9 @@
 //!   - `discriminator.forAccount("Vault")` type-confusion defence
 //!   - `ErrorCode(VaultError)` custom error codes
 //!   - `system.createRentExempt` + PDA signing
-//!   - Comptime PDA derivation pinning a vault under a static seed
+//!   - `pda.verifyPda` to assert a passed-in PDA matches stored seeds + bump
+//!   - `vault.requireHasOne("authority", a.authority)` (`has_one` constraint)
+//!   - `sol.emit(DepositEvent{...})` structured event logging
 //!
 //! Three instructions, dispatched on a `u8` tag at byte 0 of the
 //! instruction data:
@@ -18,7 +20,9 @@
 //!
 //! The vault PDA is derived from `[b"vault", authority.key().as_ref()]`
 //! at runtime for create/dispatch purposes; `parseAccountsWith` enforces
-//! the program-id ownership check on the vault for ix 1 / 2.
+//! the program-id ownership check on the vault for ix 1 / 2, and
+//! `verifyPda` / `requireHasOne` enforce the relational constraints in
+//! the withdraw path.
 
 const sol = @import("solana_program_sdk");
 
@@ -42,6 +46,28 @@ const VaultState = extern struct {
     _pad: [7]u8 = .{0} ** 7,
 
     pub const DISCRIMINATOR = sol.discriminatorFor("Vault");
+};
+
+// =========================================================================
+// Events (emitted via sol_log_data)
+// =========================================================================
+
+const DepositEvent = extern struct {
+    vault: sol.Pubkey,
+    payer: sol.Pubkey,
+    amount: u64,
+    new_balance: u64,
+
+    pub const DISCRIMINATOR = sol.eventDiscriminatorFor("Deposit");
+};
+
+const WithdrawEvent = extern struct {
+    vault: sol.Pubkey,
+    recipient: sol.Pubkey,
+    amount: u64,
+    new_balance: u64,
+
+    pub const DISCRIMINATOR = sol.eventDiscriminatorFor("Withdraw");
 };
 
 // =========================================================================
@@ -147,6 +173,14 @@ fn processDeposit(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
     const new_balance, const overflow = @addWithOverflow(vault.read().balance, amount);
     if (overflow != 0) return VaultErr.toError(.AmountOverflow);
     vault.write().balance = new_balance;
+
+    // Emit a structured event so off-chain indexers can react.
+    sol.emit(DepositEvent{
+        .vault = a.vault.key().*,
+        .payer = a.payer.key().*,
+        .amount = amount,
+        .new_balance = new_balance,
+    });
 }
 
 // -------------------------------------------------------------------------
@@ -167,10 +201,21 @@ fn processWithdraw(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
 
     const vault = try sol.TypedAccount(VaultState).bind(a.vault);
 
-    // Authority check: vault.authority == authority.key()
-    if (!sol.pubkey.pubkeyEq(&vault.read().authority, a.authority.key())) {
-        return VaultErr.toError(.Unauthorized);
-    }
+    // has_one(authority) — vault.authority must equal the signer.
+    // Returns error.IncorrectAuthority on mismatch.
+    try vault.requireHasOneWith("authority", a.authority, VaultErr.toError(.Unauthorized));
+
+    // PDA verification: vault.key == createProgramAddress(
+    //   ["vault", authority.key, vault.bump], PROGRAM_ID)
+    // Saves the ~3000 CU of a full findProgramAddress by reusing the
+    // bump stored in account data.
+    const auth_key = a.authority.key().*;
+    try sol.verifyPda(
+        a.vault.key(),
+        &.{ "vault", auth_key[0..] },
+        vault.read().bump,
+        &PROGRAM_ID,
+    );
 
     if (vault.read().balance < amount) {
         return VaultErr.toError(.InsufficientVaultBalance);
@@ -179,7 +224,15 @@ fn processWithdraw(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
     // Direct lamport move (program owns vault → no CPI required)
     a.vault.subLamports(amount);
     a.recipient.addLamports(amount);
-    vault.write().balance -= amount;
+    const new_balance = vault.read().balance - amount;
+    vault.write().balance = new_balance;
+
+    sol.emit(WithdrawEvent{
+        .vault = a.vault.key().*,
+        .recipient = a.recipient.key().*,
+        .amount = amount,
+        .new_balance = new_balance,
+    });
 }
 
 // =========================================================================

@@ -219,8 +219,8 @@ zig-out/lib cargo run -- vault_*`):
 | Instruction | Zig (this SDK) | Anchor (typical) | Notes |
 |---|---:|---:|---|
 | `vault.initialize` | **1823** | 8000–10000 | client-supplied bump + CPI `system_program::create_account` (rent-exempt) + discriminator write |
-| `vault.deposit`    | **1686** | 5000–8000 | CPI `system_program::transfer` + typed-state balance bump + `sol_log_data` emit |
-| `vault.withdraw`   | **1989** | 4000–6000 | `requireHasOneWith` + `verifyPda` (stored bump) + direct lamport move + `sol_log_data` emit |
+| `vault.deposit`    | **1583** | 5000–8000 | CPI `system_program::transfer` + typed-state balance bump + 16-byte `sol_log_data` emit |
+| `vault.withdraw`   | **1887** | 4000–6000 | `requireHasOneWith` + `verifyPda` (stored bump) + direct lamport move + 16-byte `sol_log_data` emit |
 
 > Anchor figures are approximate values from production Solana
 > programs at the time of writing — your mileage will vary based on
@@ -241,6 +241,24 @@ Security: if the client lies about the bump, the CPI's runtime-level
 signer-seed check fails (the derived address won't match the
 account's claimed key) and the create aborts — no separate `verifyPda`
 call is needed up front.
+
+### `sol_log_data` event-size pricing
+
+Empirically, `sol_log_data` charges roughly **1 CU per byte** of
+payload plus a fixed syscall overhead (~150 CU) plus a small per-slice
+fee. For a vault `DepositEvent` carrying two `Pubkey` fields (64
+bytes) plus two `u64`s (16 bytes), this works out to ~340 CU per
+emit. The pubkeys are redundant — off-chain indexers already have
+access to the transaction's account list — so this example trims
+events to just `{ amount, new_balance }` (16 bytes) and saves
+~100 CU per emit. Keep your event payloads minimal.
+
+Counter-intuitive finding: assembling `discriminator || payload`
+into a single stack buffer and calling `sol_log_data` with **one**
+slice is ~100 CU cheaper than calling it with two slices (one for
+the discriminator, one for the payload). The runtime charges a
+per-slice base fee that exceeds the in-program `@memcpy` cost for
+typical small events.
 
 The `examples/token_dispatch.zig` program (2 account slots, `u32` tag
 + `u64` amount payload, parse-then-dispatch) lands at **37–38 CU**

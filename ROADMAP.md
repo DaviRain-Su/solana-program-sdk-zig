@@ -783,8 +783,8 @@ Week 4: Phase 7
 | 指令 | Zig (this SDK) | Anchor (典型) | 备注 |
 |---|---:|---:|---|
 | `vault.initialize` | 1823 CU | 8000–10000 CU | client-supplied bump + system_program CPI 创建 + 写 discriminator |
-| `vault.deposit`    | 1686 CU | 5000–8000 CU  | system_program transfer CPI + balance bump + emit |
-| `vault.withdraw`   | 1989 CU | 4000–6000 CU  | has_one + verifyPda(储存 bump) + 直接 lamport 转移 + emit |
+| `vault.deposit`    | 1583 CU | 5000–8000 CU  | system_program transfer CPI + balance bump + 16-byte emit |
+| `vault.withdraw`   | 1887 CU | 4000–6000 CU  | has_one + verifyPda(储存 bump) + 直接 lamport 转移 + 16-byte emit |
 
 `vault.initialize` 的关键优化：把 `findProgramAddress` 从程序内部
 移到 client 端。Client 在交易构造阶段调用 `Pubkey::find_program_address`

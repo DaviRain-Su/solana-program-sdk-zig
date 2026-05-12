@@ -28,8 +28,10 @@ const bpf = @import("bpf.zig");
 
 const DISCRIMINATOR_LEN = discriminator.DISCRIMINATOR_LEN;
 
-/// Maximum size of a single emitted event payload (including
-/// discriminator). Pinned to 256 bytes to bound on-stack assembly.
+/// Soft upper bound on a single emitted event payload (discriminator
+/// + value). The runtime caps `sol_log_data` at a few KB anyway; we
+/// pin to 256 bytes to discourage giant events that would dominate
+/// the program's CU budget (`sol_log_data` charges ~1 CU per byte).
 pub const MAX_EVENT_SIZE: usize = 256;
 
 /// Pull the `DISCRIMINATOR` decl off `T` if it has one, otherwise
@@ -81,7 +83,11 @@ pub fn emit(value: anytype) void {
 
     const disc = comptime discriminatorFor(T);
 
-    // Assemble disc || raw(value) on the stack.
+    // Assemble disc || raw(value) on the stack and call `sol_log_data`
+    // with one slice. Counter-intuitively this is ~100 CU cheaper than
+    // calling `sol_log_data` with two slices (disc + value) — the
+    // runtime charges a per-slice base fee that exceeds the memcpy
+    // cost for typical small events.
     var buf: [MAX_EVENT_SIZE]u8 = undefined;
     @memcpy(buf[0..DISCRIMINATOR_LEN], &disc);
     const value_bytes = std.mem.asBytes(&value);
@@ -90,13 +96,9 @@ pub fn emit(value: anytype) void {
     const payload: []const u8 = buf[0 .. DISCRIMINATOR_LEN + @sizeOf(T)];
 
     if (bpf.is_bpf_program) {
-        // `sol_log_data` takes a slice of slices.
         const slices = [_][]const u8{payload};
         log.logData(&slices);
     } else {
-        // Host fallback: print the type name + payload size. We don't
-        // bother hex-formatting the discriminator on host because Zig
-        // 0.16's `std.fmt` removed the legacy `fmtSliceHexLower` helper.
         std.debug.print(
             "[solana] event {s}: payload_size={d}\n",
             .{ @typeName(T), @sizeOf(T) },

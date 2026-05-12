@@ -52,9 +52,12 @@ const VaultState = extern struct {
 // Events (emitted via sol_log_data)
 // =========================================================================
 
+// Events stay small on purpose. The off-chain indexer can recover
+// the involved pubkeys from the transaction's account list, so
+// duplicating them in the event payload is pure CU waste (each
+// 32-byte field costs ~32 CU on `sol_log_data` byte-fee alone, plus
+// memcpy/setup overhead).
 const DepositEvent = extern struct {
-    vault: sol.Pubkey,
-    payer: sol.Pubkey,
     amount: u64,
     new_balance: u64,
 
@@ -62,8 +65,6 @@ const DepositEvent = extern struct {
 };
 
 const WithdrawEvent = extern struct {
-    vault: sol.Pubkey,
-    recipient: sol.Pubkey,
     amount: u64,
     new_balance: u64,
 
@@ -206,8 +207,6 @@ fn processDeposit(
     vault.write().balance = new_balance;
 
     sol.emit(DepositEvent{
-        .vault = vault_info.key().*,
-        .payer = payer.key().*,
         .amount = amount,
         .new_balance = new_balance,
     });
@@ -253,8 +252,6 @@ fn processWithdraw(
     vault.write().balance = new_balance;
 
     sol.emit(WithdrawEvent{
-        .vault = vault_info.key().*,
-        .recipient = recipient.key().*,
         .amount = amount,
         .new_balance = new_balance,
     });

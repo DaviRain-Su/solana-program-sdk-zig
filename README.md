@@ -218,9 +218,9 @@ zig-out/lib cargo run -- vault_*`):
 
 | Instruction | Zig (this SDK) | Pinocchio | Zig − Pino | Anchor (typical) |
 |---|---:|---:|---:|---:|
-| `vault.initialize` | 1380 | **1351** |  +29 (+2.1%) | 8000–10000 |
-| `vault.deposit`    | 1569 | **1565** |   +4 (+0.3%) | 5000–8000  |
-| `vault.withdraw`   | **1879** | 1949 |  −70 (−3.6%) | 4000–6000  |
+| `vault.initialize` | **1353** | 1351 |   +2 (+0.1%) | 8000–10000 |
+| `vault.deposit`    | **1544** | 1565 |  −21 (−1.3%) | 5000–8000  |
+| `vault.withdraw`   | **1877** | 1949 |  −72 (−3.7%) | 4000–6000  |
 
 Both implementations live in the repo (`examples/vault.zig` for Zig,
 `bench-pinocchio/src/lib.rs` for Pinocchio) and run the **identical**
@@ -273,8 +273,8 @@ no longer coupled) and complicates the client UX. We don't do that
 here; the 1569-CU cost is a property of doing deposit atomically, not
 of the SDK.
 
-The 443-CU reduction on `vault.initialize` (1823 → 1380, **−24%**)
-came from two measurable, named optimizations:
+The 470-CU reduction on `vault.initialize` (1823 → 1353, **−26%**)
+came from three measurable, named optimizations:
 
 1. **Rent integer fast path (−283 CU).** `Rent.getMinimumBalance` was
    `(overhead + len) * lamports_per_byte_year * exemption_threshold`
@@ -294,10 +294,22 @@ came from two measurable, named optimizations:
    `system.createRentExemptComptimeRaw(args, comptime space, signers)`
    is the entry point — see `examples/vault.zig` for the call shape.
 
-The remaining 29 CU vs. Pinocchio is entrypoint-shape difference
-(`lazyEntrypoint` vs. `program_entrypoint!`'s pre-parse) plus residual
-slop in the CPI plumbing — both single-digit-CU items not worth
-breaking the API for.
+3. **CpiAccountInfo flag-copy as one u32 (−27 CU on init, −21 on
+   deposit).** Every CPI we make has to stage the runtime-input
+   `Account` into a `CpiAccountInfo` (the C-ABI struct
+   `sol_invoke_signed_c` reads). `is_signer`, `is_writable` and
+   `is_executable` are three consecutive bytes in both structures.
+   Reading them as three separate byte loads + writes took ~3 CU per
+   account; reading them as a single u32 load + store (plus one
+   "harmless" byte of padding on each side) takes ~1 CU per account.
+   Three accounts × 3 CU saved × 3 lower-bound rounding = ~25-27 CU.
+   Pinocchio's `init_from_account_view` already used this trick — we
+   ported it. See `src/account.zig:fromPtr`.
+
+That brings `vault.initialize` and `vault.deposit` within 2 CU of
+Pinocchio (effectively tied; `deposit` is actually 21 CU *faster*),
+and `vault.withdraw` is 72 CU faster — the only headroom left is
+sub-CU-per-line residual that LLVM has already squeezed flat.
 
 > Anchor figures are approximate values from production Solana
 > programs at the time of writing — your mileage will vary based on

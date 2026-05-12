@@ -236,18 +236,28 @@ pub const CpiAccountInfo = extern struct {
 
     pub inline fn fromPtr(ptr: *Account) CpiAccountInfo {
         const dp: [*]u8 = @ptrFromInt(@intFromPtr(ptr) + @sizeOf(Account));
-        return .{
+        // `is_signer`/`is_writable`/`is_executable` live at consecutive
+        // offsets 1, 2, 3 in `Account`. We copy them as a single u32
+        // load+store (4 bytes — pulling in one byte of `_padding` on
+        // both sides, which is fine since both sides have padding
+        // there). This mirrors Pinocchio's `CpiAccount::init_from_account_view`
+        // and saves a few CU vs. three byte loads + three byte stores.
+        const flags_src: *align(1) const u32 = @ptrCast(&ptr.is_signer);
+        var out: CpiAccountInfo = .{
             .key_ptr = &ptr.key,
             .lamports_ptr = &ptr.lamports,
             .data_len = ptr.data_len,
             .data_ptr = dp,
             .owner_ptr = &ptr.owner,
             .rent_epoch = 0,
-            .is_signer = ptr.is_signer,
-            .is_writable = ptr.is_writable,
-            .is_executable = ptr.is_executable,
-            ._abi_padding = .{0} ** 5,
+            .is_signer = undefined,
+            .is_writable = undefined,
+            .is_executable = undefined,
+            ._abi_padding = undefined,
         };
+        const flags_dst: *align(1) u32 = @ptrCast(&out.is_signer);
+        flags_dst.* = flags_src.*;
+        return out;
     }
 
     pub inline fn key(self: CpiAccountInfo) *const Pubkey {

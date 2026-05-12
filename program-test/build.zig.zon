@@ -10,6 +10,9 @@
         .spl_memo = .{
             .path = "../packages/spl-memo",
         },
+        .spl_token = .{
+            .path = "../packages/spl-token",
+        },
     },
 
     .paths = .{

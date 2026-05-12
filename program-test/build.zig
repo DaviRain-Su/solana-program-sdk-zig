@@ -46,4 +46,19 @@ pub fn build(b: *std.Build) !void {
             .{ .name = "spl_memo", .module = spl_memo_mod },
         },
     });
+
+    const spl_token_dep = b.dependency("spl_token", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const spl_token_mod = spl_token_dep.module("spl_token");
+
+    _ = solana.buildProgram(b, .{
+        .name = "example_spl_token_cpi",
+        .root_source_file = b.path("../packages/spl-token/examples/cpi_demo.zig"),
+        .optimize = optimize,
+        .extra_imports = &.{
+            .{ .name = "spl_token", .module = spl_token_mod },
+        },
+    });
 }

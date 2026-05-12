@@ -64,6 +64,65 @@ pub fn getSysvar(comptime T: type, account: AccountInfo) ProgramError!T {
     return std.mem.bytesToValue(T, data[0..@sizeOf(T)]);
 }
 
+// =============================================================================
+// sol_get_sysvar — generic offset-based sysvar read syscall.
+//
+// Unlike the individual `Clock::get` / `Rent::get` syscalls (which are
+// being deprecated in solana-program 4.x), `sol_get_sysvar` lets a
+// program read **any** sysvar by ID, optionally at an offset. This is
+// the only way to read large sysvars like `SlotHashes` or
+// `StakeHistory` without having the account passed in.
+//
+// Return codes (per agave bpf_loader/syscalls/sysvar.rs):
+//   0 = SUCCESS
+//   1 = OFFSET_LENGTH_EXCEEDS_SYSVAR — `offset + length` past the data
+//   2 = SYSVAR_NOT_FOUND               — sysvar ID isn't known
+// =============================================================================
+
+extern fn sol_get_sysvar(
+    sysvar_id_addr: *const u8,
+    result: *u8,
+    offset: u64,
+    length: u64,
+) callconv(.c) u64;
+
+/// Read `length` bytes of `sysvar_id`'s account data starting at
+/// `offset` into `dst`. `dst.len` must be at least `length`.
+///
+/// Maps the runtime's three return codes onto `ProgramError`:
+///
+///   - `OFFSET_LENGTH_EXCEEDS_SYSVAR` → `InvalidArgument` (matches
+///     Rust's `get_sysvar` mapping).
+///   - `SYSVAR_NOT_FOUND` (and any other unexpected code) →
+///     `UnsupportedSysvar`.
+///
+/// On host targets this returns `UnsupportedSysvar` — there's no
+/// runtime to query.
+pub fn getSysvarBytes(
+    dst: []u8,
+    sysvar_id_addr: *const Pubkey,
+    offset: u64,
+    length: u64,
+) ProgramError!void {
+    if (dst.len < length) return ProgramError.InvalidArgument;
+
+    if (bpf.is_bpf_program) {
+        const rc = sol_get_sysvar(
+            @as(*const u8, @ptrCast(sysvar_id_addr)),
+            @as(*u8, @ptrCast(dst.ptr)),
+            offset,
+            length,
+        );
+        return switch (rc) {
+            0 => {},
+            1 => ProgramError.InvalidArgument,
+            else => ProgramError.UnsupportedSysvar,
+        };
+    } else {
+        return ProgramError.UnsupportedSysvar;
+    }
+}
+
 /// Epoch schedule sysvar.
 ///
 /// Use `EpochSchedule.get()` to read this via syscall (no account
@@ -185,6 +244,24 @@ test "sysvar: EpochSchedule layout is 33 bytes" {
 
 test "sysvar: LastRestartSlot is a single u64" {
     try std.testing.expectEqual(@as(usize, 8), @sizeOf(LastRestartSlot));
+}
+
+test "sysvar: getSysvarBytes returns InvalidArgument when dst is too small" {
+    const sid: Pubkey = .{0} ** 32;
+    var buf: [4]u8 = undefined;
+    try std.testing.expectError(
+        ProgramError.InvalidArgument,
+        getSysvarBytes(&buf, &sid, 0, 8),
+    );
+}
+
+test "sysvar: getSysvarBytes on host returns UnsupportedSysvar" {
+    const sid: Pubkey = .{0} ** 32;
+    var buf: [8]u8 = undefined;
+    try std.testing.expectError(
+        ProgramError.UnsupportedSysvar,
+        getSysvarBytes(&buf, &sid, 0, 8),
+    );
 }
 
 test "sysvar: EpochRewards layout has expected fields" {

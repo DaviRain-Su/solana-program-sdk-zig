@@ -33,6 +33,9 @@ pub const clock = @import("clock.zig");
 pub const rent = @import("rent.zig");
 pub const slot_hashes = @import("slot_hashes.zig");
 pub const stake_history = @import("stake_history.zig");
+pub const stake = @import("stake.zig");
+pub const compute_budget = @import("compute_budget.zig");
+pub const big_mod_exp = @import("big_mod_exp.zig");
 pub const bpf = @import("bpf.zig");
 
 // Cryptographic primitives — aggregated namespace covering all
@@ -79,6 +82,12 @@ pub const loadCurrentIndexChecked = sysvar_instructions.loadCurrentIndexChecked;
 pub const loadInstructionAtChecked = sysvar_instructions.loadInstructionAtChecked;
 pub const getInstructionRelative = sysvar_instructions.getInstructionRelative;
 pub const IntrospectedInstruction = sysvar_instructions.IntrospectedInstruction;
+
+// Compute / runtime introspection
+pub const remainingComputeUnits = compute_budget.remaining;
+pub const getEpochStake = stake.getEpochStake;
+pub const getSysvarBytes = sysvar.getSysvarBytes;
+pub const bigModExp = big_mod_exp.bigModExp;
 
 // Hash aliases — the three syscall-backed families and the `Hash` newtype.
 pub const Hash = hash.Hash;

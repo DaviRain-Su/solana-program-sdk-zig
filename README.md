@@ -739,6 +739,35 @@ malformed-input failures (`InvalidInputData` / `SliceOutOfBounds` /
 `InvalidArgument`. If that split doesn't fit your protocol, use
 pattern A or C instead — the SDK doesn't make the choice for you.
 
+### Runtime introspection — CU / stake / generic sysvar / big-int
+
+The four "loose" syscalls that don't fit any other namespace are
+exposed as flat top-level helpers (plus their full modules under
+`sol.compute_budget` / `sol.stake` / `sol.big_mod_exp` / `sol.sysvar`):
+
+```zig
+// Remaining compute units in this transaction. Costs ~1 CU itself.
+// On host returns max(u64) so test code defaults to "plenty".
+if (sol.remainingComputeUnits() < 1_500) {
+    // bail out before the runtime hard-aborts
+    return;
+}
+
+// Active delegated stake (lamports) for a vote account, this epoch.
+// Returns 0 if the address isn't a vote account or has no stake.
+const lamports = sol.getEpochStake(&vote_account_key);
+
+// Generic offset-based sysvar read. The only way to query
+// `SlotHashes` / `StakeHistory` without the account being passed in.
+var buf: [32]u8 = undefined;
+try sol.getSysvarBytes(&buf, &sol.slot_hashes_id, 0, 32);
+
+// Big-integer modular exponentiation — `base^exp mod modulus`,
+// arbitrary-precision big-endian. RSA / number-theoretic protocols.
+var out: [256]u8 = undefined;
+const result = try sol.bigModExp(base_be, exp_be, modulus_be, &out);
+```
+
 ### StakeHistory sysvar
 
 Reading historical stake activation requires passing the

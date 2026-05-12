@@ -165,6 +165,39 @@ pub const Seed = extern struct {
         return .{ .addr = @intFromPtr(slice.ptr), .len = slice.len };
     }
 
+    /// Generic seed coercion for common PDA seed shapes:
+    ///
+    /// - `[]const u8` / string slices
+    /// - `*const Pubkey`
+    /// - `*const u8`
+    /// - `*const [N]u8` / `*const [N:0]u8`
+    ///
+    /// This is mainly used by `seedPack` / `invokeSignedSingle` /
+    /// the higher-level System Program single-signer helpers so callers
+    /// can write `. { "vault", authority.key(), &bump_seed }` and still
+    /// hit the raw C-ABI signer fast path.
+    pub inline fn fromAny(value: anytype) Seed {
+        const T = @TypeOf(value);
+        if (T == []const u8 or T == []u8) return from(value);
+        if (T == *const Pubkey or T == *Pubkey) return fromPubkey(value);
+        if (T == *const u8 or T == *u8) return fromByte(value);
+
+        switch (@typeInfo(T)) {
+            .pointer => |ptr| {
+                if (ptr.size == .one and @typeInfo(ptr.child) == .array) {
+                    const arr = @typeInfo(ptr.child).array;
+                    if (arr.child == u8) return from(value.*[0..]);
+                }
+            },
+            .array => |arr| {
+                if (arr.child == u8) return from(value[0..]);
+            },
+            else => {},
+        }
+
+        @compileError("Unsupported PDA seed type for cpi.Seed.fromAny: " ++ @typeName(T));
+    }
+
     /// Create a `Seed` over a `*const u8`, treating it as a 1-byte
     /// slice. Useful for the bump-seed pattern when you have a
     /// `u8` field on a stack variable (a stored bump on an account):
@@ -212,6 +245,26 @@ pub const Signer = extern struct {
         return .{ .addr = @intFromPtr(seeds.ptr), .len = seeds.len };
     }
 };
+
+/// Build a stack `[_]Seed` array from a comptime tuple of common seed
+/// value shapes. Typical usage:
+///
+/// ```zig
+/// const bump_seed = [_]u8{bump};
+/// const seeds = sol.cpi.seedPack(.{ "vault", authority.key(), &bump_seed });
+/// const signer = sol.cpi.Signer.from(&seeds);
+/// ```
+///
+/// The array length is folded at compile time, and each element is
+/// coerced through `Seed.fromAny`.
+pub inline fn seedPack(values: anytype) [@typeInfo(@TypeOf(values)).@"struct".fields.len]Seed {
+    const len = @typeInfo(@TypeOf(values)).@"struct".fields.len;
+    var out: [len]Seed = undefined;
+    inline for (values, 0..) |value, i| {
+        out[i] = Seed.fromAny(value);
+    }
+    return out;
+}
 
 comptime {
     // Catch ABI regressions at build time.
@@ -433,6 +486,32 @@ pub fn invokeSignedRaw(
     }
 }
 
+/// Single-PDA fast path: build one raw `Signer` inline from a comptime
+/// tuple of seed values, then forward to `invokeSignedRaw`.
+///
+/// Typical usage:
+///
+/// ```zig
+/// const bump_seed = [_]u8{bump};
+/// try sol.cpi.invokeSignedSingle(&ix, &accounts, .{
+///     "vault",
+///     authority.key(),
+///     &bump_seed,
+/// });
+/// ```
+///
+/// This keeps the raw fast path while removing most of the call-site
+/// boilerplate (`Seed.from*` per element + `Signer.from`).
+pub inline fn invokeSignedSingle(
+    instruction: *const Instruction,
+    accounts: []const CpiAccountInfo,
+    signer_seeds: anytype,
+) ProgramResult {
+    const seeds = seedPack(signer_seeds);
+    const signer = Signer.from(&seeds);
+    return invokeSignedRaw(instruction, accounts, &.{signer});
+}
+
 /// Set return data for this program
 pub fn setReturnData(data: []const u8) void {
     if (bpf.is_bpf_program) {
@@ -522,4 +601,17 @@ test "cpi: Seed.from / fromByte / fromPubkey produce identical layout" {
     const s3 = Seed.fromPubkey(&pk);
     try std.testing.expectEqual(@intFromPtr(&pk), s3.addr);
     try std.testing.expectEqual(@as(u64, 32), s3.len);
+}
+
+test "cpi: seedPack coerces common seed shapes" {
+    const bump_seed = [_]u8{7};
+    const pk: Pubkey = .{9} ** 32;
+    const seeds = seedPack(.{ "vault", &pk, &bump_seed, &bump_seed[0] });
+
+    try std.testing.expectEqual(@as(usize, 4), seeds.len);
+    try std.testing.expectEqual(@as(u64, 5), seeds[0].len);
+    try std.testing.expectEqual(@as(u64, 32), seeds[1].len);
+    try std.testing.expectEqual(@as(u64, 1), seeds[2].len);
+    try std.testing.expectEqual(@as(u64, 1), seeds[3].len);
+    try std.testing.expectEqual(@intFromPtr(&pk), seeds[1].addr);
 }

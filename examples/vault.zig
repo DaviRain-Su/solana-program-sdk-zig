@@ -139,25 +139,17 @@ fn processInitialize(
 
     const bump_seed = [_]u8{bump};
 
-    // Build the PDA signer in the runtime's C-ABI shape inline. We use
-    // `Seed.fromPubkey` so the authority key is read directly from the
-    // runtime's input buffer — no 32-byte stack copy.
-    const seeds = [_]sol.cpi.Seed{
-        .from("vault"),
-        .fromPubkey(authority.key()),
-        .from(&bump_seed),
-    };
-    const signer = sol.cpi.Signer.from(&seeds);
-
     // `space` is comptime, so the SDK folds the rent-exempt minimum
     // into a single u64 immediate at build time — no `sol_get_rent_sysvar`
-    // syscall (~85 CU) at runtime.
-    try sol.system.createRentExemptComptimeRaw(.{
+    // syscall (~85 CU) at runtime. `createRentExemptComptimeSingle`
+    // keeps the raw single-signer fast path while collapsing the
+    // `Seed.from*` / `Signer.from` boilerplate to one tuple.
+    try sol.system.createRentExemptComptimeSingle(.{
         .payer = authority.toCpiInfo(),
         .new_account = vault.toCpiInfo(),
         .system_program = system_program.toCpiInfo(),
         .owner = &PROGRAM_ID,
-    }, @sizeOf(VaultState), &.{signer});
+    }, @sizeOf(VaultState), .{ "vault", authority.key(), &bump_seed });
 
     _ = try sol.TypedAccount(VaultState).initialize(vault, .{
         .discriminator = undefined,

@@ -192,6 +192,51 @@ pub fn createAccountSignedRaw(
     );
 }
 
+/// Single-PDA fast path for CreateAccount. Accepts a comptime tuple of
+/// seed values and builds the raw signer descriptors inline, so callers
+/// can keep the low-CU path without spelling out `Seed.from*` and
+/// `Signer.from` at the call site.
+///
+/// ```zig
+/// const bump_seed = [_]u8{bump};
+/// try sol.system.createAccountSignedSingle(
+///     payer.toCpiInfo(),
+///     vault.toCpiInfo(),
+///     system_program.toCpiInfo(),
+///     lamports,
+///     space,
+///     &MY_PROGRAM_ID,
+///     .{ "vault", authority.key(), &bump_seed },
+/// );
+/// ```
+pub inline fn createAccountSignedSingle(
+    from: CpiAccountInfo,
+    to: CpiAccountInfo,
+    system_program: CpiAccountInfo,
+    lamports: u64,
+    space: u64,
+    owner: *const Pubkey,
+    signer_seeds: anytype,
+) ProgramResult {
+    const ix_data = CreateAccountData.initWithDiscriminant(
+        @intFromEnum(SystemInstruction.CreateAccount),
+        .{ .lamports = lamports, .space = space, .owner = owner.* },
+    );
+
+    const account_metas = [_]cpi.AccountMeta{
+        cpi.AccountMeta.signerWritable(from.key()),
+        cpi.AccountMeta.signerWritable(to.key()),
+    };
+
+    const ix = cpi.Instruction.fromCpiAccount(system_program, &account_metas, &ix_data);
+
+    try cpi.invokeSignedSingle(
+        &ix,
+        &[_]CpiAccountInfo{ from, to, system_program },
+        signer_seeds,
+    );
+}
+
 /// Transfer lamports via System Program CPI.
 ///
 /// Accounts:
@@ -388,6 +433,47 @@ pub fn createRentExemptComptimeRaw(
         space,
         args.owner,
         signers,
+    );
+}
+
+/// Single-PDA fast path for comptime rent-exempt account creation.
+///
+/// Same win profile as `createRentExemptComptimeRaw`, but accepts a
+/// comptime tuple of seed values for the common 1-signer PDA case.
+///
+/// ```zig
+/// const bump_seed = [_]u8{bump};
+/// try sol.system.createRentExemptComptimeSingle(.{
+///     .payer = a.payer,
+///     .new_account = a.vault,
+///     .system_program = a.system_program,
+///     .owner = &MY_PROGRAM_ID,
+/// }, @sizeOf(VaultState), .{ "vault", authority.key(), &bump_seed });
+/// ```
+pub inline fn createRentExemptComptimeSingle(
+    args: struct {
+        payer: CpiAccountInfo,
+        new_account: CpiAccountInfo,
+        system_program: CpiAccountInfo,
+        owner: *const Pubkey,
+    },
+    comptime space: u64,
+    signer_seeds: anytype,
+) ProgramResult {
+    const rent_mod = @import("rent.zig");
+    const lamports: u64 = comptime blk: {
+        const total: u64 = rent_mod.Rent.account_storage_overhead + space;
+        break :blk total * rent_mod.Rent.default_lamports_per_byte_year * 2;
+    };
+
+    return createAccountSignedSingle(
+        args.payer,
+        args.new_account,
+        args.system_program,
+        lamports,
+        space,
+        args.owner,
+        signer_seeds,
     );
 }
 

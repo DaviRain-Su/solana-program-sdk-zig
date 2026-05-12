@@ -127,21 +127,15 @@ fn processInitialize(
         return error.InvalidInstructionData;
 
     const bump_seed = [_]u8{bump};
-    const seeds = [_]sol.cpi.Seed{
-        .from("counter"),
-        .fromPubkey(owner.key()),
-        .from(&bump_seed),
-    };
-    const signer = sol.cpi.Signer.from(&seeds);
 
     // `space` is comptime → rent-exempt minimum is a u64 immediate
     // at build time (no `sol_get_rent_sysvar` syscall ~85 CU).
-    try sol.system.createRentExemptComptimeRaw(.{
+    try sol.system.createRentExemptComptimeSingle(.{
         .payer = owner.toCpiInfo(),
         .new_account = counter.toCpiInfo(),
         .system_program = system_program.toCpiInfo(),
         .owner = &PROGRAM_ID,
-    }, @sizeOf(CounterState), &.{signer});
+    }, @sizeOf(CounterState), .{ "counter", owner.key(), &bump_seed });
 
     _ = try sol.TypedAccount(CounterState).initialize(counter, .{
         .discriminator = undefined,

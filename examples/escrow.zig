@@ -143,25 +143,17 @@ fn processMake(
     const requested = sol.instruction.tryReadUnaligned(u64, data, 10) orelse
         return error.InvalidInstructionData;
 
-    // Build PDA signer seeds inline. `fromPubkey` lets us point the
-    // syscall at the maker's pubkey in-place (no 32-byte copy).
     const bump_seed = [_]u8{bump};
-    const seeds = [_]sol.cpi.Seed{
-        .from("escrow"),
-        .fromPubkey(maker.key()),
-        .from(&bump_seed),
-    };
-    const signer = sol.cpi.Signer.from(&seeds);
 
     // Create the PDA rent-exempt. Comptime size → no rent sysvar
     // syscall. The PDA itself starts with the rent-exempt minimum;
     // the `offered` amount is transferred separately below.
-    try sol.system.createRentExemptComptimeRaw(.{
+    try sol.system.createRentExemptComptimeSingle(.{
         .payer = maker.toCpiInfo(),
         .new_account = escrow.toCpiInfo(),
         .system_program = system_program.toCpiInfo(),
         .owner = &PROGRAM_ID,
-    }, @sizeOf(EscrowState), &.{signer});
+    }, @sizeOf(EscrowState), .{ "escrow", maker.key(), &bump_seed });
 
     _ = try sol.TypedAccount(EscrowState).initialize(escrow, .{
         .discriminator = undefined,

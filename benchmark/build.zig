@@ -15,6 +15,7 @@ pub fn build(b: *std.Build) !void {
         .{ "benchmark_pda_comptime", "pda_comptime.zig" },
         .{ "benchmark_parse_accounts", "parse_accounts.zig" },
         .{ "benchmark_parse_accounts_with", "parse_accounts_with.zig" },
+        .{ "benchmark_parse_accounts_with_unchecked", "parse_accounts_with_unchecked.zig" },
         .{ "benchmark_program_entry_1", "program_entry_1.zig" },
         .{ "benchmark_program_entry_lazy_1", "program_entry_lazy_1.zig" },
         .{ "benchmark_transfer_lamports", "transfer_lamports.zig" },

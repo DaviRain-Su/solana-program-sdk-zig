@@ -14,10 +14,12 @@ ROOT_DIR="$(cd "$(dirname "$0")"/.. && pwd)"
 cd "$ROOT_DIR"
 
 if [[ -z "${SOLANA_ZIG:-}" ]]; then
-    if command -v solana-zig >/dev/null 2>&1; then
+    if SOLANA_ZIG="$("$ROOT_DIR/scripts/ensure-solana-zig.sh" 2>/dev/null)"; then
+        :
+    elif command -v solana-zig >/dev/null 2>&1; then
         SOLANA_ZIG="$(command -v solana-zig)"
     else
-        echo "error: SOLANA_ZIG not set and 'solana-zig' not in PATH" >&2
+        echo "error: SOLANA_ZIG not set and no compatible solana-zig fork was found" >&2
         exit 1
     fi
 fi
@@ -60,6 +62,7 @@ BENCHES=(
     "pda_runtime"
     "pda_comptime"
     "parse_accounts_with"
+    "parse_accounts_with_unchecked"
     "program_entry_1"
     "program_entry_lazy_1"
     "transfer_lamports"

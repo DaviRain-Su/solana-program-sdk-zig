@@ -70,6 +70,7 @@ fn print_usage(prog: &str) {
         "pda_comptime",
         "parse_accounts",
         "parse_accounts_with",
+        "parse_accounts_with_unchecked",
         "program_entry_1",
         "program_entry_lazy_1",
         "transfer_lamports",
@@ -114,6 +115,13 @@ async fn run_benchmark(name: &'static str) {
         "pino_vault_initialize" => run_vault_initialize(VaultImpl::Pinocchio).await,
         "pino_vault_deposit" => run_vault_deposit(VaultImpl::Pinocchio).await,
         "pino_vault_withdraw" => run_vault_withdraw(VaultImpl::Pinocchio).await,
+
+        // Parse-account primitives that need a 2-account harness.
+        "parse_accounts" => run_parse_accounts_primitive("benchmark_parse_accounts", false).await,
+        "parse_accounts_with" => run_parse_accounts_primitive("benchmark_parse_accounts_with", true).await,
+        "parse_accounts_with_unchecked" => {
+            run_parse_accounts_primitive("benchmark_parse_accounts_with_unchecked", true).await
+        }
 
         // Token dispatch — safe (parseAccounts) variant
         "token_dispatch_transfer" => run_token_dispatch("example_token_dispatch", 0, 100).await,
@@ -222,6 +230,44 @@ async fn run_transfer_lamports_primitive(name: &'static str) {
     match banks_client.process_transaction(tx).await {
         Ok(()) => println!("Transfer succeeded"),
         Err(e) => println!("Transfer failed: {}", e),
+    }
+}
+
+async fn run_parse_accounts_primitive(program_name: &'static str, validated: bool) {
+    let program_id = Pubkey::from_str(BENCH_PROGRAM_ID).unwrap();
+    let mut pt = ProgramTest::new(program_name, program_id, None);
+
+    let to_key = Pubkey::from_str("BenchPubkey11111111111111111111111111111113").unwrap();
+    pt.add_account(
+        to_key,
+        Account {
+            lamports: 10_000_000,
+            data: vec![0],
+            owner: program_id,
+            ..Account::default()
+        },
+    );
+
+    let (banks_client, payer, recent_blockhash) = pt.start().await;
+    let payer_meta = if validated {
+        AccountMeta::new(payer.pubkey(), true)
+    } else {
+        AccountMeta::new_readonly(payer.pubkey(), true)
+    };
+    let to_meta = AccountMeta::new(to_key, false);
+
+    let mut tx = Transaction::new_with_payer(
+        &[Instruction::new_with_bytes(
+            program_id,
+            &[],
+            vec![payer_meta, to_meta],
+        )],
+        Some(&payer.pubkey()),
+    );
+    tx.sign(&[&payer], recent_blockhash);
+    match banks_client.process_transaction(tx).await {
+        Ok(()) => println!("Parse-accounts primitive {} succeeded", program_name),
+        Err(e) => println!("Parse-accounts primitive {} failed: {}", program_name, e),
     }
 }
 

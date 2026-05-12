@@ -31,9 +31,34 @@ is_solana_zig() {
   return 0
 }
 
+supports_sbf_v2() {
+  local zig_bin="$1"
+  local tmp_dir probe
+  tmp_dir="$(mktemp -d)" || return 1
+  probe="$tmp_dir/probe.zig"
+  cat >"$probe" <<'EOF'
+export fn entrypoint(_: [*]u8) u64 {
+    return 0;
+}
+EOF
+  if "$zig_bin" build-lib \
+      -target sbf-solana \
+      -mcpu v2 \
+      -fentry=entrypoint \
+      -fPIC \
+      -dynamic \
+      -fno-emit-bin \
+      "$probe" >/dev/null 2>&1; then
+    rm -rf "$tmp_dir"
+    return 0
+  fi
+  rm -rf "$tmp_dir"
+  return 1
+}
+
 try_candidate() {
   local cand="$1"
-  if is_solana_zig "$cand"; then
+  if is_solana_zig "$cand" && supports_sbf_v2 "$cand"; then
     printf '%s\n' "$cand"
     exit 0
   fi
@@ -51,6 +76,11 @@ fi
 
 try_candidate "$ROOT_DIR/.tools/solana-zig/bin/zig"
 try_candidate "$ROOT_DIR/../solana-zig-bootstrap/out-smoke/host/bin/zig"
+
+# Common bootstrap release extraction layout used locally.
+for cand in "$HOME"/tools/zig-*-baseline/zig; do
+  try_candidate "$cand"
+done
 
 # ../solana-zig-bootstrap/out/<target>/zig (after a non-smoke build)
 if [[ -d "$ROOT_DIR/../solana-zig-bootstrap/out" ]]; then

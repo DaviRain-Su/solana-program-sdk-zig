@@ -424,6 +424,83 @@ pub const InstructionContext = struct {
         }
         return out;
     }
+
+    /// Like `parseAccountsWith`, but skips duplicate-account
+    /// resolution entirely. Use this when the account roles are
+    /// structurally unique yet you still want comptime-validated
+    /// signer/writable/owner/key checks.
+    ///
+    /// This is the validated fast path: it keeps the same expectation
+    /// checks as `parseAccountsWith`, but walks the input with
+    /// `nextAccountUnchecked()` instead of the dup-aware
+    /// `nextAccountMaybe()` tagged union.
+    ///
+    /// Prefer this over `parseAccountsUnchecked` + ad-hoc checks when:
+    ///   - account roles are unique by construction, and
+    ///   - you want the SDK to keep emitting the canonical failure
+    ///     variants (`MissingRequiredSignature`, `ImmutableAccount`,
+    ///     `IncorrectProgramId`, ...).
+    ///
+    /// If duplicate accounts are possible and semantically valid for
+    /// the instruction, use the safe `parseAccountsWith` instead.
+    pub inline fn parseAccountsWithUnchecked(
+        self: *InstructionContext,
+        comptime spec: anytype,
+    ) ProgramError!ParsedAccountsWith(spec) {
+        if (self.remaining < spec.len) return error.NotEnoughAccountKeys;
+        self.remaining -= @intCast(spec.len);
+
+        const T = ParsedAccountsWith(spec);
+        var out: T = undefined;
+        inline for (spec) |entry| {
+            const name = entry[0];
+            const exp: AccountExpectation = entry[1];
+            const acc = self.nextAccountUnchecked();
+
+            if (exp.signer and !acc.isSigner()) {
+                return program_error.fail(
+                    @src(),
+                    "parse:" ++ name ++ ":not_signer",
+                    error.MissingRequiredSignature,
+                );
+            }
+            if (exp.writable and !acc.isWritable()) {
+                return program_error.fail(
+                    @src(),
+                    "parse:" ++ name ++ ":not_writable",
+                    error.ImmutableAccount,
+                );
+            }
+            if (exp.executable and !acc.executable()) {
+                return program_error.fail(
+                    @src(),
+                    "parse:" ++ name ++ ":not_executable",
+                    error.InvalidAccountData,
+                );
+            }
+            if (exp.owner) |expected_owner| {
+                if (!acc.isOwnedByComptime(expected_owner)) {
+                    return program_error.fail(
+                        @src(),
+                        "parse:" ++ name ++ ":wrong_owner",
+                        error.IncorrectProgramId,
+                    );
+                }
+            }
+            if (exp.key) |expected_key| {
+                if (!pubkey.pubkeyEqComptime(acc.key(), expected_key)) {
+                    return program_error.fail(
+                        @src(),
+                        "parse:" ++ name ++ ":key_mismatch",
+                        error.InvalidArgument,
+                    );
+                }
+            }
+
+            @field(out, name) = acc;
+        }
+        return out;
+    }
 };
 
 /// Per-account validation rules for `parseAccountsWith`.
@@ -1044,6 +1121,91 @@ test "entrypoint: parseAccountsWith — key mismatch fails" {
     try std.testing.expectError(
         error.InvalidArgument,
         ctx.parseAccountsWith(.{
+            .{ "from", AccountExpectation{ .key = comptime makePubkey(99) } },
+            .{ "to", AccountExpectation{} },
+        }),
+    );
+}
+
+test "entrypoint: parseAccountsWithUnchecked — happy path" {
+    var input: [32768]u8 align(8) = undefined;
+    buildTwoAccountInput(&input, 1, 1, makePubkey(99), 0, 1);
+
+    var ctx = InstructionContext.init(&input);
+    const accs = try ctx.parseAccountsWithUnchecked(.{
+        .{ "from", AccountExpectation{ .signer = true, .writable = true } },
+        .{ "to", AccountExpectation{ .writable = true } },
+    });
+    try std.testing.expect(accs.from.isSigner());
+    try std.testing.expect(accs.to.isWritable());
+    try std.testing.expectEqual(@as(u64, 0), ctx.remaining);
+    const ix = try ctx.instructionData();
+    try std.testing.expectEqual(@as(usize, 0), ix.len);
+}
+
+test "entrypoint: parseAccountsWithUnchecked errors when too few accounts" {
+    var input align(8) = [_]u8{0} ** 256;
+    std.mem.writeInt(u64, input[0..8], 0, .little);
+    var ctx = InstructionContext.init(&input);
+    try std.testing.expectError(
+        error.NotEnoughAccountKeys,
+        ctx.parseAccountsWithUnchecked(.{
+            .{ "a", AccountExpectation{} },
+            .{ "b", AccountExpectation{} },
+        }),
+    );
+}
+
+test "entrypoint: parseAccountsWithUnchecked — missing signer" {
+    var input: [32768]u8 align(8) = undefined;
+    buildTwoAccountInput(&input, 0, 1, makePubkey(99), 0, 1);
+
+    var ctx = InstructionContext.init(&input);
+    try std.testing.expectError(
+        error.MissingRequiredSignature,
+        ctx.parseAccountsWithUnchecked(.{
+            .{ "from", AccountExpectation{ .signer = true } },
+            .{ "to", AccountExpectation{} },
+        }),
+    );
+}
+
+test "entrypoint: parseAccountsWithUnchecked — not writable" {
+    var input: [32768]u8 align(8) = undefined;
+    buildTwoAccountInput(&input, 1, 0, makePubkey(99), 0, 1);
+
+    var ctx = InstructionContext.init(&input);
+    try std.testing.expectError(
+        error.ImmutableAccount,
+        ctx.parseAccountsWithUnchecked(.{
+            .{ "from", AccountExpectation{ .writable = true } },
+            .{ "to", AccountExpectation{} },
+        }),
+    );
+}
+
+test "entrypoint: parseAccountsWithUnchecked — wrong owner" {
+    var input: [32768]u8 align(8) = undefined;
+    buildTwoAccountInput(&input, 0, 0, makePubkey(1), 0, 0);
+
+    var ctx = InstructionContext.init(&input);
+    try std.testing.expectError(
+        error.IncorrectProgramId,
+        ctx.parseAccountsWithUnchecked(.{
+            .{ "from", AccountExpectation{ .owner = comptime makePubkey(99) } },
+            .{ "to", AccountExpectation{} },
+        }),
+    );
+}
+
+test "entrypoint: parseAccountsWithUnchecked — key mismatch fails" {
+    var input: [32768]u8 align(8) = undefined;
+    buildTwoAccountInput(&input, 0, 0, makePubkey(3), 0, 0);
+
+    var ctx = InstructionContext.init(&input);
+    try std.testing.expectError(
+        error.InvalidArgument,
+        ctx.parseAccountsWithUnchecked(.{
             .{ "from", AccountExpectation{ .key = comptime makePubkey(99) } },
             .{ "to", AccountExpectation{} },
         }),

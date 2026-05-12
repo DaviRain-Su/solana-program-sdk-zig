@@ -17,7 +17,8 @@ Reproduce: `./scripts/bench.sh` from the repo root. Requires
 | `pubkey_cmp_runtime_const`         |   30 |
 | `pda_runtime` (syscall)            | 3025 |
 | `pda_comptime` (build-time fold)   |    6 |
-| `parse_accounts_with`              |   33 |
+| `parse_accounts_with`              |   93 |
+| `parse_accounts_with_unchecked`    |   25 |
 | `program_entry_1` (eager)          |   11 |
 | `program_entry_lazy_1` (lazy)      |   10 |
 | `transfer_lamports`                |   23 |

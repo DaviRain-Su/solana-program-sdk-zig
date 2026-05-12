@@ -7,7 +7,7 @@ on-chain programs. Stock Zig 0.16 is sufficient for host-side unit tests.
 
 **Performance:** the in-repo `examples/vault.zig` (a representative
 Anchor-style program — PDA creation, typed state, `has_one`, stored-bump
-verify, structured events) runs at **1334 / 1543 / 1866 CU** for
+verify, structured events) runs at **1335 / 1544 / 1867 CU** for
 `initialize` / `deposit` / `withdraw` — **beats**
 [Pinocchio](https://github.com/anza-xyz/pinocchio) on all three
 instructions (−17 / −22 / −83 CU respectively). See
@@ -272,42 +272,46 @@ use the account-based path:
 const slot_hashes = try sol.sysvar.getSysvar(sol.sysvar.SlotHash, sysvar_account);
 ```
 
-### Custom error codes with `ErrorCode` + `lazyEntrypointWith`
+### Custom error codes with `ErrorCode` + `lazyEntrypointTyped`
 
 Solana programs report errors via a `u32` "Custom" code, but Zig
 error sets can't carry payloads (every variant is a globally-interned
-name). `ErrorCode(MyEnum)` bridges the gap:
+name) **and** Solana programs can't use mutable globals (the SBPFv2
+loader rejects `.bss` / `.data`). `ErrorCode` bridges the gap by
+tying an `enum(u32)` to a parallel `error{...}` set with matching
+variant names — the entrypoint's `catch` block dispatches on the
+name to recover the original `u32` code.
 
 ```zig
-const VaultErr = sol.ErrorCode(enum(u32) {
-    NotInitialized = 6000,
-    AmountOverflow,
-    InsufficientBalance,
-    Unauthorized,
-});
+const VaultErr = sol.ErrorCode(
+    enum(u32) {
+        NotInitialized = 6000,
+        AmountOverflow,
+        InsufficientBalance,
+        Unauthorized,
+    },
+    error{ NotInitialized, AmountOverflow, InsufficientBalance, Unauthorized },
+);
 
-fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
-    // ...
-    if (overflow) return VaultErr.toError(.AmountOverflow);
-    // ...
+fn process(ctx: *sol.entrypoint.InstructionContext) VaultErr.Error!void {
+    try sol.system.transfer(...);                        // ProgramError flows through
+    if (overflow) return VaultErr.toError(.AmountOverflow);  // custom code
 }
 
-// Use `lazyEntrypointWith` (NOT `lazyEntrypoint`!) so the original
-// `u32` discriminator survives to the wire.
+// `lazyEntrypointTyped` catches `VaultErr.Error`, recognises which
+// half of the union the error belongs to, and emits the matching
+// wire u64.
 export fn entrypoint(input: [*]u8) u64 {
-    return sol.entrypoint.lazyEntrypointWith(process)(input);
+    return sol.entrypoint.lazyEntrypointTyped(VaultErr, process)(input);
 }
 ```
 
-**How it works**: `toError(.X)` stashes `@intFromEnum(.X)` in a
-module-local `u32` slot and returns `error.Custom`. The `With`
-entrypoint reads that slot on the `error.Custom` path and emits the
-real wire code. BPF programs are single-threaded so the slot is
-safe; the happy path never touches it. Plain `lazyEntrypoint` would
-collapse every custom variant to `CUSTOM_ZERO`, losing the
-discriminator — that's a footgun the `With` variants close.
+`ErrorCode` validates at comptime that the enum variants and error
+set variants have matching names. Cost: zero CU on the happy path;
+the error dispatch is an `inline for` jump-table on the cold path.
 
-There's also `programEntrypointWith` for the eager-parse variant.
+There's also `programEntrypointTyped(N, ErrCode, fn)` for the
+eager-parse variant.
 
 ### Anchor-style foundations (no framework required)
 
@@ -388,9 +392,9 @@ fn deposit(ctx: *sol.InstructionContext) sol.ProgramResult {
 }
 
 export fn entrypoint(input: [*]u8) u64 {
-    // `lazyEntrypointWith` (not plain `lazyEntrypoint`!) so the
-    // `VaultErr.toError(.X)` discriminator survives.
-    return sol.entrypoint.lazyEntrypointWith(process)(input);
+    // `lazyEntrypointTyped` catches `VaultErr.Error` and dispatches
+    // on variant name to emit the matching `Custom(u32)` wire code.
+    return sol.entrypoint.lazyEntrypointTyped(VaultErr, process)(input);
 }
 ```
 
@@ -409,9 +413,9 @@ zig-out/lib cargo run -- vault_*`):
 
 | Instruction | Zig (this SDK) | Pinocchio | Zig − Pino | Anchor (typical) |
 |---|---:|---:|---:|---:|
-| `vault.initialize` | **1334** | 1351 |  −17 (−1.3%) | 8000–10000 |
-| `vault.deposit`    | **1543** | 1565 |  −22 (−1.4%) | 5000–8000  |
-| `vault.withdraw`   | **1866** | 1949 |  −83 (−4.3%) | 4000–6000  |
+| `vault.initialize` | **1335** | 1351 |  −16 (−1.2%) | 8000–10000 |
+| `vault.deposit`    | **1544** | 1565 |  −21 (−1.3%) | 5000–8000  |
+| `vault.withdraw`   | **1867** | 1949 |  −82 (−4.2%) | 4000–6000  |
 
 Both implementations live in the repo (`examples/vault.zig` for Zig,
 `bench-pinocchio/src/lib.rs` for Pinocchio) and run the **identical**
@@ -441,7 +445,7 @@ pulled past Pinocchio (in order of contribution):
 - **`TypedAccount.initialize` disc-rebuild** — single-store the
   user value with disc field stamped, instead of write-then-overwrite.
 
-#### Why `withdraw` (1877 CU) is lower than the body alone suggests
+#### Why `withdraw` (1867 CU) is lower than the body alone suggests
 
 Although `withdraw`'s body is "longer" (it does a `requireHasOne`,
 runs `verifyPda` for the stored-bump PDA proof, and emits the same
@@ -567,6 +571,26 @@ still works on `sol.system.createRentExempt` for the common case where
 you don't care about ~80 CU; the LLVM optimizer folds most of the
 staging copy away anyway when the seed count is comptime-known.
 
+### Example programs
+
+The `examples/` directory ships four standalone programs that
+exercise progressively more of the SDK. Each one is a complete,
+deployable `entrypoint` — no framework, no codegen, just raw Zig
+on the bare `[*]u8` interface.
+
+| Example | Lines | Demonstrates |
+|---|---:|---|
+| [`hello.zig`](examples/hello.zig)              | ~30  | `lazyEntrypointRaw`, `sol.log` — the minimal program |
+| [`token_dispatch.zig`](examples/token_dispatch.zig) | ~110 | `IxDataReader`, `parseAccountsUnchecked`, comptime instruction dispatch |
+| [`counter.zig`](examples/counter.zig)          | ~210 | `programEntrypointTyped`, `TypedAccount`, `requireHasOneWith`, `ErrorCode`, `sol.math`, `emit` — minimal stateful program |
+| [`vault.zig`](examples/vault.zig)              | ~285 | All of the above + PDA creation, `verifyPda`, `system.createRentExemptComptimeRaw` |
+| [`escrow.zig`](examples/escrow.zig)            | ~255 | Multi-instruction state machine (Make / Take / Refund), direct lamport mutation for closing accounts, PDA escrow lifecycle |
+
+All five compile to `.so` with no `.bss` section — the SBPFv2 loader
+rejects mutable-global programs, and the SDK is carefully written to
+hold no module-level state (the entrypoint, error-code mapping, etc.
+all flow through the stack).
+
 ### `sol_log_data` event-size pricing
 
 Empirically, `sol_log_data` charges roughly **1 CU per byte** of
@@ -639,9 +663,9 @@ BPF_OUT_DIR=$(pwd)/zig-out/lib cargo run --release -- vault_deposit
 |---|---|---|
 | `lazyEntrypointRaw(*fn(*Ctx) u64)` | u64 return, on-demand account parsing | Maximum performance, custom error handling |
 | `lazyEntrypoint(*fn(*Ctx) ProgramResult)` | error union, on-demand account parsing | Default — most programs |
-| `lazyEntrypointWith(*fn(*Ctx) ProgramResult)` | error union + custom-code recovery | When `process` uses `ErrorCode.toError(.X)` |
+| `lazyEntrypointTyped(ErrCode, *fn(*Ctx) ErrCode.Error!void)` | typed error union + per-variant custom codes | When you have `ErrorCode(MyEnum, error{...})` and want codes on the wire |
 | `programEntrypoint(N, *fn(*[N]AccountInfo, []const u8, *Pubkey) ProgramResult)` | error union, eager account parsing | Ergonomic alternative when account count is comptime-known |
-| `programEntrypointWith(N, *fn(...))` | eager parse + custom-code recovery | Same as `programEntrypoint`, but preserves `ErrorCode.toError` discriminator |
+| `programEntrypointTyped(N, ErrCode, *fn(...))` | eager parse + per-variant custom codes | Eager-parse version of `lazyEntrypointTyped` |
 
 `programEntrypoint` reads more naturally for handlers with a fixed
 account count (positional `accounts[0]` access, no `InstructionContext`

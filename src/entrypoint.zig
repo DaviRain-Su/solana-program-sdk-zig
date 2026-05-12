@@ -602,16 +602,69 @@ pub fn programEntrypoint(
     }.entry;
 }
 
-/// `programEntrypoint` + the `ErrorCode.toError` discriminator
-/// recovery from `lazyEntrypointWith`. See that function's doc for
-/// the rationale.
-pub fn programEntrypointWith(
+/// Raw entrypoint — returns u64 directly, no error union overhead.
+/// Use for maximum performance when you don't need ProgramResult.
+pub fn lazyEntrypointRaw(
+    comptime process: *const fn (*InstructionContext) u64,
+) fn ([*]u8) callconv(.c) u64 {
+    return struct {
+        fn entry(input: [*]u8) callconv(.c) u64 {
+            var context = InstructionContext.init(input);
+            return process(&context);
+        }
+    }.entry;
+}
+
+/// `lazyEntrypoint` variant for handlers that return `ErrCode.Error!void`.
+///
+/// Use this when you have an `ErrorCode(MyEnum)` and want to preserve
+/// the custom u32 discriminator on the wire while keeping `try`
+/// ergonomics:
+///
+/// ```zig
+/// const VaultErr = sol.ErrorCode(enum(u32) { Unauthorized = 6000, Overflow });
+///
+/// fn process(ctx: *InstructionContext) VaultErr.Error!void {
+///     try sol.system.transfer(...);                       // ProgramError
+///     if (bad) return VaultErr.toError(.Unauthorized);    // custom code
+/// }
+///
+/// export fn entrypoint(input: [*]u8) u64 {
+///     return sol.entrypoint.lazyEntrypointTyped(VaultErr, process)(input);
+/// }
+/// ```
+///
+/// Why not mutable globals: the SBPFv2 loader rejects `.bss` /
+/// `.data`, so we can't stash a `u32` discriminator alongside a
+/// generic `error.Custom`. Instead `ErrorCode(E)` synthesises a
+/// unique error name per enum variant; the entrypoint's `catch`
+/// dispatches on the name to recover the `u32` code.
+///
+/// Cost: zero CU on the happy path. The error-path dispatch is an
+/// `inline for` over the variants (cold).
+pub fn lazyEntrypointTyped(
+    comptime ErrCode: type,
+    comptime process: *const fn (*InstructionContext) ErrCode.Error!void,
+) fn ([*]u8) callconv(.c) u64 {
+    return struct {
+        fn entry(input: [*]u8) callconv(.c) u64 {
+            var context = InstructionContext.init(input);
+            process(&context) catch |err| return ErrCode.catchToU64(err);
+            return SUCCESS;
+        }
+    }.entry;
+}
+
+/// `programEntrypoint` variant for handlers that return `ErrCode.Error!void`.
+/// See `lazyEntrypointTyped` for the rationale.
+pub fn programEntrypointTyped(
     comptime account_count: usize,
+    comptime ErrCode: type,
     comptime process: *const fn (
         accounts: *const [account_count]AccountInfo,
         data: []const u8,
         program_id: *const Pubkey,
-    ) ProgramResult,
+    ) ErrCode.Error!void,
 ) fn ([*]u8) callconv(.c) u64 {
     return struct {
         fn entry(input: [*]u8) callconv(.c) u64 {
@@ -636,63 +689,7 @@ pub fn programEntrypointWith(
             const data: []const u8 = buf[@sizeOf(u64) .. @sizeOf(u64) + data_len];
             const program_id: *const Pubkey = @ptrCast(@alignCast(buf + @sizeOf(u64) + data_len));
 
-            process(&accounts, data, program_id) catch |err| return errorToU64WithCustom(err);
-            return SUCCESS;
-        }
-    }.entry;
-}
-
-/// Raw entrypoint — returns u64 directly, no error union overhead.
-/// Use for maximum performance when you don't need ProgramResult.
-pub fn lazyEntrypointRaw(
-    comptime process: *const fn (*InstructionContext) u64,
-) fn ([*]u8) callconv(.c) u64 {
-    return struct {
-        fn entry(input: [*]u8) callconv(.c) u64 {
-            var context = InstructionContext.init(input);
-            return process(&context);
-        }
-    }.entry;
-}
-
-/// Convert a `ProgramError` to its wire u64, with special handling
-/// for `error.Custom`: read the slot stashed by `ErrorCode.toError`
-/// to recover the original `u32` discriminator.
-///
-/// Use this in your entrypoint's `catch |err|` block if your code
-/// calls `MyErr.toError(.X)`; otherwise the discriminator is lost.
-pub inline fn errorToU64WithCustom(err: ProgramError) u64 {
-    if (err == ProgramError.Custom) {
-        return program_error.customError(error_code.lastCustomCode());
-    }
-    return program_error.errorToU64(err);
-}
-
-/// Variant of `lazyEntrypoint` that recovers the original custom
-/// error discriminator stashed by `ErrorCode.toError`.
-///
-/// Without this, every `MyErr.toError(.X)` produces `error.Custom`
-/// which the default `errorToU64` maps to `CUSTOM_ZERO` — losing the
-/// `u32` code. This variant reads the module-local slot in
-/// `error_code` on the `error.Custom` path and emits the real wire
-/// code instead.
-///
-/// Use this entrypoint if your `process` calls `MyErr.toError(.X)`
-/// anywhere. The happy path costs the same as `lazyEntrypoint`; the
-/// error path adds one `ldxw + cmp`.
-///
-/// ```zig
-/// export fn entrypoint(input: [*]u8) u64 {
-///     return sol.entrypoint.lazyEntrypointWith(process)(input);
-/// }
-/// ```
-pub fn lazyEntrypointWith(
-    comptime process: *const fn (*InstructionContext) ProgramResult,
-) fn ([*]u8) callconv(.c) u64 {
-    return struct {
-        fn entry(input: [*]u8) callconv(.c) u64 {
-            var context = InstructionContext.init(input);
-            process(&context) catch |err| return errorToU64WithCustom(err);
+            process(&accounts, data, program_id) catch |err| return ErrCode.catchToU64(err);
             return SUCCESS;
         }
     }.entry;
@@ -716,29 +713,15 @@ test "entrypoint: AccountInfo size is 8 bytes" {
     try std.testing.expectEqual(@as(usize, 8), @sizeOf(AccountInfo));
 }
 
-test "entrypoint: errorToU64WithCustom recovers ErrorCode discriminator" {
+test "entrypoint: ErrorCode catch path emits correct wire codes" {
     const Demo = enum(u32) { First = 6000, Second = 6042 };
-    const DemoErr = error_code.ErrorCode(Demo);
+    const DemoErr = error_code.ErrorCode(Demo, error{ First, Second });
 
-    // Plain errorToU64 collapses to CUSTOM_ZERO.
-    try std.testing.expectEqual(
-        program_error.CUSTOM_ZERO,
-        program_error.errorToU64(error.Custom),
-    );
-
-    // With recovery: returns the actual u32 code.
-    const e2: ProgramError = DemoErr.toError(.Second);
-    try std.testing.expectEqual(ProgramError.Custom, e2);
-    try std.testing.expectEqual(@as(u64, 6042), errorToU64WithCustom(error.Custom));
-
-    const e1: ProgramError = DemoErr.toError(.First);
-    try std.testing.expectEqual(ProgramError.Custom, e1);
-    try std.testing.expectEqual(@as(u64, 6000), errorToU64WithCustom(error.Custom));
-
-    // Builtin errors pass through unchanged.
+    try std.testing.expectEqual(@as(u64, 6042), DemoErr.catchToU64(error.Second));
+    try std.testing.expectEqual(@as(u64, 6000), DemoErr.catchToU64(error.First));
     try std.testing.expectEqual(
         program_error.errorToU64(error.InvalidArgument),
-        errorToU64WithCustom(error.InvalidArgument),
+        DemoErr.catchToU64(error.InvalidArgument),
     );
 }
 

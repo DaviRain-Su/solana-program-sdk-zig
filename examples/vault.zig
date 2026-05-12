@@ -4,7 +4,8 @@
 //!   - `parseAccountsWith` with comptime signer / writable / owner checks
 //!   - `TypedAccount(VaultState)` zero-copy typed account access
 //!   - `discriminator.forAccount("Vault")` type-confusion defence
-//!   - `ErrorCode(VaultError)` custom error codes
+//!   - `ErrorCode(VaultError)` + `VaultErr.Error` — typed errors per
+//!     variant survive on the wire as `Custom(u32)` codes
 //!   - `system.createRentExempt` + PDA signing
 //!   - `pda.verifyPda` to assert a passed-in PDA matches stored seeds + bump
 //!   - `vault.requireHasOne("authority", a.authority)` (`has_one` constraint)
@@ -17,12 +18,6 @@
 //!                      data: u64 amount
 //!   2 = Withdraw       accounts: authority (sig), vault PDA (w), recipient (w);
 //!                      data: u64 amount
-//!
-//! The vault PDA is derived from `[b"vault", authority.key().as_ref()]`
-//! at runtime for create/dispatch purposes; `parseAccountsWith` enforces
-//! the program-id ownership check on the vault for ix 1 / 2, and
-//! `verifyPda` / `requireHasOne` enforce the relational constraints in
-//! the withdraw path.
 
 const sol = @import("solana_program_sdk");
 
@@ -54,9 +49,7 @@ const VaultState = extern struct {
 
 // Events stay small on purpose. The off-chain indexer can recover
 // the involved pubkeys from the transaction's account list, so
-// duplicating them in the event payload is pure CU waste (each
-// 32-byte field costs ~32 CU on `sol_log_data` byte-fee alone, plus
-// memcpy/setup overhead).
+// duplicating them in the event payload is pure CU waste.
 const DepositEvent = extern struct {
     amount: u64,
     new_balance: u64,
@@ -75,11 +68,14 @@ const WithdrawEvent = extern struct {
 // Custom error codes (Anchor's #[error_code])
 // =========================================================================
 
-const VaultErr = sol.ErrorCode(enum(u32) {
-    Unauthorized = 6000,
-    InsufficientVaultBalance = 6001,
-    AmountOverflow = 6002,
-});
+const VaultErr = sol.ErrorCode(
+    enum(u32) {
+        Unauthorized = 6000,
+        InsufficientVaultBalance = 6001,
+        AmountOverflow = 6002,
+    },
+    error{ Unauthorized, InsufficientVaultBalance, AmountOverflow },
+);
 
 // =========================================================================
 // Instruction tags
@@ -95,35 +91,24 @@ const Ix = enum(u8) {
 // Entrypoint
 // =========================================================================
 
-/// Dispatch pattern for `lazyEntrypoint`-style programs:
+/// `process` returns `VaultErr.Error!void` — the union of:
+///   - per-variant errors (`error.Unauthorized`, `error.Overflow`, ...)
+///     synthesised by `ErrorCode(VaultError)` — these encode as
+///     `Custom(N)` on the wire;
+///   - `ProgramError` variants for system-error propagation via `try`.
 ///
-///   1. Parse all accounts first (with whatever shape your ixes share).
-///      Here every vault ix takes 3 accounts; the third differs in
-///      semantics (system_program vs recipient) but for dispatch we
-///      treat them uniformly.
-///   2. Read the ix data — `instructionData()` is now safe because
-///      `remaining == 0` after parsing.
-///   3. Dispatch on the first byte; each handler re-applies the
-///      per-ix expectations (signer/writable/owner/has_one) on the
-///      already-parsed accounts.
-///
-/// This is the "parse-then-dispatch" pattern Pinocchio programs use.
-///
-/// `programEntrypoint(3, ...)` would also work here and read marginally
-/// cleaner (positional `accounts[0]` access, no InstructionContext),
-/// but the CU cost is identical — LLVM optimizes the lazy +
-/// `parseAccountsUnchecked` path into the same straight-line code.
-fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
+/// `lazyEntrypointTyped` catches the error, dispatches on the variant
+/// name (custom vs builtin) and emits the right wire code.
+fn process(ctx: *sol.entrypoint.InstructionContext) VaultErr.Error!void {
     // `parseAccountsUnchecked` skips the dup-aware tagged-union switch
-    // — vault's three accounts have structurally distinct roles
-    // (authority / vault PDA / system_program or recipient), so duplicates
-    // are nonsensical and would fail downstream checks anyway. Saves
-    // ~70 CU per call vs the safe `parseAccounts`.
+    // — vault's three accounts have structurally distinct roles, so
+    // duplicates are nonsensical. Saves ~70 CU per call.
     const a = try ctx.parseAccountsUnchecked(.{ "first", "second", "third" });
     const data = try ctx.instructionData();
 
     const tag = sol.instruction.parseTag(Ix, data) orelse
         return error.InvalidInstructionData;
+
     if (tag == .initialize) return processInitialize(a.first, a.second, a.third, data);
     if (tag == .deposit) return processDeposit(a.first, a.second, a.third, data);
     if (tag == .withdraw) return processWithdraw(a.first, a.second, a.third, data);
@@ -141,34 +126,22 @@ fn processInitialize(
     vault: AccountInfo,
     system_program: AccountInfo,
     data: []const u8,
-) sol.ProgramResult {
-    // Per-ix expectations.
+) VaultErr.Error!void {
     try authority.expect(.{ .signer = true, .writable = true });
     try vault.expect(.{ .writable = true });
 
     // ix-data layout: [tag:1][bump:1]. The client passes the canonical
-    // bump (found off-chain via `find_program_address`) so we only need
-    // ONE `create_program_address` syscall (~1500 CU) instead of the
-    // up-to-255 SHA-256s of `find_program_address` (~3000-5000 CU).
-    //
-    // Security: `verifyPda` (via the seeds we feed into the CPI's
-    // signer_seeds list, which the runtime checks against the vault's
-    // claimed key) is what makes this safe — if the client lies about
-    // the bump, the CPI's signer-seed proof fails and the create
-    // aborts. We don't need a separate up-front PDA check.
+    // bump (found off-chain via `find_program_address`) so we only
+    // need ONE `create_program_address` syscall (~1500 CU) instead of
+    // up to 255 SHA-256s.
     const bump = sol.instruction.tryReadUnaligned(u8, data, 1) orelse
         return error.InvalidInstructionData;
 
     const bump_seed = [_]u8{bump};
 
     // Build the PDA signer in the runtime's C-ABI shape inline. We use
-    // `Seed.fromPubkey` to feed the authority key directly from the
-    // runtime's input buffer — saving a 32-byte stack copy compared to
-    // materialising `auth_key = authority.key().*` first.
-    //
-    // Fast path: `createRentExemptRaw` (and `invokeSignedRaw` under
-    // the hood) hand the pointer to the syscall without staging a
-    // copy. Saves ~80-120 CU vs. the `signer_seeds: &.{&.{...}}` shape.
+    // `Seed.fromPubkey` so the authority key is read directly from the
+    // runtime's input buffer — no 32-byte stack copy.
     const seeds = [_]sol.cpi.Seed{
         .from("vault"),
         .fromPubkey(authority.key()),
@@ -177,8 +150,8 @@ fn processInitialize(
     const signer = sol.cpi.Signer.from(&seeds);
 
     // `space` is comptime, so the SDK folds the rent-exempt minimum
-    // balance into a single u64 immediate at build time. No
-    // `sol_get_rent_sysvar` syscall (~85 CU) at runtime.
+    // into a single u64 immediate at build time — no `sol_get_rent_sysvar`
+    // syscall (~85 CU) at runtime.
     try sol.system.createRentExemptComptimeRaw(.{
         .payer = authority.toCpiInfo(),
         .new_account = vault.toCpiInfo(),
@@ -203,19 +176,16 @@ fn processDeposit(
     vault_info: AccountInfo,
     system_program: AccountInfo,
     data: []const u8,
-) sol.ProgramResult {
+) VaultErr.Error!void {
     try payer.expect(.{ .signer = true, .writable = true });
     try vault_info.expect(.{ .writable = true, .owner = PROGRAM_ID });
 
     const amount = sol.instruction.tryReadUnaligned(u64, data, 1) orelse
         return error.InvalidInstructionData;
 
-    // `bind` enforces the 8-byte discriminator. `assertOwnerComptime`
-    // above already proved we own the account, so a type-confusion
-    // attack would require the attacker to (a) pass an account we
-    // own and (b) get this program to have ever written a different
-    // type into it. We don't, so `bindUnchecked` is safe here and
-    // skips the 8-byte compare (~10-15 CU).
+    // `assertOwnerComptime` already proved we own the account, so
+    // `bindUnchecked` is safe here (skips the 8-byte discriminator
+    // compare — ~10-15 CU).
     const vault = sol.TypedAccount(VaultState).bindUnchecked(vault_info);
 
     try sol.system.transfer(
@@ -244,7 +214,7 @@ fn processWithdraw(
     vault_info: AccountInfo,
     recipient: AccountInfo,
     data: []const u8,
-) sol.ProgramResult {
+) VaultErr.Error!void {
     try authority.expect(.{ .signer = true });
     try vault_info.expect(.{ .writable = true, .owner = PROGRAM_ID });
     try recipient.expect(.{ .writable = true });
@@ -252,20 +222,16 @@ fn processWithdraw(
     const amount = sol.instruction.tryReadUnaligned(u64, data, 1) orelse
         return error.InvalidInstructionData;
 
-    // See deposit: `assertOwnerComptime` already proved this is our
-    // VaultState account, so the discriminator check is redundant.
     const vault = sol.TypedAccount(VaultState).bindUnchecked(vault_info);
 
+    // `requireHasOneWith` lets us pick which error to return on
+    // mismatch — we want `VaultErr.toError(.Unauthorized)` so the
+    // runtime sees code 6000 (not the default IncorrectAuthority).
     try vault.requireHasOneWith("authority", authority, VaultErr.toError(.Unauthorized));
 
-    // Cache the typed pointer once. LLVM can usually CSE these reads,
-    // but pinning the pointer avoids re-running the @ptrCast/@alignCast
-    // chain at every field access.
+    // Cache the typed pointer once.
     const state = vault.write();
 
-    // Pass `authority.key()[0..]` directly — the pubkey lives in the
-    // runtime input buffer, so we save a 32-byte stack copy compared
-    // to materialising `auth_key = authority.key().*` first.
     try sol.verifyPda(
         vault_info.key(),
         &.{ "vault", authority.key()[0..] },
@@ -273,16 +239,10 @@ fn processWithdraw(
         &PROGRAM_ID,
     );
 
-    // Use the `<` compare directly, not `sol.math.trySub`. Why: this
-    // is the **happy path** for a successful withdrawal, and BPFv2's
-    // codegen for `@subWithOverflow` materializes the carry flag as a
-    // value-to-store-and-test (~6 CU extra). The hand-written
-    // `if (a < b) err; let new = a - b;` shape compiles to a single
-    // compare-and-branch on the no-overflow path.
-    //
-    // The principle: prefer `try sol.math.sub/add` when you'd otherwise
-    // write a manual `@addWithOverflow` (they're free); but for
-    // `a < b → err else a - b`, the hand-written form is still cheaper.
+    // Use `<` directly, not `sol.math.trySub`. BPFv2 codegen for
+    // `@subWithOverflow` materializes the carry flag as a value-to-
+    // store-and-test (~6 CU extra). The hand-written form compiles
+    // to a single compare-and-branch on the no-overflow path.
     if (state.balance < amount) {
         return VaultErr.toError(.InsufficientVaultBalance);
     }
@@ -303,11 +263,8 @@ fn processWithdraw(
 // =========================================================================
 
 export fn entrypoint(input: [*]u8) u64 {
-    // Use the `With` variant because `process` calls
-    // `VaultErr.toError(.X)` — that helper stashes the original `u32`
-    // discriminator in a module-local slot, and `lazyEntrypointWith`
-    // reads it on the `error.Custom` path so the runtime sees the
-    // correct wire code. Plain `lazyEntrypoint` would collapse every
-    // VaultErr variant to `CUSTOM_ZERO`.
-    return sol.entrypoint.lazyEntrypointWith(process)(input);
+    // `lazyEntrypointTyped` catches `VaultErr.Error`, dispatches on
+    // variant name (custom code vs builtin ProgramError), and emits
+    // the matching wire u64.
+    return sol.entrypoint.lazyEntrypointTyped(VaultErr, process)(input);
 }

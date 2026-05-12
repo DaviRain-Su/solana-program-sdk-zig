@@ -1,134 +1,131 @@
 //! Custom program error codes — Anchor-style `#[error_code]` for Zig.
 //!
 //! Programs typically need a small enum of program-specific errors
-//! (Overflow, Unauthorized, NotInitialized, etc.) that get reported to
-//! the runtime using the `Custom(code)` mechanism. This module provides
-//! a one-line helper that:
+//! (Overflow, Unauthorized, NotInitialized, etc.) that the runtime
+//! reports via the `Custom(u32)` wire format. This module provides a
+//! one-line helper that:
 //!
-//!   1. Lets the user define an `enum(u32)` of error codes — the
-//!      `@intFromEnum` value goes on the wire as the custom error code.
-//!   2. Generates a corresponding error set (Zig `error{...}`) so the
-//!      values are usable in `try` chains alongside `ProgramError`.
-//!   3. Bridges between the two: `toError(code)` returns the matching
-//!      tagged error; `toU64(code)` returns the runtime wire form.
+//!   1. Lets the user declare an `enum(u32)` of error codes — the
+//!      `@intFromEnum` value goes on the wire as the custom error
+//!      code.
+//!   2. Declares a parallel `error{...}` set so the codes are usable
+//!      in `try` chains alongside `ProgramError`. The two
+//!      declarations are validated at comptime to have matching
+//!      variant names.
+//!   3. Bridges between the two: `toError(.X)` returns the matching
+//!      error variant; `toU64(.X)` returns the runtime wire form.
 //!
-//! Cost: zero. The `inline switch` in `toU64` is folded by the compiler
-//! into a direct return of the constant for monomorphic call sites.
+//! ## How custom codes survive to the wire
 //!
-//! Example:
+//! Zig error sets can't carry payloads (every `error.X` is a global
+//! interned name), and Solana programs **cannot use mutable global
+//! state** (the SBPFv2 loader rejects `.bss` / `.data`). So unlike
+//! Rust's `ProgramError::Custom(u32)`, we can't stash the
+//! discriminator alongside `error.Custom`.
+//!
+//! Instead `ErrorCode(E, ErrSet)` ties an `enum(u32)` to an
+//! `error{...}` set where the variants share names. The entrypoint's
+//! `catch` block dispatches on the error name to recover the original
+//! `u32` code. Cost: zero CU on the happy path.
+//!
+//! ## Example
 //!
 //! ```zig
-//! const MyErr = sol.errorCode(enum(u32) {
-//!     NotInitialized = 6000,
-//!     Overflow,
-//!     Unauthorized,
-//! });
+//! const VaultErr = sol.ErrorCode(
+//!     enum(u32) { Unauthorized = 6000, Overflow },
+//!     error{ Unauthorized, Overflow },
+//! );
 //!
-//! fn process(...) sol.ProgramResult {
-//!     if (overflow) return MyErr.toError(.Overflow);
+//! fn process(ctx: *InstructionContext) VaultErr.Error!void {
+//!     try sol.system.transfer(...);                       // ProgramError
+//!     if (bad) return VaultErr.toError(.Unauthorized);    // custom code
+//! }
+//!
+//! export fn entrypoint(input: [*]u8) u64 {
+//!     return sol.entrypoint.lazyEntrypointTyped(VaultErr, process)(input);
 //! }
 //! ```
 //!
-//! Convention: starting at 6000 mirrors Anchor's reservation of the
-//! 0..6000 range for the framework. Programs are free to start anywhere
-//! they like.
+//! The variant duplication is intentional — Zig 0.16's compiler in
+//! this fork doesn't expose `@Type` for synthesising error sets, so
+//! we keep both lists side-by-side and validate they match at
+//! comptime. Mismatched names produce a `@compileError`.
 
 const std = @import("std");
 const program_error = @import("program_error.zig");
 
-/// Module-local slot for the most recent custom error code.
-///
-/// BPF programs are single-threaded (one invocation per VM), so a
-/// plain module-level `var` is safe — the value is overwritten each
-/// time `toError` is called, and read at most once per invocation
-/// (by the entrypoint, in the error path).
-///
-/// `entrypointWith` reads this slot when the program returns
-/// `error.Custom`, recovering the original `u32` discriminator.
-///
-/// Cost: one stxw on the error path, one ldxw + cmp in the entrypoint.
-/// The happy path is **zero overhead** — the slot is never touched.
-var last_custom_code: u32 = 0;
+const ProgramError = program_error.ProgramError;
 
-/// Read the slot. Used by `entrypointWith`.
-pub fn lastCustomCode() u32 {
-    return last_custom_code;
-}
-
-/// Reset the slot. Useful in tests; programs don't need to call this.
-pub fn resetLastCustomCode() void {
-    last_custom_code = 0;
-}
-
-/// Wrap a user `enum(u32)` so it acts as a typed custom-error namespace.
+/// Wrap a user `enum(u32)` + parallel error set so they act as a
+/// typed custom-error namespace. The returned struct exposes:
+///   - `Code`     — alias for the input enum.
+///   - `ErrorSet` — the error set you passed.
+///   - `Error`    — `ErrorSet || ProgramError`, for handler returns.
+///   - `toU64(.X)` / `toError(.X)` / `catchToU64(err)`.
 ///
-/// Returns a struct with two helpers:
-///   - `toU64(code)` — encode as runtime wire format (Custom(N) → `N`,
-///     except `Custom(0)` → `CUSTOM_ZERO` sentinel).
-///   - `toError(code)` — return a `ProgramError.Custom` (the catch-all
-///     custom variant from the standard error set). Programs that need
-///     a *typed* error union for their internal helpers can keep using
-///     a private error set; on entrypoint return any custom code is
-///     just a `u32`.
-///
-/// Why this design (vs synthesising a Zig error set):
-/// ----------------------------------------------------
-/// Zig error sets are global-string-interned, so making one per program
-/// would balloon the global error name table. The runtime only cares
-/// about the `u32` code anyway. Programs that want typed errors can
-/// declare them locally with their own `error{...}` sets — this helper
-/// only owns the code → wire-format bridge, which is the part everyone
-/// needs.
-pub fn ErrorCode(comptime E: type) type {
+/// Validation: every field of `E` must have a same-named variant in
+/// `ErrSet`, and vice-versa. Mismatches → `@compileError`.
+pub fn ErrorCode(comptime E: type, comptime ErrSet: type) type {
     comptime {
-        const info = @typeInfo(E);
-        if (info != .@"enum") @compileError("ErrorCode(E): E must be an enum");
-        const tag = info.@"enum".tag_type;
-        if (tag != u32) @compileError("ErrorCode(E): E must be `enum(u32)` for runtime ABI compatibility");
+        const einfo = @typeInfo(E);
+        if (einfo != .@"enum") @compileError("ErrorCode(E, ErrSet): E must be an enum");
+        const tag = einfo.@"enum".tag_type;
+        if (tag != u32) @compileError("ErrorCode(E, ErrSet): E must be `enum(u32)` for runtime ABI compatibility");
+
+        const sinfo = @typeInfo(ErrSet);
+        if (sinfo != .error_set) @compileError("ErrorCode(E, ErrSet): ErrSet must be an error set type");
+        const errs = sinfo.error_set orelse
+            @compileError("ErrorCode(E, ErrSet): ErrSet must be a concrete error set, not anyerror");
+
+        // Match field counts and names.
+        if (einfo.@"enum".fields.len != errs.len) {
+            @compileError("ErrorCode(E, ErrSet): E has " ++
+                std.fmt.comptimePrint("{d}", .{einfo.@"enum".fields.len}) ++
+                " variants but ErrSet has " ++
+                std.fmt.comptimePrint("{d}", .{errs.len}));
+        }
+        for (einfo.@"enum".fields) |f| {
+            var found = false;
+            for (errs) |e| if (std.mem.eql(u8, f.name, e.name)) {
+                found = true;
+                break;
+            };
+            if (!found) {
+                @compileError("ErrorCode: enum variant `" ++ f.name ++
+                    "` has no matching error in ErrSet (add `" ++
+                    f.name ++ "` to your error{...})");
+            }
+        }
     }
+
     return struct {
         pub const Code = E;
+        pub const ErrorSet = ErrSet;
+        pub const Error = ErrSet || ProgramError;
 
-        /// Encode an error code into the runtime's u64 wire format.
-        /// `inline` so the result is folded to a constant at the call site.
+        /// Encode an error code into the runtime's `u64` wire format.
+        /// Folded to a constant at monomorphic call sites.
         pub inline fn toU64(code: E) u64 {
             return program_error.customError(@intFromEnum(code));
         }
 
-        /// Convert to a `ProgramError` for use in `try` chains.
-        ///
-        /// Zig error sets can't carry payload (every variant is a
-        /// global-interned name), so we stash the original `u32`
-        /// discriminator in a module-local slot before returning
-        /// `error.Custom`. Use one of:
-        ///
-        ///   - `entrypoint.lazyEntrypointWith` / `programEntrypointWith`:
-        ///     reads the slot on `error.Custom` and emits the real wire
-        ///     code. **Use these if you call `toError`.**
-        ///
-        ///   - `toU64(.X)` + `lazyEntrypointRaw`: bypass the error
-        ///     channel entirely. Same wire format, no slot dance.
-        ///
-        /// Cost: one `stxw` on the error path (cold). Zero CU on the
-        /// happy path — the slot is never touched.
-        pub inline fn toError(code: E) program_error.ProgramError {
-            last_custom_code = @intFromEnum(code);
-            return error.Custom;
+        /// Return the `ErrSet` variant whose name matches `code`'s
+        /// enum tag.
+        pub inline fn toError(comptime code: E) ErrSet {
+            return @field(ErrSet, @tagName(code));
         }
 
-        /// Variant of `lazyEntrypoint` that lets the user return a
-        /// raw `u64` derived from this enum — bypasses the `Custom`
-        /// loss of information. Equivalent to:
-        ///
-        /// ```zig
-        /// fn handler(ctx: *InstructionContext) ?MyErr.Code { ... }
-        /// // returns null on success, `.SomeError` on failure.
-        /// ```
-        ///
-        /// (No actual entrypoint helper here — kept as a doc example
-        /// to show the pattern. Users assemble it from `toU64` +
-        /// `lazyEntrypointRaw` directly.)
-        pub fn _docs_only() void {}
+        /// Map a caught `Error` back to its wire `u64`. Used by
+        /// `lazyEntrypointTyped` / `programEntrypointTyped`.
+        pub inline fn catchToU64(err: Error) u64 {
+            inline for (@typeInfo(E).@"enum".fields) |f| {
+                if (err == @field(ErrSet, f.name)) {
+                    return program_error.customError(f.value);
+                }
+            }
+            // Not a custom variant → it's a ProgramError.
+            return program_error.errorToU64(@errorCast(err));
+        }
     };
 }
 
@@ -141,7 +138,8 @@ const Demo = enum(u32) {
     Overflow = 6001,
     Unauthorized = 6002,
 };
-const DemoErr = ErrorCode(Demo);
+const DemoErrSet = error{ NotInitialized, Overflow, Unauthorized };
+const DemoErr = ErrorCode(Demo, DemoErrSet);
 
 test "ErrorCode: toU64 passes through non-zero codes" {
     try std.testing.expectEqual(@as(u64, 6000), DemoErr.toU64(.NotInitialized));
@@ -150,32 +148,44 @@ test "ErrorCode: toU64 passes through non-zero codes" {
 
 test "ErrorCode: toU64 maps Custom(0) to sentinel" {
     const Zero = enum(u32) { ZeroCode = 0 };
-    const ZeroErr = ErrorCode(Zero);
+    const ZeroErr = ErrorCode(Zero, error{ZeroCode});
     try std.testing.expectEqual(program_error.CUSTOM_ZERO, ZeroErr.toU64(.ZeroCode));
 }
 
-test "ErrorCode: toError yields Custom variant and stashes discriminator" {
-    resetLastCustomCode();
-    try std.testing.expectEqual(@as(u32, 0), lastCustomCode());
-
-    try std.testing.expectEqual(
-        program_error.ProgramError.Custom,
-        DemoErr.toError(.Overflow),
-    );
-    try std.testing.expectEqual(@as(u32, 6001), lastCustomCode());
-
-    // Subsequent calls overwrite the slot.
-    const e2 = DemoErr.toError(.Unauthorized);
-    try std.testing.expectEqual(program_error.ProgramError.Custom, e2);
-    try std.testing.expectEqual(@as(u32, 6002), lastCustomCode());
+test "ErrorCode: toError returns matching ErrorSet variant" {
+    const e: DemoErr.ErrorSet = DemoErr.toError(.Unauthorized);
+    try std.testing.expectEqual(error.Unauthorized, e);
 }
 
-test "ErrorCode: rejects non-u32 enums at compile time" {
-    // This would fail to compile:
-    // const Bad = enum(u8) { x };
-    // _ = ErrorCode(Bad);
-    //
-    // We can't directly assert compile errors in a test, but the
-    // restriction is documented and enforced by `@compileError` in
-    // `ErrorCode`.
+test "ErrorCode: catchToU64 maps custom variants to their u32 code" {
+    try std.testing.expectEqual(@as(u64, 6000), DemoErr.catchToU64(error.NotInitialized));
+    try std.testing.expectEqual(@as(u64, 6001), DemoErr.catchToU64(error.Overflow));
+    try std.testing.expectEqual(@as(u64, 6002), DemoErr.catchToU64(error.Unauthorized));
+}
+
+test "ErrorCode: catchToU64 passes through ProgramError variants" {
+    try std.testing.expectEqual(
+        program_error.INVALID_ARGUMENT,
+        DemoErr.catchToU64(error.InvalidArgument),
+    );
+    try std.testing.expectEqual(
+        program_error.MISSING_REQUIRED_SIGNATURES,
+        DemoErr.catchToU64(error.MissingRequiredSignature),
+    );
+}
+
+test "ErrorCode: Error union combines both halves" {
+    const make = struct {
+        fn custom() DemoErr.Error!void {
+            return DemoErr.toError(.Overflow);
+        }
+        fn builtin() DemoErr.Error!void {
+            return error.InvalidArgument;
+        }
+        fn ok() DemoErr.Error!void {}
+    };
+
+    try std.testing.expectError(error.Overflow, make.custom());
+    try std.testing.expectError(error.InvalidArgument, make.builtin());
+    try make.ok();
 }

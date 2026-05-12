@@ -171,8 +171,8 @@ pub fn TypedAccount(comptime T: type) type {
             self: Self,
             comptime field_name: []const u8,
             expected: AccountInfo,
-            comptime err: program_error.ProgramError,
-        ) ProgramError!void {
+            comptime err: anytype,
+        ) @TypeOf(err)!void {
             comptime {
                 if (!@hasField(T, field_name)) {
                     @compileError("requireHasOne: type " ++ @typeName(T) ++

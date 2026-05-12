@@ -36,10 +36,13 @@ pub const TokenInstruction = enum(u8) {
     initialize_mint = 0,
     initialize_account = 1,
     transfer = 3,
+    approve = 4,
+    revoke = 5,
     mint_to = 7,
     burn = 8,
     close_account = 9,
     transfer_checked = 12,
+    approve_checked = 13,
     mint_to_checked = 14,
     burn_checked = 15,
     initialize_account3 = 18,
@@ -70,7 +73,10 @@ pub const Spec = struct {
 };
 
 pub const transfer_spec: Spec = .{ .disc = .transfer, .accounts_len = 3, .data_len = 1 + 8 };
+pub const approve_spec: Spec = .{ .disc = .approve, .accounts_len = 3, .data_len = 1 + 8 };
+pub const revoke_spec: Spec = .{ .disc = .revoke, .accounts_len = 2, .data_len = 1 };
 pub const transfer_checked_spec: Spec = .{ .disc = .transfer_checked, .accounts_len = 4, .data_len = 1 + 8 + 1 };
+pub const approve_checked_spec: Spec = .{ .disc = .approve_checked, .accounts_len = 4, .data_len = 1 + 8 + 1 };
 pub const mint_to_spec: Spec = .{ .disc = .mint_to, .accounts_len = 3, .data_len = 1 + 8 };
 pub const mint_to_checked_spec: Spec = .{ .disc = .mint_to_checked, .accounts_len = 3, .data_len = 1 + 8 + 1 };
 pub const burn_spec: Spec = .{ .disc = .burn, .accounts_len = 3, .data_len = 1 + 8 };
@@ -110,7 +116,10 @@ comptime {
     // Each tuple = ( spec , expected accounts , expected payload-byte sum )
     const audits = .{
         .{ transfer_spec, 3, AMOUNT_LEN },
+        .{ approve_spec, 3, AMOUNT_LEN },
+        .{ revoke_spec, 2, 0 },
         .{ transfer_checked_spec, 4, AMOUNT_LEN + DECIMALS_LEN },
+        .{ approve_checked_spec, 4, AMOUNT_LEN + DECIMALS_LEN },
         .{ mint_to_spec, 3, AMOUNT_LEN },
         .{ mint_to_checked_spec, 3, AMOUNT_LEN + DECIMALS_LEN },
         .{ burn_spec, 3, AMOUNT_LEN },
@@ -170,9 +179,11 @@ const InitAccount3Ix = sol.instruction.comptimeInstructionData(
 // program code.
 comptime {
     std.debug.assert(AmountIx.bytes == transfer_spec.data_len);
+    std.debug.assert(AmountIx.bytes == approve_spec.data_len);
     std.debug.assert(AmountIx.bytes == mint_to_spec.data_len);
     std.debug.assert(AmountIx.bytes == burn_spec.data_len);
     std.debug.assert(AmountDecimalsIx.bytes == transfer_checked_spec.data_len);
+    std.debug.assert(AmountDecimalsIx.bytes == approve_checked_spec.data_len);
     std.debug.assert(AmountDecimalsIx.bytes == mint_to_checked_spec.data_len);
     std.debug.assert(AmountDecimalsIx.bytes == burn_checked_spec.data_len);
     std.debug.assert(InitAccount3Ix.bytes == initialize_account3_spec.data_len);
@@ -249,6 +260,87 @@ pub fn transferChecked(
     metas[1] = AccountMeta.readonly(mint);
     metas[2] = AccountMeta.writable(destination);
     metas[3] = AccountMeta.signer(authority);
+    return .{
+        .program_id = &id.PROGRAM_ID,
+        .accounts = metas,
+        .data = data,
+    };
+}
+
+/// `Approve { amount }` — discriminant 4.
+///
+/// Account metas (in order):
+///   0. source    — writable
+///   1. delegate  — readonly
+///   2. owner     — signer
+pub fn approve(
+    source: *const Pubkey,
+    delegate: *const Pubkey,
+    owner: *const Pubkey,
+    amount: u64,
+    metas: *metasArray(approve_spec),
+    data: *dataArray(approve_spec),
+) Instruction {
+    data.* = AmountIx.initWithDiscriminant(
+        @intFromEnum(TokenInstruction.approve),
+        .{ .amount = amount },
+    );
+    metas[0] = AccountMeta.writable(source);
+    metas[1] = AccountMeta.readonly(delegate);
+    metas[2] = AccountMeta.signer(owner);
+    return .{
+        .program_id = &id.PROGRAM_ID,
+        .accounts = metas,
+        .data = data,
+    };
+}
+
+/// `ApproveChecked { amount, decimals }` — discriminant 13.
+///
+/// Account metas (in order):
+///   0. source    — writable
+///   1. mint      — readonly
+///   2. delegate  — readonly
+///   3. owner     — signer
+pub fn approveChecked(
+    source: *const Pubkey,
+    mint: *const Pubkey,
+    delegate: *const Pubkey,
+    owner: *const Pubkey,
+    amount: u64,
+    decimals: u8,
+    metas: *metasArray(approve_checked_spec),
+    data: *dataArray(approve_checked_spec),
+) Instruction {
+    data.* = AmountDecimalsIx.initWithDiscriminant(
+        @intFromEnum(TokenInstruction.approve_checked),
+        .{ .amount = amount, .decimals = decimals },
+    );
+    metas[0] = AccountMeta.writable(source);
+    metas[1] = AccountMeta.readonly(mint);
+    metas[2] = AccountMeta.readonly(delegate);
+    metas[3] = AccountMeta.signer(owner);
+    return .{
+        .program_id = &id.PROGRAM_ID,
+        .accounts = metas,
+        .data = data,
+    };
+}
+
+/// `Revoke` — discriminant 5.
+///
+/// Account metas (in order):
+///   0. source    — writable
+///   1. owner     — signer
+pub fn revoke(
+    source: *const Pubkey,
+    owner: *const Pubkey,
+    metas: *metasArray(revoke_spec),
+    data: *dataArray(revoke_spec),
+) Instruction {
+    data[0] = @intFromEnum(TokenInstruction.revoke);
+    metas[0] = AccountMeta.writable(source);
+    metas[1] = AccountMeta.signer(owner);
     return .{
         .program_id = &id.PROGRAM_ID,
         .accounts = metas,
@@ -454,6 +546,30 @@ pub fn initializeMint2(
 // Tests — byte-level fidelity vs. canonical Rust encoding.
 // =============================================================================
 
+fn expectMeta(
+    actual: AccountMeta,
+    expected_key: *const Pubkey,
+    expected_writable: u8,
+    expected_signer: u8,
+) !void {
+    try std.testing.expectEqual(expected_key, actual.pubkey);
+    try std.testing.expectEqual(expected_writable, actual.is_writable);
+    try std.testing.expectEqual(expected_signer, actual.is_signer);
+}
+
+test "v0.2 approve/revoke specs and discriminants stay canonical" {
+    try std.testing.expectEqual(@as(u8, 4), @intFromEnum(TokenInstruction.approve));
+    try std.testing.expectEqual(@as(u8, 5), @intFromEnum(TokenInstruction.revoke));
+    try std.testing.expectEqual(@as(u8, 13), @intFromEnum(TokenInstruction.approve_checked));
+
+    try std.testing.expectEqual(@as(usize, 3), approve_spec.accounts_len);
+    try std.testing.expectEqual(@as(usize, 9), approve_spec.data_len);
+    try std.testing.expectEqual(@as(usize, 2), revoke_spec.accounts_len);
+    try std.testing.expectEqual(@as(usize, 1), revoke_spec.data_len);
+    try std.testing.expectEqual(@as(usize, 4), approve_checked_spec.accounts_len);
+    try std.testing.expectEqual(@as(usize, 10), approve_checked_spec.data_len);
+}
+
 test "transfer: 9-byte body with correct discriminant + LE amount" {
     const a: Pubkey = .{1} ** 32;
     const b: Pubkey = .{2} ** 32;
@@ -489,6 +605,66 @@ test "transferChecked: 10-byte body" {
     // mint must be readonly (no writable, no signer)
     try std.testing.expectEqual(@as(u8, 0), metas[1].is_writable);
     try std.testing.expectEqual(@as(u8, 0), metas[1].is_signer);
+}
+
+test "approve: canonical single-authority metas, LE amount, default program id, and caller scratch" {
+    const source: Pubkey = .{0x11} ** 32;
+    const delegate: Pubkey = .{0x22} ** 32;
+    const owner: Pubkey = .{0x33} ** 32;
+    var metas: metasArray(approve_spec) = undefined;
+    var data: dataArray(approve_spec) = undefined;
+    const ix = approve(&source, &delegate, &owner, 0x0807_0605_0403_0201, &metas, &data);
+
+    try std.testing.expectEqual(@as(usize, 3), ix.accounts.len);
+    try std.testing.expectEqual(@as(usize, 9), ix.data.len);
+    try std.testing.expectEqual(@as(u8, 4), data[0]);
+    try std.testing.expectEqual(@as(u64, 0x0807_0605_0403_0201), std.mem.readInt(u64, data[1..9], .little));
+    try std.testing.expectEqual(&id.PROGRAM_ID, ix.program_id);
+    try expectMeta(ix.accounts[0], &source, 1, 0);
+    try expectMeta(ix.accounts[1], &delegate, 0, 0);
+    try expectMeta(ix.accounts[2], &owner, 0, 1);
+    try std.testing.expectEqual(@intFromPtr(&metas[0]), @intFromPtr(ix.accounts.ptr));
+    try std.testing.expectEqual(@intFromPtr(&data[0]), @intFromPtr(ix.data.ptr));
+}
+
+test "approveChecked: canonical metas, amount/decimals encoding, default program id, and caller scratch" {
+    const source: Pubkey = .{0x44} ** 32;
+    const mint: Pubkey = .{0x55} ** 32;
+    const delegate: Pubkey = .{0x66} ** 32;
+    const owner: Pubkey = .{0x77} ** 32;
+    var metas: metasArray(approve_checked_spec) = undefined;
+    var data: dataArray(approve_checked_spec) = undefined;
+    const ix = approveChecked(&source, &mint, &delegate, &owner, 999, 6, &metas, &data);
+
+    try std.testing.expectEqual(@as(usize, 4), ix.accounts.len);
+    try std.testing.expectEqual(@as(usize, 10), ix.data.len);
+    try std.testing.expectEqual(@as(u8, 13), data[0]);
+    try std.testing.expectEqual(@as(u64, 999), std.mem.readInt(u64, data[1..9], .little));
+    try std.testing.expectEqual(@as(u8, 6), data[9]);
+    try std.testing.expectEqual(&id.PROGRAM_ID, ix.program_id);
+    try expectMeta(ix.accounts[0], &source, 1, 0);
+    try expectMeta(ix.accounts[1], &mint, 0, 0);
+    try expectMeta(ix.accounts[2], &delegate, 0, 0);
+    try expectMeta(ix.accounts[3], &owner, 0, 1);
+    try std.testing.expectEqual(@intFromPtr(&metas[0]), @intFromPtr(ix.accounts.ptr));
+    try std.testing.expectEqual(@intFromPtr(&data[0]), @intFromPtr(ix.data.ptr));
+}
+
+test "revoke: canonical single-authority metas, default program id, and caller scratch" {
+    const source: Pubkey = .{0x88} ** 32;
+    const owner: Pubkey = .{0x99} ** 32;
+    var metas: metasArray(revoke_spec) = undefined;
+    var data: dataArray(revoke_spec) = undefined;
+    const ix = revoke(&source, &owner, &metas, &data);
+
+    try std.testing.expectEqual(@as(usize, 2), ix.accounts.len);
+    try std.testing.expectEqual(@as(usize, 1), ix.data.len);
+    try std.testing.expectEqual(@as(u8, 5), data[0]);
+    try std.testing.expectEqual(&id.PROGRAM_ID, ix.program_id);
+    try expectMeta(ix.accounts[0], &source, 1, 0);
+    try expectMeta(ix.accounts[1], &owner, 0, 1);
+    try std.testing.expectEqual(@intFromPtr(&metas[0]), @intFromPtr(ix.accounts.ptr));
+    try std.testing.expectEqual(@intFromPtr(&data[0]), @intFromPtr(ix.data.ptr));
 }
 
 test "mintTo / burn / closeAccount discriminants" {

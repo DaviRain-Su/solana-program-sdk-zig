@@ -25,7 +25,7 @@ and can be depended on individually from outside the repo via
 | **`solana_program_sdk`** | (repo root) | on-chain | ✅ released | Core SDK for writing Solana on-chain programs in Zig |
 | **`spl_token`** | `packages/spl-token` | dual (on-chain CPI + off-chain ix builder) | 🚧 planned | SPL Token client (transfer / mintTo / burn / …) |
 | **`spl_ata`** | `packages/spl-ata` | dual | 🚧 planned | Associated Token Account address derivation + create CPI |
-| **`spl_memo`** | `packages/spl-memo` | dual | 🚧 planned | SPL Memo program CPI |
+| **`spl_memo`** | `packages/spl-memo` | dual | ✅ released (v0.1) | SPL Memo program CPI |
 | *(future)* `solana_client` | `packages/solana-client` | off-chain | 🔮 idea | RPC client for off-chain code |
 | *(future)* `solana_tx` | `packages/solana-tx` | off-chain | 🔮 idea | Off-chain transaction construction + signing |
 

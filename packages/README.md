@@ -10,7 +10,7 @@ the root SDK via a path import.
 |---|---|---|---|
 | [`spl-token`](./spl-token) | dual (on-chain CPI + off-chain ix builder) | 🚧 planned | SPL Token (transfer / mintTo / burn / …) |
 | [`spl-ata`](./spl-ata) | dual | 🚧 planned | Associated Token Account address derivation + create CPI |
-| [`spl-memo`](./spl-memo) | dual | 🚧 planned | SPL Memo program CPI |
+| [`spl-memo`](./spl-memo) | dual | ✅ v0.1 | SPL Memo program CPI |
 
 See [`../ROADMAP.md`](../ROADMAP.md#monorepo-分层) for the full
 package-naming convention and dependency layout rationale.

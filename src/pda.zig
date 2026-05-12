@@ -327,10 +327,9 @@ pub fn verifyPda(
     // Append bump as the final seed.
     //
     // Tried calling sol_create_program_address directly here to skip
-    // createProgramAddress's own staging copy — measured 0 CU change;
-    // LLVM SROAs the second copy when the seed count is comptime
-    // bounded (which it is here, via MAX_SEEDS). Keep the cleaner
-    // shape that goes through createProgramAddress.
+    // createProgramAddress's own staging copy + MAX_SEED_LEN check —
+    // measured +2 CU on withdraw (the syscall setup eats the staging
+    // win) AND broke host tests. Keep the cleaner shape.
     if (seeds.len + 1 > MAX_SEEDS) return ProgramError.MaxSeedLengthExceeded;
     var seeds_with_bump: [MAX_SEEDS][]const u8 = undefined;
     for (seeds, 0..) |s, i| seeds_with_bump[i] = s;

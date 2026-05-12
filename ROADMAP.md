@@ -783,9 +783,11 @@ Week 4: Phase 7
 
 | 指令 | Zig (this SDK) | Pinocchio | Anchor (典型) | 备注 |
 |---|---:|---:|---:|---|
-| `vault.initialize` | **1353 CU** | 1351 CU | 8000–10000 CU | client-supplied bump + system_program CPI 创建 + 写 discriminator |
-| `vault.deposit`    | **1544 CU** | 1565 CU | 5000–8000 CU  | system_program transfer CPI + balance bump + 24-byte emit |
-| `vault.withdraw`   | **1877 CU** | 1949 CU | 4000–6000 CU  | has_one + verifyPda(储存 bump) + 直接 lamport 转移 + 24-byte emit |
+| `vault.initialize` | **1334 CU** | 1351 CU | 8000–10000 CU | client-supplied bump + system_program CPI 创建 + 写 discriminator |
+| `vault.deposit`    | **1543 CU** | 1565 CU | 5000–8000 CU  | system_program transfer CPI + balance bump + 24-byte emit |
+| `vault.withdraw`   | **1866 CU** | 1949 CU | 4000–6000 CU  | has_one + verifyPda(储存 bump) + 直接 lamport 转移 + 24-byte emit |
+
+**🎯 三条指令全部反超 Pinocchio。** initialize 优势 17 CU，deposit 优势 22 CU，withdraw 优势 83 CU。
 
 整轮性能 journey（`f0ece32` → `0c7586b` → `79d3161`）累计：
 
@@ -795,7 +797,28 @@ Week 4: Phase 7
 | deposit    | 1583 → 1544 | −39 (−2.5%) | **−21 (反超)** |
 | withdraw   | 1887 → 1877 | −10 (−0.5%) | **−72 (反超)** |
 
-关键优化（按贡献大小）：
+**指令集层面优化（最后一轮，−25 CU 总计）**：
+
+通过反汇编 vault.so 直接读 BPF 字节码，找到 LLVM 没消除的开销：
+
+- **`pubkeyEqComptime` xor-or 重构**（−6 CU/call）— `pubkey_cmp_comptime`
+  从 30 → 24 CU。把 `a == e && a == e && ...` 改成
+  `(a ^ e) | (a ^ e) | ... == 0`，让 LLVM 把 4 个 short-circuit 分支合并
+  成 1 个 final compare。**只对 comptime RHS 有效**——runtime-vs-runtime
+  反而 +9 CU（BPFv2 的 cmp+jmp fusion 不喜欢 ALU 链）。
+- **vault.zig 消除 32 字节 pubkey 局部副本**（init −15 / withdraw −10 CU）—
+  把 `const auth_key = authority.key().*;` 删掉，直接传 `authority.key()[0..]`
+  给 `Seed.from`。auth_key 局部变量强制 LLVM 把 pubkey 拷到栈上（4 ldxdw + 4 stxdw）。
+- **`TypedAccount.initialize` 单次 store**（−3 CU）— 把 "写 value 再覆盖 disc"
+  改成 "rebuild value with disc 设好，单次 store"。消除冗余的 8 字节
+  disc 二次写入。
+
+`pubkeyEqAligned` (runtime-vs-runtime) 试了同样的 xor-or 重构 — 实测
+`pubkey_cmp_unchecked` 从 18 → 27 CU（+9 CU regression）。结论：BPFv2 的
+**comptime 立即数比较** 喜欢 xor-or（少分支），**runtime 寄存器比较**
+喜欢 and-chain（cmp+jmp fusion）。两种 shape 都要保留。
+
+**关键优化（按贡献大小）**：
 
 1. **`vault.initialize` 客户端 bump**（−3027 CU）— 把 `findProgramAddress`
    的 256 次循环从链上移到客户端。Client 在交易构造阶段调用

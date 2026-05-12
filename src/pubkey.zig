@@ -132,7 +132,14 @@ pub inline fn pubkeyEq(a: *const Pubkey, b: *const Pubkey) bool {
 pub inline fn pubkeyEqAligned(a: *const Pubkey, b: *const Pubkey) bool {
     const a_chunks: *const [4]u64 = @ptrCast(@alignCast(a));
     const b_chunks: *const [4]u64 = @ptrCast(@alignCast(b));
-
+    // Kept as `and`-chain (not xor-or) — runtime-vs-runtime compares
+    // benefit from BPFv2's cmp+jmp fusion that lets each pair be
+    // `ldxdw + ldxdw + jne` (2 ALU + 1 cond branch = 3 inst/pair).
+    // The xor-or shape costs +9 CU on `pubkey_cmp_unchecked` because
+    // it forces a full materialization of all 4 differences. For
+    // **comptime** RHS we use xor-or instead (see `pubkeyEqComptime`)
+    // — there the immediate-load is the dominant cost so collapsing
+    // 4 branches into 1 is a net win.
     return a_chunks[0] == b_chunks[0] and
         a_chunks[1] == b_chunks[1] and
         a_chunks[2] == b_chunks[2] and
@@ -164,10 +171,17 @@ pub inline fn pubkeyEqComptime(
 
     if (bpf.is_bpf_program) {
         const a_chunks: *const [4]u64 = @ptrCast(@alignCast(a));
-        return a_chunks[0] == e[0] and
-            a_chunks[1] == e[1] and
-            a_chunks[2] == e[2] and
-            a_chunks[3] == e[3];
+        // XOR-OR shape: gives LLVM the option to use a single final
+        // compare (one branch) instead of an `and`-chain that early-
+        // outs on each mismatch. On BPFv2 the immediate-load cost
+        // (`mov32`+`hor64`) is the same either way, so collapsing 4
+        // branches into 1 saves ~3 CU on the happy path. Mirrors the
+        // pattern used in Pinocchio's `Pubkey::eq` on Solana SBPF.
+        const diff = (a_chunks[0] ^ e[0]) |
+            (a_chunks[1] ^ e[1]) |
+            (a_chunks[2] ^ e[2]) |
+            (a_chunks[3] ^ e[3]);
+        return diff == 0;
     }
 
     // Host: unaligned-safe path

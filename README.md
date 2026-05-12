@@ -7,10 +7,11 @@ on-chain programs. Stock Zig 0.16 is sufficient for host-side unit tests.
 
 **Performance:** the in-repo `examples/vault.zig` (a representative
 Anchor-style program — PDA creation, typed state, `has_one`, stored-bump
-verify, structured events) runs at **1353 / 1544 / 1877 CU** for
-`initialize` / `deposit` / `withdraw` — at or below the
-[Pinocchio](https://github.com/anza-xyz/pinocchio) reference for all three
-instructions. See [`examples/vault.zig`](examples/vault.zig) and the
+verify, structured events) runs at **1334 / 1543 / 1866 CU** for
+`initialize` / `deposit` / `withdraw` — **beats**
+[Pinocchio](https://github.com/anza-xyz/pinocchio) on all three
+instructions (−17 / −22 / −83 CU respectively). See
+[`examples/vault.zig`](examples/vault.zig) and the
 [Performance](#performance) section for the methodology.
 
 [fork]: https://github.com/joncinque/solana-zig-bootstrap/releases/tag/solana-v1.53.0
@@ -226,9 +227,9 @@ zig-out/lib cargo run -- vault_*`):
 
 | Instruction | Zig (this SDK) | Pinocchio | Zig − Pino | Anchor (typical) |
 |---|---:|---:|---:|---:|
-| `vault.initialize` | **1353** | 1351 |   +2 (+0.1%) | 8000–10000 |
-| `vault.deposit`    | **1544** | 1565 |  −21 (−1.3%) | 5000–8000  |
-| `vault.withdraw`   | **1877** | 1949 |  −72 (−3.7%) | 4000–6000  |
+| `vault.initialize` | **1334** | 1351 |  −17 (−1.3%) | 8000–10000 |
+| `vault.deposit`    | **1543** | 1565 |  −22 (−1.4%) | 5000–8000  |
+| `vault.withdraw`   | **1866** | 1949 |  −83 (−4.3%) | 4000–6000  |
 
 Both implementations live in the repo (`examples/vault.zig` for Zig,
 `bench-pinocchio/src/lib.rs` for Pinocchio) and run the **identical**
@@ -237,12 +238,26 @@ client-supplied bump, same 56-byte account layout, same 24-byte
 `sol_log_data` event payload — so the comparison isolates pure SDK
 overhead.
 
-Reading: all three instructions are at or below Pinocchio.
-`initialize` is 2 CU behind (within instruction-count noise);
-`deposit` is **21 CU faster** and `withdraw` is **72 CU faster**.
-The CPI staging path (`CpiAccountInfo.fromPtr`) and stored-bump PDA
-verify are the two named optimizations that pull both data-plane
-instructions past the Pinocchio reference.
+Reading: all three instructions now beat Pinocchio outright.
+`initialize` is **17 CU faster**, `deposit` is **22 CU faster**,
+`withdraw` is **83 CU faster**. The named optimizations that
+pulled past Pinocchio (in order of contribution):
+
+- **Stored-bump PDA + client-supplied bump** — skips the
+  `findProgramAddress` 256-iteration loop entirely.
+- **Direct lamport mutation on `withdraw`** — Solana's asymmetric
+  lamport rule lets a program-owned account *decrease* lamports
+  via pointer mutation; only `deposit` needs the CPI.
+- **`CpiAccountInfo.fromPtr` u32 flag-copy** — single load+store
+  instead of three byte ops, ported from Pinocchio's
+  `init_from_account_view`.
+- **`pubkeyEqComptime` xor-or shape** — collapses 4 immediate
+  short-circuit compares into 1 final cmp (−6 CU per call).
+- **Pubkey-pointer threading** (instead of value copies) — passing
+  `authority.key()[0..]` directly to `Seed.from` avoids a
+  32-byte stack copy per PDA derive.
+- **`TypedAccount.initialize` disc-rebuild** — single-store the
+  user value with disc field stamped, instead of write-then-overwrite.
 
 #### Why `withdraw` (1877 CU) is lower than the body alone suggests
 

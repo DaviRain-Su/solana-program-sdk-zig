@@ -13,7 +13,7 @@ Reproduce: `./scripts/bench.sh` from the repo root. Requires
 | `pubkey_cmp_safe` (byte-by-byte)   |   26 |
 | `pubkey_cmp_safe_raw`              |   18 |
 | `pubkey_cmp_unchecked` (aligned)   |   18 |
-| `pubkey_cmp_comptime`              |   30 |
+| `pubkey_cmp_comptime` (xor-or)     |   24 |
 | `pubkey_cmp_runtime_const`         |   30 |
 | `pda_runtime` (syscall)            | 3025 |
 | `pda_comptime` (build-time fold)   |    6 |
@@ -38,12 +38,11 @@ comparison isolates pure SDK overhead.
 
 | Instruction          | Zig (this SDK) | Pinocchio | Δ (Zig − Pino)  |
 |----------------------|---------------:|----------:|----------------:|
-| `vault_initialize`   |       **1353** |     1351  |  +2  (+0.1%)   |
-| `vault_deposit`      |       **1544** |     1565  | −21  (−1.3%)   |
-| `vault_withdraw`     |       **1877** |     1949  | −72  (−3.7%)   |
+| `vault_initialize`   |       **1334** |     1351  | −17  (−1.3%)   |
+| `vault_deposit`      |       **1543** |     1565  | −22  (−1.4%)   |
+| `vault_withdraw`     |       **1866** |     1949  | −83  (−4.3%)   |
 
-All three vault instructions are at or below the Pinocchio reference.
-`initialize` is tied (within noise); `deposit` and `withdraw` beat it.
+**All three vault instructions now beat the Pinocchio reference.**
 
 ## Performance journey on `vault.initialize` (1823 → 1353, −26%)
 

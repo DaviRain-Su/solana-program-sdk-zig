@@ -264,6 +264,10 @@ pub const CpiAccountInfo = extern struct {
         // both sides, which is fine since both sides have padding
         // there). This mirrors Pinocchio's `CpiAccount::init_from_account_view`
         // and saves a few CU vs. three byte loads + three byte stores.
+        //
+        // Tried u64 copy (8 bytes) but the source's byte 8 is `key[0]`,
+        // not zero, so it would write garbage into `_abi_padding`.
+        // u32 is the safe maximum.
         const flags_src: *align(1) const u32 = @ptrCast(&ptr.is_signer);
         var out: CpiAccountInfo = .{
             .key_ptr = &ptr.key,

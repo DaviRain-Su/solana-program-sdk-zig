@@ -160,16 +160,19 @@ fn processInitialize(
     if (data.len < 2) return error.InvalidInstructionData;
     const bump: u8 = data[1];
 
-    const auth_key = authority.key().*;
     const bump_seed = [_]u8{bump};
 
-    // Build the PDA signer in the runtime's C-ABI shape inline. This
-    // is the fast path — `createRentExemptRaw` (and `invokeSignedRaw`
-    // under the hood) hand the pointer to the syscall without staging
-    // a copy. Saves ~80-120 CU vs. the `signer_seeds: &.{&.{...}}` shape.
+    // Build the PDA signer in the runtime's C-ABI shape inline. We pass
+    // `authority.key()[0..]` directly — the authority pubkey lives in
+    // the runtime's input buffer, so we save a 32-byte stack copy
+    // compared to materialising `auth_key = authority.key().*` first.
+    //
+    // Fast path: `createRentExemptRaw` (and `invokeSignedRaw` under
+    // the hood) hand the pointer to the syscall without staging a
+    // copy. Saves ~80-120 CU vs. the `signer_seeds: &.{&.{...}}` shape.
     const seeds = [_]sol.cpi.Seed{
         .from("vault"),
-        .from(auth_key[0..]),
+        .from(authority.key()[0..]),
         .from(&bump_seed),
     };
     const signer = sol.cpi.Signer.from(&seeds);
@@ -186,7 +189,7 @@ fn processInitialize(
 
     _ = try sol.TypedAccount(VaultState).initialize(vault, .{
         .discriminator = undefined,
-        .authority = auth_key,
+        .authority = authority.key().*,
         .balance = 0,
         .bump = bump,
     });
@@ -264,10 +267,12 @@ fn processWithdraw(
     // chain at every field access.
     const state = vault.write();
 
-    const auth_key = authority.key().*;
+    // Pass `authority.key()[0..]` directly — the pubkey lives in the
+    // runtime input buffer, so we save a 32-byte stack copy compared
+    // to materialising `auth_key = authority.key().*` first.
     try sol.verifyPda(
         vault_info.key(),
-        &.{ "vault", auth_key[0..] },
+        &.{ "vault", authority.key()[0..] },
         state.bump,
         &PROGRAM_ID,
     );

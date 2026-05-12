@@ -15,8 +15,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-
-const is_solana = builtin.os.tag == .freestanding and builtin.cpu.arch == .bpfel;
+const is_bpf_program = @import("bpf.zig").is_bpf_program;
 
 extern fn sol_remaining_compute_units() callconv(.c) u64;
 
@@ -27,7 +26,7 @@ extern fn sol_remaining_compute_units() callconv(.c) u64;
 /// directly — the syscall itself costs a fixed number of CU per the
 /// runtime's pricing table (currently 1 CU).
 pub fn remaining() u64 {
-    if (is_solana) {
+    if (is_bpf_program) {
         return sol_remaining_compute_units();
     } else {
         return std.math.maxInt(u64);

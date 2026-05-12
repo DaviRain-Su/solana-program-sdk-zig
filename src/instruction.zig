@@ -114,6 +114,109 @@ pub inline fn comptimeDiscriminantOnly(comptime discriminant: anytype) [(@bitSiz
 }
 
 // =============================================================================
+// Unaligned typed reads — zero-cost deserialization helpers
+// =============================================================================
+
+/// Read a value of type `T` from `bytes` at `offset`, treating the
+/// source as unaligned. Compiles to a single `ldxdw`/`ldxw`/etc.
+/// instruction — identical BPF to the raw pointer-cast pattern.
+///
+/// **Bounds**: requires `bytes.len >= offset + @sizeOf(T)`. The check
+/// is a runtime branch; if `offset` is comptime and `bytes.len` has a
+/// known lower bound (e.g. the caller did `if (data.len < N) return …;`)
+/// LLVM eliminates it.
+///
+/// Replaces the verbose:
+/// ```zig
+/// const amount: u64 = @as(*align(1) const u64, @ptrCast(data[1..9])).*;
+/// ```
+/// with:
+/// ```zig
+/// const amount = sol.instruction.readUnaligned(u64, data, 1);
+/// ```
+///
+/// `T` must be a pointer-bitcast-safe type (primitive, `extern struct`
+/// with `align(1)`, fixed-size array, packed struct). Verified at
+/// comptime via `@sizeOf(T)`.
+pub inline fn readUnaligned(comptime T: type, bytes: []const u8, comptime offset: usize) T {
+    return @as(*align(1) const T, @ptrCast(bytes[offset..][0..@sizeOf(T)])).*;
+}
+
+/// Same as `readUnaligned` but takes a `[*]const u8` raw pointer.
+/// Useful when you have a pointer into a larger buffer and want to
+/// avoid forming a slice first.
+pub inline fn readUnalignedPtr(comptime T: type, ptr: [*]const u8) T {
+    return @as(*align(1) const T, @ptrCast(ptr)).*;
+}
+
+/// Typed reader over a `[]const u8` instruction-data buffer.
+///
+/// Wraps a slice and exposes typed field accessors at comptime-known
+/// offsets. The discriminator byte (or u32) is treated as field 0;
+/// remaining fields follow contiguously. All accessors are inline and
+/// fold to single unaligned loads — identical BPF to hand-written
+/// pointer casts.
+///
+/// Layout `Fields` must be an `extern struct` (so offsets are
+/// deterministic at comptime). Field order matches the on-wire byte
+/// order.
+///
+/// Example:
+/// ```zig
+/// const VaultDepositArgs = extern struct {
+///     tag: u8,
+///     amount: u64 align(1),
+/// };
+/// const args = sol.instruction.IxDataReader(VaultDepositArgs).bind(data)
+///     orelse return error.InvalidInstructionData;
+/// const amount = args.get(.amount); // single ldxdw, offset 1
+/// ```
+///
+/// The `bind` constructor returns `null` if the slice is too short;
+/// `bindUnchecked` skips the length check (caller asserts via prior
+/// `data.len < N` guard, which LLVM then folds into a no-op).
+pub fn IxDataReader(comptime Fields: type) type {
+    comptime {
+        const info = @typeInfo(Fields);
+        if (info != .@"struct" or info.@"struct".layout != .@"extern") {
+            @compileError("IxDataReader requires an extern struct (got " ++
+                @typeName(Fields) ++ ")");
+        }
+    }
+
+    return struct {
+        const Self = @This();
+        const size = @sizeOf(Fields);
+
+        ptr: *align(1) const Fields,
+
+        /// Bind a slice. Returns `null` if too short.
+        pub inline fn bind(bytes: []const u8) ?Self {
+            if (bytes.len < size) return null;
+            return .{ .ptr = @ptrCast(bytes.ptr) };
+        }
+
+        /// Bind a slice without bounds check. Caller must have
+        /// already verified `bytes.len >= @sizeOf(Fields)`.
+        pub inline fn bindUnchecked(bytes: []const u8) Self {
+            return .{ .ptr = @ptrCast(bytes.ptr) };
+        }
+
+        /// Read a single field by name. Comptime field-name → comptime
+        /// offset → single unaligned load.
+        pub inline fn get(self: Self, comptime field: std.meta.FieldEnum(Fields)) @FieldType(Fields, @tagName(field)) {
+            return @field(self.ptr.*, @tagName(field));
+        }
+
+        /// Return a pointer to the whole struct. Useful when you want
+        /// to pass the parsed args around as a single value.
+        pub inline fn all(self: Self) *align(1) const Fields {
+            return self.ptr;
+        }
+    };
+}
+
+// =============================================================================
 // Tests
 // =============================================================================
 
@@ -169,4 +272,52 @@ test "instruction: comptimeInstructionData initWithDiscriminant" {
 test "instruction: discriminant only" {
     const ix_data = comptimeDiscriminantOnly(@as(u32, 5));
     try std.testing.expectEqual(@as(u32, 5), std.mem.readInt(u32, &ix_data, .little));
+}
+
+test "instruction: readUnaligned primitive" {
+    const data = [_]u8{ 0x01, 0xef, 0xcd, 0xab, 0x90, 0x78, 0x56, 0x34, 0x12 };
+    const amount = readUnaligned(u64, &data, 1);
+    try std.testing.expectEqual(@as(u64, 0x1234567890abcdef), amount);
+
+    const tag = readUnaligned(u8, &data, 0);
+    try std.testing.expectEqual(@as(u8, 1), tag);
+}
+
+test "instruction: readUnaligned struct" {
+    const Args = extern struct {
+        a: u32 align(1),
+        b: u64 align(1),
+    };
+    const data = [_]u8{
+        0x78, 0x56, 0x34, 0x12, // a = 0x12345678
+        0xef, 0xcd, 0xab, 0x90, 0x78, 0x56, 0x34, 0x12, // b
+    };
+    const args = readUnaligned(Args, &data, 0);
+    try std.testing.expectEqual(@as(u32, 0x12345678), args.a);
+    try std.testing.expectEqual(@as(u64, 0x1234567890abcdef), args.b);
+}
+
+test "instruction: IxDataReader basic" {
+    const VaultArgs = extern struct {
+        tag: u8,
+        amount: u64 align(1),
+    };
+
+    const data = [_]u8{
+        2, // tag
+        0xef, 0xcd, 0xab, 0x90, 0x78, 0x56, 0x34, 0x12, // amount
+    };
+
+    const r = IxDataReader(VaultArgs).bind(&data) orelse unreachable;
+    try std.testing.expectEqual(@as(u8, 2), r.get(.tag));
+    try std.testing.expectEqual(@as(u64, 0x1234567890abcdef), r.get(.amount));
+}
+
+test "instruction: IxDataReader bind returns null on short slice" {
+    const VaultArgs = extern struct {
+        tag: u8,
+        amount: u64 align(1),
+    };
+    const short = [_]u8{ 1, 2, 3 };
+    try std.testing.expect(IxDataReader(VaultArgs).bind(&short) == null);
 }

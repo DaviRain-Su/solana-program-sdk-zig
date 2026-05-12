@@ -67,14 +67,19 @@ fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
     // and saves ~70 CU on this path vs the safe `parseAccounts`.
     const accs = try ctx.parseAccountsUnchecked(.{ "first", "second" });
     const data = try ctx.instructionData();
-    if (data.len < 12) return error.InvalidInstructionData;
 
-    // Read discriminant — single u32 load
-    const raw_tag: u32 = @as(*align(1) const u32, @ptrCast(data[0..4])).*;
-    const tag: Tag = @enumFromInt(raw_tag);
+    // Typed deserialization — comptime field offsets, identical BPF
+    // to hand-written pointer casts but no runtime overhead and the
+    // layout is documented as a struct.
+    const Args = extern struct {
+        tag: u32 align(1),
+        amount: u64 align(1),
+    };
+    const args = sol.instruction.IxDataReader(Args).bind(data) orelse
+        return error.InvalidInstructionData;
 
-    // Read amount — single u64 load
-    const amount: u64 = @as(*align(1) const u64, @ptrCast(data[4..12])).*;
+    const tag: Tag = @enumFromInt(args.get(.tag));
+    const amount = args.get(.amount);
 
     // For benchmarking we model burn/mint as paired lamport moves
     // (first ↔ second) so the runtime's lamport-sum check passes.

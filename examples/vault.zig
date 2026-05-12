@@ -211,7 +211,7 @@ fn processDeposit(
     try vault_info.assertOwnerComptime(PROGRAM_ID);
 
     if (data.len < 9) return error.InvalidInstructionData;
-    const amount: u64 = @as(*align(1) const u64, @ptrCast(data[1..9])).*;
+    const amount = sol.instruction.readUnaligned(u64, data, 1);
 
     // `bind` enforces the 8-byte discriminator. `assertOwnerComptime`
     // above already proved we own the account, so a type-confusion
@@ -254,7 +254,7 @@ fn processWithdraw(
     try recipient.expectWritable();
 
     if (data.len < 9) return error.InvalidInstructionData;
-    const amount: u64 = @as(*align(1) const u64, @ptrCast(data[1..9])).*;
+    const amount = sol.instruction.readUnaligned(u64, data, 1);
 
     // See deposit: `assertOwnerComptime` already proved this is our
     // VaultState account, so the discriminator check is redundant.

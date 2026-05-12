@@ -133,6 +133,32 @@ get the canonical error variant (`MissingRequiredSignature`,
 The same `expectSigner()` / `expectWritable()` / `expectExecutable()`
 helpers are available directly on `AccountInfo` for ad-hoc checks.
 
+### Typed instruction-data deserialization
+
+Two helpers replace the verbose `@as(*align(1) const T, @ptrCast(data[a..b])).*`
+pattern that pervades on-chain code:
+
+```zig
+// Single-field read at a comptime offset
+const amount = sol.instruction.readUnaligned(u64, data, 1);
+
+// Multi-field read via an extern struct — fields are accessed by name,
+// offsets are folded at compile time
+const Args = extern struct {
+    tag: u32 align(1),
+    amount: u64 align(1),
+};
+const args = sol.instruction.IxDataReader(Args).bind(data)
+    orelse return error.InvalidInstructionData;
+const amount = args.get(.amount);  // single ldxdw, offset 4
+```
+
+Both compile to the **same BPF as hand-written pointer casts** —
+verified by disassembly. The win is purely ergonomic: layout is
+documented as a struct, field offsets can't be miscalculated, and
+the bounds check is a single comptime-known compare that LLVM folds
+when the caller has already guarded `data.len`.
+
 ### Anchor-style foundations (no framework required)
 
 The SDK ships a few building blocks for "Anchor-style" programs while
@@ -481,7 +507,7 @@ fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
     const ix_data = try ctx.instructionData();
     if (ix_data.len < 8) return error.InvalidInstructionData;
 
-    const amount: u64 = @as(*align(1) const u64, @ptrCast(ix_data[0..8])).*;
+    const amount = sol.instruction.readUnaligned(u64, ix_data, 0);
     source.raw.lamports -= amount;
     dest.raw.lamports += amount;
 }
@@ -510,7 +536,7 @@ fn process(ctx: *sol.entrypoint.InstructionContext) u64 {
     const ix_data = ctx.instructionDataUnchecked();
     if (ix_data.len < 8) return 1;
 
-    const amount: u64 = @as(*align(1) const u64, @ptrCast(ix_data[0..8])).*;
+    const amount = sol.instruction.readUnaligned(u64, ix_data, 0);
     source.raw.lamports -= amount;
     dest.raw.lamports += amount;
     return 0;

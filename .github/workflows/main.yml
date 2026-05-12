@@ -38,6 +38,8 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
+          # Fresh build — see `programs` job for the rationale.
+          rm -rf .zig-cache zig-out
           zig build test --summary all -freference-trace 2>&1 | tee test-output.txt
       - name: Upload test output
         if: always()
@@ -66,6 +68,11 @@ jobs:
       - name: Test library with solana-zig
         shell: bash
         run: |
+          # Always build from a clean slate so the CI catches any
+          # `.bss` / `.data` regression on the BPF target (the SBPFv2
+          # loader rejects programs with writable globals; a stale
+          # `.zig-cache` once masked an `ErrorCode` regression).
+          rm -rf .zig-cache zig-out
           "$SOLANA_ZIG" build test --summary all
       - uses: actions/cache@v4
         with:

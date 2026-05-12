@@ -38,15 +38,25 @@ pub const TokenInstruction = enum(u8) {
     transfer = 3,
     approve = 4,
     revoke = 5,
+    set_authority = 6,
     mint_to = 7,
     burn = 8,
     close_account = 9,
+    freeze_account = 10,
+    thaw_account = 11,
     transfer_checked = 12,
     approve_checked = 13,
     mint_to_checked = 14,
     burn_checked = 15,
     initialize_account3 = 18,
     initialize_mint2 = 20,
+};
+
+pub const AuthorityType = enum(u8) {
+    MintTokens = 0,
+    FreezeAccount = 1,
+    AccountOwner = 2,
+    CloseAccount = 3,
 };
 
 // =============================================================================
@@ -75,6 +85,14 @@ pub const Spec = struct {
 pub const transfer_spec: Spec = .{ .disc = .transfer, .accounts_len = 3, .data_len = 1 + 8 };
 pub const approve_spec: Spec = .{ .disc = .approve, .accounts_len = 3, .data_len = 1 + 8 };
 pub const revoke_spec: Spec = .{ .disc = .revoke, .accounts_len = 2, .data_len = 1 };
+pub const set_authority_none_data_len: usize = 1 + 1 + 1;
+pub const set_authority_spec: Spec = .{
+    .disc = .set_authority,
+    .accounts_len = 2,
+    .data_len = set_authority_none_data_len + @sizeOf(Pubkey),
+};
+pub const freeze_account_spec: Spec = .{ .disc = .freeze_account, .accounts_len = 3, .data_len = 1 };
+pub const thaw_account_spec: Spec = .{ .disc = .thaw_account, .accounts_len = 3, .data_len = 1 };
 pub const transfer_checked_spec: Spec = .{ .disc = .transfer_checked, .accounts_len = 4, .data_len = 1 + 8 + 1 };
 pub const approve_checked_spec: Spec = .{ .disc = .approve_checked, .accounts_len = 4, .data_len = 1 + 8 + 1 };
 pub const mint_to_spec: Spec = .{ .disc = .mint_to, .accounts_len = 3, .data_len = 1 + 8 };
@@ -111,6 +129,8 @@ comptime {
     const COPTION_PUBKEY_LEN: usize = 4 + PUBKEY_LEN; // bincode COption<Pubkey>
     const AMOUNT_LEN: usize = 8;
     const DECIMALS_LEN: usize = 1;
+    const AUTHORITY_TYPE_LEN: usize = 1;
+    const COMPACT_OPTION_TAG_LEN: usize = 1;
     const DISC_LEN: usize = 1;
 
     // Each tuple = ( spec , expected accounts , expected payload-byte sum )
@@ -118,6 +138,9 @@ comptime {
         .{ transfer_spec, 3, AMOUNT_LEN },
         .{ approve_spec, 3, AMOUNT_LEN },
         .{ revoke_spec, 2, 0 },
+        .{ set_authority_spec, 2, AUTHORITY_TYPE_LEN + COMPACT_OPTION_TAG_LEN + PUBKEY_LEN },
+        .{ freeze_account_spec, 3, 0 },
+        .{ thaw_account_spec, 3, 0 },
         .{ transfer_checked_spec, 4, AMOUNT_LEN + DECIMALS_LEN },
         .{ approve_checked_spec, 4, AMOUNT_LEN + DECIMALS_LEN },
         .{ mint_to_spec, 3, AMOUNT_LEN },
@@ -348,6 +371,98 @@ pub fn revoke(
     };
 }
 
+/// `SetAuthority { authority_type, new_authority }` —
+/// discriminant 6.
+///
+/// Account metas (in order):
+///   0. mint_or_account    — writable
+///   1. current_authority  — signer
+///
+/// The wire-format uses the compact instruction-level option used
+/// by classic SPL Token:
+///   * `Some(pubkey)` => `[6, authority_type, 1, pubkey(32)]`
+///   * `None`         => `[6, authority_type, 0]`
+///
+/// `data` is sized for the longest form (35 bytes), but the
+/// returned instruction slice shrinks to 3 bytes when
+/// `new_authority` is `null`.
+pub fn setAuthority(
+    mint_or_account: *const Pubkey,
+    current_authority: *const Pubkey,
+    authority_type: AuthorityType,
+    new_authority: ?*const Pubkey,
+    metas: *metasArray(set_authority_spec),
+    data: *dataArray(set_authority_spec),
+) Instruction {
+    data[0] = @intFromEnum(TokenInstruction.set_authority);
+    data[1] = @intFromEnum(authority_type);
+
+    const data_len = if (new_authority) |authority| blk: {
+        data[2] = 1;
+        @memcpy(data[3..set_authority_spec.data_len], authority);
+        break :blk set_authority_spec.data_len;
+    } else blk: {
+        data[2] = 0;
+        break :blk set_authority_none_data_len;
+    };
+
+    metas[0] = AccountMeta.writable(mint_or_account);
+    metas[1] = AccountMeta.signer(current_authority);
+    return .{
+        .program_id = &id.PROGRAM_ID,
+        .accounts = metas,
+        .data = data[0..data_len],
+    };
+}
+
+/// `FreezeAccount` — discriminant 10.
+///
+/// Account metas (in order):
+///   0. account            — writable
+///   1. mint               — readonly
+///   2. freeze_authority   — signer
+pub fn freezeAccount(
+    account: *const Pubkey,
+    mint: *const Pubkey,
+    freeze_authority: *const Pubkey,
+    metas: *metasArray(freeze_account_spec),
+    data: *dataArray(freeze_account_spec),
+) Instruction {
+    data[0] = @intFromEnum(TokenInstruction.freeze_account);
+    metas[0] = AccountMeta.writable(account);
+    metas[1] = AccountMeta.readonly(mint);
+    metas[2] = AccountMeta.signer(freeze_authority);
+    return .{
+        .program_id = &id.PROGRAM_ID,
+        .accounts = metas,
+        .data = data,
+    };
+}
+
+/// `ThawAccount` — discriminant 11.
+///
+/// Account metas (in order):
+///   0. account            — writable
+///   1. mint               — readonly
+///   2. freeze_authority   — signer
+pub fn thawAccount(
+    account: *const Pubkey,
+    mint: *const Pubkey,
+    freeze_authority: *const Pubkey,
+    metas: *metasArray(thaw_account_spec),
+    data: *dataArray(thaw_account_spec),
+) Instruction {
+    data[0] = @intFromEnum(TokenInstruction.thaw_account);
+    metas[0] = AccountMeta.writable(account);
+    metas[1] = AccountMeta.readonly(mint);
+    metas[2] = AccountMeta.signer(freeze_authority);
+    return .{
+        .program_id = &id.PROGRAM_ID,
+        .accounts = metas,
+        .data = data,
+    };
+}
+
 /// `MintTo { amount }` — discriminant 7.
 ///
 /// Account metas (in order):
@@ -557,17 +672,43 @@ fn expectMeta(
     try std.testing.expectEqual(expected_signer, actual.is_signer);
 }
 
-test "v0.2 approve/revoke specs and discriminants stay canonical" {
+test "v0.2 authority/freeze specs and discriminants stay canonical" {
     try std.testing.expectEqual(@as(u8, 4), @intFromEnum(TokenInstruction.approve));
     try std.testing.expectEqual(@as(u8, 5), @intFromEnum(TokenInstruction.revoke));
+    try std.testing.expectEqual(@as(u8, 6), @intFromEnum(TokenInstruction.set_authority));
+    try std.testing.expectEqual(@as(u8, 10), @intFromEnum(TokenInstruction.freeze_account));
+    try std.testing.expectEqual(@as(u8, 11), @intFromEnum(TokenInstruction.thaw_account));
     try std.testing.expectEqual(@as(u8, 13), @intFromEnum(TokenInstruction.approve_checked));
 
     try std.testing.expectEqual(@as(usize, 3), approve_spec.accounts_len);
     try std.testing.expectEqual(@as(usize, 9), approve_spec.data_len);
     try std.testing.expectEqual(@as(usize, 2), revoke_spec.accounts_len);
     try std.testing.expectEqual(@as(usize, 1), revoke_spec.data_len);
+    try std.testing.expectEqual(@as(usize, 2), set_authority_spec.accounts_len);
+    try std.testing.expectEqual(@as(usize, 35), set_authority_spec.data_len);
+    try std.testing.expectEqual(@as(usize, 3), set_authority_none_data_len);
+    try std.testing.expectEqual(@as(usize, 3), freeze_account_spec.accounts_len);
+    try std.testing.expectEqual(@as(usize, 1), freeze_account_spec.data_len);
+    try std.testing.expectEqual(@as(usize, 3), thaw_account_spec.accounts_len);
+    try std.testing.expectEqual(@as(usize, 1), thaw_account_spec.data_len);
     try std.testing.expectEqual(@as(usize, 4), approve_checked_spec.accounts_len);
     try std.testing.expectEqual(@as(usize, 10), approve_checked_spec.data_len);
+}
+
+test "AuthorityType is canonical" {
+    const cases = [_]struct {
+        authority_type: AuthorityType,
+        value: u8,
+    }{
+        .{ .authority_type = .MintTokens, .value = 0 },
+        .{ .authority_type = .FreezeAccount, .value = 1 },
+        .{ .authority_type = .AccountOwner, .value = 2 },
+        .{ .authority_type = .CloseAccount, .value = 3 },
+    };
+
+    inline for (cases) |case| {
+        try std.testing.expectEqual(case.value, @intFromEnum(case.authority_type));
+    }
 }
 
 test "transfer: 9-byte body with correct discriminant + LE amount" {
@@ -665,6 +806,99 @@ test "revoke: canonical single-authority metas, default program id, and caller s
     try expectMeta(ix.accounts[1], &owner, 0, 1);
     try std.testing.expectEqual(@intFromPtr(&metas[0]), @intFromPtr(ix.accounts.ptr));
     try std.testing.expectEqual(@intFromPtr(&data[0]), @intFromPtr(ix.data.ptr));
+}
+
+test "setAuthority: all AuthorityType variants encode compact Some/None forms with canonical metas" {
+    const mint_or_account: Pubkey = .{0xA1} ** 32;
+    const current_authority: Pubkey = .{0xB2} ** 32;
+    const new_authority: Pubkey = .{0xC3} ** 32;
+    const cases = [_]AuthorityType{
+        .MintTokens,
+        .FreezeAccount,
+        .AccountOwner,
+        .CloseAccount,
+    };
+
+    inline for (cases) |authority_type| {
+        var some_metas: metasArray(set_authority_spec) = undefined;
+        var some_data: dataArray(set_authority_spec) = undefined;
+        const some_ix = setAuthority(
+            &mint_or_account,
+            &current_authority,
+            authority_type,
+            &new_authority,
+            &some_metas,
+            &some_data,
+        );
+
+        try std.testing.expectEqual(@as(usize, 2), some_ix.accounts.len);
+        try std.testing.expectEqual(@as(usize, 35), some_ix.data.len);
+        try std.testing.expectEqual(@as(u8, 6), some_data[0]);
+        try std.testing.expectEqual(@intFromEnum(authority_type), some_data[1]);
+        try std.testing.expectEqual(@as(u8, 1), some_data[2]);
+        try std.testing.expectEqualSlices(u8, &new_authority, some_data[3..35]);
+        try std.testing.expectEqual(&id.PROGRAM_ID, some_ix.program_id);
+        try expectMeta(some_ix.accounts[0], &mint_or_account, 1, 0);
+        try expectMeta(some_ix.accounts[1], &current_authority, 0, 1);
+        try std.testing.expectEqual(@intFromPtr(&some_metas[0]), @intFromPtr(some_ix.accounts.ptr));
+        try std.testing.expectEqual(@intFromPtr(&some_data[0]), @intFromPtr(some_ix.data.ptr));
+
+        var none_metas: metasArray(set_authority_spec) = undefined;
+        var none_data: dataArray(set_authority_spec) = undefined;
+        const none_ix = setAuthority(
+            &mint_or_account,
+            &current_authority,
+            authority_type,
+            null,
+            &none_metas,
+            &none_data,
+        );
+
+        try std.testing.expectEqual(@as(usize, 2), none_ix.accounts.len);
+        try std.testing.expectEqual(@as(usize, 3), none_ix.data.len);
+        try std.testing.expectEqual(@as(u8, 6), none_data[0]);
+        try std.testing.expectEqual(@intFromEnum(authority_type), none_data[1]);
+        try std.testing.expectEqual(@as(u8, 0), none_data[2]);
+        try std.testing.expectEqual(&id.PROGRAM_ID, none_ix.program_id);
+        try expectMeta(none_ix.accounts[0], &mint_or_account, 1, 0);
+        try expectMeta(none_ix.accounts[1], &current_authority, 0, 1);
+        try std.testing.expectEqual(@intFromPtr(&none_metas[0]), @intFromPtr(none_ix.accounts.ptr));
+        try std.testing.expectEqual(@intFromPtr(&none_data[0]), @intFromPtr(none_ix.data.ptr));
+    }
+}
+
+test "freezeAccount and thawAccount: canonical data, metas, program id, and caller scratch" {
+    const account: Pubkey = .{0xD4} ** 32;
+    const mint: Pubkey = .{0xE5} ** 32;
+    const freeze_authority: Pubkey = .{0xF6} ** 32;
+
+    var freeze_metas: metasArray(freeze_account_spec) = undefined;
+    var freeze_data: dataArray(freeze_account_spec) = undefined;
+    const freeze_ix = freezeAccount(&account, &mint, &freeze_authority, &freeze_metas, &freeze_data);
+
+    try std.testing.expectEqual(@as(usize, 3), freeze_ix.accounts.len);
+    try std.testing.expectEqual(@as(usize, 1), freeze_ix.data.len);
+    try std.testing.expectEqual(@as(u8, 10), freeze_data[0]);
+    try std.testing.expectEqual(&id.PROGRAM_ID, freeze_ix.program_id);
+    try expectMeta(freeze_ix.accounts[0], &account, 1, 0);
+    try expectMeta(freeze_ix.accounts[1], &mint, 0, 0);
+    try expectMeta(freeze_ix.accounts[2], &freeze_authority, 0, 1);
+    try std.testing.expectEqual(@intFromPtr(&freeze_metas[0]), @intFromPtr(freeze_ix.accounts.ptr));
+    try std.testing.expectEqual(@intFromPtr(&freeze_data[0]), @intFromPtr(freeze_ix.data.ptr));
+
+    var thaw_metas: metasArray(thaw_account_spec) = undefined;
+    var thaw_data: dataArray(thaw_account_spec) = undefined;
+    const thaw_ix = thawAccount(&account, &mint, &freeze_authority, &thaw_metas, &thaw_data);
+
+    try std.testing.expectEqual(@as(usize, 3), thaw_ix.accounts.len);
+    try std.testing.expectEqual(@as(usize, 1), thaw_ix.data.len);
+    try std.testing.expectEqual(@as(u8, 11), thaw_data[0]);
+    try std.testing.expectEqual(&id.PROGRAM_ID, thaw_ix.program_id);
+    try expectMeta(thaw_ix.accounts[0], &account, 1, 0);
+    try expectMeta(thaw_ix.accounts[1], &mint, 0, 0);
+    try expectMeta(thaw_ix.accounts[2], &freeze_authority, 0, 1);
+    try std.testing.expectEqual(@intFromPtr(&thaw_metas[0]), @intFromPtr(thaw_ix.accounts.ptr));
+    try std.testing.expectEqual(@intFromPtr(&thaw_data[0]), @intFromPtr(thaw_ix.data.ptr));
 }
 
 test "mintTo / burn / closeAccount discriminants" {

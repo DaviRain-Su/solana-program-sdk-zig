@@ -18,6 +18,8 @@ pub const system = @import("system.zig");
 pub const sysvar = @import("sysvar.zig");
 pub const sysvar_instructions = @import("sysvar_instructions.zig");
 pub const pda = @import("pda.zig");
+pub const ed25519_instruction = @import("ed25519_instruction.zig");
+pub const secp256k1_instruction = @import("secp256k1_instruction.zig");
 
 // Anchor-style foundations (typed accounts, discriminators, error codes, events)
 pub const discriminator = @import("discriminator.zig");

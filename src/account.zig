@@ -231,22 +231,28 @@ pub const AccountInfo = struct {
                 // runtime compare). Comptime case is ~3-4 CU cheaper.
                 const owner_val: Pubkey = val;
                 if (!pubkey.pubkeyEqComptime(self.owner(), owner_val)) {
-                    return error.IncorrectProgramId;
+                    return program_error.fail(
+                        "expect:owner_mismatch",
+                        error.IncorrectProgramId,
+                    );
                 }
             } else if (comptime std.mem.eql(u8, name, "owner_any")) {
                 // Multi-program owner check: comptime slice of Pubkeys.
                 // Useful for "either SPL Token or Token-2022" patterns.
                 if (!pubkey.pubkeyEqAny(self.owner(), val)) {
-                    return error.IncorrectProgramId;
+                    return program_error.fail(
+                        "expect:owner_any_mismatch",
+                        error.IncorrectProgramId,
+                    );
                 }
             } else if (comptime std.mem.eql(u8, name, "key")) {
                 const key_val: Pubkey = val;
                 if (!pubkey.pubkeyEqComptime(self.key(), key_val)) {
-                    return error.InvalidArgument;
+                    return program_error.fail("expect:key_mismatch", error.InvalidArgument);
                 }
             } else if (comptime std.mem.eql(u8, name, "key_any")) {
                 if (!pubkey.pubkeyEqAny(self.key(), val)) {
-                    return error.InvalidArgument;
+                    return program_error.fail("expect:key_any_mismatch", error.InvalidArgument);
                 }
             } else {
                 @compileError("Unknown expectation field: '" ++ name ++
@@ -265,7 +271,9 @@ pub const AccountInfo = struct {
         expected: *const Pubkey,
     ) ProgramError!void {
         if (!self.isSigner()) return error.MissingRequiredSignature;
-        if (!pubkey.pubkeyEq(self.key(), expected)) return error.InvalidArgument;
+        if (!pubkey.pubkeyEq(self.key(), expected)) {
+            return program_error.fail("expect:signer_key_mismatch", error.InvalidArgument);
+        }
     }
 
     /// Comptime-key variant — folds the 32-byte compare into four
@@ -275,7 +283,9 @@ pub const AccountInfo = struct {
         comptime expected: Pubkey,
     ) ProgramError!void {
         if (!self.isSigner()) return error.MissingRequiredSignature;
-        if (!pubkey.pubkeyEqComptime(self.key(), expected)) return error.InvalidArgument;
+        if (!pubkey.pubkeyEqComptime(self.key(), expected)) {
+            return program_error.fail("expect:signer_key_mismatch", error.InvalidArgument);
+        }
     }
 
     /// Combined `expectSigner + expectWritable` — checks both flags

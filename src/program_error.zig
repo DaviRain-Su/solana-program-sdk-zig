@@ -175,6 +175,65 @@ pub fn u64ToError(code: u64) ProgramError {
 }
 
 // =============================================================================
+// Diagnostic helpers — emit a runtime log right before failing.
+//
+// Programs running on the Solana runtime only return a single u64 to
+// the caller, which collapses every error site that maps to the same
+// builtin (`InvalidArgument`, `InvalidAccountData`, …) into the same
+// wire code. That makes a deployed program hard to debug from the
+// outside.
+//
+// The Rust ecosystem (Anchor, SPL, agave's own programs) all paper
+// over this the same way: print a short tag via `msg!(...)` immediately
+// before returning. The wire return value stays a builtin so CPI
+// callers can still pattern-match on it, but on Explorer / RPC logs
+// the tag pinpoints the failure.
+//
+// The two helpers below are the equivalent of Anchor's `err!`/`error!`
+// macros — comptime tags compile down to a single `sol_log_` call.
+// Failure paths in this SDK use them; user code can adopt the same
+// pattern.
+//
+// CU cost: `sol_log_` is ~100 CU base + 1 CU per byte. Failures are
+// rare on the happy path so this is negligible in practice — and in
+// exchange you get a string in the transaction logs that says exactly
+// which constraint blew up.
+// =============================================================================
+
+const log = @import("log.zig");
+
+/// Log `tag` then return `err`. Use at every SDK / business-logic
+/// failure site where the wire code alone doesn't disambiguate.
+///
+/// ```zig
+/// return sol.fail("vault:wrong_authority", error.IncorrectAuthority);
+/// ```
+///
+/// Conventional tag format: `"<module>:<reason>"`. Pick something
+/// short — every byte costs 1 CU.
+pub inline fn fail(comptime tag: []const u8, err: ProgramError) ProgramError {
+    log.log(tag);
+    return err;
+}
+
+/// Formatted variant — use sparingly (every argument byte costs CU
+/// and the BPF target formats into a 256 B stack buffer). Typical
+/// use: include a numeric value alongside the tag for context.
+///
+/// ```zig
+/// return sol.failFmt("ix:bad_tag", "got={d}", .{tag}, error.InvalidInstructionData);
+/// ```
+pub inline fn failFmt(
+    comptime tag: []const u8,
+    comptime fmt: []const u8,
+    args: anytype,
+    err: ProgramError,
+) ProgramError {
+    log.print(tag ++ " " ++ fmt, args);
+    return err;
+}
+
+// =============================================================================
 // Tests
 // =============================================================================
 
@@ -228,4 +287,14 @@ test "program_error: customError encodes Custom(0) as sentinel" {
     try std.testing.expectEqual(CUSTOM_ZERO, customError(0));
     try std.testing.expectEqual(@as(u64, 42), customError(42));
     try std.testing.expectEqual(@as(u64, 0xFFFF_FFFF), customError(0xFFFF_FFFF));
+}
+
+test "program_error: fail returns the supplied error" {
+    const got = fail("test:tag", ProgramError.InvalidArgument);
+    try std.testing.expectEqual(ProgramError.InvalidArgument, got);
+}
+
+test "program_error: failFmt returns the supplied error" {
+    const got = failFmt("test:tag", "x={d}", .{42}, ProgramError.IncorrectAuthority);
+    try std.testing.expectEqual(ProgramError.IncorrectAuthority, got);
 }

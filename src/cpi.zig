@@ -344,7 +344,7 @@ pub fn invokeSigned(
     }
 
     if (signers_seeds.len > MAX_CPI_SIGNERS) {
-        return error.InvalidArgument;
+        return program_error.fail("cpi:too_many_signers", error.InvalidArgument);
     }
 
     // Build the C-ABI signer descriptors on the stack.
@@ -360,7 +360,7 @@ pub fn invokeSigned(
     var pool_cursor: usize = 0;
     for (signers_seeds, 0..) |seeds, i| {
         if (seeds.len > MAX_CPI_SEEDS_PER_SIGNER) {
-            return error.InvalidArgument;
+            return program_error.fail("cpi:too_many_seeds", error.InvalidArgument);
         }
         const start = pool_cursor;
         for (seeds) |seed| {

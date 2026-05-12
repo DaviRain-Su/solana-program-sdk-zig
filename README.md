@@ -402,6 +402,62 @@ Each line is independently usable — `TypedAccount` doesn't require
 discriminators, `parseAccountsWith` doesn't require `TypedAccount`,
 nothing requires anything else. Use only the pieces you need.
 
+### Diagnostic helpers — `sol.fail`, `sol.require*`, Anchor parity
+
+Programs running on Solana return a single `u64` to the caller. That
+makes a deployed program hard to debug from the outside: every
+`InvalidArgument` / `InvalidAccountData` / … failure site collapses
+into the same wire code. The convention across Rust SDK / Anchor /
+SPL is to print a short `msg!(...)` immediately before returning, so
+Explorer / RPC logs pinpoint *which* constraint actually fired.
+
+This SDK exposes that pattern as two layers.
+
+**`sol.fail(tag, err)`** — log `tag`, return `err`. The primitive.
+The comptime `tag` compiles down to a single `sol_log_` call.
+
+```zig
+return sol.fail("vault:wrong_authority", error.IncorrectAuthority);
+return sol.failFmt("ix:bad_tag", "got={d}", .{tag}, error.InvalidInstructionData);
+```
+
+**`sol.require*`** — Anchor's `require_*!` macro family, as inline
+functions. Happy path compiles to a single branch (zero overhead);
+failure path logs the tag and returns:
+
+| Anchor (Rust) | This SDK (Zig) |
+|---|---|
+| `require!(cond, err)` | `try sol.require(cond, "tag", err)` |
+| `require_eq!(a, b, err)` | `try sol.requireEq(a, b, "tag", err)` |
+| `require_neq!(a, b, err)` | `try sol.requireNeq(a, b, "tag", err)` |
+| `require_keys_eq!(a, b, err)` | `try sol.requireKeysEq(&a, &b, "tag", err)` |
+| `require_keys_neq!(a, b, err)` | `try sol.requireKeysNeq(&a, &b, "tag", err)` |
+
+```zig
+fn process(ctx: *sol.InstructionContext) sol.ProgramResult {
+    const a = try ctx.parseAccountsWith(.{ ... });
+
+    try sol.requireKeysEq(a.authority.key(), &state.authority,
+        "vault:wrong_authority", error.IncorrectAuthority);
+
+    try sol.require(amount > 0, "vault:zero_amount", error.InvalidArgument);
+}
+```
+
+CU cost: failure path is `~100 CU base + 1 CU per byte of the tag`
+(per the runtime's `sol_log_` pricing). Happy path: zero. Failures
+are panic-level events so this is negligible in practice — and you
+get a `Program log: vault:wrong_authority` in every failed
+transaction, instead of just `Custom program error: 0x...`.
+
+**SDK-internal failures already log tags.** The same pattern is used
+inside every constraint helper this SDK exposes (`parseAccountsWith`'s
+expectations, `expectSigner`, `getSysvarBytes`, the CPI builders,
+sysvar-instructions index checks, …) — when one of them fails you
+see `parse:authority:not_signer` / `expect:owner_mismatch` /
+`sysvar:offset_out_of_range` / etc. in the logs, not just the
+builtin name.
+
 ### End-to-end vault program (CU vs. Pinocchio vs. Anchor)
 
 The `examples/vault.zig` program exercises the SDK's Anchor-style

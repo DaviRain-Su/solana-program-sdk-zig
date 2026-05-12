@@ -89,12 +89,17 @@ extern fn sol_get_sysvar(
 /// Read `length` bytes of `sysvar_id`'s account data starting at
 /// `offset` into `dst`. `dst.len` must be at least `length`.
 ///
-/// Maps the runtime's three return codes onto `ProgramError`:
+/// Maps the runtime's two error codes onto `ProgramError` and logs a
+/// tag so each failure mode is distinguishable on the transaction
+/// log (the wire u64 alone wouldn't be — `InvalidArgument` /
+/// `UnsupportedSysvar` are both extremely common values):
 ///
-///   - `OFFSET_LENGTH_EXCEEDS_SYSVAR` → `InvalidArgument` (matches
-///     Rust's `get_sysvar` mapping).
-///   - `SYSVAR_NOT_FOUND` (and any other unexpected code) →
-///     `UnsupportedSysvar`.
+///   - `OFFSET_LENGTH_EXCEEDS_SYSVAR` (rc=1) →
+///     `tag:"sysvar:offset_out_of_range"`, `InvalidArgument`.
+///   - `SYSVAR_NOT_FOUND` (rc=2) →
+///     `tag:"sysvar:not_found"`, `UnsupportedSysvar`.
+///   - Any other non-zero rc →
+///     `tag:"sysvar:unexpected"`, `UnsupportedSysvar`.
 ///
 /// On host targets this returns `UnsupportedSysvar` — there's no
 /// runtime to query.
@@ -104,7 +109,9 @@ pub fn getSysvarBytes(
     offset: u64,
     length: u64,
 ) ProgramError!void {
-    if (dst.len < length) return ProgramError.InvalidArgument;
+    if (dst.len < length) {
+        return program_error.fail("sysvar:dst_too_small", ProgramError.InvalidArgument);
+    }
 
     if (bpf.is_bpf_program) {
         const rc = sol_get_sysvar(
@@ -115,8 +122,9 @@ pub fn getSysvarBytes(
         );
         return switch (rc) {
             0 => {},
-            1 => ProgramError.InvalidArgument,
-            else => ProgramError.UnsupportedSysvar,
+            1 => program_error.fail("sysvar:offset_out_of_range", ProgramError.InvalidArgument),
+            2 => program_error.fail("sysvar:not_found", ProgramError.UnsupportedSysvar),
+            else => program_error.fail("sysvar:unexpected", ProgramError.UnsupportedSysvar),
         };
     } else {
         return ProgramError.UnsupportedSysvar;

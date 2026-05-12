@@ -24,6 +24,7 @@ pub const discriminator = @import("discriminator.zig");
 pub const typed_account = @import("typed_account.zig");
 pub const error_code = @import("error_code.zig");
 pub const event = @import("event.zig");
+pub const require_mod = @import("require.zig");
 
 // Existing modules
 pub const instruction = @import("instruction.zig");
@@ -64,6 +65,17 @@ pub const ProgramError = program_error.ProgramError;
 pub const ProgramResult = program_error.ProgramResult;
 pub const SUCCESS = program_error.SUCCESS;
 pub const customError = program_error.customError;
+
+// Diagnostic helpers — log a tag before failing so deployed programs
+// can pinpoint which constraint blew up without changing the wire
+// return code. See `src/require.zig` for the full `require_*!` family.
+pub const fail = program_error.fail;
+pub const failFmt = program_error.failFmt;
+pub const require = require_mod.require;
+pub const requireEq = require_mod.requireEq;
+pub const requireNeq = require_mod.requireNeq;
+pub const requireKeysEq = require_mod.requireKeysEq;
+pub const requireKeysNeq = require_mod.requireKeysNeq;
 
 // Anchor-style aliases — short names for the most common usage.
 pub const TypedAccount = typed_account.TypedAccount;

@@ -160,7 +160,12 @@ pub const InstructionContext = struct {
     /// when you've consumed accounts via `nextAccountUnchecked` (which
     /// leaves `remaining` unchanged).
     pub inline fn instructionData(self: *const InstructionContext) ProgramError![]const u8 {
-        if (self.remaining > 0) return error.InvalidInstructionData;
+        if (self.remaining > 0) {
+            return program_error.fail(
+                "ctx:accounts_not_consumed",
+                error.InvalidInstructionData,
+            );
+        }
         return self.instructionDataUnchecked();
     }
 
@@ -176,7 +181,12 @@ pub const InstructionContext = struct {
     /// Get program ID. Returns an error if accounts are still unparsed.
     /// Mirrors Pinocchio's `program_id`. Does NOT advance the buffer.
     pub inline fn programId(self: *const InstructionContext) ProgramError!*const Pubkey {
-        if (self.remaining > 0) return error.InvalidInstructionData;
+        if (self.remaining > 0) {
+            return program_error.fail(
+                "ctx:accounts_not_consumed",
+                error.InvalidInstructionData,
+            );
+        }
         return self.programIdUnchecked();
     }
 
@@ -368,17 +378,38 @@ pub const InstructionContext = struct {
             };
             seen[i] = acc;
 
-            if (exp.signer) try acc.expectSigner();
-            if (exp.writable) try acc.expectWritable();
-            if (exp.executable) try acc.expectExecutable();
+            if (exp.signer and !acc.isSigner()) {
+                return program_error.fail(
+                    "parse:" ++ name ++ ":not_signer",
+                    error.MissingRequiredSignature,
+                );
+            }
+            if (exp.writable and !acc.isWritable()) {
+                return program_error.fail(
+                    "parse:" ++ name ++ ":not_writable",
+                    error.ImmutableAccount,
+                );
+            }
+            if (exp.executable and !acc.executable()) {
+                return program_error.fail(
+                    "parse:" ++ name ++ ":not_executable",
+                    error.InvalidAccountData,
+                );
+            }
             if (exp.owner) |expected_owner| {
                 if (!acc.isOwnedByComptime(expected_owner)) {
-                    return error.IncorrectProgramId;
+                    return program_error.fail(
+                        "parse:" ++ name ++ ":wrong_owner",
+                        error.IncorrectProgramId,
+                    );
                 }
             }
             if (exp.key) |expected_key| {
                 if (!pubkey.pubkeyEqComptime(acc.key(), expected_key)) {
-                    return error.InvalidArgument;
+                    return program_error.fail(
+                        "parse:" ++ name ++ ":key_mismatch",
+                        error.InvalidArgument,
+                    );
                 }
             }
 

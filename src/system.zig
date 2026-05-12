@@ -114,6 +114,11 @@ pub fn createAccount(
 ///
 /// `signers_seeds` follows `cpi.invokeSigned`'s shape: one entry per PDA
 /// signer, each containing the seed slices used to derive that PDA.
+///
+/// For maximum CU performance — typical 1-signer, 3-seed PDA case —
+/// use `createAccountSignedRaw` instead and build the `Signer` array
+/// at the call site. This wrapper has to stage the seeds through a
+/// 128-entry scratch buffer.
 pub fn createAccountSigned(
     from: CpiAccountInfo,
     to: CpiAccountInfo,
@@ -140,6 +145,60 @@ pub fn createAccountSigned(
     };
 
     try cpi.invokeSigned(&ix, &[_]CpiAccountInfo{ from, to, system_program }, signers_seeds);
+}
+
+/// Fast-path PDA-signed CreateAccount: takes pre-built `Signer`s in
+/// the runtime's C-ABI shape, skipping the seed-staging copy that
+/// `createAccountSigned` performs.
+///
+/// ```zig
+/// const bump_seed = [_]u8{bump};
+/// const seeds = [_]sol.cpi.Seed{
+///     .from("vault"),
+///     .from(auth_key[0..]),
+///     .from(&bump_seed),
+/// };
+/// const signer = sol.cpi.Signer.from(&seeds);
+/// try sol.system.createAccountSignedRaw(
+///     payer.toCpiInfo(),
+///     vault.toCpiInfo(),
+///     system_program.toCpiInfo(),
+///     lamports,
+///     space,
+///     &MY_PROGRAM_ID,
+///     &.{signer},
+/// );
+/// ```
+pub fn createAccountSignedRaw(
+    from: CpiAccountInfo,
+    to: CpiAccountInfo,
+    system_program: CpiAccountInfo,
+    lamports: u64,
+    space: u64,
+    owner: *const Pubkey,
+    signers: []const cpi.Signer,
+) ProgramResult {
+    const ix_data = CreateAccountData.initWithDiscriminant(
+        @intFromEnum(SystemInstruction.CreateAccount),
+        .{ .lamports = lamports, .space = space, .owner = owner.* },
+    );
+
+    const account_metas = [_]cpi.AccountMeta{
+        .{ .pubkey = from.key(), .is_writable = 1, .is_signer = 1 },
+        .{ .pubkey = to.key(), .is_writable = 1, .is_signer = 1 },
+    };
+
+    const ix = cpi.Instruction{
+        .program_id = system_program.key(),
+        .accounts = &account_metas,
+        .data = &ix_data,
+    };
+
+    try cpi.invokeSignedRaw(
+        &ix,
+        &[_]CpiAccountInfo{ from, to, system_program },
+        signers,
+    );
 }
 
 /// Transfer lamports via System Program CPI.
@@ -295,6 +354,47 @@ pub fn createRentExempt(args: CreateRentExemptArgs) ProgramResult {
         lamports,
         args.space,
         args.owner,
+    );
+}
+
+/// Fast-path rent-exempt account creation with pre-built PDA signers.
+///
+/// Saves ~80-120 CU vs. `createRentExempt` on the common PDA case
+/// by handing the runtime the C-ABI signer descriptors directly,
+/// skipping the `[]const []const []const u8` → C-ABI staging copy.
+///
+/// ```zig
+/// const bump_seed = [_]u8{bump};
+/// const seeds = [_]sol.cpi.Seed{
+///     .from("vault"),
+///     .from(auth_key[0..]),
+///     .from(&bump_seed),
+/// };
+/// const signer = sol.cpi.Signer.from(&seeds);
+/// try sol.system.createRentExemptRaw(.{
+///     .payer = a.payer,
+///     .new_account = a.vault,
+///     .system_program = a.system_program,
+///     .space = @sizeOf(VaultState),
+///     .owner = &MY_PROGRAM_ID,
+/// }, &.{signer});
+/// ```
+pub fn createRentExemptRaw(
+    args: CreateRentExemptArgs,
+    signers: []const cpi.Signer,
+) ProgramResult {
+    const rent_mod = @import("rent.zig");
+    const rent_data = rent_mod.Rent.get() catch return error.UnsupportedSysvar;
+    const lamports = rent_data.getMinimumBalance(args.space);
+
+    return createAccountSignedRaw(
+        args.payer,
+        args.new_account,
+        args.system_program,
+        lamports,
+        args.space,
+        args.owner,
+        signers,
     );
 }
 

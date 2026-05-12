@@ -43,8 +43,25 @@ pub const Rent = struct {
 
         pub fn getMinimumBalance(self: Rent.Data, data_len: usize) u64 {
             const total_data_len: u64 = Rent.account_storage_overhead + data_len;
-            // Use f64 arithmetic so non-integer `exemption_threshold`
-            // values (e.g. the canonical 2.0) round-trip cleanly.
+
+            // Fast path: when `exemption_threshold` is the canonical
+            // value (2.0), skip f64 arithmetic entirely. BPF emulates
+            // f64 multiply in software at ~150-300 CU per op, while
+            // an integer `<< 1` is essentially free. The cluster has
+            // shipped 2.0 since genesis and changing it would require
+            // a feature gate, so this fast path is the realistic case
+            // for >99.99% of programs.
+            //
+            // Bit-compare the f64 against the canonical 2.0 pattern
+            // instead of `==` to avoid an f64 compare syscall.
+            const two_f64_bits: u64 = @bitCast(@as(f64, 2.0));
+            const t_bits: u64 = @bitCast(self.exemption_threshold);
+            if (t_bits == two_f64_bits) {
+                return total_data_len * self.lamports_per_byte_year * 2;
+            }
+
+            // Slow path: fall back to f64 multiplication for the
+            // unusual case of a non-2.0 exemption_threshold.
             const cost = @as(f64, @floatFromInt(total_data_len)) *
                 @as(f64, @floatFromInt(self.lamports_per_byte_year)) *
                 self.exemption_threshold;

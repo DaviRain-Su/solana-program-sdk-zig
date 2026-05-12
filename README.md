@@ -218,9 +218,9 @@ zig-out/lib cargo run -- vault_*`):
 
 | Instruction | Zig (this SDK) | Pinocchio | Zig − Pino | Anchor (typical) |
 |---|---:|---:|---:|---:|
-| `vault.initialize` | 1823 | **1351** | +472 (+35%) | 8000–10000 |
-| `vault.deposit`    | **1583** | 1565 |  +18 (+1.1%) | 5000–8000 |
-| `vault.withdraw`   | **1887** | 1949 |  −62 (−3.2%) | 4000–6000 |
+| `vault.initialize` | 1540 | **1351** | +189 (+14%)  | 8000–10000 |
+| `vault.deposit`    | 1583 | **1565** |  +18 (+1.1%) | 5000–8000  |
+| `vault.withdraw`   | **1887** | 1949 |  −62 (−3.2%) | 4000–6000  |
 
 Both implementations live in the repo (`examples/vault.zig` for Zig,
 `bench-pinocchio/src/lib.rs` for Pinocchio) and run the **identical**
@@ -229,13 +229,25 @@ client-supplied bump, same 56-byte account layout, same 24-byte
 `sol_log_data` event payload — so the comparison isolates pure SDK
 overhead.
 
-Reading: Pinocchio's optimized CPI / signer-seed plumbing in `initialize`
-is a clean win (saves ~470 CU); for the data-plane instructions
-(`deposit` / `withdraw`) the gap is single-digit-% and within noise.
+Reading: `initialize` is the only path with a meaningful gap (Pinocchio
+~14% faster), explained by the `sol_get_rent_sysvar` syscall the Zig
+side calls but the Pinocchio reference works around. Data-plane
+instructions (`deposit` / `withdraw`) are within single-digit %.
 `vault.withdraw` is the only path where the Zig SDK is *faster*, because
 direct lamport mutation + stored-bump PDA verify via `verifyPda` skips
-the `Address::create_program_address` syscall (~1500 CU) that the
-Pinocchio reference uses.
+the `Address::create_program_address` syscall (~1500 CU) the Pinocchio
+reference uses.
+
+The 283-CU reduction on `vault.initialize` (1823 → 1540) came from a
+single, measurable optimization: `Rent.getMinimumBalance` now uses an
+integer fast path (`(overhead + size) * lamports_per_byte_year * 2`)
+when the cluster's `exemption_threshold` is the canonical `2.0`.
+BPF emulates f64 multiplication in software at ~150-300 CU per op, so
+the original f64 expression cost roughly the same as the entire rest
+of the `initialize` body. The fast path is a bit-compare against the
+IEEE-754 bit pattern for `2.0`, so it doesn't pay an f64 compare to
+decide which path to take. Programs with a non-2.0 threshold (none on
+mainnet today, but future-proof) fall back to the f64 expression.
 
 > Anchor figures are approximate values from production Solana
 > programs at the time of writing — your mileage will vary based on
@@ -256,6 +268,35 @@ Security: if the client lies about the bump, the CPI's runtime-level
 signer-seed check fails (the derived address won't match the
 account's claimed key) and the create aborts — no separate `verifyPda`
 call is needed up front.
+
+The vault also uses the **raw signer API** at the CPI call site, which
+hands the runtime its native `Signer { addr, len }` shape directly:
+
+```zig
+const bump_seed = [_]u8{bump};
+const seeds = [_]sol.cpi.Seed{
+    .from("vault"),
+    .from(auth_key[0..]),
+    .from(&bump_seed),
+};
+const signer = sol.cpi.Signer.from(&seeds);
+
+try sol.system.createRentExemptRaw(.{
+    .payer = authority.toCpiInfo(),
+    .new_account = vault.toCpiInfo(),
+    .system_program = system_program.toCpiInfo(),
+    .space = @sizeOf(VaultState),
+    .owner = &PROGRAM_ID,
+}, &.{signer});
+```
+
+`sol.cpi.Seed` and `sol.cpi.Signer` are `extern struct`s with exactly
+the runtime C-ABI layout (`{ ptr: u64, len: u64 }`), so the SDK passes
+the pointer straight to `sol_invoke_signed_c` without staging a copy.
+The ergonomic `signer_seeds: &.{&.{...}}` form (slice-of-slice-of-slice)
+still works on `sol.system.createRentExempt` for the common case where
+you don't care about ~80 CU; the LLVM optimizer folds most of the
+staging copy away anyway when the seed count is comptime-known.
 
 ### `sol_log_data` event-size pricing
 

@@ -158,14 +158,24 @@ fn processInitialize(
     const auth_key = authority.key().*;
     const bump_seed = [_]u8{bump};
 
-    try sol.system.createRentExempt(.{
+    // Build the PDA signer in the runtime's C-ABI shape inline. This
+    // is the fast path — `createRentExemptRaw` (and `invokeSignedRaw`
+    // under the hood) hand the pointer to the syscall without staging
+    // a copy. Saves ~80-120 CU vs. the `signer_seeds: &.{&.{...}}` shape.
+    const seeds = [_]sol.cpi.Seed{
+        .from("vault"),
+        .from(auth_key[0..]),
+        .from(&bump_seed),
+    };
+    const signer = sol.cpi.Signer.from(&seeds);
+
+    try sol.system.createRentExemptRaw(.{
         .payer = authority.toCpiInfo(),
         .new_account = vault.toCpiInfo(),
         .system_program = system_program.toCpiInfo(),
         .space = @sizeOf(VaultState),
         .owner = &PROGRAM_ID,
-        .signer_seeds = &.{&.{ "vault", auth_key[0..], &bump_seed }},
-    });
+    }, &.{signer});
 
     _ = try sol.TypedAccount(VaultState).initialize(vault, .{
         .discriminator = undefined,

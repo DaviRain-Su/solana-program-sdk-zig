@@ -232,9 +232,46 @@ overhead.
 Reading: all three instructions are essentially tied with Pinocchio
 now. `initialize` is 29 CU (+2.1%) behind — within noise; `deposit`
 is 4 CU (+0.3%); `withdraw` is **70 CU faster** because direct
-lamport mutation + stored-bump PDA verify via `verifyPda` skips the
-`Address::create_program_address` syscall (~1500 CU) the Pinocchio
-reference still pays.
+lamport mutation lets it skip the runtime CPI overhead.
+
+#### Why `withdraw` (1879 CU) is lower than the body alone suggests
+
+Although `withdraw`'s body is "longer" (it does a `requireHasOne`,
+runs `verifyPda` for the stored-bump PDA proof, and emits the same
+event), it has **no CPI**. `verifyPda` makes one
+`sol_create_program_address` syscall (~1500 CU) — that's still the
+biggest line item — but the lamport movement itself is two pointer
+writes (`subLamports`/`addLamports`, ~3 CU each), not a CPI to the
+system program.
+
+#### Why `deposit` (1569 CU) cannot go much lower
+
+`deposit` moves SOL **from** the user's wallet (a system-owned
+account) **to** the vault. Solana's runtime has an asymmetric rule:
+
+- *Decreasing* an account's lamports requires the program to own the
+  account.
+- *Increasing* an account's lamports works regardless of owner.
+
+The vault program does not (and must not) own the user's wallet, so
+it cannot debit `payer.lamports` directly. The only way to move SOL
+out of a system-owned account is to CPI into `system_program::Transfer`,
+which costs ~1200 CU of fixed runtime overhead — independent of the
+SDK doing the call.
+
+`withdraw` exploits the asymmetry: the vault account is owned by the
+program (so we *can* debit it directly), and `recipient` is *credited*
+(no owner check). The result is two pointer writes instead of a 1200-
+CU CPI.
+
+The only way to make `deposit` materially cheaper would be to change
+the protocol — e.g. require the user to send a separate
+`system::Transfer` first and have the vault simply
+"acknowledge" the deposit by updating `state.balance`. That eliminates
+the CPI but breaks atomicity (the transfer and the balance update are
+no longer coupled) and complicates the client UX. We don't do that
+here; the 1569-CU cost is a property of doing deposit atomically, not
+of the SDK.
 
 The 443-CU reduction on `vault.initialize` (1823 → 1380, **−24%**)
 came from two measurable, named optimizations:

@@ -786,6 +786,8 @@ Week 4: Phase 7
 | `vault.deposit`    | 1770 CU | 5000–8000 CU  | system_program transfer CPI + balance bump + emit |
 | `vault.withdraw`   | 2071 CU | 4000–6000 CU  | has_one + verifyPda(储存 bump) + 直接 lamport 转移 + emit |
 
-`examples/token_dispatch.zig`（u32 tag + u64 payload, 1 个账户）：
-**13 CU** for transfer / burn / mint — 这是"懒解析 1 个账户 + 1 个
-算术操作"的下限。
+`examples/token_dispatch.zig`（u32 tag + u64 payload, 2 个账户 slot，
+parse-then-dispatch）：**97–100 CU** for transfer / burn / mint。
+之前的 13 CU 是隐藏 bug 导致的 noop —— `instructionDataUnchecked`
+在账户解析之前调用，读到的 `data_len` 是账户 0 的垃圾值，三个 if 分支
+全部 falsy，函数静默 return。现已通过 parse-then-dispatch 修复。

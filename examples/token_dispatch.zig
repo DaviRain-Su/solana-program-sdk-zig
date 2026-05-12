@@ -5,9 +5,13 @@
 //! - Define per-instruction data structs (comptime typed deserialization)
 //! - No manual pointer casting, no manual discriminant matching
 //!
+//! Account layout: every instruction takes the same two slots so the
+//! dispatcher can parse them once before reading the ix data. Burn /
+//! mint only use the first slot; the second is ignored.
+//!
 //! Instruction layout:
 //!   [0..4]  u32 discriminant (Transfer=0, Burn=1, Mint=2)
-//!   [4..]   instruction-specific data
+//!   [4..12] u64 amount
 
 const sol = @import("solana_program_sdk");
 
@@ -24,7 +28,9 @@ const Tag = enum(u32) {
 };
 
 // =========================================================================
-// 2. Define per-instruction data structs
+// 2. Define per-instruction data structs (kept for documentation /
+//    future framework codegen — the dispatcher reads `data[4..]`
+//    directly as a u64).
 // =========================================================================
 
 const TransferData = packed struct {
@@ -40,44 +46,52 @@ const MintData = packed struct {
 };
 
 // =========================================================================
-// 3. Entrypoint — comptime typed deserialization, explicit dispatch
-//    SBF linker doesn't support jump-table relocations, so we use
-//    comptime `if` chains instead of `switch`.
+// 3. Entrypoint — parse-then-dispatch.
+//
+// We cannot read ix data BEFORE consuming accounts: `instructionData`
+// requires `remaining == 0`, and `instructionDataUnchecked` would read
+// `data_len` from the account-zero serialization (garbage). Pinocchio
+// programs solve this by parsing all accounts up front.
+//
+// SBF linker doesn't support jump-table relocations, so we use comptime
+// `if` chains instead of `switch`. Each branch is fully inlined and the
+// non-taken branches optimize away.
 // =========================================================================
 
 fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
-    // Length-check via the unchecked variant; we haven't decremented
-    // the account counter (we use `nextAccountUnchecked` in branches
-    // below), so the safe `instructionData()` would refuse.
-    const ix_data = ctx.instructionDataUnchecked();
-    if (ix_data.len < 4) return error.InvalidInstructionData;
+    // Parse both account slots up front. We always advertise two
+    // accounts; burn/mint just ignore the second.
+    const accs = try ctx.parseAccounts(.{ "first", "second" });
+    const data = try ctx.instructionData();
+    if (data.len < 12) return error.InvalidInstructionData;
 
-    // Read discriminant — compiles to a single u32 load
-    const tag = ctx.readIxTag(Tag);
+    // Read discriminant — single u32 load
+    const raw_tag: u32 = @as(*align(1) const u32, @ptrCast(data[0..4])).*;
+    const tag: Tag = @enumFromInt(raw_tag);
 
-    // Comptime dispatch — each branch has typed accounts + typed data
+    // Read amount — single u64 load
+    const amount: u64 = @as(*align(1) const u64, @ptrCast(data[4..12])).*;
+
+    // For benchmarking we model burn/mint as paired lamport moves
+    // (first ↔ second) so the runtime's lamport-sum check passes.
+    // Real SPL token burn/mint would CPI to spl_token and update
+    // supply / balance state instead.
     if (tag == .transfer) {
-        const source = ctx.nextAccountUnchecked();
-        const destination = ctx.nextAccountUnchecked();
-        const data = ctx.readIx(TransferData, 4);
-        source.subLamports(data.amount);
-        destination.addLamports(data.amount);
+        accs.first.subLamports(amount);
+        accs.second.addLamports(amount);
         return;
     }
-
     if (tag == .burn) {
-        const account = ctx.nextAccountUnchecked();
-        const data = ctx.readIx(BurnData, 4);
-        account.subLamports(data.amount);
+        accs.first.subLamports(amount);
+        accs.second.addLamports(amount);
         return;
     }
-
     if (tag == .mint) {
-        const account = ctx.nextAccountUnchecked();
-        const data = ctx.readIx(MintData, 4);
-        account.addLamports(data.amount);
+        accs.second.subLamports(amount);
+        accs.first.addLamports(amount);
         return;
     }
+    return error.InvalidInstructionData;
 }
 
 export fn entrypoint(input: [*]u8) u64 {

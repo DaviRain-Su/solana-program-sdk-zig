@@ -224,10 +224,21 @@ zig-out/lib cargo run -- vault_*`):
 > and the `RefCell` borrow checks, which is where most of the savings
 > come from.
 
-The `examples/token_dispatch.zig` program (1× signer-less ix tag, 1×
-account, 8-byte payload) lands at **13 CU** for transfer/burn/mint —
-this is essentially the floor of "lazy-parse one account + apply one
-arithmetic op".
+The `examples/token_dispatch.zig` program (2 account slots, `u32` tag
++ `u64` amount payload, parse-then-dispatch) lands at **97–100 CU**
+across transfer / burn / mint. The cost breakdown:
+
+  - lazyEntrypoint wrapper                          ~5 CU
+  - parseAccounts of 2 slots                       ~25 CU
+  - instructionData() length / cursor check         ~5 CU
+  - u32 tag + u64 amount reads                      ~5 CU
+  - if-chain dispatch (1–2 branches taken)          ~5 CU
+  - two `subLamports` / `addLamports` mutations    ~50 CU
+
+The mutations dominate — they go through the `AccountInfo` getters
+that re-read the underlying pointer each call. A future `Ref` API
+that loads `*u64` once and writes back at the end could shave another
+~30 CU off this.
 
 ### Reproduce
 

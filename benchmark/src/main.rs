@@ -419,11 +419,12 @@ async fn run_token_dispatch(tag: u32, amount: u64) {
     data.extend_from_slice(&tag.to_le_bytes());
     data.extend_from_slice(&amount.to_le_bytes());
 
-    let accounts = if tag == 0 {
-        vec![AccountMeta::new(source, false), AccountMeta::new(dest, false)]
-    } else {
-        vec![AccountMeta::new(source, false)]
-    };
+    // The dispatch program always parses two account slots up front,
+    // even though burn/mint only use the first. Pass both.
+    let accounts = vec![
+        AccountMeta::new(source, false),
+        AccountMeta::new(dest, false),
+    ];
 
     let mut tx = Transaction::new_with_payer(
         &[Instruction::new_with_bytes(program_id, &data, accounts)],

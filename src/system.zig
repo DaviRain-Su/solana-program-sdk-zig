@@ -17,6 +17,7 @@ const Pubkey = pubkey.Pubkey;
 const CpiAccountInfo = account_mod.CpiAccountInfo;
 const ProgramResult = program_error.ProgramResult;
 const MAX_SEED_LEN = pda.MAX_SEED_LEN;
+pub const NONCE_STATE_SIZE: u64 = 80;
 
 /// System Program instruction discriminants
 pub const SystemInstruction = enum(u32) {
@@ -76,6 +77,19 @@ const AllocateData = instruction.comptimeInstructionData(
         space: u64,
     },
 );
+
+const NonceAuthorityData = instruction.comptimeInstructionData(
+    u32,
+    extern struct {
+        authority: Pubkey,
+    },
+);
+
+fn discriminantOnlyData(discriminant: SystemInstruction) [4]u8 {
+    var ix_data: [4]u8 = undefined;
+    std.mem.writeInt(u32, ix_data[0..4], @intFromEnum(discriminant), .little);
+    return ix_data;
+}
 
 /// Create a new account via System Program CPI.
 ///
@@ -522,10 +536,10 @@ pub fn createRentExemptRaw(
 
 /// Create account with seed.
 ///
-/// This helper currently assumes `base == from.key()` — the funding
-/// account is also the base signer. That covers the common CPI shape.
-/// If you need a distinct base signer account, add a dedicated helper
-/// that carries it explicitly.
+/// The System Program encodes `base` into instruction data; there is no
+/// separate base account meta for this instruction, so the CPI wrapper
+/// only needs the funding account, destination account, and System
+/// Program account.
 pub fn createAccountWithSeed(
     from: CpiAccountInfo,
     to: CpiAccountInfo,
@@ -680,6 +694,193 @@ pub fn transferWithSeed(
     try cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ from, base, to, system_program });
 }
 
+/// Initialize a nonce account after creation.
+pub fn initializeNonceAccount(
+    nonce_account: CpiAccountInfo,
+    recent_blockhashes_sysvar: CpiAccountInfo,
+    rent_sysvar: CpiAccountInfo,
+    system_program: CpiAccountInfo,
+    authority: *const Pubkey,
+) ProgramResult {
+    const ix_data = NonceAuthorityData.initWithDiscriminant(
+        @intFromEnum(SystemInstruction.InitializeNonceAccount),
+        .{ .authority = authority.* },
+    );
+
+    const account_metas = [_]cpi.AccountMeta{
+        cpi.AccountMeta.writable(nonce_account.key()),
+        cpi.AccountMeta.readonly(recent_blockhashes_sysvar.key()),
+        cpi.AccountMeta.readonly(rent_sysvar.key()),
+    };
+
+    const ix = cpi.Instruction.fromCpiAccount(system_program, &account_metas, &ix_data);
+
+    try cpi.invokeRaw(&ix, &[_]CpiAccountInfo{
+        nonce_account,
+        recent_blockhashes_sysvar,
+        rent_sysvar,
+        system_program,
+    });
+}
+
+/// Create and initialize a nonce account.
+pub fn createNonceAccount(
+    from: CpiAccountInfo,
+    nonce_account: CpiAccountInfo,
+    recent_blockhashes_sysvar: CpiAccountInfo,
+    rent_sysvar: CpiAccountInfo,
+    system_program: CpiAccountInfo,
+    authority: *const Pubkey,
+    lamports: u64,
+) ProgramResult {
+    try createAccount(
+        from,
+        nonce_account,
+        system_program,
+        lamports,
+        NONCE_STATE_SIZE,
+        system_program.key(),
+    );
+
+    try initializeNonceAccount(
+        nonce_account,
+        recent_blockhashes_sysvar,
+        rent_sysvar,
+        system_program,
+        authority,
+    );
+}
+
+/// Create and initialize a nonce account at a seeded address.
+pub fn createNonceAccountWithSeed(
+    from: CpiAccountInfo,
+    nonce_account: CpiAccountInfo,
+    recent_blockhashes_sysvar: CpiAccountInfo,
+    rent_sysvar: CpiAccountInfo,
+    system_program: CpiAccountInfo,
+    base: *const Pubkey,
+    seed: []const u8,
+    authority: *const Pubkey,
+    lamports: u64,
+) ProgramResult {
+    try createAccountWithSeed(
+        from,
+        nonce_account,
+        system_program,
+        base,
+        seed,
+        lamports,
+        NONCE_STATE_SIZE,
+        system_program.key(),
+    );
+
+    try initializeNonceAccount(
+        nonce_account,
+        recent_blockhashes_sysvar,
+        rent_sysvar,
+        system_program,
+        authority,
+    );
+}
+
+/// Advance a durable transaction nonce.
+pub fn advanceNonceAccount(
+    nonce_account: CpiAccountInfo,
+    recent_blockhashes_sysvar: CpiAccountInfo,
+    authorized: CpiAccountInfo,
+    system_program: CpiAccountInfo,
+) ProgramResult {
+    const ix_data = discriminantOnlyData(SystemInstruction.AdvanceNonceAccount);
+
+    const account_metas = [_]cpi.AccountMeta{
+        cpi.AccountMeta.writable(nonce_account.key()),
+        cpi.AccountMeta.readonly(recent_blockhashes_sysvar.key()),
+        cpi.AccountMeta.signer(authorized.key()),
+    };
+
+    const ix = cpi.Instruction.fromCpiAccount(system_program, &account_metas, &ix_data);
+
+    try cpi.invokeRaw(&ix, &[_]CpiAccountInfo{
+        nonce_account,
+        recent_blockhashes_sysvar,
+        authorized,
+        system_program,
+    });
+}
+
+/// Withdraw lamports from a nonce account.
+pub fn withdrawNonceAccount(
+    nonce_account: CpiAccountInfo,
+    to: CpiAccountInfo,
+    recent_blockhashes_sysvar: CpiAccountInfo,
+    rent_sysvar: CpiAccountInfo,
+    authorized: CpiAccountInfo,
+    system_program: CpiAccountInfo,
+    lamports: u64,
+) ProgramResult {
+    const ix_data = TransferData.initWithDiscriminant(
+        @intFromEnum(SystemInstruction.WithdrawNonceAccount),
+        .{ .lamports = lamports },
+    );
+
+    const account_metas = [_]cpi.AccountMeta{
+        cpi.AccountMeta.writable(nonce_account.key()),
+        cpi.AccountMeta.writable(to.key()),
+        cpi.AccountMeta.readonly(recent_blockhashes_sysvar.key()),
+        cpi.AccountMeta.readonly(rent_sysvar.key()),
+        cpi.AccountMeta.signer(authorized.key()),
+    };
+
+    const ix = cpi.Instruction.fromCpiAccount(system_program, &account_metas, &ix_data);
+
+    try cpi.invokeRaw(&ix, &[_]CpiAccountInfo{
+        nonce_account,
+        to,
+        recent_blockhashes_sysvar,
+        rent_sysvar,
+        authorized,
+        system_program,
+    });
+}
+
+/// Change the authority of a nonce account.
+pub fn authorizeNonceAccount(
+    nonce_account: CpiAccountInfo,
+    authorized: CpiAccountInfo,
+    system_program: CpiAccountInfo,
+    new_authority: *const Pubkey,
+) ProgramResult {
+    const ix_data = NonceAuthorityData.initWithDiscriminant(
+        @intFromEnum(SystemInstruction.AuthorizeNonceAccount),
+        .{ .authority = new_authority.* },
+    );
+
+    const account_metas = [_]cpi.AccountMeta{
+        cpi.AccountMeta.writable(nonce_account.key()),
+        cpi.AccountMeta.signer(authorized.key()),
+    };
+
+    const ix = cpi.Instruction.fromCpiAccount(system_program, &account_metas, &ix_data);
+
+    try cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ nonce_account, authorized, system_program });
+}
+
+/// One-time idempotent upgrade of a legacy nonce account.
+pub fn upgradeNonceAccount(
+    nonce_account: CpiAccountInfo,
+    system_program: CpiAccountInfo,
+) ProgramResult {
+    const ix_data = discriminantOnlyData(SystemInstruction.UpgradeNonceAccount);
+
+    const account_metas = [_]cpi.AccountMeta{
+        cpi.AccountMeta.writable(nonce_account.key()),
+    };
+
+    const ix = cpi.Instruction.fromCpiAccount(system_program, &account_metas, &ix_data);
+
+    try cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ nonce_account, system_program });
+}
+
 // =============================================================================
 // Tests
 // =============================================================================
@@ -710,6 +911,37 @@ test "system: transfer instruction data" {
 
     try std.testing.expectEqual(@as(u32, 2), std.mem.readInt(u32, ix_data[0..4], .little));
     try std.testing.expectEqual(@as(u64, 100), std.mem.readInt(u64, ix_data[4..12], .little));
+}
+
+test "system: nonce instruction data formats" {
+    const authority: Pubkey = .{7} ** 32;
+
+    const initialize_data = NonceAuthorityData.initWithDiscriminant(
+        @intFromEnum(SystemInstruction.InitializeNonceAccount),
+        .{ .authority = authority },
+    );
+    try std.testing.expectEqual(@as(u32, 6), std.mem.readInt(u32, initialize_data[0..4], .little));
+    try std.testing.expectEqual(authority, initialize_data[4..36].*);
+
+    const withdraw_data = TransferData.initWithDiscriminant(
+        @intFromEnum(SystemInstruction.WithdrawNonceAccount),
+        .{ .lamports = 42 },
+    );
+    try std.testing.expectEqual(@as(u32, 5), std.mem.readInt(u32, withdraw_data[0..4], .little));
+    try std.testing.expectEqual(@as(u64, 42), std.mem.readInt(u64, withdraw_data[4..12], .little));
+
+    const authorize_data = NonceAuthorityData.initWithDiscriminant(
+        @intFromEnum(SystemInstruction.AuthorizeNonceAccount),
+        .{ .authority = authority },
+    );
+    try std.testing.expectEqual(@as(u32, 7), std.mem.readInt(u32, authorize_data[0..4], .little));
+    try std.testing.expectEqual(authority, authorize_data[4..36].*);
+
+    const advance_data = discriminantOnlyData(SystemInstruction.AdvanceNonceAccount);
+    try std.testing.expectEqual(@as(u32, 4), std.mem.readInt(u32, advance_data[0..4], .little));
+
+    const upgrade_data = discriminantOnlyData(SystemInstruction.UpgradeNonceAccount);
+    try std.testing.expectEqual(@as(u32, 12), std.mem.readInt(u32, upgrade_data[0..4], .little));
 }
 
 test "system: seed-based helpers reject too-long seeds before CPI" {
@@ -788,11 +1020,19 @@ test "system: seed-based helpers reject too-long seeds before CPI" {
     );
 }
 
+test "system: nonce state size matches Solana ABI" {
+    try std.testing.expectEqual(@as(u64, 80), NONCE_STATE_SIZE);
+}
+
 test "system: SystemInstruction discriminant values" {
     try std.testing.expectEqual(@as(u32, 0), @intFromEnum(SystemInstruction.CreateAccount));
     try std.testing.expectEqual(@as(u32, 1), @intFromEnum(SystemInstruction.Assign));
     try std.testing.expectEqual(@as(u32, 2), @intFromEnum(SystemInstruction.Transfer));
     try std.testing.expectEqual(@as(u32, 3), @intFromEnum(SystemInstruction.CreateAccountWithSeed));
+    try std.testing.expectEqual(@as(u32, 4), @intFromEnum(SystemInstruction.AdvanceNonceAccount));
+    try std.testing.expectEqual(@as(u32, 5), @intFromEnum(SystemInstruction.WithdrawNonceAccount));
+    try std.testing.expectEqual(@as(u32, 6), @intFromEnum(SystemInstruction.InitializeNonceAccount));
+    try std.testing.expectEqual(@as(u32, 7), @intFromEnum(SystemInstruction.AuthorizeNonceAccount));
     try std.testing.expectEqual(@as(u32, 8), @intFromEnum(SystemInstruction.Allocate));
     try std.testing.expectEqual(@as(u32, 9), @intFromEnum(SystemInstruction.AllocateWithSeed));
     try std.testing.expectEqual(@as(u32, 10), @intFromEnum(SystemInstruction.AssignWithSeed));

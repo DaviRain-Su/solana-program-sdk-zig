@@ -36,6 +36,9 @@ fn fixed_payer() -> Keypair {
 /// Program ID baked into `examples/vault.zig` — must match exactly.
 const VAULT_PROGRAM_ID: &str = "Zigc1Hc97L8Pebma74jDzYiyoUvdxxcj7Gxppg9VRxK";
 
+/// Program ID baked into `bench-pinocchio/src/lib.rs` — must match.
+const PINO_VAULT_PROGRAM_ID: &str = "PinoVau1tBench11111111111111111111111111111";
+
 /// Generic benchmark program ID used by everything else.
 const BENCH_PROGRAM_ID: &str = "BenchPubkey11111111111111111111111111111111";
 
@@ -77,6 +80,15 @@ fn print_usage(prog: &str) {
         println!("  {}", name);
     }
     println!();
+    println!("Pinocchio vault — same semantics, Rust impl, for apples-to-apples:");
+    for name in [
+        "pino_vault_initialize",
+        "pino_vault_deposit",
+        "pino_vault_withdraw",
+    ] {
+        println!("  {}", name);
+    }
+    println!();
     println!("Token dispatch benchmarks (deploy example_token_dispatch):");
     for name in [
         "token_dispatch_transfer",
@@ -90,10 +102,15 @@ fn print_usage(prog: &str) {
 async fn run_benchmark(name: &'static str) {
     println!("\n=== Running {} ===", name);
     match name {
-        // Vault end-to-end
-        "vault_initialize" => run_vault_initialize().await,
-        "vault_deposit" => run_vault_deposit().await,
-        "vault_withdraw" => run_vault_withdraw().await,
+        // Vault end-to-end (Zig)
+        "vault_initialize" => run_vault_initialize(VaultImpl::Zig).await,
+        "vault_deposit" => run_vault_deposit(VaultImpl::Zig).await,
+        "vault_withdraw" => run_vault_withdraw(VaultImpl::Zig).await,
+
+        // Vault end-to-end (Pinocchio)
+        "pino_vault_initialize" => run_vault_initialize(VaultImpl::Pinocchio).await,
+        "pino_vault_deposit" => run_vault_deposit(VaultImpl::Pinocchio).await,
+        "pino_vault_withdraw" => run_vault_withdraw(VaultImpl::Pinocchio).await,
 
         // Token dispatch — safe (parseAccounts) variant
         "token_dispatch_transfer" => run_token_dispatch("example_token_dispatch", 0, 100).await,
@@ -206,23 +223,41 @@ async fn run_transfer_lamports_primitive(name: &'static str) {
 }
 
 // ---------------------------------------------------------------------------
-// Vault end-to-end benchmarks
+// Vault end-to-end benchmarks (Zig + Pinocchio)
 // ---------------------------------------------------------------------------
 
-fn vault_program_id() -> Pubkey {
-    Pubkey::from_str(VAULT_PROGRAM_ID).unwrap()
+#[derive(Copy, Clone)]
+enum VaultImpl {
+    Zig,
+    Pinocchio,
+}
+
+impl VaultImpl {
+    fn program_id(self) -> Pubkey {
+        match self {
+            VaultImpl::Zig => Pubkey::from_str(VAULT_PROGRAM_ID).unwrap(),
+            VaultImpl::Pinocchio => Pubkey::from_str(PINO_VAULT_PROGRAM_ID).unwrap(),
+        }
+    }
+
+    fn so_name(self) -> &'static str {
+        match self {
+            VaultImpl::Zig => "example_vault",
+            VaultImpl::Pinocchio => "bench_pinocchio_vault",
+        }
+    }
 }
 
 /// Derive the vault PDA for a given authority — matches the seeds used
-/// inside `examples/vault.zig`: `[b"vault", authority.key.as_ref()]`.
-fn derive_vault(authority: &Pubkey) -> (Pubkey, u8) {
-    let program_id = vault_program_id();
+/// in both implementations: `[b"vault", authority.key.as_ref()]`.
+fn derive_vault(impl_: VaultImpl, authority: &Pubkey) -> (Pubkey, u8) {
+    let program_id = impl_.program_id();
     Pubkey::find_program_address(&[b"vault", authority.as_ref()], &program_id)
 }
 
-async fn run_vault_initialize() {
-    let program_id = vault_program_id();
-    let mut pt = ProgramTest::new("example_vault", program_id, None);
+async fn run_vault_initialize(impl_: VaultImpl) {
+    let program_id = impl_.program_id();
+    let mut pt = ProgramTest::new(impl_.so_name(), program_id, None);
     let auth = fixed_payer();
     // Fund the fixed authority so it can pay for the new vault account.
     pt.add_account(
@@ -234,7 +269,7 @@ async fn run_vault_initialize() {
     );
     let (banks_client, payer, recent_blockhash) = pt.start().await;
 
-    let (vault_pda, bump) = derive_vault(&auth.pubkey());
+    let (vault_pda, bump) = derive_vault(impl_, &auth.pubkey());
 
     // Initialize: tag = 0, bump = derived off-chain
     let ix_data = vec![0u8, bump];
@@ -256,9 +291,9 @@ async fn run_vault_initialize() {
     }
 }
 
-async fn run_vault_deposit() {
-    let program_id = vault_program_id();
-    let mut pt = ProgramTest::new("example_vault", program_id, None);
+async fn run_vault_deposit(impl_: VaultImpl) {
+    let program_id = impl_.program_id();
+    let mut pt = ProgramTest::new(impl_.so_name(), program_id, None);
     let auth = fixed_payer();
     pt.add_account(
         auth.pubkey(),
@@ -269,7 +304,7 @@ async fn run_vault_deposit() {
     );
     let (banks_client, payer, recent_blockhash) = pt.start().await;
 
-    let (vault_pda, bump) = derive_vault(&auth.pubkey());
+    let (vault_pda, bump) = derive_vault(impl_, &auth.pubkey());
 
     // Step 1: initialize (off-chain bump in ix data)
     {
@@ -313,9 +348,9 @@ async fn run_vault_deposit() {
     }
 }
 
-async fn run_vault_withdraw() {
-    let program_id = vault_program_id();
-    let mut pt = ProgramTest::new("example_vault", program_id, None);
+async fn run_vault_withdraw(impl_: VaultImpl) {
+    let program_id = impl_.program_id();
+    let mut pt = ProgramTest::new(impl_.so_name(), program_id, None);
     let auth = fixed_payer();
     pt.add_account(
         auth.pubkey(),
@@ -326,7 +361,7 @@ async fn run_vault_withdraw() {
     );
     let (banks_client, payer, recent_blockhash) = pt.start().await;
 
-    let (vault_pda, bump) = derive_vault(&auth.pubkey());
+    let (vault_pda, bump) = derive_vault(impl_, &auth.pubkey());
     let recipient = Keypair::new();
 
     // Step 1: initialize (off-chain bump in ix data)

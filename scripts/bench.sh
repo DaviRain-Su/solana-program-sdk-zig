@@ -27,6 +27,30 @@ echo "Building BPF artifacts ($SOLANA_ZIG)..."
 
 export BPF_OUT_DIR="$ROOT_DIR/benchmark/zig-out/lib"
 
+# Pinocchio reference vault (Rust) — build with cargo-build-sbf if
+# available, then copy the .so next to the Zig artifacts so the
+# `ProgramTest` `BPF_OUT_DIR` lookup finds it. We deliberately keep
+# this best-effort: if cargo-build-sbf isn't installed, just skip and
+# the `pino_vault_*` benchmarks will be reported as `?` in the table.
+if command -v cargo-build-sbf >/dev/null 2>&1; then
+    echo "Building Pinocchio reference vault (cargo build-sbf)..."
+    # The cargo-build-sbf binary needs the rustup-managed `cargo`
+    # ahead of any system cargo (Homebrew, etc.) on PATH so it can
+    # resolve its `+1.89.0-sbpf-solana-v1.52` toolchain override.
+    export PATH="$HOME/.cargo/bin:$PATH"
+    # Re-link the toolchain in case it was uninstalled by a previous
+    # build-sbf run — `cargo build-sbf` self-manages its toolchain and
+    # may remove it on exit. The link is idempotent.
+    if [[ -d "$HOME/.local/share/solana/install/active_release/bin/platform-tools-sdk/sbf/dependencies/platform-tools/rust" ]]; then
+        rustup toolchain link 1.89.0-sbpf-solana-v1.52 \
+            "$HOME/.local/share/solana/install/active_release/bin/platform-tools-sdk/sbf/dependencies/platform-tools/rust" \
+            >/dev/null 2>&1 || true
+    fi
+    (cd bench-pinocchio && cargo build-sbf --skip-tools-install --sbf-out-dir "$BPF_OUT_DIR" >/dev/null)
+else
+    echo "warn: cargo-build-sbf not found in PATH — skipping Pinocchio build" >&2
+fi
+
 BENCHES=(
     "pubkey_cmp_safe"
     "pubkey_cmp_safe_raw"
@@ -47,6 +71,9 @@ BENCHES=(
     "vault_initialize"
     "vault_deposit"
     "vault_withdraw"
+    "pino_vault_initialize"
+    "pino_vault_deposit"
+    "pino_vault_withdraw"
 )
 
 echo

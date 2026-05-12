@@ -1,0 +1,21 @@
+[package]
+name = "bench_pinocchio_vault"
+version = "0.1.0"
+edition = "2021"
+description = "Pinocchio reference vault program — apples-to-apples CU comparison vs the Zig SDK vault."
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+pinocchio = { version = "0.11.1", default-features = false, features = ["cpi", "copy"] }
+pinocchio-system = "0.6.1"
+five8_const = "1.0.0"
+
+[features]
+default = []
+
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 1

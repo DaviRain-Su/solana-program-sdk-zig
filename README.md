@@ -207,7 +207,7 @@ Each line is independently usable — `TypedAccount` doesn't require
 discriminators, `parseAccountsWith` doesn't require `TypedAccount`,
 nothing requires anything else. Use only the pieces you need.
 
-### End-to-end vault program (CU vs. Anchor)
+### End-to-end vault program (CU vs. Pinocchio vs. Anchor)
 
 The `examples/vault.zig` program exercises the SDK's Anchor-style
 surface end-to-end: PDA account creation via CPI, typed state with an
@@ -216,18 +216,33 @@ verification, structured event emission via `sol_log_data`. CU
 numbers from the in-repo `solana-program-test` runner (`BPF_OUT_DIR=
 zig-out/lib cargo run -- vault_*`):
 
-| Instruction | Zig (this SDK) | Anchor (typical) | Notes |
-|---|---:|---:|---|
-| `vault.initialize` | **1823** | 8000–10000 | client-supplied bump + CPI `system_program::create_account` (rent-exempt) + discriminator write |
-| `vault.deposit`    | **1583** | 5000–8000 | CPI `system_program::transfer` + typed-state balance bump + 16-byte `sol_log_data` emit |
-| `vault.withdraw`   | **1887** | 4000–6000 | `requireHasOneWith` + `verifyPda` (stored bump) + direct lamport move + 16-byte `sol_log_data` emit |
+| Instruction | Zig (this SDK) | Pinocchio | Zig − Pino | Anchor (typical) |
+|---|---:|---:|---:|---:|
+| `vault.initialize` | 1823 | **1351** | +472 (+35%) | 8000–10000 |
+| `vault.deposit`    | **1583** | 1565 |  +18 (+1.1%) | 5000–8000 |
+| `vault.withdraw`   | **1887** | 1949 |  −62 (−3.2%) | 4000–6000 |
+
+Both implementations live in the repo (`examples/vault.zig` for Zig,
+`bench-pinocchio/src/lib.rs` for Pinocchio) and run the **identical**
+business semantics — same PDA seeds (`["vault", authority]`), same
+client-supplied bump, same 56-byte account layout, same 24-byte
+`sol_log_data` event payload — so the comparison isolates pure SDK
+overhead.
+
+Reading: Pinocchio's optimized CPI / signer-seed plumbing in `initialize`
+is a clean win (saves ~470 CU); for the data-plane instructions
+(`deposit` / `withdraw`) the gap is single-digit-% and within noise.
+`vault.withdraw` is the only path where the Zig SDK is *faster*, because
+direct lamport mutation + stored-bump PDA verify via `verifyPda` skips
+the `Address::create_program_address` syscall (~1500 CU) that the
+Pinocchio reference uses.
 
 > Anchor figures are approximate values from production Solana
 > programs at the time of writing — your mileage will vary based on
-> account layout, IDL size, and Anchor version. The Zig SDK avoids
-> the Anchor IDL preflight, the borsh (de)serialization round-trip,
-> and the `RefCell` borrow checks, which is where most of the savings
-> come from.
+> account layout, IDL size, and Anchor version. Both Zig and
+> Pinocchio avoid the Anchor IDL preflight, the borsh
+> (de)serialization round-trip, and the `RefCell` borrow checks,
+> which is where the bulk of the difference vs Anchor comes from.
 
 The `vault.initialize` instruction uses the **client-supplied bump**
 pattern: instead of running the up-to-255-iteration

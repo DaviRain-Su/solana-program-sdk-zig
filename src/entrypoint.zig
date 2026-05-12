@@ -375,6 +375,11 @@ pub const InstructionContext = struct {
                     return error.IncorrectProgramId;
                 }
             }
+            if (exp.key) |expected_key| {
+                if (!pubkey.pubkeyEqComptime(acc.key(), expected_key)) {
+                    return error.InvalidArgument;
+                }
+            }
 
             @field(out, name) = acc;
         }
@@ -390,7 +395,13 @@ pub const AccountExpectation = struct {
     signer: bool = false,
     writable: bool = false,
     executable: bool = false,
+    /// Expected owner program ID (comptime constant). Comptime
+    /// compare uses 4 u64-immediate cmps — no rodata lookup.
     owner: ?Pubkey = null,
+    /// Expected pubkey (comptime constant). Useful for asserting an
+    /// account is exactly a well-known sysvar / system program /
+    /// pre-derived PDA. Same comptime-immediate compare as `owner`.
+    key: ?Pubkey = null,
 };
 
 /// Generate a `ParsedAccounts`-shaped struct from a comptime spec
@@ -879,6 +890,33 @@ test "entrypoint: parseAccountsWith — owner match passes" {
         .{ "to", AccountExpectation{} },
     });
     _ = accs;
+}
+
+test "entrypoint: parseAccountsWith — key match passes" {
+    var input: [32768]u8 align(8) = undefined;
+    buildTwoAccountInput(&input, 0, 0, makePubkey(3), 0, 0);
+
+    var ctx = InstructionContext.init(&input);
+    // acc0.key = makePubkey(1) per buildTwoAccountInput.
+    const accs = try ctx.parseAccountsWith(.{
+        .{ "from", AccountExpectation{ .key = comptime makePubkey(1) } },
+        .{ "to", AccountExpectation{} },
+    });
+    _ = accs;
+}
+
+test "entrypoint: parseAccountsWith — key mismatch fails" {
+    var input: [32768]u8 align(8) = undefined;
+    buildTwoAccountInput(&input, 0, 0, makePubkey(3), 0, 0);
+
+    var ctx = InstructionContext.init(&input);
+    try std.testing.expectError(
+        error.InvalidArgument,
+        ctx.parseAccountsWith(.{
+            .{ "from", AccountExpectation{ .key = comptime makePubkey(99) } },
+            .{ "to", AccountExpectation{} },
+        }),
+    );
 }
 
 // =========================================================================

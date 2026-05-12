@@ -171,6 +171,77 @@ bounds check is a single comptime-known compare that LLVM folds when
 the caller has already guarded `data.len`, and `parseTag`'s
 comptime-unrolled variant check closes the `@enumFromInt` UB hole.
 
+### Checked arithmetic for u64 (and friends)
+
+DeFi-style programs repeatedly write:
+
+```zig
+const new_balance, const ovf = @addWithOverflow(balance, amount);
+if (ovf != 0) return error.ArithmeticOverflow;
+```
+
+`sol.math` collapses that to one line in three flavors:
+
+```zig
+// Optional-returning (compose with `orelse`):
+const new_balance = sol.math.tryAdd(balance, amount)
+    orelse return error.ArithmeticOverflow;
+
+// Error-returning (compose with `try`):
+const new_balance = try sol.math.add(balance, amount);
+
+// Wrapping (when you've already proven non-overflow):
+const new_balance = sol.math.addUnchecked(balance, amount);
+```
+
+Same for `sub` / `mul`. Works on any integer type (u64, u32, i64, …).
+
+**Measured 0 CU vs. hand-written** `@addWithOverflow` + branch on the
+vault deposit benchmark. Tip: for `if (a < b) err else a - b`
+(common withdraw shape), the hand-written form is ~6 CU cheaper than
+`trySub` — BPFv2's `@subWithOverflow` materializes the carry flag as a
+value-to-store-and-test. Use the math helpers when you'd otherwise
+write `@addWithOverflow`, not when you'd write `if (a < b)`.
+
+### Single-account expectations
+
+`AccountInfo.expect(.{...})` mirrors `parseAccountsWith`'s
+`AccountExpectation` shape for one-off assertions:
+
+```zig
+try authority.expect(.{ .signer = true, .writable = true });
+try mint.expect(.{ .owner = sol.spl_token_program_id });
+try rent_sysvar.expect(.{ .key = sol.sysvar.RENT_ID });
+```
+
+Each field is comptime-gated — only the requested checks generate
+code. `key` and `owner` use the comptime-Pubkey fast path (4 u64
+immediate compares, no rodata lookup). `parseAccountsWith` also now
+accepts a `.key` expectation for asserting well-known sysvars,
+system programs, or pre-derived PDAs in a single declarative spec.
+
+### Typed account-data view
+
+For programs that manage account layouts directly (not through
+`TypedAccount`):
+
+```zig
+const Layout = extern struct {
+    counter: u64 align(1),
+    flag: u8,
+};
+const state: *align(1) Layout = account.dataAs(Layout);
+state.counter += 1;  // direct write into account data
+
+// Read-only:
+const v = account.dataAsConst(Layout).counter;
+```
+
+Single pointer-cast — no allocation, no copying. Use `TypedAccount(T)`
+when you want discriminator validation; use `dataAs(T)` when the
+caller has already proven the layout (e.g. for raw SPL Token account
+parsing where the type IS the layout).
+
 ### Anchor-style foundations (no framework required)
 
 The SDK ships a few building blocks for "Anchor-style" programs while

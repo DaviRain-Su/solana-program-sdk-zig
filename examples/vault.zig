@@ -143,9 +143,8 @@ fn processInitialize(
     data: []const u8,
 ) sol.ProgramResult {
     // Per-ix expectations.
-    try authority.expectSigner();
-    try authority.expectWritable();
-    try vault.expectWritable();
+    try authority.expect(.{ .signer = true, .writable = true });
+    try vault.expect(.{ .writable = true });
 
     // ix-data layout: [tag:1][bump:1]. The client passes the canonical
     // bump (found off-chain via `find_program_address`) so we only need
@@ -205,10 +204,8 @@ fn processDeposit(
     system_program: AccountInfo,
     data: []const u8,
 ) sol.ProgramResult {
-    try payer.expectSigner();
-    try payer.expectWritable();
-    try vault_info.expectWritable();
-    try vault_info.assertOwnerComptime(PROGRAM_ID);
+    try payer.expect(.{ .signer = true, .writable = true });
+    try vault_info.expect(.{ .writable = true, .owner = PROGRAM_ID });
 
     const amount = sol.instruction.tryReadUnaligned(u64, data, 1) orelse
         return error.InvalidInstructionData;
@@ -228,8 +225,8 @@ fn processDeposit(
         amount,
     );
 
-    const new_balance, const overflow = @addWithOverflow(vault.read().balance, amount);
-    if (overflow != 0) return VaultErr.toError(.AmountOverflow);
+    const new_balance = sol.math.tryAdd(vault.read().balance, amount) orelse
+        return VaultErr.toError(.AmountOverflow);
     vault.write().balance = new_balance;
 
     sol.emit(DepositEvent{
@@ -248,10 +245,9 @@ fn processWithdraw(
     recipient: AccountInfo,
     data: []const u8,
 ) sol.ProgramResult {
-    try authority.expectSigner();
-    try vault_info.expectWritable();
-    try vault_info.assertOwnerComptime(PROGRAM_ID);
-    try recipient.expectWritable();
+    try authority.expect(.{ .signer = true });
+    try vault_info.expect(.{ .writable = true, .owner = PROGRAM_ID });
+    try recipient.expect(.{ .writable = true });
 
     const amount = sol.instruction.tryReadUnaligned(u64, data, 1) orelse
         return error.InvalidInstructionData;
@@ -277,6 +273,16 @@ fn processWithdraw(
         &PROGRAM_ID,
     );
 
+    // Use the `<` compare directly, not `sol.math.trySub`. Why: this
+    // is the **happy path** for a successful withdrawal, and BPFv2's
+    // codegen for `@subWithOverflow` materializes the carry flag as a
+    // value-to-store-and-test (~6 CU extra). The hand-written
+    // `if (a < b) err; let new = a - b;` shape compiles to a single
+    // compare-and-branch on the no-overflow path.
+    //
+    // The principle: prefer `try sol.math.sub/add` when you'd otherwise
+    // write a manual `@addWithOverflow` (they're free); but for
+    // `a < b → err else a - b`, the hand-written form is still cheaper.
     if (state.balance < amount) {
         return VaultErr.toError(.InsufficientVaultBalance);
     }

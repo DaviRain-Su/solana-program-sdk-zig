@@ -26,6 +26,7 @@ pub const event = @import("event.zig");
 
 // Existing modules
 pub const instruction = @import("instruction.zig");
+pub const math = @import("math.zig");
 pub const clock = @import("clock.zig");
 pub const rent = @import("rent.zig");
 pub const hash = @import("hash.zig");

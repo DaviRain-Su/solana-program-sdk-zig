@@ -161,17 +161,17 @@ fn processInitialize(
 
     const bump_seed = [_]u8{bump};
 
-    // Build the PDA signer in the runtime's C-ABI shape inline. We pass
-    // `authority.key()[0..]` directly — the authority pubkey lives in
-    // the runtime's input buffer, so we save a 32-byte stack copy
-    // compared to materialising `auth_key = authority.key().*` first.
+    // Build the PDA signer in the runtime's C-ABI shape inline. We use
+    // `Seed.fromPubkey` to feed the authority key directly from the
+    // runtime's input buffer — saving a 32-byte stack copy compared to
+    // materialising `auth_key = authority.key().*` first.
     //
     // Fast path: `createRentExemptRaw` (and `invokeSignedRaw` under
     // the hood) hand the pointer to the syscall without staging a
     // copy. Saves ~80-120 CU vs. the `signer_seeds: &.{&.{...}}` shape.
     const seeds = [_]sol.cpi.Seed{
         .from("vault"),
-        .from(authority.key()[0..]),
+        .fromPubkey(authority.key()),
         .from(&bump_seed),
     };
     const signer = sol.cpi.Signer.from(&seeds);

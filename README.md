@@ -545,7 +545,7 @@ hands the runtime its native `Signer { addr, len }` shape directly:
 const bump_seed = [_]u8{bump};
 const seeds = [_]sol.cpi.Seed{
     .from("vault"),
-    .from(auth_key[0..]),
+    .fromPubkey(authority.key()),  // *const Pubkey → 32-byte seed
     .from(&bump_seed),
 };
 const signer = sol.cpi.Signer.from(&seeds);
@@ -743,6 +743,28 @@ const metas = [_]sol.cpi.AccountMeta{
 
 All four are `inline fn` — same BPF as the struct literal. The SDK's
 own `system.zig` uses these throughout.
+
+`Instruction` also has a one-call constructor, used by every helper
+in `system.zig`:
+
+```zig
+const ix = sol.cpi.Instruction.init(program.key(), &metas, &ix_data);
+// or, when `program` is a parsed CpiAccountInfo:
+const ix = sol.cpi.Instruction.fromCpiAccount(program, &metas, &ix_data);
+```
+
+For PDA seeds, the `Seed` type ships three constructors covering the
+common shapes:
+
+```zig
+const seeds = [_]sol.cpi.Seed{
+    .from("vault"),                       // byte slice (string literal)
+    .fromPubkey(authority.key()),         // *const Pubkey → 32-byte seed
+    .from(&bump_seed),                    // explicit 1-element [u8] array
+    // also:                              .fromByte(&state.bump) — for u8
+    //                                    field on an account / struct
+};
+```
 
 ## Using the SDK from your `build.zig`
 

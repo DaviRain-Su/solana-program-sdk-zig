@@ -97,6 +97,54 @@ pub const Instruction = struct {
     accounts: []const AccountMeta,
     /// Instruction data
     data: []const u8,
+
+    /// Construct an `Instruction` in one call — saves the 4-field
+    /// struct literal at every CPI call site:
+    ///
+    /// ```zig
+    /// const ix = sol.cpi.Instruction.init(
+    ///     system_program.key(),  // program_id
+    ///     &account_metas,        // accounts
+    ///     &ix_data,              // raw bytes
+    /// );
+    /// ```
+    ///
+    /// `inline` so the resulting BPF is identical to the struct
+    /// literal — verified by 0-CU bench regression on vault.
+    pub inline fn init(
+        program_id: *const Pubkey,
+        accounts: []const AccountMeta,
+        data: []const u8,
+    ) Instruction {
+        return .{
+            .program_id = program_id,
+            .accounts = accounts,
+            .data = data,
+        };
+    }
+
+    /// Same as `init` but takes a `CpiAccountInfo` for the program
+    /// account (the common pattern in CPI helpers — the caller passes
+    /// the program as a parsed account, and we want its `key()`).
+    ///
+    /// ```zig
+    /// const ix = sol.cpi.Instruction.fromCpiAccount(
+    ///     system_program,     // CpiAccountInfo
+    ///     &account_metas,
+    ///     &ix_data,
+    /// );
+    /// ```
+    pub inline fn fromCpiAccount(
+        program: CpiAccountInfo,
+        accounts: []const AccountMeta,
+        data: []const u8,
+    ) Instruction {
+        return .{
+            .program_id = program.key(),
+            .accounts = accounts,
+            .data = data,
+        };
+    }
 };
 
 /// A single PDA seed in the runtime's C-ABI shape: `{ ptr_as_u64, len }`.
@@ -115,6 +163,39 @@ pub const Seed = extern struct {
 
     pub inline fn from(slice: []const u8) Seed {
         return .{ .addr = @intFromPtr(slice.ptr), .len = slice.len };
+    }
+
+    /// Create a `Seed` over a `*const u8`, treating it as a 1-byte
+    /// slice. Useful for the bump-seed pattern when you have a
+    /// `u8` field on a stack variable (a stored bump on an account):
+    ///
+    /// ```zig
+    /// const seeds = [_]Seed{
+    ///     .from("vault"),
+    ///     .fromPubkey(authority.key()),
+    ///     .fromByte(&state.bump),     // 1-byte bump from account
+    /// };
+    /// ```
+    ///
+    /// Equivalent to wrapping the byte in a 1-element array
+    /// (`const arr = [_]u8{b}; .from(&arr)`) but lets the caller
+    /// reuse existing storage — useful when the bump already lives
+    /// in account data or a stored struct.
+    pub inline fn fromByte(byte: *const u8) Seed {
+        return .{ .addr = @intFromPtr(byte), .len = 1 };
+    }
+
+    /// Create a `Seed` over a `*const Pubkey`, treating it as a
+    /// 32-byte slice. Equivalent to `from(pk[0..])` but reads
+    /// more naturally:
+    ///
+    /// ```zig
+    /// .fromPubkey(authority.key())
+    /// // vs.
+    /// .from(authority.key()[0..])
+    /// ```
+    pub inline fn fromPubkey(pk: *const Pubkey) Seed {
+        return .{ .addr = @intFromPtr(pk), .len = pubkey.PUBKEY_BYTES };
     }
 };
 
@@ -411,4 +492,34 @@ test "cpi: AccountMeta convenience constructors set correct flag bytes" {
     // All constructors point at the same key.
     try std.testing.expectEqual(&key, ro.pubkey);
     try std.testing.expectEqual(&key, sw.pubkey);
+}
+
+test "cpi: Instruction.init builds the struct in one call" {
+    const key: Pubkey = .{1} ** 32;
+    const metas = [_]AccountMeta{AccountMeta.signer(&key)};
+    const data = [_]u8{ 0x01, 0x02, 0x03 };
+
+    const ix = Instruction.init(&key, &metas, &data);
+
+    try std.testing.expectEqual(&key, ix.program_id);
+    try std.testing.expectEqual(@as(usize, 1), ix.accounts.len);
+    try std.testing.expectEqual(@as(usize, 3), ix.data.len);
+    try std.testing.expectEqual(@as(u8, 0x02), ix.data[1]);
+}
+
+test "cpi: Seed.from / fromByte / fromPubkey produce identical layout" {
+    const slice = "vault";
+    const s1 = Seed.from(slice);
+    try std.testing.expectEqual(@intFromPtr(slice.ptr), s1.addr);
+    try std.testing.expectEqual(@as(u64, slice.len), s1.len);
+
+    const b: u8 = 254;
+    const s2 = Seed.fromByte(&b);
+    try std.testing.expectEqual(@intFromPtr(&b), s2.addr);
+    try std.testing.expectEqual(@as(u64, 1), s2.len);
+
+    const pk: Pubkey = .{42} ** 32;
+    const s3 = Seed.fromPubkey(&pk);
+    try std.testing.expectEqual(@intFromPtr(&pk), s3.addr);
+    try std.testing.expectEqual(@as(u64, 32), s3.len);
 }

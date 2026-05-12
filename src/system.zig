@@ -101,11 +101,7 @@ pub fn createAccount(
         cpi.AccountMeta.signerWritable(to.key()),
     };
 
-    const ix = cpi.Instruction{
-        .program_id = system_program.key(),
-        .accounts = &account_metas,
-        .data = &ix_data,
-    };
+    const ix = cpi.Instruction.fromCpiAccount(system_program, &account_metas, &ix_data);
 
     // We construct both `account_metas` and the accounts slice inline,
     // so the bounds check in `cpi.invoke` is provably-true at compile
@@ -141,11 +137,7 @@ pub fn createAccountSigned(
         cpi.AccountMeta.signerWritable(to.key()),
     };
 
-    const ix = cpi.Instruction{
-        .program_id = system_program.key(),
-        .accounts = &account_metas,
-        .data = &ix_data,
-    };
+    const ix = cpi.Instruction.fromCpiAccount(system_program, &account_metas, &ix_data);
 
     try cpi.invokeSigned(&ix, &[_]CpiAccountInfo{ from, to, system_program }, signers_seeds);
 }
@@ -191,11 +183,7 @@ pub fn createAccountSignedRaw(
         cpi.AccountMeta.signerWritable(to.key()),
     };
 
-    const ix = cpi.Instruction{
-        .program_id = system_program.key(),
-        .accounts = &account_metas,
-        .data = &ix_data,
-    };
+    const ix = cpi.Instruction.fromCpiAccount(system_program, &account_metas, &ix_data);
 
     try cpi.invokeSignedRaw(
         &ix,
@@ -227,11 +215,7 @@ pub fn transfer(
         cpi.AccountMeta.writable(to.key()),
     };
 
-    const ix = cpi.Instruction{
-        .program_id = system_program.key(),
-        .accounts = &account_metas,
-        .data = &ix_data,
-    };
+    const ix = cpi.Instruction.fromCpiAccount(system_program, &account_metas, &ix_data);
 
     // We construct both `account_metas` and the accounts slice inline,
     // so the bounds check in `cpi.invoke` is provably-true at compile
@@ -254,11 +238,7 @@ pub fn assign(
         cpi.AccountMeta.signerWritable(account.key()),
     };
 
-    const ix = cpi.Instruction{
-        .program_id = system_program.key(),
-        .accounts = &account_metas,
-        .data = &ix_data,
-    };
+    const ix = cpi.Instruction.fromCpiAccount(system_program, &account_metas, &ix_data);
 
     try cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ account, system_program });
 }
@@ -278,11 +258,7 @@ pub fn allocate(
         cpi.AccountMeta.signerWritable(account.key()),
     };
 
-    const ix = cpi.Instruction{
-        .program_id = system_program.key(),
-        .accounts = &account_metas,
-        .data = &ix_data,
-    };
+    const ix = cpi.Instruction.fromCpiAccount(system_program, &account_metas, &ix_data);
 
     try cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ account, system_program });
 }
@@ -485,11 +461,11 @@ pub fn createAccountWithSeed(
         cpi.AccountMeta.writable(to.key()),
     };
 
-    const ix = cpi.Instruction{
-        .program_id = system_program.key(),
-        .accounts = &account_metas,
-        .data = ix_data[0 .. 44 + seed.len + 16 + 32],
-    };
+    const ix = cpi.Instruction.fromCpiAccount(
+        system_program,
+        &account_metas,
+        ix_data[0 .. 44 + seed.len + 16 + 32],
+    );
 
     // We construct both `account_metas` and the accounts slice inline,
     // so the bounds check in `cpi.invoke` is provably-true at compile

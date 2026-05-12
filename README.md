@@ -699,6 +699,46 @@ variants (e.g. `error.InvalidSignature`, `error.InvalidInputData`,
 `error.InvalidNumberOfInputs`) so callers get Zig-native error
 handling instead of `u64` magic constants.
 
+#### Bridging crypto errors to `ProgramError`
+
+The crypto modules deliberately use **independent error sets** rather
+than reusing `ProgramError`. This preserves the failure
+sub-classification for logging and conditional branching, but it
+means `try` doesn't directly compose with a `ProgramResult`-returning
+handler. Each module ships two bridge functions matching Rust SDK
+conventions:
+
+```zig
+// Pattern A — preserve the failure code on the wire as Custom(N).
+// Mirrors `.map_err(|e| ProgramError::Custom(u64::from(e) as u32))?`
+// in Rust.
+const pk = sol.crypto.secp256k1_recover.recover(h, rid, sig) catch |e| {
+    sol.log.print("secp failed code={d}", .{
+        sol.crypto.secp256k1_recover.errorToCode(e),
+    });
+    return sol.customError(sol.crypto.secp256k1_recover.errorToCode(e));
+};
+
+// Pattern B — collapse to a builtin ProgramError so `try` propagates.
+// Mirrors `.map_err(|_| ProgramError::InvalidArgument)?` in Rust.
+const pk = sol.crypto.secp256k1_recover.recover(h, rid, sig) catch |e|
+    return sol.crypto.secp256k1_recover.errorToProgramError(e);
+
+// Pattern C — branch on specific variants (rare in on-chain code).
+const pk = sol.crypto.secp256k1_recover.recover(h, rid, sig) catch |e| switch (e) {
+    error.InvalidRecoveryId => return error.InvalidInstructionData,
+    else => return error.InvalidArgument,
+};
+```
+
+The `errorToProgramError` mapping is opinionated:
+malformed-input failures (`InvalidInputData` / `SliceOutOfBounds` /
+`EmptyInput` / `InvalidNumberOfInputs`) become
+`InvalidInstructionData`, while value failures
+(`GroupError` / `InvalidSignature` / `InputLargerThanModulus`) become
+`InvalidArgument`. If that split doesn't fit your protocol, use
+pattern A or C instead — the SDK doesn't make the choice for you.
+
 ### StakeHistory sysvar
 
 Reading historical stake activation requires passing the

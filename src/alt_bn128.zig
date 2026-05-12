@@ -38,6 +38,9 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
+const program_error = @import("program_error.zig");
+
+const ProgramError = program_error.ProgramError;
 
 // =============================================================================
 // Sizes (bytes)
@@ -173,6 +176,43 @@ pub fn pairingLE(input: []const u8, out: *[PAIRING_OUTPUT_SIZE]u8) Error!void {
 }
 
 // =============================================================================
+// Bridging — see `secp256k1_recover.zig` for the design rationale.
+// =============================================================================
+
+/// Numeric code matching the syscall's return values and the Rust
+/// SDK's `impl From<AltBn128Error> for u64`. Use with
+/// `sol.customError(code)` to preserve the failure sub-type on the
+/// wire as `Custom(N)`.
+///
+/// Codes: `1 = InvalidInputData`, `2 = GroupError`,
+/// `3 = SliceOutOfBounds`, `6 = Unexpected` (matches Rust's
+/// `UnexpectedError` numeric slot — `4` and `5` are reserved for
+/// `TryIntoVecError` / `ProjectiveToG1Failed` which the syscall
+/// itself never produces).
+pub fn errorToCode(err: Error) u32 {
+    return switch (err) {
+        error.InvalidInputData => 1,
+        error.GroupError => 2,
+        error.SliceOutOfBounds => 3,
+        error.Unexpected => 6,
+    };
+}
+
+/// Collapse to a `ProgramError`:
+///   - `InvalidInputData` / `SliceOutOfBounds` → `InvalidInstructionData`
+///     (the caller's input was malformed before it ever hit the curve).
+///   - `GroupError` → `InvalidArgument`
+///     (input parsed, but failed the on-curve / subgroup checks — a
+///     genuine semantic error, not a length / encoding issue).
+///   - `Unexpected` → `InvalidArgument` (defensive default).
+pub fn errorToProgramError(err: Error) ProgramError {
+    return switch (err) {
+        error.InvalidInputData, error.SliceOutOfBounds => error.InvalidInstructionData,
+        error.GroupError, error.Unexpected => error.InvalidArgument,
+    };
+}
+
+// =============================================================================
 // Tests
 // =============================================================================
 
@@ -203,4 +243,18 @@ test "alt_bn128: host stub returns Unexpected for valid sizes" {
     const input: [G1_ADDITION_INPUT_SIZE]u8 = .{0} ** G1_ADDITION_INPUT_SIZE;
     var out: [G1_POINT_SIZE]u8 = undefined;
     try testing.expectError(error.Unexpected, g1AdditionBE(&input, &out));
+}
+
+test "alt_bn128: errorToCode matches Rust mapping" {
+    try testing.expectEqual(@as(u32, 1), errorToCode(error.InvalidInputData));
+    try testing.expectEqual(@as(u32, 2), errorToCode(error.GroupError));
+    try testing.expectEqual(@as(u32, 3), errorToCode(error.SliceOutOfBounds));
+    try testing.expectEqual(@as(u32, 6), errorToCode(error.Unexpected));
+}
+
+test "alt_bn128: errorToProgramError split between malformed-input and on-curve failures" {
+    try testing.expectEqual(ProgramError.InvalidInstructionData, errorToProgramError(error.InvalidInputData));
+    try testing.expectEqual(ProgramError.InvalidInstructionData, errorToProgramError(error.SliceOutOfBounds));
+    try testing.expectEqual(ProgramError.InvalidArgument, errorToProgramError(error.GroupError));
+    try testing.expectEqual(ProgramError.InvalidArgument, errorToProgramError(error.Unexpected));
 }

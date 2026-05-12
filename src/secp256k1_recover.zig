@@ -24,6 +24,9 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
+const program_error = @import("program_error.zig");
+
+const ProgramError = program_error.ProgramError;
 
 /// 32 bytes — fixed size of the message hash.
 pub const HASH_LEN: usize = 32;
@@ -107,6 +110,63 @@ pub fn recover(
 }
 
 // =============================================================================
+// Bridging to the rest of the SDK
+//
+// The crypto error sets are kept independent of `ProgramError` so the
+// fine-grained variants survive logging and conditional branching.
+// Solana's wire format only carries a single `u64`, so when a program
+// is about to return up the entrypoint it must collapse the typed
+// error into one of two shapes:
+//
+//   1. `Custom(N)` carrying the syscall's numeric code — preserves
+//      "which kind of failure" all the way to the client / explorer.
+//      Use `errorToCode(err)` to get N, then `sol.customError(N)`.
+//   2. A builtin `ProgramError` variant — discards the sub-classification
+//      but composes cleanly with `try` / `ProgramResult` returns.
+//      Use `errorToProgramError(err)`.
+//
+// This mirrors the Rust SDK's `From<Secp256k1RecoverError> for u64`
+// (option 1) and the idiomatic `.map_err(|_| ProgramError::InvalidArgument)`
+// pattern (option 2). The SDK does not pick for you — both bridges are
+// provided so the call site can be explicit.
+// =============================================================================
+
+/// Numeric code matching the syscall's return values and the Rust
+/// SDK's `impl From<Secp256k1RecoverError> for u64`. Use with
+/// `sol.customError(code)` to surface the failure as `Custom(N)` on
+/// the wire.
+///
+/// Codes: `1 = InvalidHash`, `2 = InvalidRecoveryId`,
+/// `3 = InvalidSignature`. Other variants get `0xFFFF_FFFF` so
+/// callers can recognise "wrapper-only" failures distinctly from the
+/// runtime's three documented codes.
+pub fn errorToCode(err: Error) u32 {
+    return switch (err) {
+        error.InvalidHash => 1,
+        error.InvalidRecoveryId => 2,
+        error.InvalidSignature => 3,
+        error.Unexpected => 0xFFFF_FFFF,
+    };
+}
+
+/// Collapse to a `ProgramError` variant — convenient when the caller
+/// doesn't care to distinguish failure sub-types and just wants `try`
+/// to propagate up to a `ProgramResult`-returning handler.
+///
+/// All variants map to `InvalidArgument`, matching the conventional
+/// Rust `.map_err(|_| ProgramError::InvalidArgument)?` idiom for
+/// secp256k1 recovery failures.
+pub fn errorToProgramError(err: Error) ProgramError {
+    return switch (err) {
+        error.InvalidHash,
+        error.InvalidRecoveryId,
+        error.InvalidSignature,
+        error.Unexpected,
+        => error.InvalidArgument,
+    };
+}
+
+// =============================================================================
 // Tests
 // =============================================================================
 
@@ -141,4 +201,18 @@ test "secp256k1_recover: constants match Rust SDK" {
     try testing.expectEqual(@as(usize, 32), HASH_LEN);
     try testing.expectEqual(@as(usize, 64), SIGNATURE_LEN);
     try testing.expectEqual(@as(usize, 64), PUBKEY_LEN);
+}
+
+test "secp256k1_recover: errorToCode matches Rust mapping" {
+    try testing.expectEqual(@as(u32, 1), errorToCode(error.InvalidHash));
+    try testing.expectEqual(@as(u32, 2), errorToCode(error.InvalidRecoveryId));
+    try testing.expectEqual(@as(u32, 3), errorToCode(error.InvalidSignature));
+    try testing.expectEqual(@as(u32, 0xFFFF_FFFF), errorToCode(error.Unexpected));
+}
+
+test "secp256k1_recover: errorToProgramError collapses to InvalidArgument" {
+    try testing.expectEqual(ProgramError.InvalidArgument, errorToProgramError(error.InvalidHash));
+    try testing.expectEqual(ProgramError.InvalidArgument, errorToProgramError(error.InvalidRecoveryId));
+    try testing.expectEqual(ProgramError.InvalidArgument, errorToProgramError(error.InvalidSignature));
+    try testing.expectEqual(ProgramError.InvalidArgument, errorToProgramError(error.Unexpected));
 }

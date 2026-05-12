@@ -15,6 +15,9 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
+const program_error = @import("program_error.zig");
+
+const ProgramError = program_error.ProgramError;
 
 /// 32 bytes — fixed Poseidon hash output size.
 pub const HASH_LEN: usize = 32;
@@ -141,6 +144,58 @@ fn mapError(rc: u64) Error!void {
 }
 
 // =============================================================================
+// Bridging — see `secp256k1_recover.zig` for the design rationale.
+// =============================================================================
+
+/// Numeric code matching the syscall's return values and the Rust
+/// SDK's `impl From<PoseidonSyscallError> for u64`. Use with
+/// `sol.customError(code)` to preserve the failure sub-type on the
+/// wire as `Custom(N)`.
+pub fn errorToCode(err: Error) u32 {
+    return switch (err) {
+        error.InvalidParameters => 1,
+        error.InvalidEndianness => 2,
+        error.InvalidNumberOfInputs => 3,
+        error.EmptyInput => 4,
+        error.InvalidInputLength => 5,
+        error.BytesToPrimeFieldElement => 6,
+        error.InputLargerThanModulus => 7,
+        error.VecToArray => 8,
+        error.U64Tou8 => 9,
+        error.BytesToBigInt => 10,
+        error.InvalidWidthCircom => 11,
+        error.Unexpected => 12,
+    };
+}
+
+/// Collapse to a `ProgramError`:
+///   - Input-shape failures (`EmptyInput`, `InvalidNumberOfInputs`,
+///     `InvalidInputLength`, `InvalidParameters`, `InvalidEndianness`,
+///     `InvalidWidthCircom`) → `InvalidInstructionData`.
+///   - Value failures (`InputLargerThanModulus`,
+///     `BytesToPrimeFieldElement`, `BytesToBigInt`) → `InvalidArgument`.
+///   - Wrapper / runtime defaults (`VecToArray`, `U64Tou8`,
+///     `Unexpected`) → `InvalidArgument`.
+pub fn errorToProgramError(err: Error) ProgramError {
+    return switch (err) {
+        error.EmptyInput,
+        error.InvalidNumberOfInputs,
+        error.InvalidInputLength,
+        error.InvalidParameters,
+        error.InvalidEndianness,
+        error.InvalidWidthCircom,
+        => error.InvalidInstructionData,
+        error.InputLargerThanModulus,
+        error.BytesToPrimeFieldElement,
+        error.BytesToBigInt,
+        error.VecToArray,
+        error.U64Tou8,
+        error.Unexpected,
+        => error.InvalidArgument,
+    };
+}
+
+// =============================================================================
 // Tests
 // =============================================================================
 
@@ -178,4 +233,18 @@ test "poseidon: enum discriminants match SDK ABI" {
 
 test "poseidon: SliceHeader is 16 bytes on 64-bit hosts" {
     try testing.expectEqual(@as(usize, 16), @sizeOf(SliceHeader));
+}
+
+test "poseidon: errorToCode matches Rust mapping" {
+    try testing.expectEqual(@as(u32, 1), errorToCode(error.InvalidParameters));
+    try testing.expectEqual(@as(u32, 4), errorToCode(error.EmptyInput));
+    try testing.expectEqual(@as(u32, 7), errorToCode(error.InputLargerThanModulus));
+    try testing.expectEqual(@as(u32, 12), errorToCode(error.Unexpected));
+}
+
+test "poseidon: errorToProgramError split between input-shape and value failures" {
+    try testing.expectEqual(ProgramError.InvalidInstructionData, errorToProgramError(error.EmptyInput));
+    try testing.expectEqual(ProgramError.InvalidInstructionData, errorToProgramError(error.InvalidNumberOfInputs));
+    try testing.expectEqual(ProgramError.InvalidArgument, errorToProgramError(error.InputLargerThanModulus));
+    try testing.expectEqual(ProgramError.InvalidArgument, errorToProgramError(error.Unexpected));
 }

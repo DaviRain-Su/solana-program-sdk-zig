@@ -98,6 +98,8 @@ pub const IntrospectedInstruction = sysvar_instructions.IntrospectedInstruction;
 // Compute / runtime introspection
 pub const remainingComputeUnits = compute_budget.remaining;
 pub const getEpochStake = stake.getEpochStake;
+pub const getSysvar = sysvar.getSysvar;
+pub const getSysvarRef = sysvar.getSysvarRef;
 pub const getSysvarBytes = sysvar.getSysvarBytes;
 pub const bigModExp = big_mod_exp.bigModExp;
 

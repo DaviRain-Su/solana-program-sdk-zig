@@ -63,6 +63,8 @@ BENCHES=(
     "pda_comptime"
     "parse_accounts_with"
     "parse_accounts_with_unchecked"
+    "sysvar_copy"
+    "sysvar_ref"
     "program_entry_1"
     "program_entry_lazy_1"
     "transfer_lamports"

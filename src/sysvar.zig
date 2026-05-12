@@ -6,10 +6,11 @@
 //!    required, ~250-300 CU per call. Available for: Clock, Rent,
 //!    EpochSchedule, LastRestartSlot, EpochRewards.
 //!
-//! 2. **Account-based** (`getSysvar(T, account)`): caller must pass
-//!    the sysvar account in the instruction's `accounts`. The account
-//!    bytes are deserialized into `T` (no syscall overhead, but
-//!    requires a borrow check on each program invocation).
+//! 2. **Account-based** (`getSysvarRef(T, account)` / `getSysvar(T, account)`):
+//!    caller must pass the sysvar account in the instruction's `accounts`.
+//!    `getSysvarRef` gives a zero-copy typed view over the account bytes;
+//!    `getSysvar` copies that typed value out when ownership-by-value is
+//!    more convenient.
 //!
 //! Choose syscalls when you can — they're cheaper and remove a
 //! constraint on the client (no need to list the sysvar account).
@@ -52,16 +53,28 @@ pub const STAKE_HISTORY_ID: Pubkey = pubkey.comptimeFromBase58("SysvarStakeHisto
 /// Instructions sysvar ID
 pub const INSTRUCTIONS_ID: Pubkey = pubkey.comptimeFromBase58("Sysvar1nstructions1111111111111111111111111");
 
-/// Get sysvar data from an account
+/// Get a zero-copy typed view of sysvar account data.
 ///
-/// The account must be the sysvar account. This function deserializes
-/// the account data into the requested type.
-pub fn getSysvar(comptime T: type, account: AccountInfo) ProgramError!T {
+/// The account must contain at least `@sizeOf(T)` bytes. The returned
+/// pointer aliases the account's runtime data buffer directly — no copy,
+/// no allocation, just a typed view over `account.data()`.
+///
+/// Use this for repeated field access or larger sysvar layouts where the
+/// SDK's zero-copy style is preferable.
+pub fn getSysvarRef(comptime T: type, account: AccountInfo) ProgramError!*align(1) const T {
     const data = account.data();
     if (data.len < @sizeOf(T)) {
         return ProgramError.InvalidAccountData;
     }
-    return std.mem.bytesToValue(T, data[0..@sizeOf(T)]);
+    return account.dataAsConst(T);
+}
+
+/// Get sysvar data from an account by value.
+///
+/// This is the convenience copy-returning form built on top of
+/// `getSysvarRef`. Use `getSysvarRef` when you want the zero-copy path.
+pub fn getSysvar(comptime T: type, account: AccountInfo) ProgramError!T {
+    return (try getSysvarRef(T, account)).*;
 }
 
 // =============================================================================
@@ -283,4 +296,67 @@ test "sysvar: EpochRewards layout has expected fields" {
         .active = false,
     };
     try std.testing.expectEqual(@as(u64, 0), er.total_rewards);
+}
+
+const TestSysvarBuf = struct {
+    bytes: [@sizeOf(account_mod.Account) + 128]u8 align(8),
+
+    fn init(comptime T: type, value: T) TestSysvarBuf {
+        var self: TestSysvarBuf = .{ .bytes = .{0} ** (@sizeOf(account_mod.Account) + 128) };
+        const acc: *account_mod.Account = @ptrCast(&self.bytes);
+        acc.* = .{
+            .borrow_state = account_mod.NOT_BORROWED,
+            .is_signer = 0,
+            .is_writable = 0,
+            .is_executable = 0,
+            ._padding = .{0} ** 4,
+            .key = .{0} ** 32,
+            .owner = .{0} ** 32,
+            .lamports = 0,
+            .data_len = @sizeOf(T),
+        };
+        const data_ptr: [*]u8 = @ptrFromInt(@intFromPtr(acc) + @sizeOf(account_mod.Account));
+        @memcpy(data_ptr[0..@sizeOf(T)], std.mem.asBytes(&value));
+        return self;
+    }
+
+    fn info(self: *TestSysvarBuf) AccountInfo {
+        return .{ .raw = @ptrCast(&self.bytes) };
+    }
+};
+
+test "sysvar: getSysvarRef returns zero-copy typed view" {
+    const original = EpochSchedule{
+        .slots_per_epoch = 432_000,
+        .leader_schedule_slot_offset = 432_000,
+        .warmup = false,
+        .first_normal_epoch = 14,
+        .first_normal_slot = 999,
+    };
+    var buf = TestSysvarBuf.init(EpochSchedule, original);
+    const info = buf.info();
+
+    const ref = try getSysvarRef(EpochSchedule, info);
+    try std.testing.expectEqual(@as(u64, 432_000), ref.slots_per_epoch);
+    try std.testing.expectEqual(@as(bool, false), ref.warmup);
+
+    const copy = try getSysvar(EpochSchedule, info);
+    try std.testing.expectEqual(ref.*, copy);
+
+    const mut = info.dataAs(EpochSchedule);
+    mut.warmup = true;
+    mut.first_normal_slot = 12345;
+
+    try std.testing.expectEqual(@as(bool, true), ref.warmup);
+    try std.testing.expectEqual(@as(u64, 12345), ref.first_normal_slot);
+    try std.testing.expectEqual(@as(bool, false), copy.warmup);
+    try std.testing.expectEqual(@as(u64, 999), copy.first_normal_slot);
+}
+
+test "sysvar: getSysvarRef errors when account data is too small" {
+    var buf = TestSysvarBuf.init(u32, 7);
+    try std.testing.expectError(
+        ProgramError.InvalidAccountData,
+        getSysvarRef(EpochSchedule, buf.info()),
+    );
 }

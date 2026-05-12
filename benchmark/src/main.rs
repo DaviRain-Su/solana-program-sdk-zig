@@ -71,6 +71,8 @@ fn print_usage(prog: &str) {
         "parse_accounts",
         "parse_accounts_with",
         "parse_accounts_with_unchecked",
+        "sysvar_copy",
+        "sysvar_ref",
         "program_entry_1",
         "program_entry_lazy_1",
         "transfer_lamports",
@@ -122,6 +124,10 @@ async fn run_benchmark(name: &'static str) {
         "parse_accounts_with_unchecked" => {
             run_parse_accounts_primitive("benchmark_parse_accounts_with_unchecked", true).await
         }
+
+        // Account-backed sysvar access primitives.
+        "sysvar_copy" => run_sysvar_access_primitive("benchmark_sysvar_copy").await,
+        "sysvar_ref" => run_sysvar_access_primitive("benchmark_sysvar_ref").await,
 
         // Token dispatch — safe (parseAccounts) variant
         "token_dispatch_transfer" => run_token_dispatch("example_token_dispatch", 0, 100).await,
@@ -268,6 +274,37 @@ async fn run_parse_accounts_primitive(program_name: &'static str, validated: boo
     match banks_client.process_transaction(tx).await {
         Ok(()) => println!("Parse-accounts primitive {} succeeded", program_name),
         Err(e) => println!("Parse-accounts primitive {} failed: {}", program_name, e),
+    }
+}
+
+async fn run_sysvar_access_primitive(program_name: &'static str) {
+    let program_id = Pubkey::from_str(BENCH_PROGRAM_ID).unwrap();
+    let mut pt = ProgramTest::new(program_name, program_id, None);
+
+    let sysvar_key = Pubkey::from_str("BenchPubkey11111111111111111111111111111112").unwrap();
+    pt.add_account(
+        sysvar_key,
+        Account {
+            lamports: 100_000,
+            data: vec![0; 64],
+            owner: program_id,
+            ..Account::default()
+        },
+    );
+
+    let (banks_client, payer, recent_blockhash) = pt.start().await;
+    let mut tx = Transaction::new_with_payer(
+        &[Instruction::new_with_bytes(
+            program_id,
+            &[],
+            vec![AccountMeta::new_readonly(sysvar_key, false)],
+        )],
+        Some(&payer.pubkey()),
+    );
+    tx.sign(&[&payer], recent_blockhash);
+    match banks_client.process_transaction(tx).await {
+        Ok(()) => println!("Sysvar primitive {} succeeded", program_name),
+        Err(e) => println!("Sysvar primitive {} failed: {}", program_name, e),
     }
 }
 

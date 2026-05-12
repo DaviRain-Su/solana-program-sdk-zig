@@ -712,6 +712,82 @@ flows (Wormhole-style attestations, oracle signatures, gasless tx) and
 for **MEV / sandwich defence** ("the preceding ix must be from
 program X").
 
+The SDK now also ships dual-target builders + parsers for those native
+signature-verification instructions:
+
+```zig
+// -----------------------------
+// Off-chain / host-side builder
+// -----------------------------
+const msg = "withdraw:42";
+const pubkey: sol.Pubkey = ...;
+const sig: [64]u8 = ...;
+var scratch: [256]u8 = undefined;
+
+const ed_ix = try sol.ed25519_instruction.verify(
+    msg,
+    &pubkey,
+    &sig,
+    &scratch,
+);
+
+// secp256k1: self-contained instruction at tx index 0
+const eth_address: [20]u8 = ...;
+const secp_sig: [64]u8 = ...;
+const recid: u8 = 1;
+var secp_scratch: [256]u8 = undefined;
+
+const secp_ix = try sol.secp256k1_instruction.verifyFirst(
+    msg,
+    &eth_address,
+    &secp_sig,
+    recid,
+    &secp_scratch,
+);
+```
+
+```zig
+// ----------------------
+// On-chain verification
+// ----------------------
+const ix_sysvar = a.instructions_sysvar;
+const prev = try sol.getInstructionRelative(-1, ix_sysvar);
+
+if (sol.pubkey.pubkeyEqComptime(prev.programId(), sol.ed25519_program_id)) {
+    const parsed = try sol.ed25519_instruction.parseSignature(prev, 0);
+    if (!sol.pubkey.pubkeyEq(parsed.public_key, expected_signer))
+        return error.InvalidArgument;
+    if (!std.mem.eql(u8, parsed.message, expected_message))
+        return error.InvalidArgument;
+} else if (sol.pubkey.pubkeyEqComptime(prev.programId(), sol.secp256k1_program_id)) {
+    // For secp instructions, either know the absolute index used by the
+    // builder (`parseSignatureSelfContained`) or resolve through the
+    // instructions sysvar when offsets point at sibling instructions.
+    const current_index = try sol.loadCurrentIndexChecked(ix_sysvar);
+    const parsed = try sol.secp256k1_instruction.parseSignatureWithSysvar(
+        prev,
+        0,
+        @intCast(current_index - 1),
+        ix_sysvar,
+    );
+    if (!std.mem.eql(u8, parsed.message, expected_message))
+        return error.InvalidArgument;
+}
+```
+
+Design notes:
+
+- `ed25519_instruction.verify(...)` uses the native program's
+  `u16::MAX` self-reference convention, so the builder does **not** need
+  to know the final transaction index.
+- `secp256k1_instruction.verify(...)` stores absolute `u8` instruction
+  indexes in the wire format. Use `verifyFirst(...)` for the common
+  "secp ix is first" layout, or `verify(index, ...)` when you know the
+  final transaction position.
+- Both modules also expose lower-level `buildInstruction(...)` helpers
+  when signatures / messages / addresses live in some *other*
+  instruction's data.
+
 ### Call-stack introspection — top-level vs CPI guards
 
 `sol.stack` exposes the two runtime call-stack syscalls:

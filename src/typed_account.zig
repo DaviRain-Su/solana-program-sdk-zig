@@ -189,6 +189,24 @@ pub fn TypedAccount(comptime T: type) type {
             const pk = @import("pubkey.zig");
             if (!pk.pubkeyEq(stored, expected.key())) return err;
         }
+
+        /// Close this typed account and refund rent to `destination`.
+        ///
+        /// Anchor's `#[account(close = destination)]` — drains
+        /// lamports, zeroes data, shrinks `data_len` to 0, reassigns
+        /// to the system program. After `close()` the wrapped
+        /// `AccountInfo` is no longer a valid typed view; drop the
+        /// `TypedAccount` value immediately.
+        ///
+        /// Caller MUST ensure this program owns the account (typically
+        /// by checking ownership at bind time or relying on
+        /// `expect(.{ .owner = ... })` upstream).
+        pub inline fn close(
+            self: Self,
+            destination: AccountInfo,
+        ) ProgramError!void {
+            return self.info.close(destination);
+        }
     };
 }
 

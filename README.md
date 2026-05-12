@@ -571,6 +571,103 @@ still works on `sol.system.createRentExempt` for the common case where
 you don't care about ~80 CU; the LLVM optimizer folds most of the
 staging copy away anyway when the seed count is comptime-known.
 
+### Sysvar instructions introspection — read other ix in the same tx
+
+The Solana **instructions sysvar** (`Sysvar1nstructions11…`) exposes
+the entire transaction's serialized instructions. The
+`sol.sysvar_instructions` module parses it zero-copy:
+
+```zig
+// Have your client pass the sysvar as an account in the ix.
+const ix_sysvar = a.instructions_sysvar;
+
+// Where am I in the tx?
+const my_index = try sol.loadCurrentIndexChecked(ix_sysvar);
+
+// The instruction immediately before me must be ed25519 sig-verify.
+const prev = try sol.getInstructionRelative(-1, ix_sysvar);
+if (!sol.pubkey.pubkeyEqComptime(prev.programId(), sol.ed25519_program_id))
+    return error.InvalidArgument;
+
+// Walk its account metas / data without copying.
+var it = prev.accounts();
+while (it.next()) |meta| {
+    if (meta.isSigner()) { /* ... */ }
+}
+const sig_data = prev.data();
+```
+
+This is the canonical pattern for **ed25519 / secp256k1 verify-then-act**
+flows (Wormhole-style attestations, oracle signatures, gasless tx) and
+for **MEV / sandwich defence** ("the preceding ix must be from
+program X").
+
+### Call-stack introspection — top-level vs CPI guards
+
+`sol.stack` exposes the two runtime call-stack syscalls:
+
+```zig
+// "This entrypoint must run as a top-level tx instruction" — reject CPI.
+if (sol.getStackHeight() != sol.TRANSACTION_LEVEL_STACK_HEIGHT)
+    return error.MustBeTopLevel;
+
+// Probe sibling instructions of the parent invocation.
+if (sol.stack.siblingMeta(0)) |s| {
+    if (sol.pubkey.pubkeyEq(&s.program_id, &SOME_PROGRAM_ID)) {
+        // The most recently-processed sibling was that program.
+    }
+}
+
+// Pull a sibling's data + account-metas (two-call ABI):
+const sibling = try sol.stack.getProcessedSiblingInstructionAlloc(0, allocator);
+```
+
+Combined with the instructions sysvar, this is the toolkit needed for
+serious onchain protocols — Squads, Jito-style tip distribution,
+limit-order protections, anything that needs to verify "what else is
+happening in this transaction?".
+
+### Account-data resize + close
+
+`AccountInfo` now ships the two account-lifecycle operations that
+Anchor users expect:
+
+```zig
+// Grow / shrink within the runtime's MAX_PERMITTED_DATA_INCREASE (10 KiB)
+// budget. Returns InvalidRealloc on overflow.
+try state_account.resize(new_size, /*zero_init=*/ true);
+
+// Reassign owner (typically to the system program before close).
+state_account.assignComptime(sol.system_program_id);
+
+// Anchor `#[account(close = receiver)]` — drains lamports, zeroes data,
+// shrinks data_len to 0, reassigns to system program. Caller must have
+// verified ownership upstream.
+try state_account.close(receiver);
+
+// Discriminator-validated typed accounts get a matching helper:
+const vault = try sol.TypedAccount(VaultState).bind(a.vault);
+try vault.close(a.receiver);
+```
+
+`originalDataLen()` exposes the runtime-captured pre-instruction
+length, which is the basis of the resize-budget check.
+
+### SHA-256 / Keccak-256 / Blake3 + the `Hash` newtype
+
+`src/hash.zig` wraps the three hash syscalls behind a uniform API.
+The same functions work on host (via `std.crypto.hash`) and on-chain
+(via `sol_sha256` / `sol_keccak256` / `sol_blake3`):
+
+```zig
+const h = sol.sha256(&.{"namespace:", payload});  // Hash newtype
+const k = sol.keccak256(&.{message_bytes});       // EVM-compat
+const b3 = sol.blake3(&.{stuff});
+// `Hash` formats as base58 by default; `bytes` field exposes the raw [32]u8.
+```
+
+`hashv` is an alias for `sha256` for parity with `solana-program`.
+
 ### Example programs
 
 The `examples/` directory ships four standalone programs that

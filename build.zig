@@ -19,6 +19,91 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
+
+    // -------------------------------------------------------------
+    // `zig build examples` — build every `.so` under `examples/`.
+    //
+    // Requires the solana-zig fork (has `sbf` target). When the host
+    // Zig doesn't have it, the step is created but skipped on
+    // invocation. This keeps `zig build` (no target) usable on stock
+    // Zig for running unit tests.
+    // -------------------------------------------------------------
+    const examples_step = b.step(
+        "examples",
+        "Build all example programs (requires solana-zig fork)",
+    );
+    if (has_sbf_target) {
+        const examples = [_][]const u8{
+            "hello",
+            "counter",
+            "vault",
+            "escrow",
+            "token_dispatch",
+            "cpi",
+            "pubkey",
+        };
+        inline for (examples) |name| {
+            const ex = buildProgramLocal(b, .{
+                .name = name,
+                .root_source_file = b.path("examples/" ++ name ++ ".zig"),
+                .optimize = .ReleaseFast,
+            });
+            examples_step.dependOn(ex.step);
+        }
+    }
+}
+
+/// In-tree variant of `buildProgram` that takes the SDK module
+/// directly instead of going through `b.dependency` — used by the
+/// root `examples` step where the SDK is the *current* package.
+/// Downstream consumers should keep using `buildProgram`.
+fn buildProgramLocal(
+    b: *std.Build,
+    options: BuildProgramOptions,
+) LinkedProgram {
+    const target = b.resolveTargetQuery(sbfTarget());
+    const optimize = options.optimize;
+
+    // Create a fresh SDK module against the SBF target. The
+    // top-of-`build` `b.addModule` is resolved for the host, so we
+    // can't reuse it directly here.
+    const sdk_for_sbf = b.createModule(.{
+        .root_source_file = b.path("src/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const program_mod = b.createModule(.{
+        .root_source_file = options.root_source_file,
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "solana_program_sdk", .module = sdk_for_sbf },
+        },
+    });
+    program_mod.pic = true;
+    program_mod.strip = true;
+
+    const program = b.addLibrary(.{
+        .name = options.name,
+        .linkage = .dynamic,
+        .root_module = program_mod,
+    });
+    program.entry = .{ .symbol_name = "entrypoint" };
+    program.stack_size = 4096;
+    program.link_z_notext = true;
+    linkSolanaProgram(b, program);
+
+    const so = program.getEmittedBin();
+    const install = b.addInstallLibFile(so, b.fmt("{s}.so", .{options.name}));
+    b.getInstallStep().dependOn(&install.step);
+
+    return .{
+        .name = options.name,
+        .module = sdk_for_sbf,
+        .so = so,
+        .step = &install.step,
+    };
 }
 
 pub const LinkedProgram = struct {

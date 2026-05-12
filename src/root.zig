@@ -16,6 +16,7 @@ pub const memory = @import("memory.zig");
 pub const cpi = @import("cpi.zig");
 pub const system = @import("system.zig");
 pub const sysvar = @import("sysvar.zig");
+pub const sysvar_instructions = @import("sysvar_instructions.zig");
 pub const pda = @import("pda.zig");
 
 // Anchor-style foundations (typed accounts, discriminators, error codes, events)
@@ -26,12 +27,12 @@ pub const event = @import("event.zig");
 
 // Existing modules
 pub const instruction = @import("instruction.zig");
+pub const stack = @import("stack.zig");
 pub const math = @import("math.zig");
 pub const clock = @import("clock.zig");
 pub const rent = @import("rent.zig");
 pub const hash = @import("hash.zig");
 pub const slot_hashes = @import("slot_hashes.zig");
-pub const blake3 = @import("blake3.zig");
 pub const bpf = @import("bpf.zig");
 
 // Panic handler namespace
@@ -60,6 +61,21 @@ pub const DISCRIMINATOR_LEN = discriminator.DISCRIMINATOR_LEN;
 pub const emit = event.emit;
 pub const verifyPda = pda.verifyPda;
 pub const verifyPdaCanonical = pda.verifyPdaCanonical;
+pub const getStackHeight = stack.getStackHeight;
+pub const TRANSACTION_LEVEL_STACK_HEIGHT = stack.TRANSACTION_LEVEL_STACK_HEIGHT;
+
+// Instructions-sysvar introspection — Anchor `Sysvar<Instructions>` parity.
+pub const loadCurrentIndexChecked = sysvar_instructions.loadCurrentIndexChecked;
+pub const loadInstructionAtChecked = sysvar_instructions.loadInstructionAtChecked;
+pub const getInstructionRelative = sysvar_instructions.getInstructionRelative;
+pub const IntrospectedInstruction = sysvar_instructions.IntrospectedInstruction;
+
+// Hash aliases — the three syscall-backed families and the `Hash` newtype.
+pub const Hash = hash.Hash;
+pub const sha256 = hash.sha256;
+pub const keccak256 = hash.keccak256;
+pub const blake3 = hash.blake3;
+pub const hashv = hash.hashv;
 
 // Constants
 pub const lamports_per_sol = 1_000_000_000;

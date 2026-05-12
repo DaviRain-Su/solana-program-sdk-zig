@@ -255,6 +255,29 @@ pub const AccountInfo = struct {
         }
     }
 
+    /// Combined `expectSigner` + key-equality check. Common pattern
+    /// for "authority signer must equal stored key" — saves the
+    /// caller from writing the two-line idiom. Returns
+    /// `error.MissingRequiredSignature` first (matches sequential
+    /// `try expectSigner(); try keyEq(...)` ordering).
+    pub inline fn expectSignerKey(
+        self: AccountInfo,
+        expected: *const Pubkey,
+    ) ProgramError!void {
+        if (!self.isSigner()) return error.MissingRequiredSignature;
+        if (!pubkey.pubkeyEq(self.key(), expected)) return error.InvalidArgument;
+    }
+
+    /// Comptime-key variant — folds the 32-byte compare into four
+    /// u64-immediate compares.
+    pub inline fn expectSignerKeyComptime(
+        self: AccountInfo,
+        comptime expected: Pubkey,
+    ) ProgramError!void {
+        if (!self.isSigner()) return error.MissingRequiredSignature;
+        if (!pubkey.pubkeyEqComptime(self.key(), expected)) return error.InvalidArgument;
+    }
+
     /// Combined `expectSigner + expectWritable` — checks both flags
     /// with a single u16 load instead of two byte loads. The happy
     /// path is one compare against `0x0101` (both bytes = 1). Saves
@@ -322,6 +345,162 @@ pub const AccountInfo = struct {
     /// Read-only counterpart to `dataAs`.
     pub inline fn dataAsConst(self: AccountInfo, comptime T: type) *align(1) const T {
         return @ptrCast(@alignCast(self.dataPtr()));
+    }
+
+    // ---------------------------------------------------------------
+    // Resize / realloc
+    //
+    // The Solana runtime reserves `MAX_PERMITTED_DATA_INCREASE` (10 KiB)
+    // of writable scratch after every account's data region. Inside one
+    // instruction we may grow `data_len` up to `original_data_len +
+    // MAX_PERMITTED_DATA_INCREASE`, where `original_data_len` is the
+    // length captured at entry (stored in the 4-byte slot right before
+    // `key` — corresponds to our `Account._padding`).
+    //
+    // Shrinking is always allowed within `[0, original_data_len +
+    // MAX_PERMITTED_DATA_INCREASE]`.
+    //
+    // SAFETY notes:
+    //   - Caller must ensure the program owns the account; the runtime
+    //     enforces this at instruction-end (writes to data outside the
+    //     allowed window will abort the tx).
+    //   - The 10 KiB scratch is **zero-initialised at entrypoint** —
+    //     calling `resize` with `zero_init=false` is safe on the first
+    //     grow. If you grew, shrank, then grew again, pass `true` to
+    //     wipe stale bytes (or accept that stale bytes are visible).
+    // ---------------------------------------------------------------
+
+    /// Return the data length that was captured when the runtime
+    /// serialized this account for the current invocation. Resize
+    /// budget = `original_data_len + MAX_PERMITTED_DATA_INCREASE`.
+    pub inline fn originalDataLen(self: AccountInfo) usize {
+        // `_padding[4]` is actually a `u32` little-endian length placed
+        // by the runtime just before `key`. Read it through an aligned
+        // pointer for a single load.
+        const ptr: *align(4) const u32 = @ptrCast(&self.raw._padding);
+        return @intCast(ptr.*);
+    }
+
+    /// Set the account's `data_len`. Does NOT zero or move memory —
+    /// just rewrites the length header. Use the high-level `resize`
+    /// helper unless you have a specific reason to skip the bounds /
+    /// zero-init steps.
+    inline fn writeDataLen(self: AccountInfo, new_len: u64) void {
+        self.raw.data_len = new_len;
+    }
+
+    /// Resize this account's data to `new_len`.
+    ///
+    /// Returns `error.InvalidRealloc` if `new_len` exceeds
+    /// `original_data_len + MAX_PERMITTED_DATA_INCREASE`.
+    ///
+    /// When `zero_init` is `true`, any bytes added by growing past the
+    /// previous `data_len` are zeroed. The entrypoint-provided 10 KiB
+    /// scratch is already zero on first use, so pass `false` to skip
+    /// the memset if you haven't shrunk-and-regrown.
+    ///
+    /// This mirrors `solana_program::account_info::AccountInfo::realloc`.
+    pub fn resize(
+        self: AccountInfo,
+        new_len: usize,
+        zero_init: bool,
+    ) ProgramError!void {
+        const old_len = self.dataLen();
+        if (new_len == old_len) return;
+
+        const orig = self.originalDataLen();
+        // `new_len.saturating_sub(orig) > MAX_PERMITTED_DATA_INCREASE`
+        // — only the growth past the original is bounded; shrinking is
+        // unconstrained.
+        if (new_len > orig and (new_len - orig) > MAX_PERMITTED_DATA_INCREASE) {
+            return error.InvalidRealloc;
+        }
+
+        self.writeDataLen(new_len);
+
+        if (zero_init and new_len > old_len) {
+            const dp = self.dataPtr();
+            @memset(dp[old_len..new_len], 0);
+        }
+    }
+
+    /// Trusting variant of `resize` — skips the
+    /// `MAX_PERMITTED_DATA_INCREASE` check. Caller must guarantee the
+    /// new length fits in the scratch window. Useful when the new
+    /// length is comptime-known and provably in range.
+    pub inline fn resizeUnchecked(
+        self: AccountInfo,
+        new_len: usize,
+        zero_init: bool,
+    ) void {
+        const old_len = self.dataLen();
+        self.writeDataLen(new_len);
+        if (zero_init and new_len > old_len) {
+            const dp = self.dataPtr();
+            @memset(dp[old_len..new_len], 0);
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Owner reassignment / close
+    // ---------------------------------------------------------------
+
+    /// Reassign this account to a new owner program. The runtime
+    /// enforces:
+    ///   - the calling program currently owns this account, AND
+    ///   - the account is empty (data_len == 0 OR all-zero on close).
+    ///
+    /// Direct write — no CPI required. Mirrors
+    /// `solana_program::account_info::AccountInfo::assign`.
+    pub inline fn assign(self: AccountInfo, new_owner: *const Pubkey) void {
+        self.raw.owner = new_owner.*;
+    }
+
+    /// Comptime-key counterpart to `assign`. Generates four u64 stores
+    /// against immediates instead of a `memcpy` through a runtime
+    /// pointer.
+    pub inline fn assignComptime(self: AccountInfo, comptime new_owner: Pubkey) void {
+        self.raw.owner = new_owner;
+    }
+
+    /// Close this account by:
+    ///   1. Transferring all lamports to `destination` (rent reclaim).
+    ///   2. Zeroing the data buffer.
+    ///   3. Shrinking `data_len` to 0.
+    ///   4. Reassigning ownership to the system program (the canonical
+    ///      "closed account" marker).
+    ///
+    /// Caller MUST verify that this program owns the account before
+    /// calling — the runtime will abort the tx otherwise. The
+    /// destination account must be writable. Order matters: lamports
+    /// move BEFORE the owner reassignment, so the system-program
+    /// rule that "only the owner can drain lamports" is satisfied.
+    ///
+    /// This is the Anchor `#[account(close = receiver)]` equivalent.
+    pub fn close(
+        self: AccountInfo,
+        destination: AccountInfo,
+    ) ProgramError!void {
+        // 1. Drain lamports.
+        const balance = self.lamports();
+        // Use checked add on destination — defending against a
+        // pathological "destination already at u64.max" scenario.
+        try destination.addLamportsChecked(balance);
+        self.setLamports(0);
+
+        // 2. Zero the data buffer.
+        const old_len = self.dataLen();
+        if (old_len > 0) {
+            const dp = self.dataPtr();
+            @memset(dp[0..old_len], 0);
+        }
+
+        // 3. Shrink data_len to 0.
+        self.writeDataLen(0);
+
+        // 4. Reassign to system program.
+        const SYSTEM_PROGRAM_ID = @import("system.zig").SYSTEM_PROGRAM_ID;
+        self.raw.owner = SYSTEM_PROGRAM_ID;
     }
 
     /// Create a C-ABI-compatible view for CPI calls.
@@ -693,4 +872,132 @@ test "account: addLamportsChecked / subLamportsChecked overflow" {
     try std.testing.expectError(error.ArithmeticOverflow, info.subLamportsChecked(1));
     info.setLamports(std.math.maxInt(u64));
     try std.testing.expectError(error.ArithmeticOverflow, info.addLamportsChecked(1));
+}
+
+// Synthetic backing buffer matching the runtime layout:
+//   [Account header][data buffer][trailing scratch up to MAX_PERMITTED_DATA_INCREASE]
+// `_padding` (offset 4..8) is the runtime's `original_data_len: u32 LE`.
+const TEST_BUF_DATA = @as(usize, MAX_PERMITTED_DATA_INCREASE) + 256;
+const ReallocTestBuf = struct {
+    bytes: [@sizeOf(Account) + TEST_BUF_DATA]u8 align(8),
+
+    fn init(original_len: u32, current_len: u64) ReallocTestBuf {
+        var self: ReallocTestBuf = .{ .bytes = .{0} ** (@sizeOf(Account) + TEST_BUF_DATA) };
+        const acc: *Account = @ptrCast(&self.bytes);
+        acc.* = .{
+            .borrow_state = NOT_BORROWED,
+            .is_signer = 0,
+            .is_writable = 1,
+            .is_executable = 0,
+            ._padding = .{0} ** 4,
+            .key = .{0} ** 32,
+            .owner = .{0xAB} ** 32,
+            .lamports = 5_000_000,
+            .data_len = current_len,
+        };
+        // Write `original_data_len` into the `_padding` slot.
+        const orig_ptr: *align(4) u32 = @ptrCast(&acc._padding);
+        orig_ptr.* = original_len;
+        return self;
+    }
+
+    fn info(self: *ReallocTestBuf) AccountInfo {
+        return .{ .raw = @ptrCast(&self.bytes) };
+    }
+};
+
+test "account: originalDataLen reads u32 from _padding slot" {
+    var buf = ReallocTestBuf.init(42, 42);
+    try std.testing.expectEqual(@as(usize, 42), buf.info().originalDataLen());
+}
+
+test "account: resize grows within budget" {
+    var buf = ReallocTestBuf.init(10, 10);
+    const info = buf.info();
+    // Pre-seed only a small region we care about — well within the
+    // test backing buffer (TEST_BUF_DATA bytes after the header).
+    @memset(info.dataPtr()[0..40], 0xCC);
+    info.writeDataLen(10);
+
+    try info.resize(20, true);
+    try std.testing.expectEqual(@as(usize, 20), info.dataLen());
+    // Bytes [10..20] should now be zero.
+    for (info.data()[10..20]) |b| try std.testing.expectEqual(@as(u8, 0), b);
+    // Untouched: byte at index 0 remains pre-seeded.
+    try std.testing.expectEqual(@as(u8, 0xCC), info.dataPtr()[0]);
+}
+
+test "account: resize shrinks freely" {
+    var buf = ReallocTestBuf.init(100, 100);
+    const info = buf.info();
+    try info.resize(7, false);
+    try std.testing.expectEqual(@as(usize, 7), info.dataLen());
+}
+
+test "account: resize rejects > original + MAX_PERMITTED_DATA_INCREASE" {
+    var buf = ReallocTestBuf.init(0, 0);
+    try std.testing.expectError(
+        error.InvalidRealloc,
+        buf.info().resize(MAX_PERMITTED_DATA_INCREASE + 1, false),
+    );
+    // Boundary: exactly original + MAX is allowed.
+    try buf.info().resize(MAX_PERMITTED_DATA_INCREASE, false);
+}
+
+test "account: resize no-op when new_len == old_len" {
+    var buf = ReallocTestBuf.init(50, 50);
+    try buf.info().resize(50, true);
+    try std.testing.expectEqual(@as(usize, 50), buf.info().dataLen());
+}
+
+test "account: assign overwrites owner" {
+    var buf = ReallocTestBuf.init(0, 0);
+    const info = buf.info();
+    const new_owner: Pubkey = .{0x33} ** 32;
+    info.assign(&new_owner);
+    try std.testing.expect(pubkey.pubkeyEq(info.owner(), &new_owner));
+}
+
+test "account: expectSignerKey happy path + mismatches" {
+    var buf = ReallocTestBuf.init(0, 0);
+    const info = buf.info();
+    info.raw.is_signer = 1;
+    info.raw.key = .{0x55} ** 32;
+
+    const want: Pubkey = .{0x55} ** 32;
+    const wrong: Pubkey = .{0x66} ** 32;
+
+    try info.expectSignerKey(&want);
+    try info.expectSignerKeyComptime(.{0x55} ** 32);
+
+    try std.testing.expectError(error.InvalidArgument, info.expectSignerKey(&wrong));
+
+    info.raw.is_signer = 0;
+    try std.testing.expectError(
+        error.MissingRequiredSignature,
+        info.expectSignerKey(&want),
+    );
+}
+
+test "account: close drains lamports, zeroes data, reassigns to system" {
+    var src_buf = ReallocTestBuf.init(32, 32);
+    var dst_buf = ReallocTestBuf.init(0, 0);
+
+    const src = src_buf.info();
+    const dst = dst_buf.info();
+    // Seed src.data with non-zero so we can verify zeroing.
+    @memset(src.data()[0..32], 0xEE);
+    dst.setLamports(1_000);
+
+    try src.close(dst);
+
+    try std.testing.expectEqual(@as(u64, 0), src.lamports());
+    try std.testing.expectEqual(@as(u64, 1_000 + 5_000_000), dst.lamports());
+    try std.testing.expectEqual(@as(usize, 0), src.dataLen());
+    // Owner should now be the system program (all zeros).
+    const system_id = @import("system.zig").SYSTEM_PROGRAM_ID;
+    try std.testing.expect(pubkey.pubkeyEq(src.owner(), &system_id));
+    // The bytes that used to hold data should now be zeroed (we
+    // zeroed positions 0..32 inside the data buffer).
+    for (src.dataPtr()[0..32]) |b| try std.testing.expectEqual(@as(u8, 0), b);
 }

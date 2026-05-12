@@ -119,6 +119,73 @@ get the canonical error variant (`MissingRequiredSignature`,
 The same `expectSigner()` / `expectWritable()` / `expectExecutable()`
 helpers are available directly on `AccountInfo` for ad-hoc checks.
 
+### Anchor-style foundations (no framework required)
+
+The SDK ships a few building blocks for "Anchor-style" programs while
+deliberately staying out of the framework business — every piece is
+opt-in and composable with the raw `[*]u8` entrypoint:
+
+- **`TypedAccount(T)`** — zero-copy typed access. Wrap an
+  `AccountInfo`, then `.read()` / `.write()` return aligned pointers to
+  `T`. No serialization, no allocation, no RefCell — just one
+  `@ptrCast`.
+
+- **`discriminator.forAccount("MyState")`** — 8-byte
+  `sha256("account:MyState")[..8]` computed at compile time. If `T`
+  declares `pub const DISCRIMINATOR = ...`, `TypedAccount(T).bind()`
+  enforces it and `initialize()` writes it. Defends against the
+  classic "account type confusion" attack class.
+
+- **`ErrorCode(enum(u32) { Overflow = 6000, ... })`** — typed
+  per-program error codes mapped to the runtime's `Custom(N)` wire
+  format. Zero runtime cost.
+
+- **`system.createRentExempt(...)`** — one-call account creation that
+  pulls the rent-exempt minimum from the Rent sysvar and forwards to
+  `system.createAccount` (or `createAccountSigned` when you provide
+  `signer_seeds`).
+
+Putting them together (see `examples/vault.zig` for the full file):
+
+```zig
+const VaultState = extern struct {
+    discriminator: [sol.DISCRIMINATOR_LEN]u8,
+    authority: sol.Pubkey,
+    balance: u64,
+    bump: u8,
+    _pad: [7]u8 = .{0} ** 7,
+
+    pub const DISCRIMINATOR = sol.discriminatorFor("Vault");
+};
+
+const VaultErr = sol.ErrorCode(enum(u32) {
+    Unauthorized = 6000,
+    InsufficientVaultBalance,
+    AmountOverflow,
+});
+
+fn deposit(ctx: *sol.InstructionContext) sol.ProgramResult {
+    const a = try ctx.parseAccountsWith(.{
+        .{ "payer", Exp{ .signer = true, .writable = true } },
+        .{ "vault", Exp{ .writable = true, .owner = PROGRAM_ID } },
+        .{ "system_program", Exp{} },
+    });
+    const amount = ctx.readIx(u64, 1);
+
+    const vault = try sol.TypedAccount(VaultState).bind(a.vault);
+    try sol.system.transfer(a.payer.toCpiInfo(), a.vault.toCpiInfo(),
+                            a.system_program.toCpiInfo(), amount);
+
+    const new_balance, const ovf = @addWithOverflow(vault.read().balance, amount);
+    if (ovf != 0) return VaultErr.toError(.AmountOverflow);
+    vault.write().balance = new_balance;
+}
+```
+
+Each line is independently usable — `TypedAccount` doesn't require
+discriminators, `parseAccountsWith` doesn't require `TypedAccount`,
+nothing requires anything else. Use only the pieces you need.
+
 ### Reproduce
 
 ```console

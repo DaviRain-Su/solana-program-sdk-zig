@@ -748,5 +748,24 @@ Week 4: Phase 7
 
 ---
 
-*最后更新: 2026-05-11*
+*最后更新: 2026-05-12*
 *目标版本: v0.18.0*
+
+---
+
+## 附录：Anchor 风格地基（已落地）
+
+> 哲学：**给地基，不给框架**。每个组件单独可用，互不强制。
+
+| 模块 | 文件 | 作用 | 状态 |
+|---|---|---|---|
+| `discriminator` | `src/discriminator.zig` | 8 字节 sha256 类型标签，comptime 折叠 | ✅ |
+| `TypedAccount(T)` | `src/typed_account.zig` | 零拷贝类型化账户视图，绑定时 enforce discriminator | ✅ |
+| `ErrorCode(E)` | `src/error_code.zig` | 自定义 `enum(u32)` 错误码 → 运行时 `Custom(N)` wire format | ✅ |
+| `system.createRentExempt` | `src/system.zig` | 一行创建账户：自动查 Rent sysvar + 可选 PDA 签名 | ✅ |
+| Native program 常量 | `src/root.zig` | spl_token / token-2022 / ATA / BPF loader / memo IDs | ✅ |
+| `examples/vault.zig` | — | 把以上全部组合的 demo program | ✅ |
+
+未做（哲学不符）:
+- 借用安全 (`Ref<T>` / `RefMut<T>`) — Pinocchio 有，我们不做，工具箱哲学
+- 约束 DSL (`has_one`, `seeds = [...]`) — 等到上一层 Anchor-like 框架去做

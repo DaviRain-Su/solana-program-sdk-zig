@@ -228,6 +228,76 @@ pub fn allocate(
 // `data_len` slot — no CPI is required. We intentionally do not expose
 // a `system.realloc` wrapper to avoid suggesting otherwise.
 
+/// Rent-exempt-aware account creation helper.
+///
+/// Computes the rent-exempt minimum balance at runtime via the Rent
+/// sysvar and forwards to `createAccount` / `createAccountSigned`.
+///
+/// `space` is `u64` (not `comptime`) so dynamic sizes work; pass a
+/// comptime-known constant to let LLVM fold the surrounding arithmetic.
+///
+/// Usage (non-PDA new account):
+/// ```zig
+/// try sol.system.createRentExempt(.{
+///     .payer = a.payer,
+///     .new_account = a.vault,
+///     .system_program = a.system_program,
+///     .space = @sizeOf(VaultState),
+///     .owner = &MY_PROGRAM_ID,
+/// });
+/// ```
+///
+/// Usage (PDA new account — `new_account` must be a PDA):
+/// ```zig
+/// const bump_seed = [_]u8{bump};
+/// try sol.system.createRentExempt(.{
+///     .payer = a.payer,
+///     .new_account = a.vault,
+///     .system_program = a.system_program,
+///     .space = @sizeOf(VaultState),
+///     .owner = &MY_PROGRAM_ID,
+///     .signer_seeds = &.{ &.{ "vault", a.payer.key().*[0..], &bump_seed } },
+/// });
+/// ```
+pub const CreateRentExemptArgs = struct {
+    payer: CpiAccountInfo,
+    new_account: CpiAccountInfo,
+    system_program: CpiAccountInfo,
+    space: u64,
+    owner: *const Pubkey,
+    /// Optional PDA signer seeds. Pass `null` if the new account is a
+    /// fresh keypair signed by the user; pass seeds when the new
+    /// account is a PDA whose signature must come from this program.
+    signer_seeds: ?[]const []const []const u8 = null,
+};
+
+pub fn createRentExempt(args: CreateRentExemptArgs) ProgramResult {
+    const rent_mod = @import("rent.zig");
+    const rent_data = rent_mod.Rent.get() catch return error.UnsupportedSysvar;
+    const lamports = rent_data.getMinimumBalance(args.space);
+
+    if (args.signer_seeds) |seeds| {
+        return createAccountSigned(
+            args.payer,
+            args.new_account,
+            args.system_program,
+            lamports,
+            args.space,
+            args.owner,
+            seeds,
+        );
+    }
+
+    return createAccount(
+        args.payer,
+        args.new_account,
+        args.system_program,
+        lamports,
+        args.space,
+        args.owner,
+    );
+}
+
 /// Create account with seed.
 pub fn createAccountWithSeed(
     from: CpiAccountInfo,

@@ -9,6 +9,18 @@ const AccountMeta = sol.cpi.AccountMeta;
 const ProgramError = sol.ProgramError;
 
 pub const EXTRA_ACCOUNT_META_LEN: usize = 35;
+pub const ACCOUNT_META_DISCRIMINATOR: u8 = 0;
+pub const HOOK_PROGRAM_PDA_DISCRIMINATOR: u8 = 1;
+pub const PUBKEY_DATA_DISCRIMINATOR: u8 = 2;
+pub const EXTERNAL_PDA_DISCRIMINATOR_MIN: u8 = 1 << 7;
+
+fn isCanonicalBool(byte: u8) bool {
+    return byte == 0 or byte == 1;
+}
+
+fn isSupportedDiscriminator(discriminator: u8) bool {
+    return discriminator <= PUBKEY_DATA_DISCRIMINATOR or discriminator >= EXTERNAL_PDA_DISCRIMINATOR_MIN;
+}
 
 pub const ExtraAccountMeta = extern struct {
     discriminator: u8,
@@ -18,7 +30,7 @@ pub const ExtraAccountMeta = extern struct {
 
     pub fn fixed(pubkey: *const Pubkey, is_signer: bool, is_writable: bool) ExtraAccountMeta {
         return .{
-            .discriminator = 0,
+            .discriminator = ACCOUNT_META_DISCRIMINATOR,
             .address_config = pubkey.*,
             .is_signer = @intFromBool(is_signer),
             .is_writable = @intFromBool(is_writable),
@@ -38,12 +50,14 @@ pub const ExtraAccountMeta = extern struct {
 
         var address_config: [32]u8 = undefined;
         @memcpy(&address_config, bytes[1..33]);
-        return .{
+        const parsed: ExtraAccountMeta = .{
             .discriminator = bytes[0],
             .address_config = address_config,
             .is_signer = bytes[33],
             .is_writable = bytes[34],
         };
+        try parsed.validate();
+        return parsed;
     }
 
     pub fn write(self: ExtraAccountMeta, dst: []u8) void {
@@ -51,6 +65,22 @@ pub const ExtraAccountMeta = extern struct {
         @memcpy(dst[1..33], &self.address_config);
         dst[33] = self.is_signer;
         dst[34] = self.is_writable;
+    }
+
+    pub fn validate(self: ExtraAccountMeta) ProgramError!void {
+        if (!isSupportedDiscriminator(self.discriminator)) return ProgramError.InvalidAccountData;
+        if (!isCanonicalBool(self.is_signer)) return ProgramError.InvalidAccountData;
+        if (!isCanonicalBool(self.is_writable)) return ProgramError.InvalidAccountData;
+    }
+
+    pub fn resolveFixedPubkey(self: *const ExtraAccountMeta) ProgramError!AccountMeta {
+        try self.validate();
+        if (self.discriminator != ACCOUNT_META_DISCRIMINATOR) return ProgramError.InvalidAccountData;
+        return .{
+            .pubkey = @ptrCast(&self.address_config),
+            .is_signer = self.is_signer,
+            .is_writable = self.is_writable,
+        };
     }
 };
 
@@ -74,6 +104,12 @@ pub const ExtraAccountMetaSlice = struct {
 
     pub fn asBytes(self: ExtraAccountMetaSlice) []const u8 {
         return self.bytes;
+    }
+
+    pub fn validateAll(self: ExtraAccountMetaSlice) ProgramError!void {
+        for (0..self.len()) |i| {
+            _ = try self.get(i);
+        }
     }
 };
 
@@ -113,4 +149,64 @@ test "ExtraAccountMetaSlice requires whole 35-byte records" {
         ProgramError.InvalidInstructionData,
         ExtraAccountMetaSlice.init(good[0 .. EXTRA_ACCOUNT_META_LEN - 1]),
     );
+}
+
+test "ExtraAccountMeta parser rejects reserved discriminators and invalid boolean bytes" {
+    const pubkey: Pubkey = .{
+        0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
+        0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe,
+        0x55, 0x44, 0x33, 0x22, 0x11, 0x99, 0x88, 0x77,
+        0x66, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xf0, 0x0f,
+    };
+    const fixed = ExtraAccountMeta.fixed(&pubkey, true, false);
+
+    var reserved_bytes: [EXTRA_ACCOUNT_META_LEN]u8 = undefined;
+    fixed.write(reserved_bytes[0..]);
+    reserved_bytes[0] = 3;
+    try std.testing.expectError(ProgramError.InvalidAccountData, ExtraAccountMeta.parse(reserved_bytes[0..]));
+
+    reserved_bytes[0] = 127;
+    try std.testing.expectError(ProgramError.InvalidAccountData, ExtraAccountMeta.parse(reserved_bytes[0..]));
+
+    reserved_bytes[0] = 2;
+    const pubkey_data = try ExtraAccountMeta.parse(reserved_bytes[0..]);
+    try std.testing.expectEqual(@as(u8, 2), pubkey_data.discriminator);
+
+    var bad_signer_bytes = reserved_bytes;
+    bad_signer_bytes[0] = 0;
+    bad_signer_bytes[33] = 2;
+    try std.testing.expectError(ProgramError.InvalidAccountData, ExtraAccountMeta.parse(bad_signer_bytes[0..]));
+
+    var bad_writable_bytes = reserved_bytes;
+    bad_writable_bytes[0] = 1;
+    bad_writable_bytes[34] = 0xff;
+    try std.testing.expectError(ProgramError.InvalidAccountData, ExtraAccountMeta.parse(bad_writable_bytes[0..]));
+}
+
+test "ExtraAccountMeta fixed records resolve to canonical AccountMeta without mutation" {
+    const pubkey: Pubkey = .{
+        0xde, 0xad, 0xfa, 0xce, 0x01, 0x02, 0x03, 0x04,
+        0x05, 0x06, 0x07, 0x08, 0x55, 0xaa, 0x99, 0x77,
+        0x42, 0x24, 0x13, 0x31, 0x80, 0x70, 0x60, 0x50,
+        0x40, 0x30, 0x20, 0x10, 0xef, 0xcd, 0xab, 0x89,
+    };
+
+    const cases = [_]struct {
+        is_signer: bool,
+        is_writable: bool,
+    }{
+        .{ .is_signer = false, .is_writable = false },
+        .{ .is_signer = false, .is_writable = true },
+        .{ .is_signer = true, .is_writable = false },
+        .{ .is_signer = true, .is_writable = true },
+    };
+
+    inline for (cases) |case| {
+        var record = ExtraAccountMeta.fixed(&pubkey, case.is_signer, case.is_writable);
+        const resolved = try record.resolveFixedPubkey();
+        try std.testing.expectEqual(@intFromPtr(@as(*const Pubkey, @ptrCast(&record.address_config))), @intFromPtr(resolved.pubkey));
+        try std.testing.expectEqualSlices(u8, &pubkey, resolved.pubkey[0..]);
+        try std.testing.expectEqual(@as(u8, @intFromBool(case.is_signer)), resolved.is_signer);
+        try std.testing.expectEqual(@as(u8, @intFromBool(case.is_writable)), resolved.is_writable);
+    }
 }

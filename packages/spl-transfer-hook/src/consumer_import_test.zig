@@ -18,3 +18,9 @@ test "consumer-style imports see only the intended transfer-hook scaffold surfac
     try std.testing.expect(!@hasDecl(spl_transfer_hook, "searcher"));
     try std.testing.expect(!@hasDecl(spl_transfer_hook, "transaction"));
 }
+
+test "consumer-style imports expose validation PDA helpers" {
+    try std.testing.expect(@hasDecl(spl_transfer_hook, "ProgramDerivedAddress"));
+    try std.testing.expect(@hasDecl(spl_transfer_hook, "EXTRA_ACCOUNT_METAS_SEED"));
+    try std.testing.expect(@hasDecl(spl_transfer_hook, "findValidationAddress"));
+}

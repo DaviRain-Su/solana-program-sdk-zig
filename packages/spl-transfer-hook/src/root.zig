@@ -17,6 +17,9 @@ pub const PACKAGE_NAME = id.PACKAGE_NAME;
 pub const MODULE_NAME = id.MODULE_NAME;
 pub const INTERFACE_VERSION = id.INTERFACE_VERSION;
 pub const SCOPE = id.SCOPE;
+pub const ProgramDerivedAddress = resolve.ProgramDerivedAddress;
+pub const EXTRA_ACCOUNT_METAS_SEED = resolve.EXTRA_ACCOUNT_METAS_SEED;
+pub const findValidationAddress = resolve.findValidationAddress;
 
 test "@import(\"spl_transfer_hook\") exposes only the intended scaffold surface" {
     try std.testing.expect(@hasDecl(@This(), "id"));
@@ -24,6 +27,9 @@ test "@import(\"spl_transfer_hook\") exposes only the intended scaffold surface"
     try std.testing.expect(@hasDecl(@This(), "MODULE_NAME"));
     try std.testing.expect(@hasDecl(@This(), "INTERFACE_VERSION"));
     try std.testing.expect(@hasDecl(@This(), "SCOPE"));
+    try std.testing.expect(@hasDecl(@This(), "ProgramDerivedAddress"));
+    try std.testing.expect(@hasDecl(@This(), "EXTRA_ACCOUNT_METAS_SEED"));
+    try std.testing.expect(@hasDecl(@This(), "findValidationAddress"));
     try std.testing.expect(@hasDecl(@This(), "instruction"));
     try std.testing.expect(@hasDecl(@This(), "meta"));
     try std.testing.expect(@hasDecl(@This(), "resolve"));
@@ -47,6 +53,9 @@ fn expectNotContains(haystack: []const u8, needle: []const u8) !void {
 test "source-review guards keep spl_transfer_hook on-chain/interface scoped" {
     const root_source = @embedFile("root.zig");
     try expectContains(root_source, "spl_transfer_hook");
+    try expectContains(root_source, "pub const ProgramDerivedAddress = resolve.ProgramDerivedAddress;");
+    try expectContains(root_source, "pub const EXTRA_ACCOUNT_METAS_SEED = resolve.EXTRA_ACCOUNT_METAS_SEED;");
+    try expectContains(root_source, "pub const findValidationAddress = resolve.findValidationAddress;");
     try expectNotContains(root_source, "pub const " ++ "PROGRAM_ID =");
     try expectNotContains(root_source, "pub const " ++ "rpc =");
     try expectNotContains(root_source, "pub const " ++ "client =");

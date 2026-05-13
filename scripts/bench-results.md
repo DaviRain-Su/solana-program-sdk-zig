@@ -28,6 +28,7 @@ Reproduce: `./scripts/bench.sh` from the repo root. Requires
 | `spl_token_mint_to_checked_signed` | 1136 |
 | `spl_token_mint_to_checked_signed_single` | 1134 |
 | `spl_token_mint_to_checked_multisig` | 1239 |
+| `spl_token_transfer_checked_multisig` | 1268 |
 | `token_dispatch_transfer` (current path)   |   37 |
 | `token_dispatch_burn` (current path)       |   36 |
 | `token_dispatch_mint` (current path)       |   34 |
@@ -88,6 +89,7 @@ comes from:
 - `mint_to_checked_signed_single` remains just 2 CU cheaper than
   `mint_to_checked_signed`, confirming the single-PDA path is mostly an
   ergonomics improvement for already-raw wrappers.
-- A new wrapper-only multisig benchmark (`mint_to_checked_multisig`
-  against the no-op callee) lands at **1239 CU** after collapsing the
-  signer-pubkey extraction and runtime-account staging into one pass.
+- Wrapper-only multisig benchmarks against the no-op callee now land at
+  **1239 CU** for `mint_to_checked_multisig` and **1268 CU** for
+  `transfer_checked_multisig`, confirming the one-pass staging pattern
+  carries across more than one wrapper family.

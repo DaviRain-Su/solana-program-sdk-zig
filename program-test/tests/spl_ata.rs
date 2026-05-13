@@ -365,6 +365,38 @@ fn test_token_2022_idempotent_create_uses_token_2022_address_and_owner() {
 }
 
 #[test]
+fn test_token_2022_idempotent_create_succeeds_when_present() {
+    let mollusk = fresh_mollusk();
+    let (scenario, initial_accounts) = scenario(TokenFlavor::Token2022);
+    let ix = build_ix(&scenario, TAG_CREATE_IDEMPOTENT);
+
+    let first = run(&mollusk, &initial_accounts, &ix);
+    assert!(
+        matches!(first.program_result, ProgramResult::Success),
+        "initial token-2022 idempotent ATA create failed: {:?}",
+        first.program_result,
+    );
+
+    let before_repeat =
+        account(&first.resulting_accounts, &scenario.associated_token).clone();
+
+    let second = run(&mollusk, &first.resulting_accounts, &ix);
+    assert!(
+        matches!(second.program_result, ProgramResult::Success),
+        "repeat token-2022 idempotent ATA create failed: {:?}",
+        second.program_result,
+    );
+
+    let after_repeat = account(&second.resulting_accounts, &scenario.associated_token);
+    assert_eq!(after_repeat.owner, spl_token_2022_program::ID);
+    assert_account_eq(
+        after_repeat,
+        &before_repeat,
+        "token-2022 idempotent repeat should preserve ATA state",
+    );
+}
+
+#[test]
 fn test_real_program_rejects_token_program_and_ata_address_mismatch() {
     let mollusk = fresh_mollusk();
 

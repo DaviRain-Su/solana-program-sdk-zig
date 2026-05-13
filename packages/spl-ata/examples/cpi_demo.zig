@@ -40,14 +40,13 @@ const Op = enum(u8) {
 };
 
 fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
-    const op: Op = @enumFromInt(ctx.readIx(u8, 0));
+    const remaining = ctx.remainingAccounts();
+    if (sol.entrypoint.unlikely(remaining < 7)) {
+        return error.NotEnoughAccountKeys;
+    }
 
-    switch (op) {
-        .create, .create_idempotent => {
-            if (sol.entrypoint.unlikely(ctx.remainingAccounts() < 7)) {
-                return error.NotEnoughAccountKeys;
-            }
-
+    switch (remaining) {
+        7 => {
             const payer = ctx.nextAccountUnchecked();
             const associated_token_account = ctx.nextAccountUnchecked();
             const wallet = ctx.nextAccountUnchecked();
@@ -55,6 +54,9 @@ fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
             const system_program = ctx.nextAccountUnchecked();
             const token_program = ctx.nextAccountUnchecked();
             const associated_token_program = ctx.nextAccountUnchecked();
+
+            const op = sol.instruction.parseTag(Op, ctx.instructionDataUnchecked()) orelse
+                return error.InvalidInstructionData;
 
             switch (op) {
                 .create => try spl_ata.cpi.create(
@@ -75,14 +77,10 @@ fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
                     token_program.toCpiInfo(),
                     associated_token_program.toCpiInfo(),
                 ),
-                else => unreachable,
+                else => return error.InvalidInstructionData,
             }
         },
-        .recover_nested => {
-            if (sol.entrypoint.unlikely(ctx.remainingAccounts() < 8)) {
-                return error.NotEnoughAccountKeys;
-            }
-
+        8 => {
             const nested_associated_token_account = ctx.nextAccountUnchecked();
             const nested_token_mint = ctx.nextAccountUnchecked();
             const destination_associated_token_account = ctx.nextAccountUnchecked();
@@ -91,6 +89,10 @@ fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
             const wallet = ctx.nextAccountUnchecked();
             const token_program = ctx.nextAccountUnchecked();
             const associated_token_program = ctx.nextAccountUnchecked();
+
+            const op = sol.instruction.parseTag(Op, ctx.instructionDataUnchecked()) orelse
+                return error.InvalidInstructionData;
+            if (op != .recover_nested) return error.InvalidInstructionData;
 
             try spl_ata.cpi.recoverNested(
                 nested_associated_token_account.toCpiInfo(),

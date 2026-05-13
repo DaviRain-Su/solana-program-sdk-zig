@@ -14,17 +14,23 @@
 //!   10. double_swap_checked                  [tag, amount_in:u64, amount_out:u64, decimals:u8]
 //!   11. batch_swap_checked                   [tag, amount_in:u64, amount_out:u64, decimals:u8]
 //!   12. batch_prepared_swap_checked          [tag, amount_in:u64, amount_out:u64, decimals:u8]
+//!   13. init_router                          [tag, router_bump:u8]
+//!   14. double_router_swap_checked           [tag, amount_in:u64, amount_out:u64, decimals:u8]
+//!   15. batch_router_swap_checked            [tag, amount_in:u64, amount_out:u64, decimals:u8]
+//!   16. batch_prepared_router_swap_checked   [tag, amount_in:u64, amount_out:u64, decimals:u8]
 //!
-//! Fixed account order (9 accounts):
-//!   0. token_program          — readonly
-//!   1. user_source            — writable
-//!   2. mint / mint_a          — readonly
-//!   3. destination_a / vault_a — writable
-//!   4. destination_b / user_destination_b — writable
-//!   5. user_authority         — signer (payer for `init_pda`)
-//!   6. vault_source / vault_b — writable for mixed / swap paths
-//!   7. pda_state              — writable for `init_pda`, readonly otherwise
-//!   8. system_program / mint_b — readonly
+//! Fixed account order (11 accounts):
+//!   0. token_program              — readonly
+//!   1. user_source / mint_a       — writable for transfer paths, readonly for router init
+//!   2. mint / vault_a             — readonly for transfer paths, writable for router init inputs
+//!   3. destination_a / mint_b     — writable for transfer paths, readonly for router init inputs
+//!   4. destination_b / vault_b    — writable
+//!   5. user_authority / payer     — signer
+//!   6. vault_source / vault_b     — writable for mixed / swap paths
+//!   7. pda_state                  — writable for `init_pda`, readonly otherwise
+//!   8. mint_b / spare             — readonly
+//!   9. router_state / spare       — writable for router init / router paths
+//!   10. system_program / spare    — readonly
 
 const sol = @import("solana_program_sdk");
 const spl_token = @import("spl_token");
@@ -45,6 +51,10 @@ const Ix = enum(u8) {
     double_swap_checked = 10,
     batch_swap_checked = 11,
     batch_prepared_swap_checked = 12,
+    init_router = 13,
+    double_router_swap_checked = 14,
+    batch_router_swap_checked = 15,
+    batch_prepared_router_swap_checked = 16,
 };
 
 const TransferArgs = extern struct {
@@ -57,13 +67,26 @@ const PdaState = extern struct {
     bump: u8,
 };
 
+const RouterState = extern struct {
+    bump: u8,
+    signer: Pubkey,
+    mint_a: Pubkey,
+    vault_a: Pubkey,
+    mint_b: Pubkey,
+    vault_b: Pubkey,
+    swap_count: u64 align(1),
+    total_in: u64 align(1),
+    total_out: u64 align(1),
+};
+
 const AccountInfo = sol.AccountInfo;
 const Pubkey = sol.Pubkey;
 const BatchEntry = spl_token.instruction.BatchEntry;
 const TransferArgsReader = sol.instruction.IxDataReader(TransferArgs);
+const RouterAccount = sol.TypedAccount(RouterState);
 
 fn process(
-    accounts: *const [9]AccountInfo,
+    accounts: *const [11]AccountInfo,
     data: []const u8,
     program_id: *const Pubkey,
 ) sol.ProgramResult {
@@ -71,6 +94,7 @@ fn process(
 
     return switch (tag) {
         .init_pda => processInitPda(accounts, data, program_id),
+        .init_router => processInitRouter(accounts, data, program_id),
         else => blk: {
             const args = TransferArgsReader.bind(data[1..]) orelse return error.InvalidInstructionData;
             break :blk processTransfer(accounts, args, tag, program_id);
@@ -79,13 +103,13 @@ fn process(
 }
 
 fn processInitPda(
-    accounts: *const [9]AccountInfo,
+    accounts: *const [11]AccountInfo,
     data: []const u8,
     program_id: *const Pubkey,
 ) !void {
     const payer = accounts[5];
     const pda_state = accounts[7];
-    const system_program = accounts[8];
+    const system_program = accounts[10];
 
     try payer.expect(.{ .signer = true, .writable = true });
     try pda_state.expect(.{ .writable = true });
@@ -104,8 +128,40 @@ fn processInitPda(
     _ = try sol.TypedAccount(PdaState).initialize(pda_state, .{ .bump = bump });
 }
 
+fn processInitRouter(
+    accounts: *const [11]AccountInfo,
+    data: []const u8,
+    program_id: *const Pubkey,
+) !void {
+    const mint_a = accounts[1];
+    const vault_a = accounts[2];
+    const mint_b = accounts[3];
+    const vault_b = accounts[4];
+    const pda_state = accounts[7];
+    const router_state = accounts[9];
+
+    try router_state.expect(.{ .writable = true });
+    if (!sol.pubkey.pubkeyEq(pda_state.owner(), program_id)) return error.IncorrectProgramId;
+    if (!sol.pubkey.pubkeyEq(router_state.owner(), program_id)) return error.IncorrectProgramId;
+
+    const router_bump = sol.instruction.tryReadUnaligned(u8, data, 1) orelse
+        return error.InvalidInstructionData;
+
+    _ = try RouterAccount.initialize(router_state, .{
+        .bump = router_bump,
+        .signer = pda_state.key().*,
+        .mint_a = mint_a.key().*,
+        .vault_a = vault_a.key().*,
+        .mint_b = mint_b.key().*,
+        .vault_b = vault_b.key().*,
+        .swap_count = 0,
+        .total_in = 0,
+        .total_out = 0,
+    });
+}
+
 fn processTransfer(
-    accounts: *const [9]AccountInfo,
+    accounts: *const [11]AccountInfo,
     args: TransferArgsReader,
     tag: Ix,
     program_id: *const Pubkey,
@@ -119,6 +175,7 @@ fn processTransfer(
     const vault_source = accounts[6];
     const pda_state = accounts[7];
     const mint_b = accounts[8];
+    const router_state = accounts[9];
 
     try user_source.expect(.{ .writable = true });
     try destination_a.expect(.{ .writable = true });
@@ -183,6 +240,9 @@ fn processTransfer(
         .double_swap_checked,
         .batch_swap_checked,
         .batch_prepared_swap_checked,
+        .double_router_swap_checked,
+        .batch_router_swap_checked,
+        .batch_prepared_router_swap_checked,
         => {
             try vault_source.expect(.{ .writable = true });
             if (!sol.pubkey.pubkeyEq(pda_state.owner(), program_id)) return error.IncorrectProgramId;
@@ -264,6 +324,60 @@ fn processTransfer(
                     args,
                     .{ "vault", &bump_seed },
                 ),
+                .double_router_swap_checked,
+                .batch_router_swap_checked,
+                .batch_prepared_router_swap_checked,
+                => {
+                    try router_state.expect(.{ .writable = true });
+                    if (!sol.pubkey.pubkeyEq(router_state.owner(), program_id)) return error.IncorrectProgramId;
+                    const router = try RouterAccount.bind(router_state);
+                    try validateRouterSwapConfig(router.read(), pda_state.key(), mint.key(), destination_a.key(), mint_b.key(), vault_source.key());
+                    return switch (tag) {
+                        .double_router_swap_checked => processDoubleRouterSwapChecked(
+                            router,
+                            token_program,
+                            user_source,
+                            mint,
+                            destination_a,
+                            destination_b,
+                            user_authority,
+                            vault_source,
+                            pda_state,
+                            mint_b,
+                            args,
+                            .{ "vault", &bump_seed },
+                        ),
+                        .batch_router_swap_checked => processBatchRouterSwapChecked(
+                            router,
+                            token_program,
+                            user_source,
+                            mint,
+                            destination_a,
+                            destination_b,
+                            user_authority,
+                            vault_source,
+                            pda_state,
+                            mint_b,
+                            args,
+                            .{ "vault", &bump_seed },
+                        ),
+                        .batch_prepared_router_swap_checked => processBatchPreparedRouterSwapChecked(
+                            router,
+                            token_program,
+                            user_source,
+                            mint,
+                            destination_a,
+                            destination_b,
+                            user_authority,
+                            vault_source,
+                            pda_state,
+                            mint_b,
+                            args,
+                            .{ "vault", &bump_seed },
+                        ),
+                        else => unreachable,
+                    };
+                },
                 else => unreachable,
             };
         },
@@ -907,6 +1021,118 @@ fn processBatchPreparedSwapChecked(
     );
 }
 
+fn validateRouterSwapConfig(
+    router: *align(1) const RouterState,
+    signer: *const Pubkey,
+    mint_a: *const Pubkey,
+    vault_a: *const Pubkey,
+    mint_b: *const Pubkey,
+    vault_b: *const Pubkey,
+) !void {
+    if (!sol.pubkey.pubkeyEq(&router.signer, signer)) return error.IncorrectAuthority;
+    if (!sol.pubkey.pubkeyEq(&router.mint_a, mint_a)) return error.InvalidArgument;
+    if (!sol.pubkey.pubkeyEq(&router.vault_a, vault_a)) return error.InvalidArgument;
+    if (!sol.pubkey.pubkeyEq(&router.mint_b, mint_b)) return error.InvalidArgument;
+    if (!sol.pubkey.pubkeyEq(&router.vault_b, vault_b)) return error.InvalidArgument;
+}
+
+fn recordRouterSwap(router: RouterAccount, args: TransferArgsReader) !void {
+    if (args.get(.amount_b) > args.get(.amount_a)) return error.InvalidArgument;
+    router.write().swap_count = sol.math.tryAdd(router.read().swap_count, 1) orelse return error.ArithmeticOverflow;
+    router.write().total_in = sol.math.tryAdd(router.read().total_in, args.get(.amount_a)) orelse return error.ArithmeticOverflow;
+    router.write().total_out = sol.math.tryAdd(router.read().total_out, args.get(.amount_b)) orelse return error.ArithmeticOverflow;
+}
+
+fn processDoubleRouterSwapChecked(
+    router: RouterAccount,
+    token_program: AccountInfo,
+    user_source_a: AccountInfo,
+    mint_a: AccountInfo,
+    vault_a: AccountInfo,
+    user_destination_b: AccountInfo,
+    user_authority: AccountInfo,
+    vault_b: AccountInfo,
+    pda_state: AccountInfo,
+    mint_b: AccountInfo,
+    args: TransferArgsReader,
+    signer_seeds: anytype,
+) !void {
+    try recordRouterSwap(router, args);
+    try processDoubleSwapChecked(
+        token_program,
+        user_source_a,
+        mint_a,
+        vault_a,
+        user_destination_b,
+        user_authority,
+        vault_b,
+        pda_state,
+        mint_b,
+        args,
+        signer_seeds,
+    );
+}
+
+fn processBatchRouterSwapChecked(
+    router: RouterAccount,
+    token_program: AccountInfo,
+    user_source_a: AccountInfo,
+    mint_a: AccountInfo,
+    vault_a: AccountInfo,
+    user_destination_b: AccountInfo,
+    user_authority: AccountInfo,
+    vault_b: AccountInfo,
+    pda_state: AccountInfo,
+    mint_b: AccountInfo,
+    args: TransferArgsReader,
+    signer_seeds: anytype,
+) !void {
+    try recordRouterSwap(router, args);
+    try processBatchSwapChecked(
+        token_program,
+        user_source_a,
+        mint_a,
+        vault_a,
+        user_destination_b,
+        user_authority,
+        vault_b,
+        pda_state,
+        mint_b,
+        args,
+        signer_seeds,
+    );
+}
+
+fn processBatchPreparedRouterSwapChecked(
+    router: RouterAccount,
+    token_program: AccountInfo,
+    user_source_a: AccountInfo,
+    mint_a: AccountInfo,
+    vault_a: AccountInfo,
+    user_destination_b: AccountInfo,
+    user_authority: AccountInfo,
+    vault_b: AccountInfo,
+    pda_state: AccountInfo,
+    mint_b: AccountInfo,
+    args: TransferArgsReader,
+    signer_seeds: anytype,
+) !void {
+    try recordRouterSwap(router, args);
+    try processBatchPreparedSwapChecked(
+        token_program,
+        user_source_a,
+        mint_a,
+        vault_a,
+        user_destination_b,
+        user_authority,
+        vault_b,
+        pda_state,
+        mint_b,
+        args,
+        signer_seeds,
+    );
+}
+
 export fn entrypoint(input: [*]u8) u64 {
-    return sol.entrypoint.programEntrypoint(9, process)(input);
+    return sol.entrypoint.programEntrypoint(11, process)(input);
 }

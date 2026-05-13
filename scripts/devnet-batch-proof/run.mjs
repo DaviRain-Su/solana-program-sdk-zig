@@ -28,6 +28,7 @@ const programId = new PublicKey(PROGRAM_ID);
 const connection = new Connection(RPC_URL, 'confirmed');
 const payerPath = process.env.SOLANA_KEYPAIR ?? path.join(os.homedir(), '.config/solana/id.json');
 const payer = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(payerPath, 'utf8'))));
+const ROUTER_STATE_SIZE = 185;
 
 function encodeTransferArgs(tag, amountA, amountB, decimals) {
   const buf = Buffer.alloc(18);
@@ -90,6 +91,8 @@ async function ensurePdaState() {
   const destinationA = await createTokenAccount(mint, payer.publicKey);
   const destinationB = await createTokenAccount(mint, payer.publicKey);
   const vaultSource = await createTokenAccount(mint, payer.publicKey);
+  const spareA = await createTokenAccount(mint, payer.publicKey);
+  const spareB = await createTokenAccount(mint, payer.publicKey);
 
   const initKeys = [
     { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
@@ -100,13 +103,15 @@ async function ensurePdaState() {
     { pubkey: payer.publicKey, isSigner: true, isWritable: true },
     { pubkey: vaultSource, isSigner: false, isWritable: true },
     { pubkey: pdaState, isSigner: false, isWritable: true },
+    { pubkey: spareA, isSigner: false, isWritable: false },
+    { pubkey: spareB, isSigner: false, isWritable: false },
     { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
   ];
   await sendProofIx('init_pda', Buffer.from([0, bump]), initKeys);
   return { pdaState, bump, created: true };
 }
 
-function simpleKeys(source, mint, destinationA, destinationB, extraAccount, pdaState) {
+function simpleKeys(source, mint, destinationA, destinationB, extraAccountA, extraAccountB, extraAccountC, pdaState) {
   return [
     { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
     { pubkey: source, isSigner: false, isWritable: true },
@@ -114,13 +119,15 @@ function simpleKeys(source, mint, destinationA, destinationB, extraAccount, pdaS
     { pubkey: destinationA, isSigner: false, isWritable: true },
     { pubkey: destinationB, isSigner: false, isWritable: true },
     { pubkey: payer.publicKey, isSigner: true, isWritable: false },
-    { pubkey: extraAccount, isSigner: false, isWritable: false },
+    { pubkey: extraAccountA, isSigner: false, isWritable: false },
     { pubkey: pdaState, isSigner: false, isWritable: false },
+    { pubkey: extraAccountB, isSigner: false, isWritable: false },
+    { pubkey: extraAccountC, isSigner: false, isWritable: false },
     { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
   ];
 }
 
-function mixedKeys(userSource, mint, destinationA, destinationB, vaultSource, pdaState) {
+function mixedKeys(userSource, mint, destinationA, destinationB, vaultSource, spareA, spareB, pdaState) {
   return [
     { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
     { pubkey: userSource, isSigner: false, isWritable: true },
@@ -130,11 +137,13 @@ function mixedKeys(userSource, mint, destinationA, destinationB, vaultSource, pd
     { pubkey: payer.publicKey, isSigner: true, isWritable: false },
     { pubkey: vaultSource, isSigner: false, isWritable: true },
     { pubkey: pdaState, isSigner: false, isWritable: false },
+    { pubkey: spareA, isSigner: false, isWritable: false },
+    { pubkey: spareB, isSigner: false, isWritable: false },
     { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
   ];
 }
 
-function swapKeys(userSourceA, mintA, vaultA, userDestinationB, vaultB, pdaState, mintB) {
+function swapKeys(userSourceA, mintA, vaultA, userDestinationB, vaultB, pdaState, mintB, routerState) {
   return [
     { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
     { pubkey: userSourceA, isSigner: false, isWritable: true },
@@ -145,6 +154,8 @@ function swapKeys(userSourceA, mintA, vaultA, userDestinationB, vaultB, pdaState
     { pubkey: vaultB, isSigner: false, isWritable: true },
     { pubkey: pdaState, isSigner: false, isWritable: false },
     { pubkey: mintB, isSigner: false, isWritable: false },
+    { pubkey: routerState, isSigner: false, isWritable: false },
+    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
   ];
 }
 
@@ -153,9 +164,11 @@ async function createSimpleScenario() {
   const source = await createTokenAccount(mint, payer.publicKey);
   const destinationA = await createTokenAccount(mint, payer.publicKey);
   const destinationB = await createTokenAccount(mint, payer.publicKey);
-  const extraAccount = await createTokenAccount(mint, payer.publicKey);
+  const extraAccountA = await createTokenAccount(mint, payer.publicKey);
+  const extraAccountB = await createTokenAccount(mint, payer.publicKey);
+  const extraAccountC = await createTokenAccount(mint, payer.publicKey);
   await mintTo(connection, payer, mint, source, payer, 1_000_000_000n, [], undefined, TOKEN_PROGRAM_ID);
-  return { mint, source, destinationA, destinationB, extraAccount };
+  return { mint, source, destinationA, destinationB, extraAccountA, extraAccountB, extraAccountC };
 }
 
 async function createMixedScenario(pdaState) {
@@ -164,9 +177,11 @@ async function createMixedScenario(pdaState) {
   const destinationA = await createTokenAccount(mint, payer.publicKey);
   const destinationB = await createTokenAccount(mint, payer.publicKey);
   const vaultSource = await createTokenAccount(mint, pdaState);
+  const spareA = await createTokenAccount(mint, payer.publicKey);
+  const spareB = await createTokenAccount(mint, payer.publicKey);
   await mintTo(connection, payer, mint, userSource, payer, 1_000_000_000n, [], undefined, TOKEN_PROGRAM_ID);
   await mintTo(connection, payer, mint, vaultSource, payer, 1_000_000_000n, [], undefined, TOKEN_PROGRAM_ID);
-  return { mint, userSource, destinationA, destinationB, vaultSource };
+  return { mint, userSource, destinationA, destinationB, vaultSource, spareA, spareB };
 }
 
 async function createSwapScenario(pdaState) {
@@ -176,9 +191,56 @@ async function createSwapScenario(pdaState) {
   const vaultA = await createTokenAccount(mintA, pdaState);
   const userDestinationB = await createTokenAccount(mintB, payer.publicKey);
   const vaultB = await createTokenAccount(mintB, pdaState);
+  const spareRouter = await createTokenAccount(mintA, payer.publicKey);
   await mintTo(connection, payer, mintA, userSourceA, payer, 1_000_000_000n, [], undefined, TOKEN_PROGRAM_ID);
   await mintTo(connection, payer, mintB, vaultB, payer, 1_000_000_000n, [], undefined, TOKEN_PROGRAM_ID);
-  return { mintA, mintB, userSourceA, vaultA, userDestinationB, vaultB };
+  return { mintA, mintB, userSourceA, vaultA, userDestinationB, vaultB, spareRouter };
+}
+
+function parseRouterState(data) {
+  return {
+    bump: data.readUInt8(0),
+    signer: new PublicKey(data.subarray(1, 33)).toBase58(),
+    mintA: new PublicKey(data.subarray(33, 65)).toBase58(),
+    vaultA: new PublicKey(data.subarray(65, 97)).toBase58(),
+    mintB: new PublicKey(data.subarray(97, 129)).toBase58(),
+    vaultB: new PublicKey(data.subarray(129, 161)).toBase58(),
+    swapCount: data.readBigUInt64LE(161).toString(),
+    totalIn: data.readBigUInt64LE(169).toString(),
+    totalOut: data.readBigUInt64LE(177).toString(),
+  };
+}
+
+async function createRouterScenario(pdaState) {
+  const scenario = await createSwapScenario(pdaState);
+  const routerState = Keypair.generate();
+  const rent = await connection.getMinimumBalanceForRentExemption(ROUTER_STATE_SIZE, 'confirmed');
+  const createTx = new Transaction().add(
+    SystemProgram.createAccount({
+      fromPubkey: payer.publicKey,
+      newAccountPubkey: routerState.publicKey,
+      lamports: rent,
+      space: ROUTER_STATE_SIZE,
+      programId,
+    }),
+  );
+  await sendAndConfirmTransaction(connection, createTx, [payer, routerState], { commitment: 'confirmed' });
+
+  const initKeys = [
+    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: scenario.mintA, isSigner: false, isWritable: false },
+    { pubkey: scenario.vaultA, isSigner: false, isWritable: true },
+    { pubkey: scenario.mintB, isSigner: false, isWritable: false },
+    { pubkey: scenario.vaultB, isSigner: false, isWritable: true },
+    { pubkey: payer.publicKey, isSigner: true, isWritable: true },
+    { pubkey: scenario.userSourceA, isSigner: false, isWritable: false },
+    { pubkey: pdaState, isSigner: false, isWritable: false },
+    { pubkey: scenario.userDestinationB, isSigner: false, isWritable: false },
+    { pubkey: routerState.publicKey, isSigner: false, isWritable: true },
+    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+  ];
+  await sendProofIx('init_router', Buffer.from([13, 0]), initKeys);
+  return { ...scenario, routerState: routerState.publicKey, routerBump: 0 };
 }
 
 async function fetchBalances(label, accounts) {
@@ -198,7 +260,9 @@ async function runSimpleFamily(prefix, baseTag, pdaState) {
     scenario.mint,
     scenario.destinationA,
     scenario.destinationB,
-    scenario.extraAccount,
+    scenario.extraAccountA,
+    scenario.extraAccountB,
+    scenario.extraAccountC,
     pdaState,
   );
   const amountA = 10_000;
@@ -223,6 +287,8 @@ async function runMixedFamily(pdaState) {
     scenario.destinationA,
     scenario.destinationB,
     scenario.vaultSource,
+    scenario.spareA,
+    scenario.spareB,
     pdaState,
   );
   const amountA = 30_000;
@@ -250,6 +316,7 @@ async function runSwapFamily(pdaState) {
     scenario.vaultB,
     pdaState,
     scenario.mintB,
+    scenario.spareRouter,
   );
   const amountIn = 25_000;
   const amountOut = 12_500;
@@ -263,6 +330,36 @@ async function runSwapFamily(pdaState) {
     vaultB: scenario.vaultB,
     userDestinationB: scenario.userDestinationB,
   });
+  return results;
+}
+
+async function runRouterFamily(pdaState) {
+  const scenario = await createRouterScenario(pdaState);
+  const keys = swapKeys(
+    scenario.userSourceA,
+    scenario.mintA,
+    scenario.vaultA,
+    scenario.userDestinationB,
+    scenario.vaultB,
+    pdaState,
+    scenario.mintB,
+    scenario.routerState,
+  );
+  keys[9].isWritable = true;
+  const amountIn = 40_000;
+  const amountOut = 18_000;
+  const results = [];
+  results.push(await sendProofIx('router_swap_checked_double', encodeTransferArgs(14, amountIn, amountOut, 6), keys));
+  results.push(await sendProofIx('router_swap_checked_batch', encodeTransferArgs(15, amountIn, amountOut, 6), keys));
+  results.push(await sendProofIx('router_swap_checked_batch_prepared', encodeTransferArgs(16, amountIn, amountOut, 6), keys));
+  await fetchBalances('router_swap_checked', {
+    userSourceA: scenario.userSourceA,
+    vaultA: scenario.vaultA,
+    vaultB: scenario.vaultB,
+    userDestinationB: scenario.userDestinationB,
+  });
+  const routerInfo = await connection.getAccountInfo(scenario.routerState, 'confirmed');
+  console.log(JSON.stringify({ label: 'router_state', routerState: scenario.routerState.toBase58(), state: parseRouterState(routerInfo.data) }, null, 2));
   return results;
 }
 
@@ -287,6 +384,7 @@ async function main() {
   results.push(...(await runSimpleFamily('transfer_checked', 4, pdaState)));
   results.push(...(await runMixedFamily(pdaState)));
   results.push(...(await runSwapFamily(pdaState)));
+  results.push(...(await runRouterFamily(pdaState)));
   printSummary(results);
 }
 

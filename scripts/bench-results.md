@@ -1,6 +1,6 @@
 # Bench results snapshot
 
-Captured: 2026-05-12 against `main` HEAD (see `git log -1 --format=%H`).
+Captured: 2026-05-13 against `main` HEAD (see `git log -1 --format=%H`).
 
 Reproduce: `./scripts/bench.sh` from the repo root. Requires
 `solana-zig` on PATH (or `SOLANA_ZIG=/path/to/zig`) plus optional
@@ -31,6 +31,9 @@ Reproduce: `./scripts/bench.sh` from the repo root. Requires
 | `spl_token_transfer_checked_multisig` | 1238 |
 | `spl_token_approve_checked_multisig` | 1238 |
 | `spl_token_burn_multisig` | 1208 |
+| `spl_token_initialize_multisig` | 1180 |
+| `spl_token_initialize_multisig2` | 1150 |
+| `spl_token_batch_transfer_checked` | 1239 |
 | `token_dispatch_transfer` (current path)   |   37 |
 | `token_dispatch_burn` (current path)       |   36 |
 | `token_dispatch_mint` (current path)       |   34 |
@@ -93,6 +96,10 @@ comes from:
   ergonomics improvement for already-raw wrappers.
 - Wrapper-only multisig benchmarks against the no-op callee now land at
   **1209 CU** for `mint_to_checked_multisig`, **1238 CU** for both
-  `transfer_checked_multisig` and `approve_checked_multisig`, and
-  **1208 CU** for the non-checked `burn_multisig`, extending the fused
-  staging evidence beyond the checked-wrapper family.
+  `transfer_checked_multisig` and `approve_checked_multisig`, **1208 CU**
+  for the non-checked `burn_multisig`, **1180 CU** for legacy
+  `initialize_multisig`, and **1150 CU** for `initialize_multisig2`.
+- The new `batch_transfer_checked` wrapper-only benchmark lands at
+  **1239 CU** for a two-child `TransferChecked` envelope against the
+  no-op callee, giving the batch staging path a fixed reference point for
+  future optimization work.

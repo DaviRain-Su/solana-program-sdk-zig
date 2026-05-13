@@ -83,6 +83,9 @@ fn print_usage(prog: &str) {
         "spl_token_transfer_checked_multisig",
         "spl_token_approve_checked_multisig",
         "spl_token_burn_multisig",
+        "spl_token_initialize_multisig",
+        "spl_token_initialize_multisig2",
+        "spl_token_batch_transfer_checked",
     ] {
         println!("  {}", name);
     }
@@ -216,6 +219,22 @@ async fn run_benchmark(name: &'static str) {
         }
         "spl_token_burn_multisig" => {
             run_spl_token_burn_multisig_cpi_compare("benchmark_spl_token_burn_multisig").await
+        }
+        "spl_token_initialize_multisig" => {
+            run_spl_token_initialize_multisig_cpi_compare("benchmark_spl_token_initialize_multisig")
+                .await
+        }
+        "spl_token_initialize_multisig2" => {
+            run_spl_token_initialize_multisig2_cpi_compare(
+                "benchmark_spl_token_initialize_multisig2",
+            )
+            .await
+        }
+        "spl_token_batch_transfer_checked" => {
+            run_spl_token_batch_transfer_checked_cpi_compare(
+                "benchmark_spl_token_batch_transfer_checked",
+            )
+            .await
         }
 
         // Primitives: pubkey_*, pda_*, parse_*, transfer_*
@@ -596,6 +615,143 @@ async fn run_spl_token_burn_multisig_cpi_compare(program_name: &'static str) {
     match banks_client.process_transaction(tx).await {
         Ok(()) => println!("SPL token burn multisig CPI compare succeeded"),
         Err(e) => println!("SPL token burn multisig CPI compare failed: {}", e),
+    }
+}
+
+async fn run_spl_token_initialize_multisig_cpi_compare(program_name: &'static str) {
+    let program_id = Pubkey::from_str(BENCH_PROGRAM_ID).unwrap();
+    let noop_callee_id = Pubkey::new_from_array([0x42; 32]);
+    let mut pt = ProgramTest::new(program_name, program_id, None);
+    pt.add_program("benchmark_noop_callee", noop_callee_id, None);
+
+    let multisig = Pubkey::from_str("BenchPubkey11111111111111111111111111111112").unwrap();
+    let rent = solana_sdk::sysvar::rent::id();
+    let signer_one = Pubkey::from_str("BenchPubkey11111111111111111111111111111113").unwrap();
+    let signer_two = Pubkey::from_str("BenchPubkey11111111111111111111111111111114").unwrap();
+    let signer_three = Pubkey::from_str("BenchPubkey11111111111111111111111111111115").unwrap();
+
+    for key in [multisig, rent, signer_one, signer_two, signer_three] {
+        pt.add_account(
+            key,
+            Account {
+                lamports: 1_000_000,
+                data: vec![],
+                owner: program_id,
+                ..Account::default()
+            },
+        );
+    }
+
+    let (banks_client, payer, recent_blockhash) = pt.start().await;
+    let mut tx = Transaction::new_with_payer(
+        &[Instruction::new_with_bytes(
+            program_id,
+            &[],
+            vec![
+                AccountMeta::new_readonly(noop_callee_id, false),
+                AccountMeta::new(multisig, false),
+                AccountMeta::new_readonly(rent, false),
+                AccountMeta::new_readonly(signer_one, false),
+                AccountMeta::new_readonly(signer_two, false),
+                AccountMeta::new_readonly(signer_three, false),
+            ],
+        )],
+        Some(&payer.pubkey()),
+    );
+    tx.sign(&[&payer], recent_blockhash);
+    match banks_client.process_transaction(tx).await {
+        Ok(()) => println!("SPL token initializeMultisig CPI compare succeeded"),
+        Err(e) => println!("SPL token initializeMultisig CPI compare failed: {}", e),
+    }
+}
+
+async fn run_spl_token_initialize_multisig2_cpi_compare(program_name: &'static str) {
+    let program_id = Pubkey::from_str(BENCH_PROGRAM_ID).unwrap();
+    let noop_callee_id = Pubkey::new_from_array([0x42; 32]);
+    let mut pt = ProgramTest::new(program_name, program_id, None);
+    pt.add_program("benchmark_noop_callee", noop_callee_id, None);
+
+    let multisig = Pubkey::from_str("BenchPubkey11111111111111111111111111111112").unwrap();
+    let signer_one = Pubkey::from_str("BenchPubkey11111111111111111111111111111113").unwrap();
+    let signer_two = Pubkey::from_str("BenchPubkey11111111111111111111111111111114").unwrap();
+    let signer_three = Pubkey::from_str("BenchPubkey11111111111111111111111111111115").unwrap();
+
+    for key in [multisig, signer_one, signer_two, signer_three] {
+        pt.add_account(
+            key,
+            Account {
+                lamports: 1_000_000,
+                data: vec![],
+                owner: program_id,
+                ..Account::default()
+            },
+        );
+    }
+
+    let (banks_client, payer, recent_blockhash) = pt.start().await;
+    let mut tx = Transaction::new_with_payer(
+        &[Instruction::new_with_bytes(
+            program_id,
+            &[],
+            vec![
+                AccountMeta::new_readonly(noop_callee_id, false),
+                AccountMeta::new(multisig, false),
+                AccountMeta::new_readonly(signer_one, false),
+                AccountMeta::new_readonly(signer_two, false),
+                AccountMeta::new_readonly(signer_three, false),
+            ],
+        )],
+        Some(&payer.pubkey()),
+    );
+    tx.sign(&[&payer], recent_blockhash);
+    match banks_client.process_transaction(tx).await {
+        Ok(()) => println!("SPL token initializeMultisig2 CPI compare succeeded"),
+        Err(e) => println!("SPL token initializeMultisig2 CPI compare failed: {}", e),
+    }
+}
+
+async fn run_spl_token_batch_transfer_checked_cpi_compare(program_name: &'static str) {
+    let program_id = Pubkey::from_str(BENCH_PROGRAM_ID).unwrap();
+    let noop_callee_id = Pubkey::new_from_array([0x42; 32]);
+    let mut pt = ProgramTest::new(program_name, program_id, None);
+    pt.add_program("benchmark_noop_callee", noop_callee_id, None);
+
+    let source = Pubkey::from_str("BenchPubkey11111111111111111111111111111112").unwrap();
+    let mint = Pubkey::from_str("BenchPubkey11111111111111111111111111111113").unwrap();
+    let destination = Pubkey::from_str("BenchPubkey11111111111111111111111111111114").unwrap();
+    let authority = keypair_from_seed(&[0x21u8; 64]).expect("authority");
+
+    for key in [source, mint, destination, authority.pubkey()] {
+        pt.add_account(
+            key,
+            Account {
+                lamports: 1_000_000,
+                data: vec![],
+                owner: program_id,
+                ..Account::default()
+            },
+        );
+    }
+
+    let (banks_client, payer, recent_blockhash) = pt.start().await;
+    let mut tx = Transaction::new_with_payer(
+        &[Instruction::new_with_bytes(
+            program_id,
+            &[],
+            vec![
+                AccountMeta::new_readonly(noop_callee_id, false),
+                AccountMeta::new(source, false),
+                AccountMeta::new_readonly(mint, false),
+                AccountMeta::new(destination, false),
+                AccountMeta::new_readonly(authority.pubkey(), true),
+            ],
+        )],
+        Some(&payer.pubkey()),
+    );
+    tx.sign(&[&payer, &authority], recent_blockhash);
+    match banks_client.process_transaction(tx).await {
+        Ok(()) => println!("SPL token batch transferChecked CPI compare succeeded"),
+        Err(e) => println!("SPL token batch transferChecked CPI compare failed: {}", e),
     }
 }
 

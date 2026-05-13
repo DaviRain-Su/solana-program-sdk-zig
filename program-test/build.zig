@@ -79,6 +79,21 @@ pub fn build(b: *std.Build) !void {
         },
     });
 
+    const spl_transfer_hook_dep = b.dependency("spl_transfer_hook", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const spl_transfer_hook_mod = spl_transfer_hook_dep.module("spl_transfer_hook");
+
+    _ = solana.buildProgram(b, .{
+        .name = "example_mock_transfer_hook",
+        .root_source_file = b.path("../examples/mock_transfer_hook.zig"),
+        .optimize = optimize,
+        .extra_imports = &.{
+            .{ .name = "spl_transfer_hook", .module = spl_transfer_hook_mod },
+        },
+    });
+
     const spl_token_2022_dep = b.dependency("spl_token_2022", .{
         .target = target,
         .optimize = optimize,

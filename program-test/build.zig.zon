@@ -19,6 +19,9 @@
         .spl_ata = .{
             .path = "../packages/spl-ata",
         },
+        .spl_transfer_hook = .{
+            .path = "../packages/spl-transfer-hook",
+        },
     },
 
     .paths = .{

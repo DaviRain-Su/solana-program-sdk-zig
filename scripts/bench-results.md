@@ -29,6 +29,7 @@ Reproduce: `./scripts/bench.sh` from the repo root. Requires
 | `spl_token_mint_to_checked_signed_single` | 1134 |
 | `spl_token_mint_to_checked_multisig` | 1209 |
 | `spl_token_transfer_checked_multisig` | 1238 |
+| `spl_token_approve_checked_multisig` | 1238 |
 | `token_dispatch_transfer` (current path)   |   37 |
 | `token_dispatch_burn` (current path)       |   36 |
 | `token_dispatch_mint` (current path)       |   34 |
@@ -90,7 +91,7 @@ comes from:
   `mint_to_checked_signed`, confirming the single-PDA path is mostly an
   ergonomics improvement for already-raw wrappers.
 - Wrapper-only multisig benchmarks against the no-op callee now land at
-  **1209 CU** for `mint_to_checked_multisig` and **1238 CU** for
-  `transfer_checked_multisig` after fusing signer-meta staging with
-  runtime-account staging on the checked wrappers, a further **-30 CU**
-  win on each path.
+  **1209 CU** for `mint_to_checked_multisig` and **1238 CU** for both
+  `transfer_checked_multisig` and `approve_checked_multisig` after
+  fusing signer-meta staging with runtime-account staging on the checked
+  wrappers.

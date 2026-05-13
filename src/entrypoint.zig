@@ -29,6 +29,79 @@ inline fn alignPointer(ptr: usize) usize {
     return (ptr + 7) & ~@as(usize, 7);
 }
 
+inline fn validateExpectedAccount(
+    acc: AccountInfo,
+    comptime name: []const u8,
+    comptime exp: AccountExpectation,
+) ProgramError!void {
+    if (comptime exp.signer and exp.writable) {
+        const flags_ptr: *align(1) const u16 = @ptrCast(&acc.raw.is_signer);
+        if (flags_ptr.* != 0x0101) {
+            if (!acc.isSigner()) {
+                return program_error.fail(
+                    @src(),
+                    "parse:" ++ name ++ ":not_signer",
+                    error.MissingRequiredSignature,
+                );
+            }
+            return program_error.fail(
+                @src(),
+                "parse:" ++ name ++ ":not_writable",
+                error.ImmutableAccount,
+            );
+        }
+    } else {
+        if (comptime exp.signer) {
+            if (!acc.isSigner()) {
+                return program_error.fail(
+                    @src(),
+                    "parse:" ++ name ++ ":not_signer",
+                    error.MissingRequiredSignature,
+                );
+            }
+        }
+        if (comptime exp.writable) {
+            if (!acc.isWritable()) {
+                return program_error.fail(
+                    @src(),
+                    "parse:" ++ name ++ ":not_writable",
+                    error.ImmutableAccount,
+                );
+            }
+        }
+    }
+
+    if (comptime exp.executable) {
+        if (!acc.executable()) {
+            return program_error.fail(
+                @src(),
+                "parse:" ++ name ++ ":not_executable",
+                error.InvalidAccountData,
+            );
+        }
+    }
+    if (comptime exp.owner != null) {
+        const expected_owner = exp.owner.?;
+        if (!acc.isOwnedByComptime(expected_owner)) {
+            return program_error.fail(
+                @src(),
+                "parse:" ++ name ++ ":wrong_owner",
+                error.IncorrectProgramId,
+            );
+        }
+    }
+    if (comptime exp.key != null) {
+        const expected_key = exp.key.?;
+        if (!pubkey.pubkeyEqComptime(acc.key(), expected_key)) {
+            return program_error.fail(
+                @src(),
+                "parse:" ++ name ++ ":key_mismatch",
+                error.InvalidArgument,
+            );
+        }
+    }
+}
+
 // =========================================================================
 // InstructionContext — on-demand input parsing (Pinocchio-style)
 //
@@ -455,46 +528,7 @@ pub const InstructionContext = struct {
             const acc = try self.nextResolvedAccount(spec.len, &seen);
             seen[i] = acc;
 
-            if (exp.signer and !acc.isSigner()) {
-                return program_error.fail(
-                    @src(),
-                    "parse:" ++ name ++ ":not_signer",
-                    error.MissingRequiredSignature,
-                );
-            }
-            if (exp.writable and !acc.isWritable()) {
-                return program_error.fail(
-                    @src(),
-                    "parse:" ++ name ++ ":not_writable",
-                    error.ImmutableAccount,
-                );
-            }
-            if (exp.executable and !acc.executable()) {
-                return program_error.fail(
-                    @src(),
-                    "parse:" ++ name ++ ":not_executable",
-                    error.InvalidAccountData,
-                );
-            }
-            if (exp.owner) |expected_owner| {
-                if (!acc.isOwnedByComptime(expected_owner)) {
-                    return program_error.fail(
-                        @src(),
-                        "parse:" ++ name ++ ":wrong_owner",
-                        error.IncorrectProgramId,
-                    );
-                }
-            }
-            if (exp.key) |expected_key| {
-                if (!pubkey.pubkeyEqComptime(acc.key(), expected_key)) {
-                    return program_error.fail(
-                        @src(),
-                        "parse:" ++ name ++ ":key_mismatch",
-                        error.InvalidArgument,
-                    );
-                }
-            }
-
+            try validateExpectedAccount(acc, name, exp);
             @field(out, name) = acc;
         }
         return out;
@@ -532,46 +566,7 @@ pub const InstructionContext = struct {
             const exp: AccountExpectation = entry[1];
             const acc = self.nextAccountUnchecked();
 
-            if (exp.signer and !acc.isSigner()) {
-                return program_error.fail(
-                    @src(),
-                    "parse:" ++ name ++ ":not_signer",
-                    error.MissingRequiredSignature,
-                );
-            }
-            if (exp.writable and !acc.isWritable()) {
-                return program_error.fail(
-                    @src(),
-                    "parse:" ++ name ++ ":not_writable",
-                    error.ImmutableAccount,
-                );
-            }
-            if (exp.executable and !acc.executable()) {
-                return program_error.fail(
-                    @src(),
-                    "parse:" ++ name ++ ":not_executable",
-                    error.InvalidAccountData,
-                );
-            }
-            if (exp.owner) |expected_owner| {
-                if (!acc.isOwnedByComptime(expected_owner)) {
-                    return program_error.fail(
-                        @src(),
-                        "parse:" ++ name ++ ":wrong_owner",
-                        error.IncorrectProgramId,
-                    );
-                }
-            }
-            if (exp.key) |expected_key| {
-                if (!pubkey.pubkeyEqComptime(acc.key(), expected_key)) {
-                    return program_error.fail(
-                        @src(),
-                        "parse:" ++ name ++ ":key_mismatch",
-                        error.InvalidArgument,
-                    );
-                }
-            }
-
+            try validateExpectedAccount(acc, name, exp);
             @field(out, name) = acc;
         }
         return out;

@@ -17,7 +17,9 @@ use {
     solana_sdk_ids::{bpf_loader_upgradeable, system_program},
     spl_token_interface::{
         instruction::AuthorityType,
-        state::{Account as TokenAccount, AccountState as TokenState, Mint},
+        state::{
+            Account as TokenAccount, AccountState as TokenState, Mint, Multisig as TokenMultisig,
+        },
     },
 };
 
@@ -68,10 +70,7 @@ fn system_account(lamports: u64) -> Account {
     plain_account(lamports, system_program::id())
 }
 
-fn mint_account(
-    mint_authority: Option<Pubkey>,
-    freeze_authority: Option<Pubkey>,
-) -> Account {
+fn mint_account(mint_authority: Option<Pubkey>, freeze_authority: Option<Pubkey>) -> Account {
     spl_token_program::create_account_for_mint(Mint {
         mint_authority: coption(mint_authority),
         supply: 0,
@@ -79,6 +78,16 @@ fn mint_account(
         is_initialized: true,
         freeze_authority: coption(freeze_authority),
     })
+}
+
+fn multisig_account() -> Account {
+    Account {
+        lamports: 10_000_000,
+        data: vec![0; TokenMultisig::LEN],
+        owner: spl_token_program::ID,
+        executable: false,
+        rent_epoch: 0,
+    }
 }
 
 fn token_account(
@@ -218,6 +227,44 @@ fn build_freeze_thaw_ix(
     )
 }
 
+fn build_initialize_multisig2_ix(
+    multisig: &Pubkey,
+    signer_pubkeys: &[Pubkey],
+    threshold: u8,
+) -> Instruction {
+    let mut accounts = vec![
+        AccountMeta::new_readonly(spl_token_program::ID, false),
+        AccountMeta::new(*multisig, false),
+    ];
+    accounts.extend(
+        signer_pubkeys
+            .iter()
+            .map(|pubkey| AccountMeta::new_readonly(*pubkey, false)),
+    );
+    build_demo_ix(accounts, vec![16u8, threshold])
+}
+
+fn build_approve_multisig_ix(
+    source: &Pubkey,
+    delegate: &Pubkey,
+    multisig_authority: &Pubkey,
+    signer_pubkeys: &[Pubkey],
+    data: Vec<u8>,
+) -> Instruction {
+    let mut accounts = vec![
+        AccountMeta::new_readonly(spl_token_program::ID, false),
+        AccountMeta::new(*source, false),
+        AccountMeta::new_readonly(*delegate, false),
+        AccountMeta::new_readonly(*multisig_authority, false),
+    ];
+    accounts.extend(
+        signer_pubkeys
+            .iter()
+            .map(|pubkey| AccountMeta::new_readonly(*pubkey, true)),
+    );
+    build_demo_ix(accounts, data)
+}
+
 fn run(
     mollusk: &Mollusk,
     accounts: &[(Pubkey, Account)],
@@ -240,6 +287,10 @@ fn unpack_token(accounts: &[(Pubkey, Account)], key: &Pubkey) -> TokenAccount {
 
 fn unpack_mint(accounts: &[(Pubkey, Account)], key: &Pubkey) -> Mint {
     Mint::unpack(&account(accounts, key).data).unwrap()
+}
+
+fn unpack_multisig(accounts: &[(Pubkey, Account)], key: &Pubkey) -> TokenMultisig {
+    TokenMultisig::unpack(&account(accounts, key).data).unwrap()
 }
 
 fn assert_success(label: &str, result: &mollusk_svm::result::InstructionResult) {
@@ -318,7 +369,7 @@ fn set_authority_data(
         Some(pubkey) => {
             data.push(1);
             data.extend_from_slice(pubkey.as_ref());
-        },
+        }
         None => data.push(0),
     }
     if let Some(bump) = trailing_bump {
@@ -328,13 +379,178 @@ fn set_authority_data(
 }
 
 #[test]
+fn test_initialize_multisig2_canonical_and_invalid_thresholds() {
+    let mollusk = fresh_mollusk();
+
+    let multisig = Pubkey::new_unique();
+    let signer_a = Pubkey::new_unique();
+    let signer_b = Pubkey::new_unique();
+    let signer_c = Pubkey::new_unique();
+    let signer_pubkeys = [signer_a, signer_b, signer_c];
+
+    let initial_accounts = vec![
+        (
+            spl_token_program::keyed_account().0,
+            spl_token_program::keyed_account().1,
+        ),
+        (multisig, multisig_account()),
+        (signer_a, system_account(1_000_000)),
+        (signer_b, system_account(1_000_000)),
+        (signer_c, system_account(1_000_000)),
+    ];
+
+    let zero_threshold_accounts = initial_accounts.clone();
+    let zero_threshold_ix = build_initialize_multisig2_ix(&multisig, &signer_pubkeys, 0);
+    let zero_threshold_result = run(&mollusk, &zero_threshold_accounts, &zero_threshold_ix);
+    assert_failure("initializeMultisig2 threshold zero", &zero_threshold_result);
+    assert_accounts_unchanged(
+        &zero_threshold_accounts,
+        &zero_threshold_result.resulting_accounts,
+        &[multisig],
+        "initializeMultisig2 threshold zero",
+    );
+
+    let too_high_threshold_accounts = initial_accounts.clone();
+    let too_high_threshold_ix = build_initialize_multisig2_ix(&multisig, &signer_pubkeys, 4);
+    let too_high_threshold_result = run(
+        &mollusk,
+        &too_high_threshold_accounts,
+        &too_high_threshold_ix,
+    );
+    assert_failure(
+        "initializeMultisig2 threshold exceeds signer count",
+        &too_high_threshold_result,
+    );
+    assert_accounts_unchanged(
+        &too_high_threshold_accounts,
+        &too_high_threshold_result.resulting_accounts,
+        &[multisig],
+        "initializeMultisig2 threshold exceeds signer count",
+    );
+
+    let init_ix = build_initialize_multisig2_ix(&multisig, &signer_pubkeys, 2);
+    let init_result = run(&mollusk, &initial_accounts, &init_ix);
+    assert_success("initializeMultisig2", &init_result);
+    let after_init = init_result.resulting_accounts;
+    let multisig_state = unpack_multisig(&after_init, &multisig);
+    assert_eq!(multisig_state.m, 2);
+    assert_eq!(multisig_state.n, signer_pubkeys.len() as u8);
+    assert!(multisig_state.is_initialized);
+    assert_eq!(
+        &multisig_state.signers[..signer_pubkeys.len()],
+        &signer_pubkeys
+    );
+}
+
+#[test]
+fn test_approve_multisig_threshold_signers_and_failures() {
+    let mollusk = fresh_mollusk();
+
+    let multisig = Pubkey::new_unique();
+    let signer_a = Pubkey::new_unique();
+    let signer_b = Pubkey::new_unique();
+    let signer_c = Pubkey::new_unique();
+    let outsider = Pubkey::new_unique();
+    let delegate = Pubkey::new_unique();
+    let mint = Pubkey::new_unique();
+    let source = Pubkey::new_unique();
+    let signer_pubkeys = [signer_a, signer_b, signer_c];
+
+    let initial_accounts = vec![
+        (
+            spl_token_program::keyed_account().0,
+            spl_token_program::keyed_account().1,
+        ),
+        (multisig, multisig_account()),
+        (mint, mint_account(Some(multisig), None)),
+        (
+            source,
+            token_account(
+                &mint,
+                &multisig,
+                500,
+                None,
+                0,
+                TokenState::Initialized,
+                None,
+            ),
+        ),
+        (signer_a, system_account(1_000_000)),
+        (signer_b, system_account(1_000_000)),
+        (signer_c, system_account(1_000_000)),
+        (outsider, system_account(1_000_000)),
+        (delegate, system_account(1_000_000)),
+    ];
+
+    let init_ix = build_initialize_multisig2_ix(&multisig, &signer_pubkeys, 2);
+    let init_result = run(&mollusk, &initial_accounts, &init_ix);
+    assert_success("initializeMultisig2 for approveMultisig", &init_result);
+    let after_init = init_result.resulting_accounts;
+
+    let mut approve_data = vec![19u8];
+    approve_data.extend_from_slice(&APPROVE_AMOUNT.to_le_bytes());
+
+    let insufficient_accounts = after_init.clone();
+    let insufficient_ix = build_approve_multisig_ix(
+        &source,
+        &delegate,
+        &multisig,
+        &[signer_a],
+        approve_data.clone(),
+    );
+    let insufficient_result = run(&mollusk, &insufficient_accounts, &insufficient_ix);
+    assert_failure("approveMultisig with one signer", &insufficient_result);
+    assert_accounts_unchanged(
+        &insufficient_accounts,
+        &insufficient_result.resulting_accounts,
+        &[source, multisig],
+        "approveMultisig with one signer",
+    );
+
+    let substituted_accounts = after_init.clone();
+    let substituted_ix = build_approve_multisig_ix(
+        &source,
+        &delegate,
+        &multisig,
+        &[signer_a, outsider],
+        approve_data.clone(),
+    );
+    let substituted_result = run(&mollusk, &substituted_accounts, &substituted_ix);
+    assert_failure(
+        "approveMultisig with substituted signer",
+        &substituted_result,
+    );
+    assert_accounts_unchanged(
+        &substituted_accounts,
+        &substituted_result.resulting_accounts,
+        &[source, multisig],
+        "approveMultisig with substituted signer",
+    );
+
+    let approve_ix = build_approve_multisig_ix(
+        &source,
+        &delegate,
+        &multisig,
+        &[signer_a, signer_b],
+        approve_data,
+    );
+    let approve_result = run(&mollusk, &after_init, &approve_ix);
+    assert_success("approveMultisig threshold signers", &approve_result);
+    let after_approve = approve_result.resulting_accounts;
+    let approved_source = unpack_token(&after_approve, &source);
+    assert_eq!(approved_source.amount, 500);
+    assert_eq!(approved_source.delegate, COption::Some(delegate));
+    assert_eq!(approved_source.delegated_amount, APPROVE_AMOUNT);
+}
+
+#[test]
 fn test_mint_transfer_burn_close_end_to_end() {
     let mollusk = fresh_mollusk();
 
     let authority = Pubkey::new_unique();
     let mint = Pubkey::new_unique();
     let alice = Pubkey::new_unique(); // source token account
-    let bob = Pubkey::new_unique();   // destination token account
+    let bob = Pubkey::new_unique(); // destination token account
 
     // -------------------------------------------------------------
     // Initial on-chain state: an initialised mint, two empty token
@@ -345,31 +561,18 @@ fn test_mint_transfer_burn_close_end_to_end() {
     // inside `state.zig`.
     // -------------------------------------------------------------
     let initial_accounts = vec![
-        (spl_token_program::keyed_account().0, spl_token_program::keyed_account().1),
+        (
+            spl_token_program::keyed_account().0,
+            spl_token_program::keyed_account().1,
+        ),
         (mint, mint_account(Some(authority), None)),
         (
             alice,
-            token_account(
-                &mint,
-                &authority,
-                0,
-                None,
-                0,
-                TokenState::Initialized,
-                None,
-            ),
+            token_account(&mint, &authority, 0, None, 0, TokenState::Initialized, None),
         ),
         (
             bob,
-            token_account(
-                &mint,
-                &authority,
-                0,
-                None,
-                0,
-                TokenState::Initialized,
-                None,
-            ),
+            token_account(&mint, &authority, 0, None, 0, TokenState::Initialized, None),
         ),
         (authority, system_account(1_000_000)),
     ];
@@ -452,8 +655,8 @@ fn test_mint_transfer_burn_close_end_to_end() {
         program_id: program::id(),
         accounts: vec![
             AccountMeta::new_readonly(spl_token_program::ID, false),
-            AccountMeta::new(mint, false),       // unused but kept in layout
-            AccountMeta::new(alice, false),      // the account being closed
+            AccountMeta::new(mint, false),  // unused but kept in layout
+            AccountMeta::new(alice, false), // the account being closed
             AccountMeta::new(lamports_dest, false), // lamports go here
             AccountMeta::new_readonly(authority, true),
         ],
@@ -489,23 +692,17 @@ fn test_approve_revoke_checked_and_signed_routes() {
     let destination = Pubkey::new_unique();
     let destination_owner = Pubkey::new_unique();
     let pda_source = Pubkey::new_unique();
-    let (pda_authority, pda_bump) =
-        Pubkey::find_program_address(&[b"authority"], &program::id());
+    let (pda_authority, pda_bump) = Pubkey::find_program_address(&[b"authority"], &program::id());
 
     let initial_accounts = vec![
-        (spl_token_program::keyed_account().0, spl_token_program::keyed_account().1),
+        (
+            spl_token_program::keyed_account().0,
+            spl_token_program::keyed_account().1,
+        ),
         (mint, mint_account(Some(owner), None)),
         (
             source,
-            token_account(
-                &mint,
-                &owner,
-                500,
-                None,
-                0,
-                TokenState::Initialized,
-                None,
-            ),
+            token_account(&mint, &owner, 500, None, 0, TokenState::Initialized, None),
         ),
         (
             destination,
@@ -538,8 +735,7 @@ fn test_approve_revoke_checked_and_signed_routes() {
 
     let mut approve_data = vec![4u8];
     approve_data.extend_from_slice(&APPROVE_AMOUNT.to_le_bytes());
-    let approve_ix =
-        build_approve_ix(&source, &delegate, &owner, true, approve_data);
+    let approve_ix = build_approve_ix(&source, &delegate, &owner, true, approve_data);
     let approve_result = run(&mollusk, &initial_accounts, &approve_ix);
     assert_success("approve", &approve_result);
     let after_approve = approve_result.resulting_accounts;
@@ -551,8 +747,7 @@ fn test_approve_revoke_checked_and_signed_routes() {
     let mut spend_data = vec![1u8];
     spend_data.extend_from_slice(&APPROVE_SPEND_AMOUNT.to_le_bytes());
     spend_data.push(DECIMALS);
-    let spend_ix =
-        build_legacy_ix(&mint, &source, &destination, &delegate, true, spend_data);
+    let spend_ix = build_legacy_ix(&mint, &source, &destination, &delegate, true, spend_data);
     let spend_result = run(&mollusk, &after_approve, &spend_ix);
     assert_success("delegate transfer within allowance", &spend_result);
     let after_delegate_spend = spend_result.resulting_accounts;
@@ -568,8 +763,7 @@ fn test_approve_revoke_checked_and_signed_routes() {
 
     let overspend_accounts = after_delegate_spend.clone();
     let mut overspend_data = vec![1u8];
-    overspend_data
-        .extend_from_slice(&(APPROVE_AMOUNT - APPROVE_SPEND_AMOUNT + 1).to_le_bytes());
+    overspend_data.extend_from_slice(&(APPROVE_AMOUNT - APPROVE_SPEND_AMOUNT + 1).to_le_bytes());
     overspend_data.push(DECIMALS);
     let overspend_ix = build_legacy_ix(
         &mint,
@@ -618,8 +812,7 @@ fn test_approve_revoke_checked_and_signed_routes() {
     );
 
     let mut approve_checked_data = vec![6u8];
-    approve_checked_data
-        .extend_from_slice(&APPROVE_CHECKED_AMOUNT.to_le_bytes());
+    approve_checked_data.extend_from_slice(&APPROVE_CHECKED_AMOUNT.to_le_bytes());
     approve_checked_data.push(DECIMALS);
     let approve_checked_ix = build_approve_checked_ix(
         &source,
@@ -640,16 +833,9 @@ fn test_approve_revoke_checked_and_signed_routes() {
     let mut wrong_decimals_data = vec![6u8];
     wrong_decimals_data.extend_from_slice(&33u64.to_le_bytes());
     wrong_decimals_data.push(DECIMALS + 1);
-    let wrong_decimals_ix = build_approve_checked_ix(
-        &source,
-        &mint,
-        &delegate,
-        &owner,
-        true,
-        wrong_decimals_data,
-    );
-    let wrong_decimals_result =
-        run(&mollusk, &wrong_decimals_accounts, &wrong_decimals_ix);
+    let wrong_decimals_ix =
+        build_approve_checked_ix(&source, &mint, &delegate, &owner, true, wrong_decimals_data);
+    let wrong_decimals_result = run(&mollusk, &wrong_decimals_accounts, &wrong_decimals_ix);
     assert_failure("approveChecked wrong decimals", &wrong_decimals_result);
     assert_accounts_unchanged(
         &wrong_decimals_accounts,
@@ -659,8 +845,7 @@ fn test_approve_revoke_checked_and_signed_routes() {
     );
 
     let mut checked_spend_data = vec![1u8];
-    checked_spend_data
-        .extend_from_slice(&APPROVE_CHECKED_SPEND_AMOUNT.to_le_bytes());
+    checked_spend_data.extend_from_slice(&APPROVE_CHECKED_SPEND_AMOUNT.to_le_bytes());
     checked_spend_data.push(DECIMALS);
     let checked_spend_ix = build_legacy_ix(
         &mint,
@@ -670,8 +855,7 @@ fn test_approve_revoke_checked_and_signed_routes() {
         true,
         checked_spend_data,
     );
-    let checked_spend_result =
-        run(&mollusk, &after_approve_checked, &checked_spend_ix);
+    let checked_spend_result = run(&mollusk, &after_approve_checked, &checked_spend_ix);
     assert_success(
         "delegate transfer after approveChecked",
         &checked_spend_result,
@@ -702,8 +886,7 @@ fn test_approve_revoke_checked_and_signed_routes() {
         false,
         approve_signed_data,
     );
-    let approve_signed_result =
-        run(&mollusk, &after_checked_spend, &approve_signed_ix);
+    let approve_signed_result = run(&mollusk, &after_checked_spend, &approve_signed_ix);
     assert_success("approveSigned PDA path", &approve_signed_result);
     let after_approve_signed = approve_signed_result.resulting_accounts;
     let pda_source_state = unpack_token(&after_approve_signed, &pda_source);
@@ -732,7 +915,10 @@ fn test_set_authority_freeze_thaw_and_failure_preservation() {
     let lamports_destination = Pubkey::new_unique();
 
     let initial_accounts = vec![
-        (spl_token_program::keyed_account().0, spl_token_program::keyed_account().1),
+        (
+            spl_token_program::keyed_account().0,
+            spl_token_program::keyed_account().1,
+        ),
         (
             mint,
             mint_account(Some(mint_authority), Some(old_freeze_authority)),
@@ -763,15 +949,7 @@ fn test_set_authority_freeze_thaw_and_failure_preservation() {
         ),
         (
             closable,
-            token_account(
-                &mint,
-                &old_owner,
-                0,
-                None,
-                0,
-                TokenState::Initialized,
-                None,
-            ),
+            token_account(&mint, &old_owner, 0, None, 0, TokenState::Initialized, None),
         ),
         (old_owner, system_account(1_000_000)),
         (new_owner, system_account(1_000_000)),
@@ -788,12 +966,7 @@ fn test_set_authority_freeze_thaw_and_failure_preservation() {
         &source,
         &old_owner,
         true,
-        set_authority_data(
-            10,
-            AuthorityType::AccountOwner,
-            Some(&new_owner),
-            None,
-        ),
+        set_authority_data(10, AuthorityType::AccountOwner, Some(&new_owner), None),
     );
     let owner_change_result = run(&mollusk, &initial_accounts, &owner_change_ix);
     assert_success("setAuthority account owner", &owner_change_result);
@@ -804,16 +977,13 @@ fn test_set_authority_freeze_thaw_and_failure_preservation() {
     let old_owner_fail_accounts = after_owner_change.clone();
     let mut old_owner_approve_data = vec![4u8];
     old_owner_approve_data.extend_from_slice(&1u64.to_le_bytes());
-    let old_owner_approve_ix = build_approve_ix(
-        &source,
-        &delegate,
-        &old_owner,
-        true,
-        old_owner_approve_data,
+    let old_owner_approve_ix =
+        build_approve_ix(&source, &delegate, &old_owner, true, old_owner_approve_data);
+    let old_owner_approve_result = run(&mollusk, &old_owner_fail_accounts, &old_owner_approve_ix);
+    assert_failure(
+        "old owner approve after ownership transfer",
+        &old_owner_approve_result,
     );
-    let old_owner_approve_result =
-        run(&mollusk, &old_owner_fail_accounts, &old_owner_approve_ix);
-    assert_failure("old owner approve after ownership transfer", &old_owner_approve_result);
     assert_accounts_unchanged(
         &old_owner_fail_accounts,
         &old_owner_approve_result.resulting_accounts,
@@ -823,24 +993,19 @@ fn test_set_authority_freeze_thaw_and_failure_preservation() {
 
     let mut new_owner_approve_data = vec![4u8];
     new_owner_approve_data.extend_from_slice(&1u64.to_le_bytes());
-    let new_owner_approve_ix = build_approve_ix(
-        &source,
-        &delegate,
-        &new_owner,
-        true,
-        new_owner_approve_data,
+    let new_owner_approve_ix =
+        build_approve_ix(&source, &delegate, &new_owner, true, new_owner_approve_data);
+    let new_owner_approve_result = run(&mollusk, &after_owner_change, &new_owner_approve_ix);
+    assert_success(
+        "new owner approve after ownership transfer",
+        &new_owner_approve_result,
     );
-    let new_owner_approve_result =
-        run(&mollusk, &after_owner_change, &new_owner_approve_ix);
-    assert_success("new owner approve after ownership transfer", &new_owner_approve_result);
     let after_new_owner_approve = new_owner_approve_result.resulting_accounts;
     let new_owner_approved_source = unpack_token(&after_new_owner_approve, &source);
     assert_eq!(new_owner_approved_source.delegate, COption::Some(delegate));
 
-    let new_owner_revoke_ix =
-        build_revoke_ix(&source, &new_owner, true, vec![8u8]);
-    let new_owner_revoke_result =
-        run(&mollusk, &after_new_owner_approve, &new_owner_revoke_ix);
+    let new_owner_revoke_ix = build_revoke_ix(&source, &new_owner, true, vec![8u8]);
+    let new_owner_revoke_result = run(&mollusk, &after_new_owner_approve, &new_owner_revoke_ix);
     assert_success("new owner revoke", &new_owner_revoke_result);
     let after_new_owner_revoke = new_owner_revoke_result.resulting_accounts;
     let new_owner_revoked_source = unpack_token(&after_new_owner_revoke, &source);
@@ -859,9 +1024,15 @@ fn test_set_authority_freeze_thaw_and_failure_preservation() {
             None,
         ),
     );
-    let unauthorized_close_result =
-        run(&mollusk, &unauthorized_close_accounts, &unauthorized_close_ix);
-    assert_failure("unauthorized setAuthority close authority", &unauthorized_close_result);
+    let unauthorized_close_result = run(
+        &mollusk,
+        &unauthorized_close_accounts,
+        &unauthorized_close_ix,
+    );
+    assert_failure(
+        "unauthorized setAuthority close authority",
+        &unauthorized_close_result,
+    );
     assert_accounts_unchanged(
         &unauthorized_close_accounts,
         &unauthorized_close_result.resulting_accounts,
@@ -880,8 +1051,7 @@ fn test_set_authority_freeze_thaw_and_failure_preservation() {
             None,
         ),
     );
-    let close_authority_result =
-        run(&mollusk, &after_new_owner_revoke, &close_authority_ix);
+    let close_authority_result = run(&mollusk, &after_new_owner_revoke, &close_authority_ix);
     assert_success("setAuthority close authority", &close_authority_result);
     let after_close_authority = close_authority_result.resulting_accounts;
     let closable_state = unpack_token(&after_close_authority, &closable);
@@ -900,7 +1070,10 @@ fn test_set_authority_freeze_thaw_and_failure_preservation() {
         vec![3u8],
     );
     let close_result = run(&mollusk, &after_close_authority, &close_ix);
-    assert_success("closeAccount with reassigned close authority", &close_result);
+    assert_success(
+        "closeAccount with reassigned close authority",
+        &close_result,
+    );
     let after_close = close_result.resulting_accounts;
     assert!(
         account(&after_close, &lamports_destination).lamports > 0,
@@ -918,11 +1091,12 @@ fn test_set_authority_freeze_thaw_and_failure_preservation() {
             None,
         ),
     );
-    let freeze_authority_change_result =
-        run(&mollusk, &after_close, &freeze_authority_change_ix);
-    assert_success("setAuthority freeze authority", &freeze_authority_change_result);
-    let after_freeze_authority_change =
-        freeze_authority_change_result.resulting_accounts;
+    let freeze_authority_change_result = run(&mollusk, &after_close, &freeze_authority_change_ix);
+    assert_success(
+        "setAuthority freeze authority",
+        &freeze_authority_change_result,
+    );
+    let after_freeze_authority_change = freeze_authority_change_result.resulting_accounts;
     let changed_mint = unpack_mint(&after_freeze_authority_change, &mint);
     assert_eq!(
         changed_mint.freeze_authority,
@@ -930,15 +1104,13 @@ fn test_set_authority_freeze_thaw_and_failure_preservation() {
     );
 
     let old_freeze_fail_accounts = after_freeze_authority_change.clone();
-    let old_freeze_ix = build_freeze_thaw_ix(
-        &source,
-        &mint,
-        &old_freeze_authority,
-        true,
-        vec![12u8],
-    );
+    let old_freeze_ix =
+        build_freeze_thaw_ix(&source, &mint, &old_freeze_authority, true, vec![12u8]);
     let old_freeze_result = run(&mollusk, &old_freeze_fail_accounts, &old_freeze_ix);
-    assert_failure("old freeze authority after reassignment", &old_freeze_result);
+    assert_failure(
+        "old freeze authority after reassignment",
+        &old_freeze_result,
+    );
     assert_accounts_unchanged(
         &old_freeze_fail_accounts,
         &old_freeze_result.resulting_accounts,
@@ -946,13 +1118,7 @@ fn test_set_authority_freeze_thaw_and_failure_preservation() {
         "old freeze authority after reassignment",
     );
 
-    let freeze_ix = build_freeze_thaw_ix(
-        &source,
-        &mint,
-        &new_freeze_authority,
-        true,
-        vec![12u8],
-    );
+    let freeze_ix = build_freeze_thaw_ix(&source, &mint, &new_freeze_authority, true, vec![12u8]);
     let freeze_result = run(&mollusk, &after_freeze_authority_change, &freeze_ix);
     assert_success("freezeAccount", &freeze_result);
     let after_freeze = freeze_result.resulting_accounts;
@@ -971,8 +1137,7 @@ fn test_set_authority_freeze_thaw_and_failure_preservation() {
         true,
         frozen_transfer_data,
     );
-    let frozen_transfer_result =
-        run(&mollusk, &frozen_transfer_accounts, &frozen_transfer_ix);
+    let frozen_transfer_result = run(&mollusk, &frozen_transfer_accounts, &frozen_transfer_ix);
     assert_failure("transfer from frozen account", &frozen_transfer_result);
     assert_accounts_unchanged(
         &frozen_transfer_accounts,
@@ -1002,13 +1167,7 @@ fn test_set_authority_freeze_thaw_and_failure_preservation() {
     );
 
     let wrong_thaw_accounts = after_freeze.clone();
-    let wrong_thaw_ix = build_freeze_thaw_ix(
-        &source,
-        &mint,
-        &wrong_authority,
-        true,
-        vec![14u8],
-    );
+    let wrong_thaw_ix = build_freeze_thaw_ix(&source, &mint, &wrong_authority, true, vec![14u8]);
     let wrong_thaw_result = run(&mollusk, &wrong_thaw_accounts, &wrong_thaw_ix);
     assert_failure("wrong freeze authority thaw", &wrong_thaw_result);
     assert_accounts_unchanged(
@@ -1018,13 +1177,7 @@ fn test_set_authority_freeze_thaw_and_failure_preservation() {
         "wrong freeze authority thaw",
     );
 
-    let thaw_ix = build_freeze_thaw_ix(
-        &source,
-        &mint,
-        &new_freeze_authority,
-        true,
-        vec![14u8],
-    );
+    let thaw_ix = build_freeze_thaw_ix(&source, &mint, &new_freeze_authority, true, vec![14u8]);
     let thaw_result = run(&mollusk, &after_freeze, &thaw_ix);
     assert_success("thawAccount", &thaw_result);
     let after_thaw = thaw_result.resulting_accounts;
@@ -1056,11 +1209,9 @@ fn test_set_authority_freeze_thaw_and_failure_preservation() {
         true,
         set_authority_data(10, AuthorityType::MintTokens, None, None),
     );
-    let clear_mint_authority_result =
-        run(&mollusk, &after_thaw_transfer, &clear_mint_authority_ix);
+    let clear_mint_authority_result = run(&mollusk, &after_thaw_transfer, &clear_mint_authority_ix);
     assert_success("clear mint authority", &clear_mint_authority_result);
-    let after_clear_mint_authority =
-        clear_mint_authority_result.resulting_accounts;
+    let after_clear_mint_authority = clear_mint_authority_result.resulting_accounts;
     let mint_without_authority = unpack_mint(&after_clear_mint_authority, &mint);
     assert_eq!(mint_without_authority.mint_authority, COption::None);
 
@@ -1095,19 +1246,14 @@ fn test_route_guards_reject_short_accounts_and_data() {
     let source = Pubkey::new_unique();
 
     let accounts = vec![
-        (spl_token_program::keyed_account().0, spl_token_program::keyed_account().1),
+        (
+            spl_token_program::keyed_account().0,
+            spl_token_program::keyed_account().1,
+        ),
         (mint, mint_account(Some(owner), None)),
         (
             source,
-            token_account(
-                &mint,
-                &owner,
-                10,
-                None,
-                0,
-                TokenState::Initialized,
-                None,
-            ),
+            token_account(&mint, &owner, 10, None, 0, TokenState::Initialized, None),
         ),
         (owner, system_account(1_000_000)),
         (delegate, system_account(1_000_000)),

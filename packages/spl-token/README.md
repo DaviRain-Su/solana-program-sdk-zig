@@ -1,12 +1,13 @@
 # spl-token (Zig)
 
 Status: ✅ **v0.3** — instruction builders + on-chain CPI helpers
-for the fungible-token, authority, multisig, native-SOL sync,
-utility/return-data helpers, and p-token-style batch surface. The
-classic SPL Token subset is validated against the real on-chain SPL
-Token program inside Mollusk (see `program-test/tests/spl_token.rs`);
-the batch helper is covered by Zig wire/staging tests because the
-bundled classic token fixture currently rejects discriminator `255`.
+for the fungible-token, authority, multisig, legacy+modern
+initializers, native-SOL sync, utility/return-data helpers, custom
+error-code parity, and p-token-style batch surface. The classic SPL
+Token subset is validated against the real on-chain SPL Token program
+inside Mollusk (see `program-test/tests/spl_token.rs`); the batch
+helper is covered by Zig wire/staging tests because the bundled
+classic token fixture currently rejects discriminator `255`.
 
 Zig client for the [SPL Token](https://github.com/solana-program/token)
 program. Dual-target:
@@ -95,6 +96,10 @@ Instructions:
 - `burn` (8) / `burnChecked` (15)
 - `closeAccount` (9)
 - `freezeAccount` (10) / `thawAccount` (11)
+- legacy initializers:
+  - `initializeMint` (0)
+  - `initializeAccount` (1)
+  - `initializeMultisig` (2)
 - `syncNative` (17)
 - `initializeAccount2` (16)
 - `initializeMint2` (20) / `initializeAccount3` (18)
@@ -135,14 +140,14 @@ State (zero-copy `extern struct`):
 - `isValidSignerIndex(...)` parity helper
 - `NATIVE_MINT` constant + `isNativeMint(...)` helper for wrapped SOL flows
 - `checkProgramAccount(...)` parity helper for the classic Token program ID
+- `TokenError`, `TokenErrorSet`, `parseTokenError(...)`, and
+  `tokenErrorToStr(...)` for classic SPL Token custom-error parity
 
 ## Not yet covered
 
-Legacy Rent-sysvar initializers (`initializeMint`,
-`initializeAccount`, `initializeMultisig`) and Token-2022 extension
-instructions. Add when there's a concrete consumer — these are
-mechanically the same patterns as above (single comptime
-instruction-data builder + CPI wrapper).
+Token-2022 extension instructions. Add when there's a concrete
+consumer — these are mechanically the same patterns as above (single
+comptime instruction-data builder + CPI wrapper).
 
 ## Notes
 

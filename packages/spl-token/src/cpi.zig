@@ -1657,6 +1657,41 @@ pub fn uiAmountToAmount(
 // Initialize* — typically used at mint/account creation time.
 // =============================================================================
 
+pub fn initializeMint(
+    token_program: CpiAccountInfo,
+    mint: CpiAccountInfo,
+    rent_sysvar: CpiAccountInfo,
+    decimals: u8,
+    mint_authority: *const Pubkey,
+    freeze_authority: ?*const Pubkey,
+) ProgramResult {
+    var metas: metasArray(instruction.initialize_mint_spec) = undefined;
+    var data: dataArray(instruction.initialize_mint_spec) = undefined;
+    const ix = rebrand(
+        instruction.initializeMint(mint.key(), decimals, mint_authority, freeze_authority, &metas, &data),
+        token_program.key(),
+    );
+    metas[1] = AccountMeta.readonly(rent_sysvar.key());
+    try sol.cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ mint, rent_sysvar, token_program });
+}
+
+pub fn initializeAccount(
+    token_program: CpiAccountInfo,
+    account: CpiAccountInfo,
+    mint: CpiAccountInfo,
+    owner: CpiAccountInfo,
+    rent_sysvar: CpiAccountInfo,
+) ProgramResult {
+    var metas: metasArray(instruction.initialize_account_spec) = undefined;
+    var data: dataArray(instruction.initialize_account_spec) = undefined;
+    const ix = rebrand(
+        instruction.initializeAccount(account.key(), mint.key(), owner.key(), &metas, &data),
+        token_program.key(),
+    );
+    metas[3] = AccountMeta.readonly(rent_sysvar.key());
+    try sol.cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ account, mint, owner, rent_sysvar, token_program });
+}
+
 pub fn initializeAccount2(
     token_program: CpiAccountInfo,
     account: CpiAccountInfo,
@@ -1666,17 +1701,11 @@ pub fn initializeAccount2(
 ) ProgramResult {
     var metas: metasArray(instruction.initialize_account2_spec) = undefined;
     var data: dataArray(instruction.initialize_account2_spec) = undefined;
-    data = sol.instruction.comptimeInstructionData(
-        u8,
-        extern struct { owner: Pubkey align(1) },
-    ).initWithDiscriminant(
-        @intFromEnum(instruction.TokenInstruction.initialize_account2),
-        .{ .owner = owner.* },
+    const ix = rebrand(
+        instruction.initializeAccount2(account.key(), mint.key(), owner, &metas, &data),
+        token_program.key(),
     );
-    metas[0] = AccountMeta.writable(account.key());
-    metas[1] = AccountMeta.readonly(mint.key());
     metas[2] = AccountMeta.readonly(rent_sysvar.key());
-    const ix = Instruction.fromCpiAccount(token_program, &metas, &data);
     try sol.cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ account, mint, rent_sysvar, token_program });
 }
 
@@ -1716,6 +1745,41 @@ pub fn initializeMint2(
         token_program.key(),
     );
     try sol.cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ mint, token_program });
+}
+
+pub fn initializeMultisig(
+    token_program: CpiAccountInfo,
+    multisig: CpiAccountInfo,
+    rent_sysvar: CpiAccountInfo,
+    signer_infos: []const CpiAccountInfo,
+    threshold: u8,
+) ProgramResult {
+    try validateSignerInfoCount(signer_infos);
+    if (threshold == 0 or threshold > signer_infos.len) {
+        return error.InvalidArgument;
+    }
+
+    var signer_pubkeys_buf: [MAX_SIGNERS]Pubkey = undefined;
+    const signer_pubkeys = try signerPubkeysFromInfos(signer_infos, &signer_pubkeys_buf);
+    var metas: instruction.multisigMetasArray(instruction.initialize_multisig_spec.accounts_len) = undefined;
+    var data: dataArray(instruction.initialize_multisig_spec) = undefined;
+    const ix = rebrand(
+        instruction.initializeMultisig(multisig.key(), signer_pubkeys, threshold, &metas, &data) catch |err| {
+            return mapMultisigInstructionError(err);
+        },
+        token_program.key(),
+    );
+    metas[1] = AccountMeta.readonly(rent_sysvar.key());
+
+    var invoke_accounts: [instruction.initialize_multisig_spec.accounts_len + MAX_SIGNERS + 1]CpiAccountInfo = undefined;
+    const runtime_accounts = blk: {
+        invoke_accounts[0] = multisig;
+        invoke_accounts[1] = rent_sysvar;
+        for (signer_infos, 0..) |signer, i| invoke_accounts[2 + i] = signer;
+        invoke_accounts[2 + signer_infos.len] = token_program;
+        break :blk invoke_accounts[0 .. 3 + signer_infos.len];
+    };
+    try sol.cpi.invokeRaw(&ix, runtime_accounts);
 }
 
 pub fn initializeMultisig2(
@@ -1810,7 +1874,12 @@ test "spl-token cpi: public v0.3 wrapper decls exist" {
         "thawAccountSigned",
         "thawAccountSignedSingle",
         "thawAccountMultisig",
+        "initializeMint",
+        "initializeAccount",
         "initializeAccount2",
+        "initializeAccount3",
+        "initializeMint2",
+        "initializeMultisig",
         "initializeMultisig2",
         "transferMultisig",
         "transferCheckedMultisig",
@@ -1961,6 +2030,65 @@ test "spl-token cpi: batch rebrands callee and preserves flattened runtime accou
     try std.testing.expectEqualSlices(u8, token_program.key(), invoke_accounts[8].key());
 }
 
+test "spl-token cpi: initializeMint rebrands callee and preserves rent sysvar ordering" {
+    var mint_account = testAccount(.{0x2A} ** 32, .{0x8A} ** 32, false, true, false);
+    var rent_account = testAccount(sol.rent_id, .{0x8B} ** 32, false, false, false);
+    var token_program_account = testAccount(sol.spl_token_2022_program_id, .{0x8C} ** 32, false, false, true);
+
+    const mint = testCpiInfo(&mint_account.raw);
+    const rent_sysvar = testCpiInfo(&rent_account.raw);
+    const token_program = testCpiInfo(&token_program_account.raw);
+    const mint_authority: Pubkey = .{0x8D} ** 32;
+    const freeze_authority: Pubkey = .{0x8E} ** 32;
+
+    var metas: metasArray(instruction.initialize_mint_spec) = undefined;
+    var data: dataArray(instruction.initialize_mint_spec) = undefined;
+    const ix = rebrand(
+        instruction.initializeMint(mint.key(), 6, &mint_authority, &freeze_authority, &metas, &data),
+        token_program.key(),
+    );
+    metas[1] = AccountMeta.readonly(rent_sysvar.key());
+
+    try std.testing.expectEqual(token_program.key(), ix.program_id);
+    try std.testing.expectEqual(@as(usize, 2), ix.accounts.len);
+    try std.testing.expectEqual(@as(usize, 70), ix.data.len);
+    try std.testing.expectEqual(@as(u8, @intFromEnum(instruction.TokenInstruction.initialize_mint)), ix.data[0]);
+    try std.testing.expectEqual(@as(u8, 6), ix.data[1]);
+    try std.testing.expectEqualSlices(u8, mint.key(), ix.accounts[0].pubkey);
+    try std.testing.expectEqualSlices(u8, rent_sysvar.key(), ix.accounts[1].pubkey);
+}
+
+test "spl-token cpi: initializeAccount rebrands callee and preserves owner/rent ordering" {
+    var account_account = testAccount(.{0x2B} ** 32, .{0x8B} ** 32, false, true, false);
+    var mint_account = testAccount(.{0x2C} ** 32, .{0x8C} ** 32, false, false, false);
+    var owner_account = testAccount(.{0x2D} ** 32, .{0x8D} ** 32, false, false, false);
+    var rent_account = testAccount(sol.rent_id, .{0x8E} ** 32, false, false, false);
+    var token_program_account = testAccount(sol.spl_token_2022_program_id, .{0x8F} ** 32, false, false, true);
+
+    const account = testCpiInfo(&account_account.raw);
+    const mint = testCpiInfo(&mint_account.raw);
+    const owner = testCpiInfo(&owner_account.raw);
+    const rent_sysvar = testCpiInfo(&rent_account.raw);
+    const token_program = testCpiInfo(&token_program_account.raw);
+
+    var metas: metasArray(instruction.initialize_account_spec) = undefined;
+    var data: dataArray(instruction.initialize_account_spec) = undefined;
+    const ix = rebrand(
+        instruction.initializeAccount(account.key(), mint.key(), owner.key(), &metas, &data),
+        token_program.key(),
+    );
+    metas[3] = AccountMeta.readonly(rent_sysvar.key());
+
+    try std.testing.expectEqual(token_program.key(), ix.program_id);
+    try std.testing.expectEqual(@as(usize, 4), ix.accounts.len);
+    try std.testing.expectEqual(@as(usize, 1), ix.data.len);
+    try std.testing.expectEqual(@as(u8, @intFromEnum(instruction.TokenInstruction.initialize_account)), ix.data[0]);
+    try std.testing.expectEqualSlices(u8, account.key(), ix.accounts[0].pubkey);
+    try std.testing.expectEqualSlices(u8, mint.key(), ix.accounts[1].pubkey);
+    try std.testing.expectEqualSlices(u8, owner.key(), ix.accounts[2].pubkey);
+    try std.testing.expectEqualSlices(u8, rent_sysvar.key(), ix.accounts[3].pubkey);
+}
+
 test "spl-token cpi: syncNative rebrands callee and preserves single runtime account order" {
     var wrapped_account = testAccount(.{0x30} ** 32, .{0x90} ** 32, false, true, false);
     var token_program_account = testAccount(sol.spl_token_2022_program_id, .{0x91} ** 32, false, false, true);
@@ -2016,6 +2144,40 @@ test "spl-token cpi: initializeAccount2 rebrands callee and preserves rent sysva
     try std.testing.expectEqualSlices(u8, account.key(), ix.accounts[0].pubkey);
     try std.testing.expectEqualSlices(u8, mint.key(), ix.accounts[1].pubkey);
     try std.testing.expectEqualSlices(u8, rent_sysvar.key(), ix.accounts[2].pubkey);
+}
+
+test "spl-token cpi: initializeMultisig rebrands callee and preserves rent/signer order" {
+    var multisig_account = testAccount(.{0x30} ** 32, .{0x90} ** 32, false, true, false);
+    var rent_account = testAccount(sol.rent_id, .{0x91} ** 32, false, false, false);
+    var signer_a_account = testAccount(.{0x32} ** 32, .{0x92} ** 32, false, false, false);
+    var signer_b_account = testAccount(.{0x33} ** 32, .{0x93} ** 32, false, false, false);
+    var token_program_account = testAccount(sol.spl_token_2022_program_id, .{0x94} ** 32, false, false, true);
+
+    const multisig = testCpiInfo(&multisig_account.raw);
+    const rent_sysvar = testCpiInfo(&rent_account.raw);
+    const signer_a = testCpiInfo(&signer_a_account.raw);
+    const signer_b = testCpiInfo(&signer_b_account.raw);
+    const token_program = testCpiInfo(&token_program_account.raw);
+
+    var signer_pubkeys_buf: [MAX_SIGNERS]Pubkey = undefined;
+    const signer_pubkeys = try signerPubkeysFromInfos(&.{ signer_a, signer_b }, &signer_pubkeys_buf);
+    var metas: instruction.multisigMetasArray(instruction.initialize_multisig_spec.accounts_len) = undefined;
+    var data: dataArray(instruction.initialize_multisig_spec) = undefined;
+    const ix = rebrand(
+        try instruction.initializeMultisig(multisig.key(), signer_pubkeys, 2, &metas, &data),
+        token_program.key(),
+    );
+    metas[1] = AccountMeta.readonly(rent_sysvar.key());
+
+    try std.testing.expectEqual(token_program.key(), ix.program_id);
+    try std.testing.expectEqual(@as(usize, 4), ix.accounts.len);
+    try std.testing.expectEqual(@as(usize, 2), ix.data.len);
+    try std.testing.expectEqual(@as(u8, @intFromEnum(instruction.TokenInstruction.initialize_multisig)), ix.data[0]);
+    try std.testing.expectEqual(@as(u8, 2), ix.data[1]);
+    try std.testing.expectEqualSlices(u8, multisig.key(), ix.accounts[0].pubkey);
+    try std.testing.expectEqualSlices(u8, rent_sysvar.key(), ix.accounts[1].pubkey);
+    try std.testing.expectEqualSlices(u8, signer_a.key(), ix.accounts[2].pubkey);
+    try std.testing.expectEqualSlices(u8, signer_b.key(), ix.accounts[3].pubkey);
 }
 
 test "spl-token cpi: initializeMultisig2 rebrands callee and preserves signer order" {
@@ -2246,15 +2408,30 @@ test "spl-token cpi: utility wrappers use host fallback" {
         .lamports = 0,
         .data_len = 0,
     };
+    var owner_acc: sol.account.Account = .{
+        .borrow_state = sol.account.NOT_BORROWED,
+        .is_signer = 0,
+        .is_writable = 0,
+        .is_executable = 0,
+        ._padding = .{0} ** 4,
+        .key = .{46} ** 32,
+        .owner = .{47} ** 32,
+        .lamports = 0,
+        .data_len = 0,
+    };
 
     const token_program = testCpiInfo(&token_program_acc);
     const mint = testCpiInfo(&mint_acc);
     const account = testCpiInfo(&account_acc);
     const rent_sysvar = testCpiInfo(&rent_acc);
-    const owner: Pubkey = .{46} ** 32;
+    const owner = testCpiInfo(&owner_acc);
+    const owner_key: Pubkey = .{48} ** 32;
     var ui_data: [16]u8 = undefined;
 
-    try std.testing.expectError(error.InvalidArgument, initializeAccount2(token_program, account, mint, rent_sysvar, &owner));
+    try std.testing.expectError(error.InvalidArgument, initializeMint(token_program, mint, rent_sysvar, 6, owner.key(), null));
+    try std.testing.expectError(error.InvalidArgument, initializeAccount(token_program, account, mint, owner, rent_sysvar));
+    try std.testing.expectError(error.InvalidArgument, initializeAccount2(token_program, account, mint, rent_sysvar, &owner_key));
+    try std.testing.expectError(error.InvalidArgument, initializeMultisig(token_program, account, rent_sysvar, &.{owner}, 1));
     try std.testing.expectError(error.InvalidArgument, getAccountDataSize(token_program, mint));
     try std.testing.expectError(error.InvalidArgument, initializeImmutableOwner(token_program, account));
     try std.testing.expectError(error.InvalidArgument, amountToUiAmount(token_program, mint, 123));

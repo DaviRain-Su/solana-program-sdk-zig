@@ -35,6 +35,7 @@ const Instruction = sol.cpi.Instruction;
 pub const TokenInstruction = enum(u8) {
     initialize_mint = 0,
     initialize_account = 1,
+    initialize_multisig = 2,
     transfer = 3,
     approve = 4,
     revoke = 5,
@@ -112,6 +113,9 @@ pub const Spec = struct {
     data_len: usize,
 };
 
+pub const initialize_mint_spec: Spec = .{ .disc = .initialize_mint, .accounts_len = 2, .data_len = 1 + 1 + 32 + 4 + 32 };
+pub const initialize_account_spec: Spec = .{ .disc = .initialize_account, .accounts_len = 4, .data_len = 1 };
+pub const initialize_multisig_spec: Spec = .{ .disc = .initialize_multisig, .accounts_len = 2, .data_len = 1 + 1 };
 pub const transfer_spec: Spec = .{ .disc = .transfer, .accounts_len = 3, .data_len = 1 + 8 };
 pub const approve_spec: Spec = .{ .disc = .approve, .accounts_len = 3, .data_len = 1 + 8 };
 pub const revoke_spec: Spec = .{ .disc = .revoke, .accounts_len = 2, .data_len = 1 };
@@ -184,6 +188,9 @@ comptime {
 
     // Each tuple = ( spec , expected accounts , expected payload-byte sum )
     const audits = .{
+        .{ initialize_mint_spec, 2, DECIMALS_LEN + PUBKEY_LEN + COPTION_PUBKEY_LEN },
+        .{ initialize_account_spec, 4, 0 },
+        .{ initialize_multisig_spec, 2, 1 },
         .{ transfer_spec, 3, AMOUNT_LEN },
         .{ approve_spec, 3, AMOUNT_LEN },
         .{ revoke_spec, 2, 0 },
@@ -245,6 +252,16 @@ const AmountDecimalsIx = sol.instruction.comptimeInstructionData(
     extern struct { amount: u64 align(1), decimals: u8 },
 );
 
+const InitMintIx = sol.instruction.comptimeInstructionData(
+    u8,
+    extern struct {
+        decimals: u8,
+        mint_authority: Pubkey align(1),
+        freeze_authority_tag: u32 align(1),
+        freeze_authority: Pubkey align(1),
+    },
+);
+
 const InitAccount3Ix = sol.instruction.comptimeInstructionData(
     u8,
     extern struct { owner: Pubkey align(1) },
@@ -258,6 +275,7 @@ const InitAccount3Ix = sol.instruction.comptimeInstructionData(
 comptime {
     std.debug.assert(MAX_SIGNERS == state.MULTISIG_SIGNER_MAX);
     std.debug.assert(AmountIx.bytes == transfer_spec.data_len);
+    std.debug.assert(InitMintIx.bytes == initialize_mint_spec.data_len);
     std.debug.assert(AmountIx.bytes == approve_spec.data_len);
     std.debug.assert(AmountIx.bytes == mint_to_spec.data_len);
     std.debug.assert(AmountIx.bytes == burn_spec.data_len);
@@ -427,6 +445,90 @@ pub fn batch(
 // expected meta order and lets the caller hand us scratch storage
 // so the builders are allocation-free.
 // =============================================================================
+
+/// `InitializeMint { decimals, mint_authority, freeze_authority }` —
+/// discriminant 0.
+///
+/// Account metas (in order):
+///   0. mint account — writable
+///   1. rent sysvar  — readonly
+pub fn initializeMint(
+    mint: *const Pubkey,
+    decimals: u8,
+    mint_authority: *const Pubkey,
+    freeze_authority: ?*const Pubkey,
+    metas: *metasArray(initialize_mint_spec),
+    data: *dataArray(initialize_mint_spec),
+) Instruction {
+    data.* = InitMintIx.initWithDiscriminant(
+        @intFromEnum(TokenInstruction.initialize_mint),
+        .{
+            .decimals = decimals,
+            .mint_authority = mint_authority.*,
+            .freeze_authority_tag = if (freeze_authority != null) state.COPTION_SOME else state.COPTION_NONE,
+            .freeze_authority = if (freeze_authority) |fa| fa.* else .{0} ** 32,
+        },
+    );
+    metas[0] = AccountMeta.writable(mint);
+    metas[1] = AccountMeta.readonly(&sol.rent_id);
+    return .{
+        .program_id = &id.PROGRAM_ID,
+        .accounts = metas,
+        .data = data,
+    };
+}
+
+/// `InitializeAccount` — discriminant 1.
+///
+/// Account metas (in order):
+///   0. account — writable
+///   1. mint    — readonly
+///   2. owner   — readonly
+///   3. rent    — readonly
+pub fn initializeAccount(
+    account: *const Pubkey,
+    mint: *const Pubkey,
+    owner: *const Pubkey,
+    metas: *metasArray(initialize_account_spec),
+    data: *dataArray(initialize_account_spec),
+) Instruction {
+    data[0] = @intFromEnum(TokenInstruction.initialize_account);
+    metas[0] = AccountMeta.writable(account);
+    metas[1] = AccountMeta.readonly(mint);
+    metas[2] = AccountMeta.readonly(owner);
+    metas[3] = AccountMeta.readonly(&sol.rent_id);
+    return .{
+        .program_id = &id.PROGRAM_ID,
+        .accounts = metas,
+        .data = data,
+    };
+}
+
+/// `InitializeMultisig { m }` — discriminant 2.
+///
+/// Account metas (in order):
+///   0. multisig account — writable
+///   1. rent sysvar      — readonly
+///   2+. signer pubkeys  — readonly, caller order
+pub fn initializeMultisig(
+    multisig: *const Pubkey,
+    signer_pubkeys: []const Pubkey,
+    threshold: u8,
+    metas: *multisigMetasArray(initialize_multisig_spec.accounts_len),
+    data: *dataArray(initialize_multisig_spec),
+) MultisigInstructionError!Instruction {
+    try validateMultisigThreshold(threshold, signer_pubkeys);
+    data[0] = @intFromEnum(TokenInstruction.initialize_multisig);
+    data[1] = threshold;
+    metas[0] = AccountMeta.writable(multisig);
+    metas[1] = AccountMeta.readonly(&sol.rent_id);
+    const accounts = try appendReadonlyMetas(metas, 2, signer_pubkeys);
+    return .{
+        .program_id = &id.PROGRAM_ID,
+        .accounts = accounts,
+        .data = data,
+    };
+}
 
 /// `Transfer { amount }` — discriminant 3.
 ///
@@ -1653,6 +1755,27 @@ test "mintTo / burn / closeAccount discriminants" {
     try std.testing.expectEqual(@as(u8, 9), data1[0]);
 }
 
+test "initializeMint: Some-vs-None freeze authority encoding and rent sysvar meta" {
+    const m: Pubkey = .{0x10} ** 32;
+    const auth: Pubkey = .{0x21} ** 32;
+    const fa: Pubkey = .{0x32} ** 32;
+    var metas: [2]AccountMeta = undefined;
+    var data: dataArray(initialize_mint_spec) = undefined;
+
+    _ = initializeMint(&m, 9, &auth, &fa, &metas, &data);
+    try std.testing.expectEqual(@as(u8, 0), data[0]);
+    try std.testing.expectEqual(@as(u8, 9), data[1]);
+    try std.testing.expectEqualSlices(u8, &auth, data[2..34]);
+    try std.testing.expectEqual(state.COPTION_SOME, std.mem.readInt(u32, data[34..38], .little));
+    try std.testing.expectEqualSlices(u8, &fa, data[38..70]);
+    try expectMeta(metas[0], &m, 1, 0);
+    try expectMeta(metas[1], &sol.rent_id, 0, 0);
+
+    _ = initializeMint(&m, 0, &auth, null, &metas, &data);
+    try std.testing.expectEqual(state.COPTION_NONE, std.mem.readInt(u32, data[34..38], .little));
+    for (data[38..70]) |b| try std.testing.expectEqual(@as(u8, 0), b);
+}
+
 test "initializeMint2: Some-vs-None freeze authority encoding" {
     const m: Pubkey = .{0x11} ** 32;
     const auth: Pubkey = .{0x22} ** 32;
@@ -1681,6 +1804,20 @@ test "syncNative: single writable account and 1-byte body" {
     try std.testing.expectEqual(@as(usize, 1), ix.data.len);
     try std.testing.expectEqual(@as(u8, 17), data[0]);
     try expectMeta(ix.accounts[0], &account, 1, 0);
+}
+
+test "initializeAccount: canonical metas and empty body" {
+    const acct: Pubkey = .{0xA8} ** 32;
+    const mint: Pubkey = .{0xB9} ** 32;
+    const owner: Pubkey = .{0xCA} ** 32;
+    var metas: [4]AccountMeta = undefined;
+    var data: [1]u8 = undefined;
+    _ = initializeAccount(&acct, &mint, &owner, &metas, &data);
+    try std.testing.expectEqual(@as(u8, 1), data[0]);
+    try expectMeta(metas[0], &acct, 1, 0);
+    try expectMeta(metas[1], &mint, 0, 0);
+    try expectMeta(metas[2], &owner, 0, 0);
+    try expectMeta(metas[3], &sol.rent_id, 0, 0);
 }
 
 test "initializeAccount2: 33-byte body carries owner pubkey and rent sysvar meta" {
@@ -1749,6 +1886,52 @@ test "isValidSignerIndex: mirrors upstream signer bounds" {
     try std.testing.expect(isValidSignerIndex(1));
     try std.testing.expect(isValidSignerIndex(MAX_SIGNERS));
     try std.testing.expect(!isValidSignerIndex(MAX_SIGNERS + 1));
+}
+
+test "initializeMultisig: canonical data/metas, rent sysvar, caller scratch, and threshold bounds" {
+    const multisig: Pubkey = .{0xD0} ** 32;
+
+    inline for (.{ 1, MAX_SIGNERS }) |signer_count| {
+        const threshold: u8 = @intCast(signer_count);
+        const signers = signerPubkeys(signer_count, 0x30);
+        var metas: multisigMetasArray(initialize_multisig_spec.accounts_len) = undefined;
+        var data: dataArray(initialize_multisig_spec) = undefined;
+        const ix = try initializeMultisig(&multisig, &signers, threshold, &metas, &data);
+
+        try std.testing.expectEqual(@as(usize, 2 + signer_count), ix.accounts.len);
+        try std.testing.expectEqual(@as(usize, 2), ix.data.len);
+        try std.testing.expectEqual(@as(u8, 2), data[0]);
+        try std.testing.expectEqual(threshold, data[1]);
+        try std.testing.expectEqual(&id.PROGRAM_ID, ix.program_id);
+        try expectMeta(ix.accounts[0], &multisig, 1, 0);
+        try expectMeta(ix.accounts[1], &sol.rent_id, 0, 0);
+        try expectReadonlyTail(ix.accounts, 2, &signers);
+        try std.testing.expectEqual(@intFromPtr(&metas[0]), @intFromPtr(ix.accounts.ptr));
+        try std.testing.expectEqual(@intFromPtr(&data[0]), @intFromPtr(ix.data.ptr));
+    }
+
+    const one_signer = signerPubkeys(1, 0x61);
+    const too_many_signers = signerPubkeys(MAX_SIGNERS + 1, 0x71);
+    var metas: multisigMetasArray(initialize_multisig_spec.accounts_len) = undefined;
+    var data: dataArray(initialize_multisig_spec) = undefined;
+    const no_signers = [_]Pubkey{};
+
+    try std.testing.expectError(
+        error.InvalidMultisigSignerCount,
+        initializeMultisig(&multisig, &no_signers, 1, &metas, &data),
+    );
+    try std.testing.expectError(
+        error.InvalidMultisigSignerCount,
+        initializeMultisig(&multisig, &too_many_signers, 1, &metas, &data),
+    );
+    try std.testing.expectError(
+        error.InvalidMultisigThreshold,
+        initializeMultisig(&multisig, &one_signer, 0, &metas, &data),
+    );
+    try std.testing.expectError(
+        error.InvalidMultisigThreshold,
+        initializeMultisig(&multisig, &one_signer, 2, &metas, &data),
+    );
 }
 
 test "initializeMultisig2: canonical data/metas, caller scratch, and threshold bounds" {

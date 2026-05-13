@@ -43,6 +43,7 @@
 const sol = @import("solana_program_sdk");
 
 pub const id = @import("id.zig");
+pub const token_error = @import("error.zig");
 pub const state = @import("state.zig");
 pub const instruction = @import("instruction.zig");
 pub const return_data = @import("return_data.zig");
@@ -55,6 +56,9 @@ pub const PROGRAM_ID = id.PROGRAM_ID;
 pub const PROGRAM_ID_2022 = id.PROGRAM_ID_2022;
 /// Canonical wrapped-SOL / native mint address.
 pub const NATIVE_MINT = id.NATIVE_MINT;
+
+pub const TokenError = token_error.TokenError;
+pub const TokenErrorSet = token_error.Error;
 
 pub const Mint = state.Mint;
 pub const Account = state.Account;
@@ -99,6 +103,14 @@ pub inline fn isValidSignerIndex(index: usize) bool {
     return instruction.isValidSignerIndex(index);
 }
 
+pub inline fn parseTokenError(code: u32) sol.ProgramError!TokenError {
+    return token_error.tryFrom(code);
+}
+
+pub inline fn tokenErrorToStr(err: TokenError) []const u8 {
+    return token_error.toStr(err);
+}
+
 test "spl-token: interface parity helpers" {
     const std = @import("std");
 
@@ -110,6 +122,11 @@ test "spl-token: interface parity helpers" {
     try std.testing.expect(isValidSignerIndex(MAX_SIGNERS));
     try std.testing.expect(!isValidSignerIndex(0));
     try std.testing.expect(!isValidSignerIndex(MAX_SIGNERS + 1));
+    try std.testing.expectEqual(.AccountFrozen, try parseTokenError(17));
+    try std.testing.expectEqualStrings(
+        "Error: Account is frozen",
+        tokenErrorToStr(.AccountFrozen),
+    );
 
     var account_buf: [ACCOUNT_LEN]u8 = [_]u8{0} ** ACCOUNT_LEN;
     @memset(account_buf[ACCOUNT_MINT_OFFSET .. ACCOUNT_MINT_OFFSET + sol.PUBKEY_BYTES], 0x11);

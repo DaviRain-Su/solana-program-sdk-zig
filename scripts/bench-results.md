@@ -27,6 +27,8 @@ Reproduce: `./scripts/bench.sh` from the repo root. Requires
 | `transfer_lamports_raw`            |   22 |
 | `create_rent_exempt`               | 1419 |
 | `create_rent_exempt_comptime`      | 1252 |
+| `system_transfer_with_seed_signed` | 1163 |
+| `system_transfer_with_seed_signed_single` | 1163 |
 | `spl_token_mint_to_checked_signed` | 1136 |
 | `spl_token_mint_to_checked_signed_single` | 1134 |
 | `spl_token_mint_to_checked_multisig` | 1209 |
@@ -98,6 +100,11 @@ comes from:
   **1419 CU** for the runtime-rent `create_rent_exempt` helper,
   confirming a direct **167 CU** saving from baking the rent-exempt
   minimum at build time even on the plain no-signer account-creation path.
+- `system_transfer_with_seed_signed` and
+  `system_transfer_with_seed_signed_single` both land at **1163 CU**
+  against the no-op callee, indicating that the seeded single-PDA path
+  is currently an ergonomics/API win rather than a measurable wrapper-only
+  CU reduction for this family.
 - `mint_to_checked_signed_single` remains just 2 CU cheaper than
   `mint_to_checked_signed`, confirming the single-PDA path is mostly an
   ergonomics improvement for already-raw wrappers.

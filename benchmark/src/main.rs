@@ -79,6 +79,8 @@ fn print_usage(prog: &str) {
         "transfer_lamports_raw",
         "create_rent_exempt",
         "create_rent_exempt_comptime",
+        "system_transfer_with_seed_signed",
+        "system_transfer_with_seed_signed_single",
         "spl_token_mint_to_checked_signed",
         "spl_token_mint_to_checked_signed_single",
         "spl_token_mint_to_checked_multisig",
@@ -251,6 +253,16 @@ async fn run_benchmark(name: &'static str) {
         }
         "create_rent_exempt_comptime" => {
             run_create_rent_exempt_primitive("benchmark_create_rent_exempt_comptime").await
+        }
+        "system_transfer_with_seed_signed" => {
+            run_system_transfer_with_seed_cpi_compare("benchmark_system_transfer_with_seed_signed")
+                .await
+        }
+        "system_transfer_with_seed_signed_single" => {
+            run_system_transfer_with_seed_cpi_compare(
+                "benchmark_system_transfer_with_seed_signed_single",
+            )
+            .await
         }
 
         // Primitives: pubkey_*, pda_*, parse_*, transfer_*
@@ -1129,6 +1141,49 @@ async fn run_create_rent_exempt_primitive(program_name: &'static str) {
     match banks_client.process_transaction(tx).await {
         Ok(()) => println!("create_rent_exempt {} succeeded", program_name),
         Err(e) => println!("create_rent_exempt {} failed: {}", program_name, e),
+    }
+}
+
+async fn run_system_transfer_with_seed_cpi_compare(program_name: &'static str) {
+    let program_id = Pubkey::from_str(BENCH_PROGRAM_ID).unwrap();
+    let noop_callee_id = Pubkey::new_from_array([0x42; 32]);
+    let mut pt = ProgramTest::new(program_name, program_id, None);
+    pt.add_program("benchmark_noop_callee", noop_callee_id, None);
+
+    let from = Pubkey::from_str("BenchPubkey11111111111111111111111111111112").unwrap();
+    let to = Pubkey::from_str("BenchPubkey11111111111111111111111111111113").unwrap();
+    let (base, bump) = Pubkey::find_program_address(&[b"base"], &program_id);
+
+    for key in [from, base, to] {
+        pt.add_account(
+            key,
+            Account {
+                lamports: 1_000_000,
+                data: vec![],
+                owner: program_id,
+                ..Account::default()
+            },
+        );
+    }
+
+    let (banks_client, payer, recent_blockhash) = pt.start().await;
+    let mut tx = Transaction::new_with_payer(
+        &[Instruction::new_with_bytes(
+            program_id,
+            &[bump],
+            vec![
+                AccountMeta::new(from, false),
+                AccountMeta::new_readonly(base, false),
+                AccountMeta::new(to, false),
+                AccountMeta::new_readonly(noop_callee_id, false),
+            ],
+        )],
+        Some(&payer.pubkey()),
+    );
+    tx.sign(&[&payer], recent_blockhash);
+    match banks_client.process_transaction(tx).await {
+        Ok(()) => println!("System transferWithSeed CPI compare succeeded"),
+        Err(e) => println!("System transferWithSeed CPI compare failed: {}", e),
     }
 }
 

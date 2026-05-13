@@ -71,6 +71,8 @@ BENCHES=(
     "transfer_lamports_raw"
     "create_rent_exempt"
     "create_rent_exempt_comptime"
+    "system_transfer_with_seed_signed"
+    "system_transfer_with_seed_signed_single"
     "spl_token_mint_to_checked_signed"
     "spl_token_mint_to_checked_signed_single"
     "spl_token_mint_to_checked_multisig"

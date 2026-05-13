@@ -38,6 +38,8 @@ pub fn build(b: *std.Build) !void {
         .{ "benchmark_transfer_lamports_raw", "transfer_lamports_raw.zig" },
         .{ "benchmark_create_rent_exempt", "create_rent_exempt.zig" },
         .{ "benchmark_create_rent_exempt_comptime", "create_rent_exempt_comptime.zig" },
+        .{ "benchmark_system_transfer_with_seed_signed", "system_transfer_with_seed_signed.zig" },
+        .{ "benchmark_system_transfer_with_seed_signed_single", "system_transfer_with_seed_signed_single.zig" },
         .{ "example_vault", "../examples/vault.zig" },
         .{ "example_token_dispatch", "../examples/token_dispatch.zig" },
         .{ "example_hello", "../examples/hello.zig" },

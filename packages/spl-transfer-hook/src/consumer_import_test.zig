@@ -28,4 +28,7 @@ test "consumer-style imports expose validation PDA helpers" {
     try std.testing.expect(@hasDecl(spl_transfer_hook, "findValidationAddress"));
     try std.testing.expect(@hasDecl(spl_transfer_hook, "resolveExtraAccountMeta"));
     try std.testing.expect(@hasDecl(spl_transfer_hook, "resolveExtraAccountMetaList"));
+    try std.testing.expect(@hasDecl(spl_transfer_hook, "unpackExecuteExtraAccountMetaListFromAccount"));
+    try std.testing.expect(@hasDecl(spl_transfer_hook, "validateResolvedExtraAccountInfos"));
+    try std.testing.expect(@hasDecl(spl_transfer_hook, "validateExecuteExtraAccountInfos"));
 }

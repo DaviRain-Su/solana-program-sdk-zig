@@ -25,6 +25,9 @@ pub const EXTRA_ACCOUNT_METAS_SEED = resolve.EXTRA_ACCOUNT_METAS_SEED;
 pub const findValidationAddress = resolve.findValidationAddress;
 pub const resolveExtraAccountMeta = resolve.resolveExtraAccountMeta;
 pub const resolveExtraAccountMetaList = resolve.resolveExtraAccountMetaList;
+pub const unpackExecuteExtraAccountMetaListFromAccount = resolve.unpackExecuteExtraAccountMetaListFromAccount;
+pub const validateResolvedExtraAccountInfos = resolve.validateResolvedExtraAccountInfos;
+pub const validateExecuteExtraAccountInfos = resolve.validateExecuteExtraAccountInfos;
 
 test "@import(\"spl_transfer_hook\") exposes only the intended scaffold surface" {
     try std.testing.expect(@hasDecl(@This(), "id"));
@@ -40,6 +43,9 @@ test "@import(\"spl_transfer_hook\") exposes only the intended scaffold surface"
     try std.testing.expect(@hasDecl(@This(), "findValidationAddress"));
     try std.testing.expect(@hasDecl(@This(), "resolveExtraAccountMeta"));
     try std.testing.expect(@hasDecl(@This(), "resolveExtraAccountMetaList"));
+    try std.testing.expect(@hasDecl(@This(), "unpackExecuteExtraAccountMetaListFromAccount"));
+    try std.testing.expect(@hasDecl(@This(), "validateResolvedExtraAccountInfos"));
+    try std.testing.expect(@hasDecl(@This(), "validateExecuteExtraAccountInfos"));
     try std.testing.expect(@hasDecl(@This(), "instruction"));
     try std.testing.expect(@hasDecl(@This(), "meta"));
     try std.testing.expect(@hasDecl(@This(), "resolve"));
@@ -71,6 +77,9 @@ test "source-review guards keep spl_transfer_hook on-chain/interface scoped" {
     try expectContains(root_source, "pub const findValidationAddress = resolve.findValidationAddress;");
     try expectContains(root_source, "pub const resolveExtraAccountMeta = resolve.resolveExtraAccountMeta;");
     try expectContains(root_source, "pub const resolveExtraAccountMetaList = resolve.resolveExtraAccountMetaList;");
+    try expectContains(root_source, "pub const unpackExecuteExtraAccountMetaListFromAccount = resolve.unpackExecuteExtraAccountMetaListFromAccount;");
+    try expectContains(root_source, "pub const validateResolvedExtraAccountInfos = resolve.validateResolvedExtraAccountInfos;");
+    try expectContains(root_source, "pub const validateExecuteExtraAccountInfos = resolve.validateExecuteExtraAccountInfos;");
     try expectNotContains(root_source, "pub const " ++ "PROGRAM_ID =");
     try expectNotContains(root_source, "pub const " ++ "rpc =");
     try expectNotContains(root_source, "pub const " ++ "client =");

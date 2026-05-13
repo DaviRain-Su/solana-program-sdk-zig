@@ -25,12 +25,20 @@ Reproduce: `./scripts/bench.sh` from the repo root. Requires
 | `program_entry_lazy_1` (lazy)      |   10 |
 | `transfer_lamports`                |   23 |
 | `transfer_lamports_raw`            |   22 |
-| `token_dispatch_transfer` (safe)   |   37 |
-| `token_dispatch_burn` (safe)       |   37 |
-| `token_dispatch_mint` (safe)       |   38 |
-| `token_dispatch_unchecked_transfer`|   31 |
-| `token_dispatch_unchecked_burn`    |   30 |
-| `token_dispatch_unchecked_mint`    |   28 |
+| `spl_token_mint_to_checked_signed` | 1136 |
+| `spl_token_mint_to_checked_signed_single` | 1134 |
+| `token_dispatch_transfer` (current path)   |   37 |
+| `token_dispatch_burn` (current path)       |   36 |
+| `token_dispatch_mint` (current path)       |   34 |
+| `token_dispatch_parse_only_transfer`       |   31 |
+| `token_dispatch_parse_only_burn`           |   31 |
+| `token_dispatch_parse_only_mint`           |   30 |
+| `token_dispatch_bind_only_transfer`        |   35 |
+| `token_dispatch_bind_only_burn`            |   34 |
+| `token_dispatch_bind_only_mint`            |   32 |
+| `token_dispatch_unchecked_transfer`        |   31 |
+| `token_dispatch_unchecked_burn`            |   30 |
+| `token_dispatch_unchecked_mint`            |   28 |
 
 ## End-to-end vault (Zig vs. Pinocchio reference)
 
@@ -61,3 +69,15 @@ which are documented in their respective `perf:` commits:
 
 The remaining 2 CU vs. Pinocchio is sub-instruction noise that LLVM
 has already optimized flat.
+
+## Token-dispatch decomposition
+
+The new decomposition benches isolate where the remaining dispatch gap
+comes from:
+
+- `parse_only` ~= unchecked baseline on transfer/burn and +2 CU on mint,
+  so `parseAccountsUnchecked` itself is already near-minimal.
+- `bind_only` is a consistent +4 CU over unchecked, which points at the
+  typed ix-data length-check/bind path as the main remaining cost.
+- The current end-to-end path adds another ~2 CU on top of `bind_only`,
+  largely from the fully safe account-consumption bookkeeping.

@@ -67,18 +67,12 @@ fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
     // and saves ~70 CU on this path vs the safe `parseAccounts`.
     const accs = try ctx.parseAccountsUnchecked(.{ "first", "second" });
 
-    // Typed deserialization — comptime field offsets, identical BPF
-    // to hand-written pointer casts but no runtime overhead and the
-    // layout is documented as a struct. `bindIxData` fuses the
-    // "accounts consumed" and bounds checks into one helper.
-    const Args = extern struct {
-        tag: u32 align(1),
-        amount: u64 align(1),
-    };
-    const args = try ctx.bindIxData(Args);
+    // For fixed-layout dispatchers, one explicit min-length check lets
+    // us keep the hot-path reads as raw unaligned loads.
+    try ctx.requireIxDataLen(12);
 
-    const tag: Tag = @enumFromInt(args.get(.tag));
-    const amount = args.get(.amount);
+    const tag = ctx.readIxTag(Tag);
+    const amount = ctx.readIx(u64, 4);
 
     // For benchmarking we model burn/mint as paired lamport moves
     // (first ↔ second) so the runtime's lamport-sum check passes.

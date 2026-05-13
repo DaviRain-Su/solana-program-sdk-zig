@@ -77,6 +77,8 @@ fn print_usage(prog: &str) {
         "program_entry_lazy_1",
         "transfer_lamports",
         "transfer_lamports_raw",
+        "spl_token_mint_to_checked_signed",
+        "spl_token_mint_to_checked_signed_single",
     ] {
         println!("  {}", name);
     }
@@ -95,11 +97,20 @@ fn print_usage(prog: &str) {
         println!("  {}", name);
     }
     println!();
-    println!("Token dispatch benchmarks (deploy example_token_dispatch):");
+    println!("Token dispatch benchmarks:");
     for name in [
         "token_dispatch_transfer",
         "token_dispatch_burn",
         "token_dispatch_mint",
+        "token_dispatch_parse_only_transfer",
+        "token_dispatch_parse_only_burn",
+        "token_dispatch_parse_only_mint",
+        "token_dispatch_bind_only_transfer",
+        "token_dispatch_bind_only_burn",
+        "token_dispatch_bind_only_mint",
+        "token_dispatch_unchecked_transfer",
+        "token_dispatch_unchecked_burn",
+        "token_dispatch_unchecked_mint",
     ] {
         println!("  {}", name);
     }
@@ -120,7 +131,9 @@ async fn run_benchmark(name: &'static str) {
 
         // Parse-account primitives that need a 2-account harness.
         "parse_accounts" => run_parse_accounts_primitive("benchmark_parse_accounts", false).await,
-        "parse_accounts_with" => run_parse_accounts_primitive("benchmark_parse_accounts_with", true).await,
+        "parse_accounts_with" => {
+            run_parse_accounts_primitive("benchmark_parse_accounts_with", true).await
+        }
         "parse_accounts_with_unchecked" => {
             run_parse_accounts_primitive("benchmark_parse_accounts_with_unchecked", true).await
         }
@@ -129,14 +142,34 @@ async fn run_benchmark(name: &'static str) {
         "sysvar_copy" => run_sysvar_access_primitive("benchmark_sysvar_copy").await,
         "sysvar_ref" => run_sysvar_access_primitive("benchmark_sysvar_ref").await,
 
-        // Token dispatch — safe (parseAccounts) variant
+        // Token dispatch — current ergonomic path.
         "token_dispatch_transfer" => run_token_dispatch("example_token_dispatch", 0, 100).await,
         "token_dispatch_burn" => run_token_dispatch("example_token_dispatch", 1, 50).await,
         "token_dispatch_mint" => run_token_dispatch("example_token_dispatch", 2, 25).await,
 
-        // Token dispatch — unchecked (nextAccountUnchecked + readIxTag)
-        // variant. Same shape, no `parseAccounts` / `instructionData()`
-        // guards. Use this to isolate the cost of the safety layer.
+        // Token dispatch — isolate parseAccountsUnchecked overhead.
+        "token_dispatch_parse_only_transfer" => {
+            run_token_dispatch("benchmark_token_dispatch_parse_only", 0, 100).await
+        }
+        "token_dispatch_parse_only_burn" => {
+            run_token_dispatch("benchmark_token_dispatch_parse_only", 1, 50).await
+        }
+        "token_dispatch_parse_only_mint" => {
+            run_token_dispatch("benchmark_token_dispatch_parse_only", 2, 25).await
+        }
+
+        // Token dispatch — isolate bindIxDataUnchecked overhead.
+        "token_dispatch_bind_only_transfer" => {
+            run_token_dispatch("benchmark_token_dispatch_bind_only", 0, 100).await
+        }
+        "token_dispatch_bind_only_burn" => {
+            run_token_dispatch("benchmark_token_dispatch_bind_only", 1, 50).await
+        }
+        "token_dispatch_bind_only_mint" => {
+            run_token_dispatch("benchmark_token_dispatch_bind_only", 2, 25).await
+        }
+
+        // Token dispatch — minimal unchecked baseline.
         "token_dispatch_unchecked_transfer" => {
             run_token_dispatch("benchmark_token_dispatch_unchecked", 0, 100).await
         }
@@ -147,10 +180,15 @@ async fn run_benchmark(name: &'static str) {
             run_token_dispatch("benchmark_token_dispatch_unchecked", 2, 25).await
         }
 
-        // Primitives: pubkey_*, pda_*, parse_*, transfer_*
-        n if n.starts_with("transfer_lamports") => {
-            run_transfer_lamports_primitive(n).await
+        "spl_token_mint_to_checked_signed" => {
+            run_spl_token_cpi_compare("benchmark_spl_token_mint_to_checked_signed").await
         }
+        "spl_token_mint_to_checked_signed_single" => {
+            run_spl_token_cpi_compare("benchmark_spl_token_mint_to_checked_signed_single").await
+        }
+
+        // Primitives: pubkey_*, pda_*, parse_*, transfer_*
+        n if n.starts_with("transfer_lamports") => run_transfer_lamports_primitive(n).await,
         other => run_simple_primitive(other).await,
     }
 }
@@ -236,6 +274,49 @@ async fn run_transfer_lamports_primitive(name: &'static str) {
     match banks_client.process_transaction(tx).await {
         Ok(()) => println!("Transfer succeeded"),
         Err(e) => println!("Transfer failed: {}", e),
+    }
+}
+
+async fn run_spl_token_cpi_compare(program_name: &'static str) {
+    let program_id = Pubkey::from_str(BENCH_PROGRAM_ID).unwrap();
+    let noop_callee_id = Pubkey::new_from_array([0x42; 32]);
+    let mut pt = ProgramTest::new(program_name, program_id, None);
+    pt.add_program("benchmark_noop_callee", noop_callee_id, None);
+
+    let mint = Pubkey::from_str("BenchPubkey11111111111111111111111111111112").unwrap();
+    let destination = Pubkey::from_str("BenchPubkey11111111111111111111111111111113").unwrap();
+    let (authority, _) = Pubkey::find_program_address(&[b"vault"], &program_id);
+
+    for key in [mint, destination, authority] {
+        pt.add_account(
+            key,
+            Account {
+                lamports: 1_000_000,
+                data: vec![],
+                owner: program_id,
+                ..Account::default()
+            },
+        );
+    }
+
+    let (banks_client, payer, recent_blockhash) = pt.start().await;
+    let mut tx = Transaction::new_with_payer(
+        &[Instruction::new_with_bytes(
+            program_id,
+            &[],
+            vec![
+                AccountMeta::new_readonly(noop_callee_id, false),
+                AccountMeta::new(mint, false),
+                AccountMeta::new(destination, false),
+                AccountMeta::new_readonly(authority, false),
+            ],
+        )],
+        Some(&payer.pubkey()),
+    );
+    tx.sign(&[&payer], recent_blockhash);
+    match banks_client.process_transaction(tx).await {
+        Ok(()) => println!("SPL token CPI compare succeeded"),
+        Err(e) => println!("SPL token CPI compare failed: {}", e),
     }
 }
 

@@ -258,6 +258,35 @@ pub const InstructionContext = struct {
         return @enumFromInt(raw);
     }
 
+    /// Require at least `min_len` bytes of ix-data.
+    ///
+    /// Useful for fixed-layout dispatchers that want one explicit bounds
+    /// check up front, then raw `readIx*` loads for the hot path.
+    pub inline fn requireIxDataLen(
+        self: *const InstructionContext,
+        comptime min_len: usize,
+    ) ProgramError!void {
+        if (self.remaining > 0) {
+            return program_error.fail(
+                @src(),
+                "ctx:accounts_not_consumed",
+                error.InvalidInstructionData,
+            );
+        }
+        return self.requireIxDataLenUnchecked(min_len);
+    }
+
+    /// Same as `requireIxDataLen`, but skips the `remaining == 0` check.
+    pub inline fn requireIxDataLenUnchecked(
+        self: *const InstructionContext,
+        comptime min_len: usize,
+    ) ProgramError!void {
+        const data_len: usize = @intCast(@as(*const u64, @ptrCast(@alignCast(self.buffer))).*);
+        if (data_len < min_len) {
+            return error.InvalidInstructionData;
+        }
+    }
+
     /// Bind an extern-struct instruction-data view in one step.
     ///
     /// Compared to `try instructionData()` + `IxDataReader(T).bind(...)`,
@@ -267,13 +296,7 @@ pub const InstructionContext = struct {
         self: *const InstructionContext,
         comptime T: type,
     ) ProgramError!instruction_mod.IxDataReader(T) {
-        if (self.remaining > 0) {
-            return program_error.fail(
-                @src(),
-                "ctx:accounts_not_consumed",
-                error.InvalidInstructionData,
-            );
-        }
+        try self.requireIxDataLen(@sizeOf(T));
         return self.bindIxDataUnchecked(T);
     }
 
@@ -283,11 +306,8 @@ pub const InstructionContext = struct {
         self: *const InstructionContext,
         comptime T: type,
     ) ProgramError!instruction_mod.IxDataReader(T) {
-        const data_len: usize = @intCast(@as(*const u64, @ptrCast(@alignCast(self.buffer))).*);
-        if (data_len < @sizeOf(T)) {
-            return error.InvalidInstructionData;
-        }
-        const bytes = self.buffer[@sizeOf(u64) .. @sizeOf(u64) + data_len];
+        try self.requireIxDataLenUnchecked(@sizeOf(T));
+        const bytes = self.buffer[@sizeOf(u64) .. @sizeOf(u64) + @sizeOf(T)];
         return instruction_mod.IxDataReader(T).bindUnchecked(bytes);
     }
 
@@ -1157,6 +1177,25 @@ test "entrypoint: parseAccountsWith — key mismatch fails" {
             .{ "to", AccountExpectation{} },
         }),
     );
+}
+
+test "entrypoint: requireIxDataLen validates minimum ix-data length" {
+    var input align(8) = [_]u8{0} ** 128;
+    std.mem.writeInt(u64, input[0..8], 0, .little); // num_accounts
+    std.mem.writeInt(u64, input[8..16], 12, .little); // ix_data_len
+
+    var ctx = InstructionContext.init(&input);
+    try ctx.requireIxDataLen(12);
+    try std.testing.expectError(error.InvalidInstructionData, ctx.requireIxDataLen(13));
+}
+
+test "entrypoint: requireIxDataLen rejects unconsumed accounts" {
+    var input align(8) = [_]u8{0} ** 128;
+    std.mem.writeInt(u64, input[0..8], 1, .little); // num_accounts
+    std.mem.writeInt(u64, input[8..16], 12, .little); // ix_data_len
+
+    var ctx = InstructionContext.init(&input);
+    try std.testing.expectError(error.InvalidInstructionData, ctx.requireIxDataLen(12));
 }
 
 test "entrypoint: bindIxData returns typed ix reader" {

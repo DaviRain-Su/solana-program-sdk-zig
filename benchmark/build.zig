@@ -3,6 +3,20 @@ const solana = @import("solana_program_sdk");
 
 pub fn build(b: *std.Build) !void {
     const optimize = .ReleaseFast;
+    const target = b.resolveTargetQuery(solana.sbfTarget());
+    const sol_dep = b.dependency("solana_program_sdk", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const sol_mod = sol_dep.module("solana_program_sdk");
+    const spl_token_mod = b.createModule(.{
+        .root_source_file = b.path("../packages/spl-token/src/root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "solana_program_sdk", .module = sol_mod },
+        },
+    });
 
     const benchmarks = .{
         .{ "benchmark_pubkey_cmp_safe", "pubkey_cmp_safe.zig" },
@@ -28,6 +42,9 @@ pub fn build(b: *std.Build) !void {
         .{ "example_counter", "../examples/counter.zig" },
         .{ "example_escrow", "../examples/escrow.zig" },
         .{ "benchmark_token_dispatch_unchecked", "token_dispatch_unchecked.zig" },
+        .{ "benchmark_token_dispatch_parse_only", "token_dispatch_parse_only.zig" },
+        .{ "benchmark_token_dispatch_bind_only", "token_dispatch_bind_only.zig" },
+        .{ "benchmark_noop_callee", "noop_callee.zig" },
     };
 
     inline for (benchmarks) |bench| {
@@ -35,6 +52,22 @@ pub fn build(b: *std.Build) !void {
             .name = bench[0],
             .root_source_file = b.path(bench[1]),
             .optimize = optimize,
+        });
+    }
+
+    const spl_token_benchmarks = .{
+        .{ "benchmark_spl_token_mint_to_checked_signed", "spl_token_mint_to_checked_signed.zig" },
+        .{ "benchmark_spl_token_mint_to_checked_signed_single", "spl_token_mint_to_checked_signed_single.zig" },
+    };
+
+    inline for (spl_token_benchmarks) |bench| {
+        _ = solana.buildProgram(b, .{
+            .name = bench[0],
+            .root_source_file = b.path(bench[1]),
+            .optimize = optimize,
+            .extra_imports = &.{
+                .{ .name = "spl_token", .module = spl_token_mod },
+            },
         });
     }
 }

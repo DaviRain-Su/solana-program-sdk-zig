@@ -263,6 +263,7 @@ pub fn uiAmountToAmountLen(ui_amount: []const u8) ?usize {
     return std.math.add(usize, ui_amount_to_amount_prefix_len, ui_amount.len) catch null;
 }
 
+/// Utility helper that mirrors the upstream `is_valid_signer_index` check.
 pub inline fn isValidSignerIndex(index: usize) bool {
     return index >= MIN_SIGNERS and index <= MAX_SIGNERS;
 }
@@ -427,6 +428,7 @@ fn appendReadonlyMetas(
     return metas[0 .. start_index + signer_pubkeys.len];
 }
 
+/// Reborrow an `Instruction` as a lightweight `BatchEntry`.
 pub inline fn asBatchEntry(ix: Instruction) BatchEntry {
     return .{ .accounts = ix.accounts, .data = ix.data };
 }

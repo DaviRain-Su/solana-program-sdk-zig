@@ -34,11 +34,12 @@ same call site works for either by just passing the right program.
 
 ## Examples
 
+### Basic transfer and checked transfer
+
 ```zig
 const sol = @import("solana_program_sdk");
 const spl_token = @import("spl_token");
 
-// ──────────── On-chain (inside your program) ────────────
 try spl_token.cpi.transfer(
     a.token_program.toCpiInfo(),
     a.source.toCpiInfo(),
@@ -47,7 +48,6 @@ try spl_token.cpi.transfer(
     100,
 );
 
-// `transferChecked` adds a decimals safety net:
 try spl_token.cpi.transferChecked(
     a.token_program.toCpiInfo(),
     a.source.toCpiInfo(),
@@ -57,41 +57,151 @@ try spl_token.cpi.transferChecked(
     100, /* amount */
     6,   /* decimals */
 );
+```
 
-// PDA-signed flavours follow the same pattern with `Signed` suffix:
-try spl_token.cpi.transferSigned(
-    /* … */, &.{ signer },
+### Initializer matrix
+
+```zig
+// Legacy initializers (Rent sysvar still explicit):
+try spl_token.cpi.initializeMint(
+    a.token_program.toCpiInfo(),
+    a.mint.toCpiInfo(),
+    a.rent_sysvar.toCpiInfo(),
+    9,
+    a.mint_authority.key(),
+    a.freeze_authority.key(),
 );
 
-// ──────────── Off-chain (host code constructing a transaction) ────────────
-var metas: [3]sol.cpi.AccountMeta = undefined;
-var data: [9]u8 = undefined;
-const ix = spl_token.instruction.transfer(
-    &source_pk, &dest_pk, &authority_pk, 100,
-    &metas, &data,
+try spl_token.cpi.initializeAccount(
+    a.token_program.toCpiInfo(),
+    a.token_account.toCpiInfo(),
+    a.mint.toCpiInfo(),
+    a.owner.toCpiInfo(),
+    a.rent_sysvar.toCpiInfo(),
 );
-// `ix` is a `sol.cpi.Instruction` — serialise into a transaction.
 
-// Wrapped SOL / native mint helpers:
-try spl_token.cpi.syncNative(a.token_program.toCpiInfo(), wrapped_sol.toCpiInfo());
-const uses_native_mint = spl_token.isNativeMint(&spl_token.NATIVE_MINT);
+try spl_token.cpi.initializeMultisig(
+    a.token_program.toCpiInfo(),
+    a.multisig.toCpiInfo(),
+    a.rent_sysvar.toCpiInfo(),
+    signer_infos,
+    2,
+);
 
-// Return-data utilities:
+// Modern variants (owner/authority in ix-data, no Rent sysvar):
+try spl_token.cpi.initializeAccount2(
+    a.token_program.toCpiInfo(),
+    a.token_account.toCpiInfo(),
+    a.mint.toCpiInfo(),
+    a.rent_sysvar.toCpiInfo(),
+    a.owner.key(),
+);
+
+try spl_token.cpi.initializeAccount3(
+    a.token_program.toCpiInfo(),
+    a.token_account.toCpiInfo(),
+    a.mint.toCpiInfo(),
+    a.owner.key(),
+);
+
+try spl_token.cpi.initializeMint2(
+    a.token_program.toCpiInfo(),
+    a.mint.toCpiInfo(),
+    9,
+    a.mint_authority.key(),
+    a.freeze_authority.key(),
+);
+
+try spl_token.cpi.initializeMultisig2(
+    a.token_program.toCpiInfo(),
+    a.multisig.toCpiInfo(),
+    signer_infos,
+    2,
+);
+```
+
+### Multisig and signed-authority flows
+
+```zig
+// Single-PDA fast path:
+try spl_token.cpi.transferSignedSingle(
+    a.token_program.toCpiInfo(),
+    a.source.toCpiInfo(),
+    a.destination.toCpiInfo(),
+    a.authority.toCpiInfo(),
+    100,
+    .{ "vault", &bump_seed },
+);
+
+// Explicit multisig signer accounts:
+try spl_token.cpi.approveCheckedMultisig(
+    a.token_program.toCpiInfo(),
+    a.source.toCpiInfo(),
+    a.mint.toCpiInfo(),
+    a.delegate.toCpiInfo(),
+    a.multisig_authority.toCpiInfo(),
+    signer_infos,
+    500,
+    6,
+);
+```
+
+### Utility return-data flows
+
+```zig
 try spl_token.cpi.getAccountDataSize(a.token_program.toCpiInfo(), a.mint.toCpiInfo());
-var return_buf: [16]u8 = undefined;
+var return_buf: [64]u8 = undefined;
 const returned = sol.cpi.getReturnData(return_buf[0..]) orelse return error.InvalidInstructionData;
 const account_size = try spl_token.return_data.parseGetAccountDataSizeReturn(returned);
 
-// Local zero-allocation UI-amount formatting/parsing:
+try spl_token.cpi.amountToUiAmount(a.token_program.toCpiInfo(), a.mint.toCpiInfo(), 1_230_000);
+const ui_returned = sol.cpi.getReturnData(return_buf[0..]) orelse return error.InvalidInstructionData;
+const ui_amount = try spl_token.return_data.parseAmountToUiAmountReturn(ui_returned);
+
+var ui_amount_ix_buf: [32]u8 = undefined;
+try spl_token.cpi.uiAmountToAmount(
+    a.token_program.toCpiInfo(),
+    a.mint.toCpiInfo(),
+    "1.23",
+    ui_amount_ix_buf[0..],
+);
+const raw_returned = sol.cpi.getReturnData(return_buf[0..]) orelse return error.InvalidInstructionData;
+const raw_amount = try spl_token.return_data.parseUiAmountToAmountReturn(raw_returned);
+```
+
+### Error decode and local helpers
+
+```zig
+// Decode classic SPL Token custom errors.
+const token_err = try spl_token.parseTokenError(17);
+const token_err_msg = spl_token.tokenErrorToStr(token_err);
+
+// Local zero-allocation UI-amount formatting/parsing.
 var ui_buf: [spl_token.ui_amount.MAX_FORMATTED_UI_AMOUNT_LEN]u8 = undefined;
 const ui = try spl_token.ui_amount.amountToUiAmountStringTrimmed(1_230_000, 6, ui_buf[0..]);
 const parsed_amount = try spl_token.ui_amount.tryUiAmountIntoAmount(ui, 6);
 
-// ──────────── Zero-copy state views ────────────
+// Zero-copy state views / fast-path key extraction.
 const mint = try spl_token.Mint.fromBytes(mint_account.data());
 const balance = (try spl_token.Account.fromBytes(token_account.data())).amount;
 const owner = spl_token.unpackAccountOwnerUnchecked(token_account.data());
 const mint_key = spl_token.unpackAccountMintUnchecked(token_account.data());
+```
+
+### Off-chain instruction building
+
+```zig
+var metas: [3]sol.cpi.AccountMeta = undefined;
+var data: [9]u8 = undefined;
+const ix = spl_token.instruction.transfer(
+    &source_pk,
+    &dest_pk,
+    &authority_pk,
+    100,
+    &metas,
+    &data,
+);
+// `ix` is a `sol.cpi.Instruction` — serialise into a transaction.
 ```
 
 ## Module guide

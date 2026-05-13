@@ -26,6 +26,19 @@ try spl_ata.cpi.createIdempotent(
     ata_program,
 );
 
+// PDA payer / wallet fast path:
+const bump_seed = [_]u8{bump};
+try spl_ata.cpi.createIdempotentSignedSingle(
+    payer,
+    ata_account,
+    wallet,
+    mint,
+    sp,
+    tp,
+    ata_program,
+    .{ "payer", &bump_seed },
+);
+
 // Off-chain: build the ix bytes
 var scratch: spl_ata.instruction.Scratch(spl_ata.instruction.create_idempotent_spec) = undefined;
 const ix = spl_ata.instruction.createIdempotent(
@@ -43,4 +56,5 @@ const ix = spl_ata.instruction.createIdempotent(
 - ATA PDA derivation for both classic SPL Token and Token-2022.
 - `create` / `createIdempotent` / `recoverNested` instruction builders.
 - On-chain CPI wrappers for ATA creation and nested-account recovery.
+- PDA-signed ATA CPI helpers via `*Signed` and `*SignedSingle` variants.
 - Real Mollusk integration coverage via `program-test/tests/spl_ata.rs`.

@@ -49,6 +49,7 @@ pub const TokenInstruction = enum(u8) {
     mint_to_checked = 14,
     burn_checked = 15,
     initialize_account3 = 18,
+    initialize_multisig2 = 19,
     initialize_mint2 = 20,
 };
 
@@ -57,6 +58,13 @@ pub const AuthorityType = enum(u8) {
     FreezeAccount = 1,
     AccountOwner = 2,
     CloseAccount = 3,
+};
+
+pub const MAX_SIGNERS: usize = state.MULTISIG_SIGNER_MAX;
+
+pub const MultisigInstructionError = error{
+    InvalidMultisigSignerCount,
+    InvalidMultisigThreshold,
 };
 
 // =============================================================================
@@ -101,6 +109,7 @@ pub const burn_spec: Spec = .{ .disc = .burn, .accounts_len = 3, .data_len = 1 +
 pub const burn_checked_spec: Spec = .{ .disc = .burn_checked, .accounts_len = 3, .data_len = 1 + 8 + 1 };
 pub const close_account_spec: Spec = .{ .disc = .close_account, .accounts_len = 3, .data_len = 1 };
 pub const initialize_account3_spec: Spec = .{ .disc = .initialize_account3, .accounts_len = 2, .data_len = 1 + 32 };
+pub const initialize_multisig2_spec: Spec = .{ .disc = .initialize_multisig2, .accounts_len = 1, .data_len = 1 + 1 };
 pub const initialize_mint2_spec: Spec = .{ .disc = .initialize_mint2, .accounts_len = 1, .data_len = 1 + 1 + 32 + 4 + 32 };
 
 /// Builder/wrapper-side helper: typed scratch-array sizes derived
@@ -113,6 +122,10 @@ pub fn metasArray(comptime spec: Spec) type {
 
 pub fn dataArray(comptime spec: Spec) type {
     return [spec.data_len]u8;
+}
+
+pub fn multisigMetasArray(comptime base_accounts_len: usize) type {
+    return [base_accounts_len + MAX_SIGNERS]AccountMeta;
 }
 
 // =============================================================================
@@ -149,6 +162,7 @@ comptime {
         .{ burn_checked_spec, 3, AMOUNT_LEN + DECIMALS_LEN },
         .{ close_account_spec, 3, 0 },
         .{ initialize_account3_spec, 2, PUBKEY_LEN },
+        .{ initialize_multisig2_spec, 1, 1 },
         .{ initialize_mint2_spec, 1, DECIMALS_LEN + PUBKEY_LEN + COPTION_PUBKEY_LEN },
     };
 
@@ -201,6 +215,7 @@ const InitAccount3Ix = sol.instruction.comptimeInstructionData(
 // `align(1)`). The audit fires *before* the build emits any
 // program code.
 comptime {
+    std.debug.assert(MAX_SIGNERS == state.MULTISIG_SIGNER_MAX);
     std.debug.assert(AmountIx.bytes == transfer_spec.data_len);
     std.debug.assert(AmountIx.bytes == approve_spec.data_len);
     std.debug.assert(AmountIx.bytes == mint_to_spec.data_len);
@@ -210,6 +225,46 @@ comptime {
     std.debug.assert(AmountDecimalsIx.bytes == mint_to_checked_spec.data_len);
     std.debug.assert(AmountDecimalsIx.bytes == burn_checked_spec.data_len);
     std.debug.assert(InitAccount3Ix.bytes == initialize_account3_spec.data_len);
+}
+
+inline fn validateMultisigSignerCount(signer_pubkeys: []const Pubkey) MultisigInstructionError!void {
+    if (signer_pubkeys.len < 1 or signer_pubkeys.len > MAX_SIGNERS) {
+        return error.InvalidMultisigSignerCount;
+    }
+}
+
+inline fn validateMultisigThreshold(
+    threshold: u8,
+    signer_pubkeys: []const Pubkey,
+) MultisigInstructionError!void {
+    try validateMultisigSignerCount(signer_pubkeys);
+    if (threshold == 0 or threshold > signer_pubkeys.len) {
+        return error.InvalidMultisigThreshold;
+    }
+}
+
+fn appendReadonlySignerMetas(
+    metas: []AccountMeta,
+    start_index: usize,
+    signer_pubkeys: []const Pubkey,
+) MultisigInstructionError![]const AccountMeta {
+    try validateMultisigSignerCount(signer_pubkeys);
+    for (signer_pubkeys, 0..) |_, i| {
+        metas[start_index + i] = AccountMeta.signer(&signer_pubkeys[i]);
+    }
+    return metas[0 .. start_index + signer_pubkeys.len];
+}
+
+fn appendReadonlyMetas(
+    metas: []AccountMeta,
+    start_index: usize,
+    signer_pubkeys: []const Pubkey,
+) MultisigInstructionError![]const AccountMeta {
+    try validateMultisigSignerCount(signer_pubkeys);
+    for (signer_pubkeys, 0..) |_, i| {
+        metas[start_index + i] = AccountMeta.readonly(&signer_pubkeys[i]);
+    }
+    return metas[0 .. start_index + signer_pubkeys.len];
 }
 
 // =============================================================================
@@ -224,13 +279,6 @@ comptime {
 ///   0. source       — writable
 ///   1. destination  — writable
 ///   2. authority    — signer
-///
-/// The token program **also** accepts a multisig authority by
-/// passing additional signer accounts after the authority; we
-/// expose only the single-authority case here (covers 99% of usage)
-/// and route through `TransferChecked` for any consumer that needs
-/// the safety net. Multisig can be added later without breaking
-/// this signature.
 pub fn transfer(
     source: *const Pubkey,
     destination: *const Pubkey,
@@ -254,6 +302,37 @@ pub fn transfer(
     return .{
         .program_id = &id.PROGRAM_ID,
         .accounts = metas,
+        .data = data,
+    };
+}
+
+/// `Transfer { amount }` with a multisig authority.
+///
+/// Account metas (in order):
+///   0. source              — writable
+///   1. destination         — writable
+///   2. multisig authority  — readonly
+///   3+. signer pubkeys     — readonly signers, caller order
+pub fn transferMultisig(
+    source: *const Pubkey,
+    destination: *const Pubkey,
+    multisig_authority: *const Pubkey,
+    signer_pubkeys: []const Pubkey,
+    amount: u64,
+    metas: *multisigMetasArray(transfer_spec.accounts_len),
+    data: *dataArray(transfer_spec),
+) MultisigInstructionError!Instruction {
+    data.* = AmountIx.initWithDiscriminant(
+        @intFromEnum(TokenInstruction.transfer),
+        .{ .amount = amount },
+    );
+    metas[0] = AccountMeta.writable(source);
+    metas[1] = AccountMeta.writable(destination);
+    metas[2] = AccountMeta.readonly(multisig_authority);
+    const accounts = try appendReadonlySignerMetas(metas, 3, signer_pubkeys);
+    return .{
+        .program_id = &id.PROGRAM_ID,
+        .accounts = accounts,
         .data = data,
     };
 }
@@ -290,6 +369,34 @@ pub fn transferChecked(
     };
 }
 
+/// `TransferChecked { amount, decimals }` with a multisig authority.
+pub fn transferCheckedMultisig(
+    source: *const Pubkey,
+    mint: *const Pubkey,
+    destination: *const Pubkey,
+    multisig_authority: *const Pubkey,
+    signer_pubkeys: []const Pubkey,
+    amount: u64,
+    decimals: u8,
+    metas: *multisigMetasArray(transfer_checked_spec.accounts_len),
+    data: *dataArray(transfer_checked_spec),
+) MultisigInstructionError!Instruction {
+    data.* = AmountDecimalsIx.initWithDiscriminant(
+        @intFromEnum(TokenInstruction.transfer_checked),
+        .{ .amount = amount, .decimals = decimals },
+    );
+    metas[0] = AccountMeta.writable(source);
+    metas[1] = AccountMeta.readonly(mint);
+    metas[2] = AccountMeta.writable(destination);
+    metas[3] = AccountMeta.readonly(multisig_authority);
+    const accounts = try appendReadonlySignerMetas(metas, 4, signer_pubkeys);
+    return .{
+        .program_id = &id.PROGRAM_ID,
+        .accounts = accounts,
+        .data = data,
+    };
+}
+
 /// `Approve { amount }` — discriminant 4.
 ///
 /// Account metas (in order):
@@ -314,6 +421,31 @@ pub fn approve(
     return .{
         .program_id = &id.PROGRAM_ID,
         .accounts = metas,
+        .data = data,
+    };
+}
+
+/// `Approve { amount }` with a multisig owner authority.
+pub fn approveMultisig(
+    source: *const Pubkey,
+    delegate: *const Pubkey,
+    multisig_authority: *const Pubkey,
+    signer_pubkeys: []const Pubkey,
+    amount: u64,
+    metas: *multisigMetasArray(approve_spec.accounts_len),
+    data: *dataArray(approve_spec),
+) MultisigInstructionError!Instruction {
+    data.* = AmountIx.initWithDiscriminant(
+        @intFromEnum(TokenInstruction.approve),
+        .{ .amount = amount },
+    );
+    metas[0] = AccountMeta.writable(source);
+    metas[1] = AccountMeta.readonly(delegate);
+    metas[2] = AccountMeta.readonly(multisig_authority);
+    const accounts = try appendReadonlySignerMetas(metas, 3, signer_pubkeys);
+    return .{
+        .program_id = &id.PROGRAM_ID,
+        .accounts = accounts,
         .data = data,
     };
 }
@@ -350,6 +482,34 @@ pub fn approveChecked(
     };
 }
 
+/// `ApproveChecked { amount, decimals }` with a multisig owner authority.
+pub fn approveCheckedMultisig(
+    source: *const Pubkey,
+    mint: *const Pubkey,
+    delegate: *const Pubkey,
+    multisig_authority: *const Pubkey,
+    signer_pubkeys: []const Pubkey,
+    amount: u64,
+    decimals: u8,
+    metas: *multisigMetasArray(approve_checked_spec.accounts_len),
+    data: *dataArray(approve_checked_spec),
+) MultisigInstructionError!Instruction {
+    data.* = AmountDecimalsIx.initWithDiscriminant(
+        @intFromEnum(TokenInstruction.approve_checked),
+        .{ .amount = amount, .decimals = decimals },
+    );
+    metas[0] = AccountMeta.writable(source);
+    metas[1] = AccountMeta.readonly(mint);
+    metas[2] = AccountMeta.readonly(delegate);
+    metas[3] = AccountMeta.readonly(multisig_authority);
+    const accounts = try appendReadonlySignerMetas(metas, 4, signer_pubkeys);
+    return .{
+        .program_id = &id.PROGRAM_ID,
+        .accounts = accounts,
+        .data = data,
+    };
+}
+
 /// `Revoke` — discriminant 5.
 ///
 /// Account metas (in order):
@@ -367,6 +527,25 @@ pub fn revoke(
     return .{
         .program_id = &id.PROGRAM_ID,
         .accounts = metas,
+        .data = data,
+    };
+}
+
+/// `Revoke` with a multisig owner authority.
+pub fn revokeMultisig(
+    source: *const Pubkey,
+    multisig_authority: *const Pubkey,
+    signer_pubkeys: []const Pubkey,
+    metas: *multisigMetasArray(revoke_spec.accounts_len),
+    data: *dataArray(revoke_spec),
+) MultisigInstructionError!Instruction {
+    data[0] = @intFromEnum(TokenInstruction.revoke);
+    metas[0] = AccountMeta.writable(source);
+    metas[1] = AccountMeta.readonly(multisig_authority);
+    const accounts = try appendReadonlySignerMetas(metas, 2, signer_pubkeys);
+    return .{
+        .program_id = &id.PROGRAM_ID,
+        .accounts = accounts,
         .data = data,
     };
 }
@@ -415,6 +594,38 @@ pub fn setAuthority(
     };
 }
 
+/// `SetAuthority` with a multisig current authority.
+pub fn setAuthorityMultisig(
+    mint_or_account: *const Pubkey,
+    multisig_authority: *const Pubkey,
+    signer_pubkeys: []const Pubkey,
+    authority_type: AuthorityType,
+    new_authority: ?*const Pubkey,
+    metas: *multisigMetasArray(set_authority_spec.accounts_len),
+    data: *dataArray(set_authority_spec),
+) MultisigInstructionError!Instruction {
+    data[0] = @intFromEnum(TokenInstruction.set_authority);
+    data[1] = @intFromEnum(authority_type);
+
+    const data_len = if (new_authority) |authority| blk: {
+        data[2] = 1;
+        @memcpy(data[3..set_authority_spec.data_len], authority);
+        break :blk set_authority_spec.data_len;
+    } else blk: {
+        data[2] = 0;
+        break :blk set_authority_none_data_len;
+    };
+
+    metas[0] = AccountMeta.writable(mint_or_account);
+    metas[1] = AccountMeta.readonly(multisig_authority);
+    const accounts = try appendReadonlySignerMetas(metas, 2, signer_pubkeys);
+    return .{
+        .program_id = &id.PROGRAM_ID,
+        .accounts = accounts,
+        .data = data[0..data_len],
+    };
+}
+
 /// `FreezeAccount` — discriminant 10.
 ///
 /// Account metas (in order):
@@ -439,6 +650,27 @@ pub fn freezeAccount(
     };
 }
 
+/// `FreezeAccount` with a multisig freeze authority.
+pub fn freezeAccountMultisig(
+    account: *const Pubkey,
+    mint: *const Pubkey,
+    multisig_authority: *const Pubkey,
+    signer_pubkeys: []const Pubkey,
+    metas: *multisigMetasArray(freeze_account_spec.accounts_len),
+    data: *dataArray(freeze_account_spec),
+) MultisigInstructionError!Instruction {
+    data[0] = @intFromEnum(TokenInstruction.freeze_account);
+    metas[0] = AccountMeta.writable(account);
+    metas[1] = AccountMeta.readonly(mint);
+    metas[2] = AccountMeta.readonly(multisig_authority);
+    const accounts = try appendReadonlySignerMetas(metas, 3, signer_pubkeys);
+    return .{
+        .program_id = &id.PROGRAM_ID,
+        .accounts = accounts,
+        .data = data,
+    };
+}
+
 /// `ThawAccount` — discriminant 11.
 ///
 /// Account metas (in order):
@@ -459,6 +691,27 @@ pub fn thawAccount(
     return .{
         .program_id = &id.PROGRAM_ID,
         .accounts = metas,
+        .data = data,
+    };
+}
+
+/// `ThawAccount` with a multisig freeze authority.
+pub fn thawAccountMultisig(
+    account: *const Pubkey,
+    mint: *const Pubkey,
+    multisig_authority: *const Pubkey,
+    signer_pubkeys: []const Pubkey,
+    metas: *multisigMetasArray(thaw_account_spec.accounts_len),
+    data: *dataArray(thaw_account_spec),
+) MultisigInstructionError!Instruction {
+    data[0] = @intFromEnum(TokenInstruction.thaw_account);
+    metas[0] = AccountMeta.writable(account);
+    metas[1] = AccountMeta.readonly(mint);
+    metas[2] = AccountMeta.readonly(multisig_authority);
+    const accounts = try appendReadonlySignerMetas(metas, 3, signer_pubkeys);
+    return .{
+        .program_id = &id.PROGRAM_ID,
+        .accounts = accounts,
         .data = data,
     };
 }
@@ -491,6 +744,31 @@ pub fn mintTo(
     };
 }
 
+/// `MintTo { amount }` with a multisig mint authority.
+pub fn mintToMultisig(
+    mint: *const Pubkey,
+    destination: *const Pubkey,
+    multisig_authority: *const Pubkey,
+    signer_pubkeys: []const Pubkey,
+    amount: u64,
+    metas: *multisigMetasArray(mint_to_spec.accounts_len),
+    data: *dataArray(mint_to_spec),
+) MultisigInstructionError!Instruction {
+    data.* = AmountIx.initWithDiscriminant(
+        @intFromEnum(TokenInstruction.mint_to),
+        .{ .amount = amount },
+    );
+    metas[0] = AccountMeta.writable(mint);
+    metas[1] = AccountMeta.writable(destination);
+    metas[2] = AccountMeta.readonly(multisig_authority);
+    const accounts = try appendReadonlySignerMetas(metas, 3, signer_pubkeys);
+    return .{
+        .program_id = &id.PROGRAM_ID,
+        .accounts = accounts,
+        .data = data,
+    };
+}
+
 /// `MintToChecked { amount, decimals }` — discriminant 14. Same
 /// account order as `mintTo`, additional decimals safety check.
 pub fn mintToChecked(
@@ -512,6 +790,32 @@ pub fn mintToChecked(
     return .{
         .program_id = &id.PROGRAM_ID,
         .accounts = metas,
+        .data = data,
+    };
+}
+
+/// `MintToChecked { amount, decimals }` with a multisig mint authority.
+pub fn mintToCheckedMultisig(
+    mint: *const Pubkey,
+    destination: *const Pubkey,
+    multisig_authority: *const Pubkey,
+    signer_pubkeys: []const Pubkey,
+    amount: u64,
+    decimals: u8,
+    metas: *multisigMetasArray(mint_to_checked_spec.accounts_len),
+    data: *dataArray(mint_to_checked_spec),
+) MultisigInstructionError!Instruction {
+    data.* = AmountDecimalsIx.initWithDiscriminant(
+        @intFromEnum(TokenInstruction.mint_to_checked),
+        .{ .amount = amount, .decimals = decimals },
+    );
+    metas[0] = AccountMeta.writable(mint);
+    metas[1] = AccountMeta.writable(destination);
+    metas[2] = AccountMeta.readonly(multisig_authority);
+    const accounts = try appendReadonlySignerMetas(metas, 3, signer_pubkeys);
+    return .{
+        .program_id = &id.PROGRAM_ID,
+        .accounts = accounts,
         .data = data,
     };
 }
@@ -544,6 +848,31 @@ pub fn burn(
     };
 }
 
+/// `Burn { amount }` with a multisig owner/delegate authority.
+pub fn burnMultisig(
+    source: *const Pubkey,
+    mint: *const Pubkey,
+    multisig_authority: *const Pubkey,
+    signer_pubkeys: []const Pubkey,
+    amount: u64,
+    metas: *multisigMetasArray(burn_spec.accounts_len),
+    data: *dataArray(burn_spec),
+) MultisigInstructionError!Instruction {
+    data.* = AmountIx.initWithDiscriminant(
+        @intFromEnum(TokenInstruction.burn),
+        .{ .amount = amount },
+    );
+    metas[0] = AccountMeta.writable(source);
+    metas[1] = AccountMeta.writable(mint);
+    metas[2] = AccountMeta.readonly(multisig_authority);
+    const accounts = try appendReadonlySignerMetas(metas, 3, signer_pubkeys);
+    return .{
+        .program_id = &id.PROGRAM_ID,
+        .accounts = accounts,
+        .data = data,
+    };
+}
+
 /// `BurnChecked { amount, decimals }` — discriminant 15.
 pub fn burnChecked(
     source: *const Pubkey,
@@ -564,6 +893,32 @@ pub fn burnChecked(
     return .{
         .program_id = &id.PROGRAM_ID,
         .accounts = metas,
+        .data = data,
+    };
+}
+
+/// `BurnChecked { amount, decimals }` with a multisig owner/delegate authority.
+pub fn burnCheckedMultisig(
+    source: *const Pubkey,
+    mint: *const Pubkey,
+    multisig_authority: *const Pubkey,
+    signer_pubkeys: []const Pubkey,
+    amount: u64,
+    decimals: u8,
+    metas: *multisigMetasArray(burn_checked_spec.accounts_len),
+    data: *dataArray(burn_checked_spec),
+) MultisigInstructionError!Instruction {
+    data.* = AmountDecimalsIx.initWithDiscriminant(
+        @intFromEnum(TokenInstruction.burn_checked),
+        .{ .amount = amount, .decimals = decimals },
+    );
+    metas[0] = AccountMeta.writable(source);
+    metas[1] = AccountMeta.writable(mint);
+    metas[2] = AccountMeta.readonly(multisig_authority);
+    const accounts = try appendReadonlySignerMetas(metas, 3, signer_pubkeys);
+    return .{
+        .program_id = &id.PROGRAM_ID,
+        .accounts = accounts,
         .data = data,
     };
 }
@@ -592,6 +947,27 @@ pub fn closeAccount(
     };
 }
 
+/// `CloseAccount` with a multisig close authority or owner.
+pub fn closeAccountMultisig(
+    account: *const Pubkey,
+    destination: *const Pubkey,
+    multisig_authority: *const Pubkey,
+    signer_pubkeys: []const Pubkey,
+    metas: *multisigMetasArray(close_account_spec.accounts_len),
+    data: *dataArray(close_account_spec),
+) MultisigInstructionError!Instruction {
+    data[0] = @intFromEnum(TokenInstruction.close_account);
+    metas[0] = AccountMeta.writable(account);
+    metas[1] = AccountMeta.writable(destination);
+    metas[2] = AccountMeta.readonly(multisig_authority);
+    const accounts = try appendReadonlySignerMetas(metas, 3, signer_pubkeys);
+    return .{
+        .program_id = &id.PROGRAM_ID,
+        .accounts = accounts,
+        .data = data,
+    };
+}
+
 /// `InitializeAccount3 { owner }` — discriminant 18.
 ///
 /// Account metas (in order):
@@ -616,6 +992,32 @@ pub fn initializeAccount3(
     return .{
         .program_id = &id.PROGRAM_ID,
         .accounts = metas,
+        .data = data,
+    };
+}
+
+/// `InitializeMultisig2 { m }` — discriminant 19.
+///
+/// Account metas (in order):
+///   0. multisig account — writable
+///   1+. signer pubkeys  — readonly, caller order
+///
+/// `threshold` must satisfy `1 <= threshold <= signer_pubkeys.len <= 11`.
+pub fn initializeMultisig2(
+    multisig: *const Pubkey,
+    signer_pubkeys: []const Pubkey,
+    threshold: u8,
+    metas: *multisigMetasArray(initialize_multisig2_spec.accounts_len),
+    data: *dataArray(initialize_multisig2_spec),
+) MultisigInstructionError!Instruction {
+    try validateMultisigThreshold(threshold, signer_pubkeys);
+    data[0] = @intFromEnum(TokenInstruction.initialize_multisig2);
+    data[1] = threshold;
+    metas[0] = AccountMeta.writable(multisig);
+    const accounts = try appendReadonlyMetas(metas, 1, signer_pubkeys);
+    return .{
+        .program_id = &id.PROGRAM_ID,
+        .accounts = accounts,
         .data = data,
     };
 }
@@ -672,6 +1074,36 @@ fn expectMeta(
     try std.testing.expectEqual(expected_signer, actual.is_signer);
 }
 
+fn expectReadonlySignerTail(
+    actual: []const AccountMeta,
+    start_index: usize,
+    signer_pubkeys: []const Pubkey,
+) !void {
+    try std.testing.expectEqual(start_index + signer_pubkeys.len, actual.len);
+    for (signer_pubkeys, 0..) |_, i| {
+        try expectMeta(actual[start_index + i], &signer_pubkeys[i], 0, 1);
+    }
+}
+
+fn expectReadonlyTail(
+    actual: []const AccountMeta,
+    start_index: usize,
+    signer_pubkeys: []const Pubkey,
+) !void {
+    try std.testing.expectEqual(start_index + signer_pubkeys.len, actual.len);
+    for (signer_pubkeys, 0..) |_, i| {
+        try expectMeta(actual[start_index + i], &signer_pubkeys[i], 0, 0);
+    }
+}
+
+fn signerPubkeys(comptime count: usize, start: u8) [count]Pubkey {
+    var keys: [count]Pubkey = undefined;
+    inline for (0..count) |i| {
+        keys[i] = .{@as(u8, start + @as(u8, @intCast(i)))} ** 32;
+    }
+    return keys;
+}
+
 test "v0.2 authority/freeze specs and discriminants stay canonical" {
     try std.testing.expectEqual(@as(u8, 4), @intFromEnum(TokenInstruction.approve));
     try std.testing.expectEqual(@as(u8, 5), @intFromEnum(TokenInstruction.revoke));
@@ -679,6 +1111,7 @@ test "v0.2 authority/freeze specs and discriminants stay canonical" {
     try std.testing.expectEqual(@as(u8, 10), @intFromEnum(TokenInstruction.freeze_account));
     try std.testing.expectEqual(@as(u8, 11), @intFromEnum(TokenInstruction.thaw_account));
     try std.testing.expectEqual(@as(u8, 13), @intFromEnum(TokenInstruction.approve_checked));
+    try std.testing.expectEqual(@as(u8, 19), @intFromEnum(TokenInstruction.initialize_multisig2));
 
     try std.testing.expectEqual(@as(usize, 3), approve_spec.accounts_len);
     try std.testing.expectEqual(@as(usize, 9), approve_spec.data_len);
@@ -693,6 +1126,8 @@ test "v0.2 authority/freeze specs and discriminants stay canonical" {
     try std.testing.expectEqual(@as(usize, 1), thaw_account_spec.data_len);
     try std.testing.expectEqual(@as(usize, 4), approve_checked_spec.accounts_len);
     try std.testing.expectEqual(@as(usize, 10), approve_checked_spec.data_len);
+    try std.testing.expectEqual(@as(usize, 1), initialize_multisig2_spec.accounts_len);
+    try std.testing.expectEqual(@as(usize, 2), initialize_multisig2_spec.data_len);
 }
 
 test "AuthorityType is canonical" {
@@ -946,4 +1381,476 @@ test "initializeAccount3: 33-byte body carries owner pubkey" {
     _ = initializeAccount3(&acct, &mint, &owner, &metas, &data);
     try std.testing.expectEqual(@as(u8, 18), data[0]);
     try std.testing.expectEqualSlices(u8, &owner, data[1..33]);
+}
+
+test "initializeMultisig2: canonical data/metas, caller scratch, and threshold bounds" {
+    const multisig: Pubkey = .{0xD1} ** 32;
+
+    inline for (.{ 1, MAX_SIGNERS }) |signer_count| {
+        const threshold: u8 = @intCast(signer_count);
+        const signers = signerPubkeys(signer_count, 0x40);
+        var metas: multisigMetasArray(initialize_multisig2_spec.accounts_len) = undefined;
+        var data: dataArray(initialize_multisig2_spec) = undefined;
+        const ix = try initializeMultisig2(&multisig, &signers, threshold, &metas, &data);
+
+        try std.testing.expectEqual(@as(usize, 1 + signer_count), ix.accounts.len);
+        try std.testing.expectEqual(@as(usize, 2), ix.data.len);
+        try std.testing.expectEqual(@as(u8, 19), data[0]);
+        try std.testing.expectEqual(threshold, data[1]);
+        try std.testing.expectEqual(&id.PROGRAM_ID, ix.program_id);
+        try expectMeta(ix.accounts[0], &multisig, 1, 0);
+        try expectReadonlyTail(ix.accounts, 1, &signers);
+        try std.testing.expectEqual(@intFromPtr(&metas[0]), @intFromPtr(ix.accounts.ptr));
+        try std.testing.expectEqual(@intFromPtr(&data[0]), @intFromPtr(ix.data.ptr));
+    }
+
+    const one_signer = signerPubkeys(1, 0x60);
+    const too_many_signers = signerPubkeys(MAX_SIGNERS + 1, 0x70);
+    var metas: multisigMetasArray(initialize_multisig2_spec.accounts_len) = undefined;
+    var data: dataArray(initialize_multisig2_spec) = undefined;
+    const no_signers = [_]Pubkey{};
+
+    try std.testing.expectError(
+        error.InvalidMultisigSignerCount,
+        initializeMultisig2(&multisig, &no_signers, 1, &metas, &data),
+    );
+    try std.testing.expectError(
+        error.InvalidMultisigSignerCount,
+        initializeMultisig2(&multisig, &too_many_signers, 1, &metas, &data),
+    );
+    try std.testing.expectError(
+        error.InvalidMultisigThreshold,
+        initializeMultisig2(&multisig, &one_signer, 0, &metas, &data),
+    );
+    try std.testing.expectError(
+        error.InvalidMultisigThreshold,
+        initializeMultisig2(&multisig, &one_signer, 2, &metas, &data),
+    );
+}
+
+test "v0.2 explicit multisig builders preserve data and signer order" {
+    const source: Pubkey = .{0x11} ** 32;
+    const mint: Pubkey = .{0x12} ** 32;
+    const delegate: Pubkey = .{0x13} ** 32;
+    const owner: Pubkey = .{0x14} ** 32;
+    const multisig_authority: Pubkey = .{0x15} ** 32;
+    const account: Pubkey = .{0x16} ** 32;
+    const new_authority: Pubkey = .{0x17} ** 32;
+
+    inline for (.{ 1, MAX_SIGNERS }) |signer_count| {
+        const signers = signerPubkeys(signer_count, 0x80);
+
+        var approve_single_metas: metasArray(approve_spec) = undefined;
+        var approve_single_data: dataArray(approve_spec) = undefined;
+        const approve_single = approve(&source, &delegate, &owner, 55, &approve_single_metas, &approve_single_data);
+        var approve_multi_metas: multisigMetasArray(approve_spec.accounts_len) = undefined;
+        var approve_multi_data: dataArray(approve_spec) = undefined;
+        const approve_multi = try approveMultisig(
+            &source,
+            &delegate,
+            &multisig_authority,
+            &signers,
+            55,
+            &approve_multi_metas,
+            &approve_multi_data,
+        );
+        try std.testing.expectEqualSlices(u8, approve_single.data, approve_multi.data);
+        try expectMeta(approve_multi.accounts[0], &source, 1, 0);
+        try expectMeta(approve_multi.accounts[1], &delegate, 0, 0);
+        try expectMeta(approve_multi.accounts[2], &multisig_authority, 0, 0);
+        try expectReadonlySignerTail(approve_multi.accounts, 3, &signers);
+        try std.testing.expectEqual(@intFromPtr(&approve_multi_metas[0]), @intFromPtr(approve_multi.accounts.ptr));
+        try std.testing.expectEqual(@intFromPtr(&approve_multi_data[0]), @intFromPtr(approve_multi.data.ptr));
+
+        var approve_checked_single_metas: metasArray(approve_checked_spec) = undefined;
+        var approve_checked_single_data: dataArray(approve_checked_spec) = undefined;
+        const approve_checked_single = approveChecked(
+            &source,
+            &mint,
+            &delegate,
+            &owner,
+            56,
+            6,
+            &approve_checked_single_metas,
+            &approve_checked_single_data,
+        );
+        var approve_checked_multi_metas: multisigMetasArray(approve_checked_spec.accounts_len) = undefined;
+        var approve_checked_multi_data: dataArray(approve_checked_spec) = undefined;
+        const approve_checked_multi = try approveCheckedMultisig(
+            &source,
+            &mint,
+            &delegate,
+            &multisig_authority,
+            &signers,
+            56,
+            6,
+            &approve_checked_multi_metas,
+            &approve_checked_multi_data,
+        );
+        try std.testing.expectEqualSlices(u8, approve_checked_single.data, approve_checked_multi.data);
+        try expectMeta(approve_checked_multi.accounts[0], &source, 1, 0);
+        try expectMeta(approve_checked_multi.accounts[1], &mint, 0, 0);
+        try expectMeta(approve_checked_multi.accounts[2], &delegate, 0, 0);
+        try expectMeta(approve_checked_multi.accounts[3], &multisig_authority, 0, 0);
+        try expectReadonlySignerTail(approve_checked_multi.accounts, 4, &signers);
+
+        var revoke_single_metas: metasArray(revoke_spec) = undefined;
+        var revoke_single_data: dataArray(revoke_spec) = undefined;
+        const revoke_single = revoke(&source, &owner, &revoke_single_metas, &revoke_single_data);
+        var revoke_multi_metas: multisigMetasArray(revoke_spec.accounts_len) = undefined;
+        var revoke_multi_data: dataArray(revoke_spec) = undefined;
+        const revoke_multi = try revokeMultisig(
+            &source,
+            &multisig_authority,
+            &signers,
+            &revoke_multi_metas,
+            &revoke_multi_data,
+        );
+        try std.testing.expectEqualSlices(u8, revoke_single.data, revoke_multi.data);
+        try expectMeta(revoke_multi.accounts[0], &source, 1, 0);
+        try expectMeta(revoke_multi.accounts[1], &multisig_authority, 0, 0);
+        try expectReadonlySignerTail(revoke_multi.accounts, 2, &signers);
+
+        var set_auth_some_single_metas: metasArray(set_authority_spec) = undefined;
+        var set_auth_some_single_data: dataArray(set_authority_spec) = undefined;
+        const set_auth_some_single = setAuthority(
+            &account,
+            &owner,
+            .FreezeAccount,
+            &new_authority,
+            &set_auth_some_single_metas,
+            &set_auth_some_single_data,
+        );
+        var set_auth_some_multi_metas: multisigMetasArray(set_authority_spec.accounts_len) = undefined;
+        var set_auth_some_multi_data: dataArray(set_authority_spec) = undefined;
+        const set_auth_some_multi = try setAuthorityMultisig(
+            &account,
+            &multisig_authority,
+            &signers,
+            .FreezeAccount,
+            &new_authority,
+            &set_auth_some_multi_metas,
+            &set_auth_some_multi_data,
+        );
+        try std.testing.expectEqualSlices(u8, set_auth_some_single.data, set_auth_some_multi.data);
+        try expectMeta(set_auth_some_multi.accounts[0], &account, 1, 0);
+        try expectMeta(set_auth_some_multi.accounts[1], &multisig_authority, 0, 0);
+        try expectReadonlySignerTail(set_auth_some_multi.accounts, 2, &signers);
+
+        var set_auth_none_single_metas: metasArray(set_authority_spec) = undefined;
+        var set_auth_none_single_data: dataArray(set_authority_spec) = undefined;
+        const set_auth_none_single = setAuthority(
+            &account,
+            &owner,
+            .CloseAccount,
+            null,
+            &set_auth_none_single_metas,
+            &set_auth_none_single_data,
+        );
+        var set_auth_none_multi_metas: multisigMetasArray(set_authority_spec.accounts_len) = undefined;
+        var set_auth_none_multi_data: dataArray(set_authority_spec) = undefined;
+        const set_auth_none_multi = try setAuthorityMultisig(
+            &account,
+            &multisig_authority,
+            &signers,
+            .CloseAccount,
+            null,
+            &set_auth_none_multi_metas,
+            &set_auth_none_multi_data,
+        );
+        try std.testing.expectEqualSlices(u8, set_auth_none_single.data, set_auth_none_multi.data);
+        try std.testing.expectEqual(@as(usize, 3), set_auth_none_multi.data.len);
+
+        var freeze_single_metas: metasArray(freeze_account_spec) = undefined;
+        var freeze_single_data: dataArray(freeze_account_spec) = undefined;
+        const freeze_single = freezeAccount(&account, &mint, &owner, &freeze_single_metas, &freeze_single_data);
+        var freeze_multi_metas: multisigMetasArray(freeze_account_spec.accounts_len) = undefined;
+        var freeze_multi_data: dataArray(freeze_account_spec) = undefined;
+        const freeze_multi = try freezeAccountMultisig(
+            &account,
+            &mint,
+            &multisig_authority,
+            &signers,
+            &freeze_multi_metas,
+            &freeze_multi_data,
+        );
+        try std.testing.expectEqualSlices(u8, freeze_single.data, freeze_multi.data);
+        try expectMeta(freeze_multi.accounts[0], &account, 1, 0);
+        try expectMeta(freeze_multi.accounts[1], &mint, 0, 0);
+        try expectMeta(freeze_multi.accounts[2], &multisig_authority, 0, 0);
+        try expectReadonlySignerTail(freeze_multi.accounts, 3, &signers);
+
+        var thaw_single_metas: metasArray(thaw_account_spec) = undefined;
+        var thaw_single_data: dataArray(thaw_account_spec) = undefined;
+        const thaw_single = thawAccount(&account, &mint, &owner, &thaw_single_metas, &thaw_single_data);
+        var thaw_multi_metas: multisigMetasArray(thaw_account_spec.accounts_len) = undefined;
+        var thaw_multi_data: dataArray(thaw_account_spec) = undefined;
+        const thaw_multi = try thawAccountMultisig(
+            &account,
+            &mint,
+            &multisig_authority,
+            &signers,
+            &thaw_multi_metas,
+            &thaw_multi_data,
+        );
+        try std.testing.expectEqualSlices(u8, thaw_single.data, thaw_multi.data);
+        try expectMeta(thaw_multi.accounts[0], &account, 1, 0);
+        try expectMeta(thaw_multi.accounts[1], &mint, 0, 0);
+        try expectMeta(thaw_multi.accounts[2], &multisig_authority, 0, 0);
+        try expectReadonlySignerTail(thaw_multi.accounts, 3, &signers);
+    }
+}
+
+test "existing authority-based multisig builders preserve data and signer order" {
+    const source: Pubkey = .{0x21} ** 32;
+    const destination: Pubkey = .{0x22} ** 32;
+    const mint: Pubkey = .{0x23} ** 32;
+    const authority: Pubkey = .{0x24} ** 32;
+    const multisig_authority: Pubkey = .{0x25} ** 32;
+    const account: Pubkey = .{0x26} ** 32;
+
+    inline for (.{ 1, MAX_SIGNERS }) |signer_count| {
+        const signers = signerPubkeys(signer_count, 0xA0);
+
+        var transfer_single_metas: metasArray(transfer_spec) = undefined;
+        var transfer_single_data: dataArray(transfer_spec) = undefined;
+        const transfer_single = transfer(
+            &source,
+            &destination,
+            &authority,
+            101,
+            &transfer_single_metas,
+            &transfer_single_data,
+        );
+        var transfer_multi_metas: multisigMetasArray(transfer_spec.accounts_len) = undefined;
+        var transfer_multi_data: dataArray(transfer_spec) = undefined;
+        const transfer_multi = try transferMultisig(
+            &source,
+            &destination,
+            &multisig_authority,
+            &signers,
+            101,
+            &transfer_multi_metas,
+            &transfer_multi_data,
+        );
+        try std.testing.expectEqualSlices(u8, transfer_single.data, transfer_multi.data);
+        try expectMeta(transfer_multi.accounts[0], &source, 1, 0);
+        try expectMeta(transfer_multi.accounts[1], &destination, 1, 0);
+        try expectMeta(transfer_multi.accounts[2], &multisig_authority, 0, 0);
+        try expectReadonlySignerTail(transfer_multi.accounts, 3, &signers);
+
+        var transfer_checked_single_metas: metasArray(transfer_checked_spec) = undefined;
+        var transfer_checked_single_data: dataArray(transfer_checked_spec) = undefined;
+        const transfer_checked_single = transferChecked(
+            &source,
+            &mint,
+            &destination,
+            &authority,
+            102,
+            6,
+            &transfer_checked_single_metas,
+            &transfer_checked_single_data,
+        );
+        var transfer_checked_multi_metas: multisigMetasArray(transfer_checked_spec.accounts_len) = undefined;
+        var transfer_checked_multi_data: dataArray(transfer_checked_spec) = undefined;
+        const transfer_checked_multi = try transferCheckedMultisig(
+            &source,
+            &mint,
+            &destination,
+            &multisig_authority,
+            &signers,
+            102,
+            6,
+            &transfer_checked_multi_metas,
+            &transfer_checked_multi_data,
+        );
+        try std.testing.expectEqualSlices(u8, transfer_checked_single.data, transfer_checked_multi.data);
+        try expectMeta(transfer_checked_multi.accounts[0], &source, 1, 0);
+        try expectMeta(transfer_checked_multi.accounts[1], &mint, 0, 0);
+        try expectMeta(transfer_checked_multi.accounts[2], &destination, 1, 0);
+        try expectMeta(transfer_checked_multi.accounts[3], &multisig_authority, 0, 0);
+        try expectReadonlySignerTail(transfer_checked_multi.accounts, 4, &signers);
+
+        var mint_to_single_metas: metasArray(mint_to_spec) = undefined;
+        var mint_to_single_data: dataArray(mint_to_spec) = undefined;
+        const mint_to_single = mintTo(&mint, &destination, &authority, 103, &mint_to_single_metas, &mint_to_single_data);
+        var mint_to_multi_metas: multisigMetasArray(mint_to_spec.accounts_len) = undefined;
+        var mint_to_multi_data: dataArray(mint_to_spec) = undefined;
+        const mint_to_multi = try mintToMultisig(
+            &mint,
+            &destination,
+            &multisig_authority,
+            &signers,
+            103,
+            &mint_to_multi_metas,
+            &mint_to_multi_data,
+        );
+        try std.testing.expectEqualSlices(u8, mint_to_single.data, mint_to_multi.data);
+        try expectMeta(mint_to_multi.accounts[0], &mint, 1, 0);
+        try expectMeta(mint_to_multi.accounts[1], &destination, 1, 0);
+        try expectMeta(mint_to_multi.accounts[2], &multisig_authority, 0, 0);
+        try expectReadonlySignerTail(mint_to_multi.accounts, 3, &signers);
+
+        var mint_to_checked_single_metas: metasArray(mint_to_checked_spec) = undefined;
+        var mint_to_checked_single_data: dataArray(mint_to_checked_spec) = undefined;
+        const mint_to_checked_single = mintToChecked(
+            &mint,
+            &destination,
+            &authority,
+            104,
+            6,
+            &mint_to_checked_single_metas,
+            &mint_to_checked_single_data,
+        );
+        var mint_to_checked_multi_metas: multisigMetasArray(mint_to_checked_spec.accounts_len) = undefined;
+        var mint_to_checked_multi_data: dataArray(mint_to_checked_spec) = undefined;
+        const mint_to_checked_multi = try mintToCheckedMultisig(
+            &mint,
+            &destination,
+            &multisig_authority,
+            &signers,
+            104,
+            6,
+            &mint_to_checked_multi_metas,
+            &mint_to_checked_multi_data,
+        );
+        try std.testing.expectEqualSlices(u8, mint_to_checked_single.data, mint_to_checked_multi.data);
+        try expectMeta(mint_to_checked_multi.accounts[0], &mint, 1, 0);
+        try expectMeta(mint_to_checked_multi.accounts[1], &destination, 1, 0);
+        try expectMeta(mint_to_checked_multi.accounts[2], &multisig_authority, 0, 0);
+        try expectReadonlySignerTail(mint_to_checked_multi.accounts, 3, &signers);
+
+        var burn_single_metas: metasArray(burn_spec) = undefined;
+        var burn_single_data: dataArray(burn_spec) = undefined;
+        const burn_single = burn(&source, &mint, &authority, 105, &burn_single_metas, &burn_single_data);
+        var burn_multi_metas: multisigMetasArray(burn_spec.accounts_len) = undefined;
+        var burn_multi_data: dataArray(burn_spec) = undefined;
+        const burn_multi = try burnMultisig(
+            &source,
+            &mint,
+            &multisig_authority,
+            &signers,
+            105,
+            &burn_multi_metas,
+            &burn_multi_data,
+        );
+        try std.testing.expectEqualSlices(u8, burn_single.data, burn_multi.data);
+        try expectMeta(burn_multi.accounts[0], &source, 1, 0);
+        try expectMeta(burn_multi.accounts[1], &mint, 1, 0);
+        try expectMeta(burn_multi.accounts[2], &multisig_authority, 0, 0);
+        try expectReadonlySignerTail(burn_multi.accounts, 3, &signers);
+
+        var burn_checked_single_metas: metasArray(burn_checked_spec) = undefined;
+        var burn_checked_single_data: dataArray(burn_checked_spec) = undefined;
+        const burn_checked_single = burnChecked(
+            &source,
+            &mint,
+            &authority,
+            106,
+            6,
+            &burn_checked_single_metas,
+            &burn_checked_single_data,
+        );
+        var burn_checked_multi_metas: multisigMetasArray(burn_checked_spec.accounts_len) = undefined;
+        var burn_checked_multi_data: dataArray(burn_checked_spec) = undefined;
+        const burn_checked_multi = try burnCheckedMultisig(
+            &source,
+            &mint,
+            &multisig_authority,
+            &signers,
+            106,
+            6,
+            &burn_checked_multi_metas,
+            &burn_checked_multi_data,
+        );
+        try std.testing.expectEqualSlices(u8, burn_checked_single.data, burn_checked_multi.data);
+        try expectMeta(burn_checked_multi.accounts[0], &source, 1, 0);
+        try expectMeta(burn_checked_multi.accounts[1], &mint, 1, 0);
+        try expectMeta(burn_checked_multi.accounts[2], &multisig_authority, 0, 0);
+        try expectReadonlySignerTail(burn_checked_multi.accounts, 3, &signers);
+
+        var close_single_metas: metasArray(close_account_spec) = undefined;
+        var close_single_data: dataArray(close_account_spec) = undefined;
+        const close_single = closeAccount(&account, &destination, &authority, &close_single_metas, &close_single_data);
+        var close_multi_metas: multisigMetasArray(close_account_spec.accounts_len) = undefined;
+        var close_multi_data: dataArray(close_account_spec) = undefined;
+        const close_multi = try closeAccountMultisig(
+            &account,
+            &destination,
+            &multisig_authority,
+            &signers,
+            &close_multi_metas,
+            &close_multi_data,
+        );
+        try std.testing.expectEqualSlices(u8, close_single.data, close_multi.data);
+        try expectMeta(close_multi.accounts[0], &account, 1, 0);
+        try expectMeta(close_multi.accounts[1], &destination, 1, 0);
+        try expectMeta(close_multi.accounts[2], &multisig_authority, 0, 0);
+        try expectReadonlySignerTail(close_multi.accounts, 3, &signers);
+        try std.testing.expectEqual(@intFromPtr(&close_multi_metas[0]), @intFromPtr(close_multi.accounts.ptr));
+        try std.testing.expectEqual(@intFromPtr(&close_multi_data[0]), @intFromPtr(close_multi.data.ptr));
+    }
+}
+
+test "multisig signer count bounds are enforced for explicit builder APIs" {
+    const source: Pubkey = .{0x31} ** 32;
+    const destination: Pubkey = .{0x32} ** 32;
+    const delegate: Pubkey = .{0x33} ** 32;
+    const multisig_authority: Pubkey = .{0x34} ** 32;
+    const no_signers = [_]Pubkey{};
+    const too_many_signers = signerPubkeys(MAX_SIGNERS + 1, 0xB0);
+
+    var approve_metas: multisigMetasArray(approve_spec.accounts_len) = undefined;
+    var approve_data: dataArray(approve_spec) = undefined;
+    try std.testing.expectError(
+        error.InvalidMultisigSignerCount,
+        approveMultisig(
+            &source,
+            &delegate,
+            &multisig_authority,
+            &no_signers,
+            1,
+            &approve_metas,
+            &approve_data,
+        ),
+    );
+    try std.testing.expectError(
+        error.InvalidMultisigSignerCount,
+        approveMultisig(
+            &source,
+            &delegate,
+            &multisig_authority,
+            &too_many_signers,
+            1,
+            &approve_metas,
+            &approve_data,
+        ),
+    );
+
+    var transfer_metas: multisigMetasArray(transfer_spec.accounts_len) = undefined;
+    var transfer_data: dataArray(transfer_spec) = undefined;
+    try std.testing.expectError(
+        error.InvalidMultisigSignerCount,
+        transferMultisig(
+            &source,
+            &destination,
+            &multisig_authority,
+            &no_signers,
+            1,
+            &transfer_metas,
+            &transfer_data,
+        ),
+    );
+    try std.testing.expectError(
+        error.InvalidMultisigSignerCount,
+        transferMultisig(
+            &source,
+            &destination,
+            &multisig_authority,
+            &too_many_signers,
+            1,
+            &transfer_metas,
+            &transfer_data,
+        ),
+    );
 }

@@ -52,9 +52,12 @@ pub const PROGRAM_ID_2022 = id.PROGRAM_ID_2022;
 
 pub const Mint = state.Mint;
 pub const Account = state.Account;
+pub const Multisig = state.Multisig;
 pub const AccountState = state.AccountState;
 pub const MINT_LEN = state.MINT_LEN;
 pub const ACCOUNT_LEN = state.ACCOUNT_LEN;
+pub const MULTISIG_LEN = state.MULTISIG_LEN;
+pub const MULTISIG_SIGNER_MAX = state.MULTISIG_SIGNER_MAX;
 
 pub const TokenInstruction = instruction.TokenInstruction;
 

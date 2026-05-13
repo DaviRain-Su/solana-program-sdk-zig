@@ -26,6 +26,14 @@ pub const MINT_LEN: usize = 82;
 /// `spl_token::state::Account::LEN`.
 pub const ACCOUNT_LEN: usize = 165;
 
+/// Maximum number of signer pubkeys stored in a canonical SPL Token
+/// multisig account.
+pub const MULTISIG_SIGNER_MAX: usize = 11;
+
+/// Size of the encoded `Multisig` account — match the canonical
+/// Rust `spl_token::state::Multisig::LEN`.
+pub const MULTISIG_LEN: usize = 3 + (@sizeOf(Pubkey) * MULTISIG_SIGNER_MAX);
+
 /// `COption<T>` discriminator tag — 4 little-endian bytes preceding
 /// the optional payload. Matches Rust's bincode encoding.
 pub const COPTION_SOME: u32 = 1;
@@ -177,6 +185,52 @@ pub const Account = extern struct {
     }
 };
 
+/// Token `Multisig` — zero-copy view over `MULTISIG_LEN` bytes.
+pub const Multisig = extern struct {
+    /// Threshold number of signer approvals required.
+    m: u8,
+    /// Number of configured signer pubkeys.
+    n: u8,
+    /// 1 when the multisig has been initialized.
+    is_initialized: u8,
+    /// Canonical 11 pubkey slots, zero-padded when `n < 11`.
+    signers: [MULTISIG_SIGNER_MAX]Pubkey align(1),
+
+    pub inline fn isInitialized(self: *const Multisig) bool {
+        return self.is_initialized != 0;
+    }
+
+    pub inline fn signerCount(self: *const Multisig) usize {
+        return @min(@as(usize, self.n), MULTISIG_SIGNER_MAX);
+    }
+
+    pub inline fn signerPubkeys(self: *const Multisig) []const Pubkey {
+        return self.signers[0..self.signerCount()];
+    }
+
+    pub inline fn fromBytes(bytes: []const u8) sol.ProgramError!*const Multisig {
+        if (bytes.len != MULTISIG_LEN) {
+            return sol.program_error.fail(
+                @src(),
+                "multisig:wrong_size",
+                error.InvalidAccountData,
+            );
+        }
+        return @ptrCast(@alignCast(bytes.ptr));
+    }
+
+    pub inline fn fromBytesMut(bytes: []u8) sol.ProgramError!*Multisig {
+        if (bytes.len != MULTISIG_LEN) {
+            return sol.program_error.fail(
+                @src(),
+                "multisig:wrong_size",
+                error.InvalidAccountData,
+            );
+        }
+        return @ptrCast(@alignCast(bytes.ptr));
+    }
+};
+
 // =============================================================================
 // Tests
 // =============================================================================
@@ -184,6 +238,7 @@ pub const Account = extern struct {
 comptime {
     std.debug.assert(@sizeOf(Mint) == MINT_LEN);
     std.debug.assert(@sizeOf(Account) == ACCOUNT_LEN);
+    std.debug.assert(@sizeOf(Multisig) == MULTISIG_LEN);
 
     // Spot-check critical field offsets so any silent regression
     // (e.g. someone removes an `align(1)`) trips at build time.
@@ -201,6 +256,11 @@ comptime {
     std.debug.assert(@offsetOf(Account, "is_native_tag") == 109);
     std.debug.assert(@offsetOf(Account, "delegated_amount") == 121);
     std.debug.assert(@offsetOf(Account, "close_authority_tag") == 129);
+
+    std.debug.assert(@offsetOf(Multisig, "m") == 0);
+    std.debug.assert(@offsetOf(Multisig, "n") == 1);
+    std.debug.assert(@offsetOf(Multisig, "is_initialized") == 2);
+    std.debug.assert(@offsetOf(Multisig, "signers") == 3);
 }
 
 test "mint: fromBytes rejects wrong length" {
@@ -248,4 +308,35 @@ test "account: state + isNative round-trip" {
     try std.testing.expect(acc.isNative());
     try std.testing.expectEqual(@as(u64, 2_039_280), acc.is_native_rent_exempt_reserve);
     try std.testing.expect(acc.delegateKey() == null);
+}
+
+test "multisig: fromBytes rejects wrong length" {
+    const buf = [_]u8{0} ** (MULTISIG_LEN - 1);
+    try std.testing.expectError(error.InvalidAccountData, Multisig.fromBytes(&buf));
+}
+
+test "multisig: threshold, signer count, initialized flag, and signer pubkeys round-trip" {
+    var buf: [MULTISIG_LEN]u8 = [_]u8{0} ** MULTISIG_LEN;
+    buf[0] = 2; // m
+    buf[1] = 3; // n
+    buf[2] = 1; // is_initialized
+    @memset(buf[3..35], 0x11);
+    @memset(buf[35..67], 0x22);
+    @memset(buf[67..99], 0x33);
+
+    const multisig = try Multisig.fromBytes(&buf);
+    try std.testing.expectEqual(@as(u8, 2), multisig.m);
+    try std.testing.expectEqual(@as(u8, 3), multisig.n);
+    try std.testing.expect(multisig.isInitialized());
+    try std.testing.expectEqual(@as(usize, 3), multisig.signerCount());
+
+    const signers = multisig.signerPubkeys();
+    try std.testing.expectEqual(@as(usize, 3), signers.len);
+
+    const signer0: Pubkey = .{0x11} ** 32;
+    const signer1: Pubkey = .{0x22} ** 32;
+    const signer2: Pubkey = .{0x33} ** 32;
+    try std.testing.expectEqualSlices(u8, &signer0, &signers[0]);
+    try std.testing.expectEqualSlices(u8, &signer1, &signers[1]);
+    try std.testing.expectEqualSlices(u8, &signer2, &signers[2]);
 }

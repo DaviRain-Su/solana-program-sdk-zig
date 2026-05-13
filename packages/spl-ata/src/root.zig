@@ -1,9 +1,8 @@
 //! `spl-ata` — Zig client for the SPL Associated Token Account
 //! program.
 //!
-//! Dual-target package scaffold: foundation exports for the ATA
-//! program id, future derivation helpers, future instruction builders,
-//! and future on-chain CPI wrappers.
+//! Dual-target package exposing ATA PDA derivation, instruction
+//! builders, and on-chain CPI wrappers.
 
 const std = @import("std");
 
@@ -15,8 +14,7 @@ pub const cpi = @import("cpi.zig");
 /// Associated Token Account program ID.
 pub const PROGRAM_ID = id.PROGRAM_ID;
 
-/// Placeholder public derivation API. Real implementation lands in a
-/// follow-up feature without changing the import surface.
+/// Public ATA derivation surface.
 pub const ProgramDerivedAddress = derivation.ProgramDerivedAddress;
 pub const findAddress = derivation.findAddress;
 pub const findAddressClassic = derivation.findAddressClassic;

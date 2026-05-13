@@ -16,6 +16,7 @@ const Instruction = sol.cpi.Instruction;
 pub const AssociatedTokenAccountInstruction = enum(u8) {
     create = 0,
     create_idempotent = 1,
+    recover_nested = 2,
 };
 
 pub const Spec = struct {
@@ -36,6 +37,12 @@ pub const create_idempotent_spec: Spec = .{
     .data_len = 1,
 };
 
+pub const recover_nested_spec: Spec = .{
+    .disc = .recover_nested,
+    .accounts_len = 7,
+    .data_len = 1,
+};
+
 pub fn metasArray(comptime spec: Spec) type {
     return [spec.accounts_len]AccountMeta;
 }
@@ -47,6 +54,9 @@ pub fn dataArray(comptime spec: Spec) type {
 pub fn Scratch(comptime spec: Spec) type {
     return struct {
         associated_token_account: Pubkey = undefined,
+        owner_associated_token_account: Pubkey = undefined,
+        destination_associated_token_account: Pubkey = undefined,
+        nested_associated_token_account: Pubkey = undefined,
         metas: metasArray(spec) = undefined,
         data: dataArray(spec) = undefined,
     };
@@ -54,13 +64,19 @@ pub fn Scratch(comptime spec: Spec) type {
 
 comptime {
     const DISC_LEN: usize = 1;
-    const audits = .{ create_spec, create_idempotent_spec };
+    const audits = .{
+        .{ create_spec, 6 },
+        .{ create_idempotent_spec, 6 },
+        .{ recover_nested_spec, 7 },
+    };
 
-    for (audits) |spec| {
-        if (spec.accounts_len != 6) {
+    for (audits) |audit| {
+        const spec: Spec = audit[0];
+        const want_accounts: usize = audit[1];
+        if (spec.accounts_len != want_accounts) {
             @compileError(std.fmt.comptimePrint(
-                "spl-ata spec drift: {s} accounts_len={d} but protocol says 6",
-                .{ @tagName(spec.disc), spec.accounts_len },
+                "spl-ata spec drift: {s} accounts_len={d} but protocol says {d}",
+                .{ @tagName(spec.disc), spec.accounts_len, want_accounts },
             ));
         }
         if (spec.data_len != DISC_LEN) {
@@ -136,6 +152,40 @@ pub fn createIdempotent(
     );
 }
 
+pub fn recoverNested(
+    wallet: *const Pubkey,
+    owner_token_mint: *const Pubkey,
+    nested_token_mint: *const Pubkey,
+    token_program: *const Pubkey,
+    scratch: *Scratch(recover_nested_spec),
+) Instruction {
+    scratch.owner_associated_token_account = derivation.findAddress(
+        wallet,
+        owner_token_mint,
+        token_program,
+    ).address;
+    scratch.destination_associated_token_account = derivation.findAddress(
+        wallet,
+        nested_token_mint,
+        token_program,
+    ).address;
+    scratch.nested_associated_token_account = derivation.findAddress(
+        &scratch.owner_associated_token_account,
+        nested_token_mint,
+        token_program,
+    ).address;
+
+    scratch.data = .{@intFromEnum(recover_nested_spec.disc)};
+    scratch.metas[0] = AccountMeta.writable(&scratch.nested_associated_token_account);
+    scratch.metas[1] = AccountMeta.readonly(nested_token_mint);
+    scratch.metas[2] = AccountMeta.writable(&scratch.destination_associated_token_account);
+    scratch.metas[3] = AccountMeta.readonly(&scratch.owner_associated_token_account);
+    scratch.metas[4] = AccountMeta.readonly(owner_token_mint);
+    scratch.metas[5] = AccountMeta.signerWritable(wallet);
+    scratch.metas[6] = AccountMeta.readonly(token_program);
+    return Instruction.init(&id.PROGRAM_ID, &scratch.metas, &scratch.data);
+}
+
 fn expectMeta(
     actual: AccountMeta,
     expected_key: *const Pubkey,
@@ -163,13 +213,18 @@ test "spec helpers expose canonical ATA wire lengths" {
     try std.testing.expectEqual(@as(usize, 1), create_spec.data_len);
     try std.testing.expectEqual(@as(usize, 6), create_idempotent_spec.accounts_len);
     try std.testing.expectEqual(@as(usize, 1), create_idempotent_spec.data_len);
+    try std.testing.expectEqual(@as(usize, 7), recover_nested_spec.accounts_len);
+    try std.testing.expectEqual(@as(usize, 1), recover_nested_spec.data_len);
 
     const create_scratch: Scratch(create_spec) = undefined;
     const create_idempotent_scratch: Scratch(create_idempotent_spec) = undefined;
+    const recover_nested_scratch: Scratch(recover_nested_spec) = undefined;
     try std.testing.expectEqual(@as(usize, 6), create_scratch.metas.len);
     try std.testing.expectEqual(@as(usize, 1), create_scratch.data.len);
     try std.testing.expectEqual(@as(usize, 6), create_idempotent_scratch.metas.len);
     try std.testing.expectEqual(@as(usize, 1), create_idempotent_scratch.data.len);
+    try std.testing.expectEqual(@as(usize, 7), recover_nested_scratch.metas.len);
+    try std.testing.expectEqual(@as(usize, 1), recover_nested_scratch.data.len);
 }
 
 test "create emits canonical metas, ATA callee, and [0] discriminator" {
@@ -246,6 +301,53 @@ test "createIdempotent emits create metas with [1] discriminator" {
             create_meta.is_signer,
         );
     }
+}
+
+test "recoverNested derives canonical nested, owner, and destination ATA metas" {
+    const wallet: Pubkey = .{0x71} ** 32;
+    const owner_token_mint: Pubkey = .{0x72} ** 32;
+    const nested_token_mint: Pubkey = .{0x73} ** 32;
+    const token_program: Pubkey = sol.spl_token_program_id;
+
+    const owner_associated = derivation.findAddress(
+        &wallet,
+        &owner_token_mint,
+        &token_program,
+    );
+    const destination_associated = derivation.findAddress(
+        &wallet,
+        &nested_token_mint,
+        &token_program,
+    );
+    const nested_associated = derivation.findAddress(
+        &owner_associated.address,
+        &nested_token_mint,
+        &token_program,
+    );
+
+    var scratch: Scratch(recover_nested_spec) = undefined;
+    const ix = recoverNested(
+        &wallet,
+        &owner_token_mint,
+        &nested_token_mint,
+        &token_program,
+        &scratch,
+    );
+
+    try std.testing.expectEqual(&id.PROGRAM_ID, ix.program_id);
+    try std.testing.expectEqual(@as(usize, 7), ix.accounts.len);
+    try std.testing.expectEqual(@as(usize, 1), ix.data.len);
+    try std.testing.expectEqual(@as(u8, 2), ix.data[0]);
+    try std.testing.expectEqualSlices(u8, &owner_associated.address, &scratch.owner_associated_token_account);
+    try std.testing.expectEqualSlices(u8, &destination_associated.address, &scratch.destination_associated_token_account);
+    try std.testing.expectEqualSlices(u8, &nested_associated.address, &scratch.nested_associated_token_account);
+    try expectMeta(ix.accounts[0], &scratch.nested_associated_token_account, 1, 0);
+    try expectMeta(ix.accounts[1], &nested_token_mint, 0, 0);
+    try expectMeta(ix.accounts[2], &scratch.destination_associated_token_account, 1, 0);
+    try expectMeta(ix.accounts[3], &scratch.owner_associated_token_account, 0, 0);
+    try expectMeta(ix.accounts[4], &owner_token_mint, 0, 0);
+    try expectMeta(ix.accounts[5], &wallet, 1, 1);
+    try expectMeta(ix.accounts[6], &token_program, 0, 0);
 }
 
 test "builders preserve caller-owned scratch buffers" {

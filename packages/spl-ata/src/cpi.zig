@@ -25,7 +25,7 @@ inline fn rebrand(ix: Instruction, program_id: *const Pubkey) Instruction {
     };
 }
 
-fn buildInstruction(
+fn buildCreateInstruction(
     comptime spec: instruction.Spec,
     payer: CpiAccountInfo,
     wallet: CpiAccountInfo,
@@ -52,6 +52,7 @@ fn buildInstruction(
             token_program.key(),
             scratch,
         ),
+        else => unreachable,
     };
 
     return rebrand(built, associated_token_program.key());
@@ -87,7 +88,7 @@ pub fn create(
     associated_token_program: CpiAccountInfo,
 ) ProgramResult {
     var scratch: instruction.Scratch(instruction.create_spec) = undefined;
-    const ix = buildInstruction(
+    const ix = buildCreateInstruction(
         instruction.create_spec,
         payer,
         wallet,
@@ -119,7 +120,7 @@ pub fn createIdempotent(
     associated_token_program: CpiAccountInfo,
 ) ProgramResult {
     var scratch: instruction.Scratch(instruction.create_idempotent_spec) = undefined;
-    const ix = buildInstruction(
+    const ix = buildCreateInstruction(
         instruction.create_idempotent_spec,
         payer,
         wallet,
@@ -138,6 +139,38 @@ pub fn createIdempotent(
         token_program,
         associated_token_program,
     );
+    return sol.cpi.invokeRaw(&ix, &infos);
+}
+
+pub fn recoverNested(
+    nested_associated_token_account: CpiAccountInfo,
+    nested_token_mint: CpiAccountInfo,
+    destination_associated_token_account: CpiAccountInfo,
+    owner_associated_token_account: CpiAccountInfo,
+    owner_token_mint: CpiAccountInfo,
+    wallet: CpiAccountInfo,
+    token_program: CpiAccountInfo,
+    associated_token_program: CpiAccountInfo,
+) ProgramResult {
+    var scratch: instruction.Scratch(instruction.recover_nested_spec) = undefined;
+    const built = instruction.recoverNested(
+        wallet.key(),
+        owner_token_mint.key(),
+        nested_token_mint.key(),
+        token_program.key(),
+        &scratch,
+    );
+    const ix = rebrand(built, associated_token_program.key());
+    const infos = [_]CpiAccountInfo{
+        nested_associated_token_account,
+        nested_token_mint,
+        destination_associated_token_account,
+        owner_associated_token_account,
+        owner_token_mint,
+        wallet,
+        token_program,
+        associated_token_program,
+    };
     return sol.cpi.invokeRaw(&ix, &infos);
 }
 
@@ -175,6 +208,7 @@ fn toCpiAccountInfo(backing: *TestAccount) CpiAccountInfo {
 test "public CPI wrapper decls exist" {
     try std.testing.expect(@hasDecl(@This(), "create"));
     try std.testing.expect(@hasDecl(@This(), "createIdempotent"));
+    try std.testing.expect(@hasDecl(@This(), "recoverNested"));
 }
 
 test "create rebrands ATA callee and preserves canonical runtime account order" {
@@ -195,7 +229,7 @@ test "create rebrands ATA callee and preserves canonical runtime account order" 
     const associated_token_program = toCpiAccountInfo(&ata_program_account);
 
     var scratch: instruction.Scratch(instruction.create_spec) = undefined;
-    const ix = buildInstruction(
+    const ix = buildCreateInstruction(
         instruction.create_spec,
         payer,
         wallet,
@@ -256,7 +290,7 @@ test "createIdempotent keeps builder metas/data and caller-selected token plus A
     const associated_token_program = toCpiAccountInfo(&ata_program_account);
 
     var scratch: instruction.Scratch(instruction.create_idempotent_spec) = undefined;
-    const ix = buildInstruction(
+    const ix = buildCreateInstruction(
         instruction.create_idempotent_spec,
         payer,
         wallet,
@@ -281,4 +315,56 @@ test "createIdempotent keeps builder metas/data and caller-selected token plus A
     try std.testing.expectEqualSlices(u8, token_program.key(), ix.accounts[5].pubkey);
     try std.testing.expectEqualSlices(u8, ata.key(), infos[1].key());
     try std.testing.expectEqualSlices(u8, associated_token_program.key(), infos[6].key());
+}
+
+test "recoverNested rebrands ATA callee and preserves nested recovery runtime order" {
+    var nested_associated_token_account = testAccount(.{0x81} ** 32, .{0xA1} ** 32, false, true, false);
+    var nested_token_mint_account = testAccount(.{0x82} ** 32, .{0xA2} ** 32, false, false, false);
+    var destination_associated_token_account = testAccount(.{0x83} ** 32, .{0xA3} ** 32, false, true, false);
+    var owner_associated_token_account = testAccount(.{0x84} ** 32, .{0xA4} ** 32, false, false, false);
+    var owner_token_mint_account = testAccount(.{0x85} ** 32, .{0xA5} ** 32, false, false, false);
+    var wallet_account = testAccount(.{0x86} ** 32, .{0xA6} ** 32, true, true, false);
+    var token_program_account = testAccount(sol.spl_token_program_id, .{0xA7} ** 32, false, false, true);
+    var ata_program_account = testAccount(.{0x87} ** 32, .{0xA8} ** 32, false, false, true);
+
+    const nested_ata = toCpiAccountInfo(&nested_associated_token_account);
+    const nested_mint = toCpiAccountInfo(&nested_token_mint_account);
+    const destination_ata = toCpiAccountInfo(&destination_associated_token_account);
+    const owner_ata = toCpiAccountInfo(&owner_associated_token_account);
+    const owner_mint = toCpiAccountInfo(&owner_token_mint_account);
+    const wallet = toCpiAccountInfo(&wallet_account);
+    const token_program = toCpiAccountInfo(&token_program_account);
+    const associated_token_program = toCpiAccountInfo(&ata_program_account);
+
+    var scratch: instruction.Scratch(instruction.recover_nested_spec) = undefined;
+    const built = instruction.recoverNested(
+        wallet.key(),
+        owner_mint.key(),
+        nested_mint.key(),
+        token_program.key(),
+        &scratch,
+    );
+    const ix = rebrand(built, associated_token_program.key());
+    const infos = [_]CpiAccountInfo{
+        nested_ata,
+        nested_mint,
+        destination_ata,
+        owner_ata,
+        owner_mint,
+        wallet,
+        token_program,
+        associated_token_program,
+    };
+
+    try std.testing.expectEqual(associated_token_program.key(), ix.program_id);
+    try std.testing.expectEqual(@as(usize, 7), ix.accounts.len);
+    try std.testing.expectEqual(@as(u8, 2), ix.data[0]);
+    try std.testing.expectEqualSlices(u8, nested_ata.key(), infos[0].key());
+    try std.testing.expectEqualSlices(u8, nested_mint.key(), infos[1].key());
+    try std.testing.expectEqualSlices(u8, destination_ata.key(), infos[2].key());
+    try std.testing.expectEqualSlices(u8, owner_ata.key(), infos[3].key());
+    try std.testing.expectEqualSlices(u8, owner_mint.key(), infos[4].key());
+    try std.testing.expectEqualSlices(u8, wallet.key(), infos[5].key());
+    try std.testing.expectEqualSlices(u8, token_program.key(), infos[6].key());
+    try std.testing.expectEqualSlices(u8, associated_token_program.key(), infos[7].key());
 }

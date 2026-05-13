@@ -1,9 +1,9 @@
 //! Public ATA derivation surface.
 //!
-//! The real PDA derivation implementation lands in the follow-up
-//! `spl-ata-address-derivation` feature. This foundation feature only
-//! establishes the package/module API shape so callers can import the
-//! names from `@import("spl_ata")`.
+//! ATA addresses are PDAs over canonical seeds:
+//! `wallet || token_program_id || mint`, derived under the ATA
+//! program id. Separate helpers are exposed for classic SPL Token and
+//! Token-2022, plus a generic form that accepts any token program id.
 
 const std = @import("std");
 const sol = @import("solana_program_sdk");

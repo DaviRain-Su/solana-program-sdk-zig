@@ -16,27 +16,31 @@ const spl_ata = @import("spl_ata");
 const ata = spl_ata.findAddress(&wallet, &mint, &token_program_id);
 
 // On-chain: create the ATA via CPI
-try spl_ata.cpi.createIdempotent(.{
-    .payer = payer,
-    .ata = ata_account,
-    .wallet = wallet,
-    .mint = mint,
-    .system_program = sp,
-    .token_program = tp,
-});
+try spl_ata.cpi.createIdempotent(
+    payer,
+    ata_account,
+    wallet,
+    mint,
+    sp,
+    tp,
+    ata_program,
+);
 
 // Off-chain: build the ix bytes
-const ix = spl_ata.instruction.createIdempotent(.{
-    .payer = payer_pubkey,
-    .wallet = wallet_pubkey,
-    .mint = mint_pubkey,
-    .token_program = token_program_id,
-});
+var scratch: spl_ata.instruction.Scratch(spl_ata.instruction.create_idempotent_spec) = undefined;
+const ix = spl_ata.instruction.createIdempotent(
+    &payer_pubkey,
+    &wallet_pubkey,
+    &mint_pubkey,
+    &sol.system_program_id,
+    &token_program_id,
+    &scratch,
+);
 ```
 
 ## Implemented scope
 
 - ATA PDA derivation for both classic SPL Token and Token-2022.
-- `create` / `createIdempotent` instruction builders.
-- On-chain CPI wrappers for ATA creation.
+- `create` / `createIdempotent` / `recoverNested` instruction builders.
+- On-chain CPI wrappers for ATA creation and nested-account recovery.
 - Real Mollusk integration coverage via `program-test/tests/spl_ata.rs`.

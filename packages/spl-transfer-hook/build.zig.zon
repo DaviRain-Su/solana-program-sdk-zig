@@ -1,0 +1,17 @@
+.{
+    .fingerprint = 0xc42a6d8ac180f45a,
+    .name = .spl_transfer_hook,
+    .version = "0.1.0",
+    .minimum_zig_version = "0.16.0",
+
+    .dependencies = .{
+        .solana_program_sdk = .{ .path = "../.." },
+    },
+
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "README.md",
+    },
+}

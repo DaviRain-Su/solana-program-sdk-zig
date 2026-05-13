@@ -34,6 +34,7 @@ Reproduce: `./scripts/bench.sh` from the repo root. Requires
 | `spl_token_initialize_multisig` | 1180 |
 | `spl_token_initialize_multisig2` | 1150 |
 | `spl_token_batch_transfer_checked` | 1239 |
+| `spl_token_batch_transfer_checked_prepared` | 1209 |
 | `token_dispatch_transfer` (current path)   |   37 |
 | `token_dispatch_burn` (current path)       |   36 |
 | `token_dispatch_mint` (current path)       |   34 |
@@ -99,7 +100,10 @@ comes from:
   `transfer_checked_multisig` and `approve_checked_multisig`, **1208 CU**
   for the non-checked `burn_multisig`, **1180 CU** for legacy
   `initialize_multisig`, and **1150 CU** for `initialize_multisig2`.
-- The new `batch_transfer_checked` wrapper-only benchmark lands at
-  **1239 CU** for a two-child `TransferChecked` envelope against the
-  no-op callee, giving the batch staging path a fixed reference point for
-  future optimization work.
+- The `batch_transfer_checked` wrapper-only benchmark lands at **1239 CU**
+  for a two-child `TransferChecked` envelope against the no-op callee.
+- The new lower-level `batch_transfer_checked_prepared` fast path lands at
+  **1209 CU**, saving **30 CU** by letting the caller provide the fully
+  prepared runtime-account slice (with the token program already appended)
+  and therefore skipping the extra runtime-account staging memcpy inside
+  `spl_token.cpi.batch(...)`.

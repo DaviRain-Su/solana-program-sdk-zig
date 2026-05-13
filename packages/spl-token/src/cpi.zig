@@ -150,6 +150,17 @@ fn stageBatchRuntimeAccounts(
     return invoke_accounts_out[0 .. child_runtime_accounts.len + 1];
 }
 
+inline fn validatePreparedBatchRuntimeAccounts(
+    required_child_accounts: usize,
+    invoke_accounts: []const CpiAccountInfo,
+    token_program: CpiAccountInfo,
+) ProgramError!void {
+    if (invoke_accounts.len != required_child_accounts + 1) return error.InvalidArgument;
+    if (!sol.pubkey.pubkeyEq(invoke_accounts[invoke_accounts.len - 1].key(), token_program.key())) {
+        return error.InvalidArgument;
+    }
+}
+
 // =============================================================================
 // Transfer
 // =============================================================================
@@ -1640,6 +1651,54 @@ pub inline fn batchSignedSingle(
     try sol.cpi.invokeSignedSingle(&ix, invoke_accounts, signer_seeds);
 }
 
+/// Lower-level fast path for `batch` when the caller already has the fully
+/// flattened runtime-account slice prepared with `token_program` appended last.
+pub inline fn batchPrepared(
+    token_program: CpiAccountInfo,
+    entries: []const BatchEntry,
+    invoke_accounts: []const CpiAccountInfo,
+    metas: []AccountMeta,
+    data: []u8,
+) ProgramResult {
+    const ix = instruction.batchEntriesForProgram(token_program.key(), entries, metas, data) catch |err| {
+        return mapBatchInstructionError(err);
+    };
+    try validatePreparedBatchRuntimeAccounts(ix.accounts.len, invoke_accounts, token_program);
+    try sol.cpi.invokeRaw(&ix, invoke_accounts);
+}
+
+/// Signed-authority variant of `batchPrepared`.
+pub inline fn batchPreparedSigned(
+    token_program: CpiAccountInfo,
+    entries: []const BatchEntry,
+    invoke_accounts: []const CpiAccountInfo,
+    metas: []AccountMeta,
+    data: []u8,
+    signers: []const Signer,
+) ProgramResult {
+    const ix = instruction.batchEntriesForProgram(token_program.key(), entries, metas, data) catch |err| {
+        return mapBatchInstructionError(err);
+    };
+    try validatePreparedBatchRuntimeAccounts(ix.accounts.len, invoke_accounts, token_program);
+    try sol.cpi.invokeSignedRaw(&ix, invoke_accounts, signers);
+}
+
+/// Single-signer-seeds fast path for `batchPreparedSigned`.
+pub inline fn batchPreparedSignedSingle(
+    token_program: CpiAccountInfo,
+    entries: []const BatchEntry,
+    invoke_accounts: []const CpiAccountInfo,
+    metas: []AccountMeta,
+    data: []u8,
+    signer_seeds: anytype,
+) ProgramResult {
+    const ix = instruction.batchEntriesForProgram(token_program.key(), entries, metas, data) catch |err| {
+        return mapBatchInstructionError(err);
+    };
+    try validatePreparedBatchRuntimeAccounts(ix.accounts.len, invoke_accounts, token_program);
+    try sol.cpi.invokeSignedSingle(&ix, invoke_accounts, signer_seeds);
+}
+
 /// Invoke `SyncNative` via CPI.
 pub fn syncNative(
     token_program: CpiAccountInfo,
@@ -1956,6 +2015,9 @@ test "spl-token cpi: public v0.3 wrapper decls exist" {
         "batch",
         "batchSigned",
         "batchSignedSingle",
+        "batchPrepared",
+        "batchPreparedSigned",
+        "batchPreparedSignedSingle",
         "syncNative",
         "getAccountDataSize",
         "initializeImmutableOwner",
@@ -2722,6 +2784,38 @@ test "spl-token cpi: new signed raw wrappers use host fallback" {
             batch_metas[0..],
             batch_data[0..],
             &.{signer},
+        ),
+    );
+    try std.testing.expectError(
+        error.InvalidArgument,
+        batchPrepared(
+            token_program,
+            &batch_entries,
+            &.{ source, mint, destination, authority, token_program },
+            batch_metas[0..],
+            batch_data[0..],
+        ),
+    );
+    try std.testing.expectError(
+        error.InvalidArgument,
+        batchPreparedSigned(
+            token_program,
+            &batch_entries,
+            &.{ source, mint, destination, authority, token_program },
+            batch_metas[0..],
+            batch_data[0..],
+            &.{signer},
+        ),
+    );
+    try std.testing.expectError(
+        error.InvalidArgument,
+        batchPreparedSignedSingle(
+            token_program,
+            &batch_entries,
+            &.{ source, mint, destination, authority, token_program },
+            batch_metas[0..],
+            batch_data[0..],
+            .{ "batch", &[_]u8{253} },
         ),
     );
 }

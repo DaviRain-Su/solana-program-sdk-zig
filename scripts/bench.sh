@@ -78,6 +78,7 @@ BENCHES=(
     "spl_token_initialize_multisig"
     "spl_token_initialize_multisig2"
     "spl_token_batch_transfer_checked"
+    "spl_token_batch_transfer_checked_prepared"
     "token_dispatch_transfer"
     "token_dispatch_burn"
     "token_dispatch_mint"

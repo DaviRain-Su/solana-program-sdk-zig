@@ -86,6 +86,7 @@ fn print_usage(prog: &str) {
         "spl_token_initialize_multisig",
         "spl_token_initialize_multisig2",
         "spl_token_batch_transfer_checked",
+        "spl_token_batch_transfer_checked_prepared",
     ] {
         println!("  {}", name);
     }
@@ -233,6 +234,12 @@ async fn run_benchmark(name: &'static str) {
         "spl_token_batch_transfer_checked" => {
             run_spl_token_batch_transfer_checked_cpi_compare(
                 "benchmark_spl_token_batch_transfer_checked",
+            )
+            .await
+        }
+        "spl_token_batch_transfer_checked_prepared" => {
+            run_spl_token_batch_transfer_checked_cpi_compare(
+                "benchmark_spl_token_batch_transfer_checked_prepared",
             )
             .await
         }

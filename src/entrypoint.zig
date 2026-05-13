@@ -104,6 +104,37 @@ pub const InstructionContext = struct {
     // may pass the same account in more than one slot.
     // ---------------------------------------------------------------------
 
+    inline fn nextResolvedAccount(
+        self: *InstructionContext,
+        comptime seen_len: usize,
+        seen: *const [seen_len]AccountInfo,
+    ) ProgramError!AccountInfo {
+        if (self.remaining == 0) return error.NotEnoughAccountKeys;
+        self.remaining -= 1;
+        return self.nextResolvedAccountUnchecked(seen_len, seen);
+    }
+
+    inline fn nextResolvedAccountUnchecked(
+        self: *InstructionContext,
+        comptime seen_len: usize,
+        seen: *const [seen_len]AccountInfo,
+    ) AccountInfo {
+        const account_ptr: *account.Account = @ptrCast(@alignCast(self.buffer));
+
+        if (account_ptr.borrow_state == account.NON_DUP_MARKER) {
+            const acc: AccountInfo = .{ .raw = account_ptr };
+            const data_len: usize = @intCast(account_ptr.data_len);
+            self.buffer += @sizeOf(u64) + (@sizeOf(Account) - @sizeOf(u64)) + data_len + MAX_PERMITTED_DATA_INCREASE;
+            self.buffer = @ptrFromInt(alignPointer(@intFromPtr(self.buffer)));
+            self.buffer += @sizeOf(u64);
+            return acc;
+        }
+
+        const idx = account_ptr.borrow_state;
+        self.buffer += @sizeOf(u64);
+        return seen[idx];
+    }
+
     /// Dup-aware next-account. Returns `error.NotEnoughAccountKeys`
     /// when no accounts remain; otherwise returns `MaybeAccount`
     /// which the caller pattern-matches:
@@ -337,11 +368,7 @@ pub const InstructionContext = struct {
         // AccountInfo via a small parallel array.
         var seen: [names.len]AccountInfo = undefined;
         inline for (names, 0..) |name, i| {
-            const slot = try self.nextAccountMaybe();
-            const acc = switch (slot) {
-                .account => |a| a,
-                .duplicated => |idx| seen[idx],
-            };
+            const acc = try self.nextResolvedAccount(names.len, &seen);
             seen[i] = acc;
             @field(out, name) = acc;
         }
@@ -425,11 +452,7 @@ pub const InstructionContext = struct {
             const name = entry[0];
             const exp: AccountExpectation = entry[1];
 
-            const slot = try self.nextAccountMaybe();
-            const acc = switch (slot) {
-                .account => |a| a,
-                .duplicated => |idx| seen[idx],
-            };
+            const acc = try self.nextResolvedAccount(spec.len, &seen);
             seen[i] = acc;
 
             if (exp.signer and !acc.isSigner()) {

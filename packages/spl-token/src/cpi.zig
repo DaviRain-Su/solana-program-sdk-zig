@@ -1581,11 +1581,17 @@ pub fn closeAccountMultisig(
 
 /// Invoke the SPL Token batch instruction.
 ///
+/// High-level / ergonomic path for Batch CPI.
+///
 /// `entries` is the logical child-instruction list. `child_runtime_accounts`
 /// must be the fully-flattened child-account list in the same order as the
 /// concatenated `AccountMeta`s across every entry. `invoke_accounts_out`
 /// provides caller-owned scratch with room for all child accounts plus the
 /// token-program account appended at the end.
+///
+/// If the caller already owns the exact prepared invoke-account slice, prefer
+/// `batchPrepared` / `batchPreparedSigned` / `batchPreparedSignedSingle` to
+/// skip SDK-side runtime-account staging.
 /// Invoke the pinocchio-style `Batch` instruction via CPI.
 pub fn batch(
     token_program: CpiAccountInfo,
@@ -1608,6 +1614,7 @@ pub fn batch(
 }
 
 /// Signed-authority variant of `batch`.
+/// Ergonomic default when the caller wants SDK-side invoke-account staging.
 pub fn batchSigned(
     token_program: CpiAccountInfo,
     entries: []const BatchEntry,
@@ -1630,6 +1637,7 @@ pub fn batchSigned(
 }
 
 /// Single-signer-seeds fast path for `batchSigned`.
+/// Ergonomic default for the common 1-PDA case.
 pub inline fn batchSignedSingle(
     token_program: CpiAccountInfo,
     entries: []const BatchEntry,
@@ -1653,6 +1661,10 @@ pub inline fn batchSignedSingle(
 
 /// Lower-level fast path for `batch` when the caller already has the fully
 /// flattened runtime-account slice prepared with `token_program` appended last.
+///
+/// Use this when the caller is optimizing hot paths and can cheaply retain or
+/// reconstruct the exact invoke-account ordering itself. This avoids the local
+/// SDK-side runtime-account staging step that `batch` performs.
 pub inline fn batchPrepared(
     token_program: CpiAccountInfo,
     entries: []const BatchEntry,
@@ -1668,6 +1680,7 @@ pub inline fn batchPrepared(
 }
 
 /// Signed-authority variant of `batchPrepared`.
+/// Lower-overhead path when the caller already owns the prepared invoke slice.
 pub inline fn batchPreparedSigned(
     token_program: CpiAccountInfo,
     entries: []const BatchEntry,
@@ -1684,6 +1697,7 @@ pub inline fn batchPreparedSigned(
 }
 
 /// Single-signer-seeds fast path for `batchPreparedSigned`.
+/// Lowest-overhead local API for the common 1-PDA prepared-Batch case.
 pub inline fn batchPreparedSignedSingle(
     token_program: CpiAccountInfo,
     entries: []const BatchEntry,

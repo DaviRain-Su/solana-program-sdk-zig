@@ -32,6 +32,11 @@ Works against both **classic SPL Token** (`TokenkegQ…`) and
 wrappers take the token program account from the caller, so the
 same call site works for either by just passing the right program.
 
+For the current real-cluster Batch findings, see:
+
+- [`../../scripts/devnet-batch-proof/README.md`](../../scripts/devnet-batch-proof/README.md)
+- [`../../scripts/devnet-batch-proof/COST_ANALYSIS.md`](../../scripts/devnet-batch-proof/COST_ANALYSIS.md)
+
 ## Examples
 
 ### Basic transfer and checked transfer
@@ -146,6 +151,37 @@ try spl_token.cpi.approveCheckedMultisig(
 );
 ```
 
+### Batch and prepared batch
+
+```zig
+// High-level / ergonomic path: caller passes logical child entries plus
+// the flattened child runtime accounts.
+try spl_token.cpi.batch(
+    a.token_program.toCpiInfo(),
+    &entries,
+    child_runtime_accounts,
+    invoke_accounts_scratch,
+    batch_metas_scratch,
+    batch_data_scratch,
+);
+
+// Lower-overhead path: caller already owns the fully prepared invoke slice
+// with the token program appended last.
+try spl_token.cpi.batchPrepared(
+    a.token_program.toCpiInfo(),
+    &entries,
+    prepared_invoke_accounts,
+    batch_metas_scratch,
+    batch_data_scratch,
+);
+```
+
+Current positioning:
+
+- `batch*` = ergonomic, caller-friendly default
+- `batchPrepared*` = lower-overhead path when the caller already has the
+  exact flattened runtime-account layout and wants to skip SDK-side staging
+
 ### Utility return-data flows
 
 ```zig
@@ -251,7 +287,9 @@ Instructions:
 - `batch` (255)
   (p-token / Pinocchio-style concatenated child-instruction envelope;
   available as both `spl_token.instruction.batch(...)` and
-  `spl_token.cpi.batch(...)`)
+  `spl_token.cpi.batch(...)`, plus lower-level `spl_token.cpi.batchPrepared(...)`
+  / `batchPreparedSigned(...)` / `batchPreparedSignedSingle(...)` fast paths when
+  the caller already controls the flattened runtime-account slice)
 
 Authority-based operations include single-authority and explicit
 multisig builders/CPI variants where the SPL Token program supports
@@ -308,6 +346,12 @@ native in Zig.
   caller-supplied scratch buffer for the `AccountMeta` array and
   the instruction-data bytes, so the resulting `Instruction` can
   outlive the call without involving an allocator.
+- For Batch specifically, prefer `batch*` when ergonomics matter and
+  `batchPrepared*` when the caller already has the exact prepared invoke
+  account slice. Current devnet proofs show `batchPrepared*` consistently
+  saves local tens-of-CU staging cost versus `batch*`, but the larger net
+  Batch penalty appears to come from token-program-side Batch internals, not
+  primarily from this Zig wrapper layer.
 - Use `*Checked` variants whenever the caller knows the decimals —
   it eliminates an entire class of "wrong-mint" bugs and only costs
   a single extra byte over the wire + a tiny CU bump.

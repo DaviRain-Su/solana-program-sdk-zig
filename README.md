@@ -23,7 +23,7 @@ and can be depended on individually from outside the repo via
 | Package | Path | Target | Status | Purpose |
 |---|---|---|---|---|
 | **`solana_program_sdk`** | (repo root) | on-chain | ✅ released | Core SDK for writing Solana on-chain programs in Zig |
-| **`spl_token`** | `packages/spl-token` | dual (on-chain CPI + off-chain ix builder) | ✅ released (v0.3) | SPL Token client (transfer / authority / multisig / syncNative / …) |
+| **`spl_token`** | `packages/spl-token` | dual (on-chain CPI + off-chain ix builder) | ✅ released (v0.3) | SPL Token client (transfer / authority / multisig / syncNative / batch / …) |
 | **`spl_token_2022`** | `packages/spl-token-2022` | host + on-chain-safe parsing | ✅ released (v0.1 parsing-only) | Token-2022 TLV + fixed-length extension parsing |
 | **`spl_ata`** | `packages/spl-ata` | dual | ✅ released (v0.1) | Associated Token Account address derivation + create CPI |
 | **`spl_memo`** | `packages/spl-memo` | dual | ✅ released (v0.1) | SPL Memo program CPI |
@@ -62,6 +62,24 @@ instructions (−17 / −22 / −83 CU respectively). See
 [Performance](#performance) section for the methodology.
 
 [fork]: https://github.com/joncinque/solana-zig-bootstrap/releases/tag/solana-v1.53.0
+
+## SPL Token Batch note
+
+The repo now includes a real-cluster devnet proof for the `spl_token`
+`Batch` surface under [`scripts/devnet-batch-proof/`](./scripts/devnet-batch-proof).
+
+Current takeaway:
+
+- `Batch` works functionally on devnet and collapses `2` token invokes to `1`
+- `batchPrepared*` is the lower-overhead local API when the caller already
+  owns the flattened runtime-account slice
+- but the current devnet proofs do **not** show a net CU win versus lean
+  direct double-CPI baselines
+
+See:
+
+- [`scripts/devnet-batch-proof/README.md`](./scripts/devnet-batch-proof/README.md)
+- [`scripts/devnet-batch-proof/COST_ANALYSIS.md`](./scripts/devnet-batch-proof/COST_ANALYSIS.md)
 
 ## Quick start
 

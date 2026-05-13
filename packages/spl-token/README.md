@@ -1,8 +1,8 @@
 # spl-token (Zig)
 
-Status: ✅ **v0.1** — instruction builders + on-chain CPI helpers
-for the fungible-token subset. Validated against the real on-chain
-SPL Token program inside Mollusk
+Status: ✅ **v0.2** — instruction builders + on-chain CPI helpers
+for the fungible-token, authority, and multisig subset. Validated
+against the real on-chain SPL Token program inside Mollusk
 (see `program-test/tests/spl_token.rs`).
 
 Zig client for the [SPL Token](https://github.com/solana-program/token)
@@ -63,17 +63,26 @@ const mint = try spl_token.Mint.fromBytes(mint_account.data());
 const balance = (try spl_token.Account.fromBytes(token_account.data())).amount;
 ```
 
-## Scope (v0.1)
+## Scope (v0.2)
 
 Instructions:
 
 - `transfer` (3) / `transferChecked` (12)
+- `approve` (4) / `approveChecked` (13)
+- `revoke` (5)
+- `setAuthority` (6)
 - `mintTo` (7) / `mintToChecked` (14)
 - `burn` (8) / `burnChecked` (15)
 - `closeAccount` (9)
+- `freezeAccount` (10) / `thawAccount` (11)
 - `initializeMint2` (20) / `initializeAccount3` (18)
+- `initializeMultisig2` (19)
   (modern "2"/"3" variants — no Rent sysvar, owner/freeze authority
   passed in instruction data)
+
+Authority-based operations include single-authority and explicit
+multisig builders/CPI variants where the SPL Token program supports
+multisig signing.
 
 State (zero-copy `extern struct`):
 
@@ -81,14 +90,15 @@ State (zero-copy `extern struct`):
   `is_initialized` + `freeze_authority`
 - `Account` — 165 bytes, `mint` + `owner` + `amount` + `delegate` +
   `state` + `is_native` + `delegated_amount` + `close_authority`
+- `Multisig` — 355 bytes, `m`, `n`, `is_initialized` + up to 11 signer keys
 - `AccountState` enum (Uninitialized / Initialized / Frozen)
 
 ## Not yet covered
 
-Approve / Revoke / SetAuthority / FreezeAccount / ThawAccount /
-multisig flows / Token-2022 extension instructions. Add when there's
-a concrete consumer — these are mechanically the same patterns as
-above (single comptime instruction-data builder + CPI wrapper).
+Legacy Rent-sysvar initializers, `syncNative`, UI amount conversion /
+data-size helpers, and Token-2022 extension instructions. Add when
+there's a concrete consumer — these are mechanically the same patterns
+as above (single comptime instruction-data builder + CPI wrapper).
 
 ## Notes
 

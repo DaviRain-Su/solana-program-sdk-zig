@@ -420,6 +420,47 @@ pub fn createRentExempt(args: CreateRentExemptArgs) ProgramResult {
     );
 }
 
+inline fn comptimeRentExemptLamports(comptime space: u64) u64 {
+    const rent_mod = @import("rent.zig");
+    return comptime blk: {
+        const total: u64 = rent_mod.Rent.account_storage_overhead + space;
+        break :blk total * rent_mod.Rent.default_lamports_per_byte_year * 2;
+    };
+}
+
+/// Comptime rent-exempt account creation with no PDA signers.
+///
+/// Same comptime rent-folding win as `createRentExemptComptimeRaw` /
+/// `createRentExemptComptimeSingle`, but for the common plain-keypair
+/// account-creation case.
+///
+/// ```zig
+/// try sol.system.createRentExemptComptime(.{
+///     .payer = a.payer,
+///     .new_account = a.vault,
+///     .system_program = a.system_program,
+///     .owner = &MY_PROGRAM_ID,
+/// }, @sizeOf(VaultState));
+/// ```
+pub fn createRentExemptComptime(
+    args: struct {
+        payer: CpiAccountInfo,
+        new_account: CpiAccountInfo,
+        system_program: CpiAccountInfo,
+        owner: *const Pubkey,
+    },
+    comptime space: u64,
+) ProgramResult {
+    return createAccount(
+        args.payer,
+        args.new_account,
+        args.system_program,
+        comptimeRentExemptLamports(space),
+        space,
+        args.owner,
+    );
+}
+
 /// Comptime rent-exempt account creation with pre-built PDA signers.
 ///
 /// `space` is a `comptime` parameter so the rent-exempt minimum
@@ -454,18 +495,11 @@ pub fn createRentExemptComptimeRaw(
     comptime space: u64,
     signers: []const cpi.Signer,
 ) ProgramResult {
-    const rent_mod = @import("rent.zig");
-    // Comptime-folded: (128 + space) * 3480 * 2.
-    const lamports: u64 = comptime blk: {
-        const total: u64 = rent_mod.Rent.account_storage_overhead + space;
-        break :blk total * rent_mod.Rent.default_lamports_per_byte_year * 2;
-    };
-
     return createAccountSignedRaw(
         args.payer,
         args.new_account,
         args.system_program,
-        lamports,
+        comptimeRentExemptLamports(space),
         space,
         args.owner,
         signers,
@@ -496,17 +530,11 @@ pub inline fn createRentExemptComptimeSingle(
     comptime space: u64,
     signer_seeds: anytype,
 ) ProgramResult {
-    const rent_mod = @import("rent.zig");
-    const lamports: u64 = comptime blk: {
-        const total: u64 = rent_mod.Rent.account_storage_overhead + space;
-        break :blk total * rent_mod.Rent.default_lamports_per_byte_year * 2;
-    };
-
     return createAccountSignedSingle(
         args.payer,
         args.new_account,
         args.system_program,
-        lamports,
+        comptimeRentExemptLamports(space),
         space,
         args.owner,
         signer_seeds,

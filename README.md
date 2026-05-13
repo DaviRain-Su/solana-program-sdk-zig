@@ -429,7 +429,10 @@ opt-in and composable with the raw `[*]u8` entrypoint:
 - **`system.createRentExempt(...)`** — one-call account creation that
   pulls the rent-exempt minimum from the Rent sysvar and forwards to
   `system.createAccount` (or `createAccountSigned` when you provide
-  `signer_seeds`).
+  `signer_seeds`). For comptime-known sizes, also see
+  `system.createRentExemptComptime(...)`,
+  `createRentExemptComptimeRaw(...)`, and
+  `createRentExemptComptimeSingle(...)`.
 
 - **`pda.verifyPda(key, seeds, bump, program_id)`** — Anchor's
   `seeds = [...], bump = state.bump` equivalent. Asserts that a
@@ -663,6 +666,7 @@ came from three measurable, named optimizations:
    (the typical case — `@sizeOf(MyState)`), the rent-exempt minimum
    balance can be folded into a single u64 immediate at build time,
    eliminating the `sol_get_rent_sysvar` syscall entirely. The new
+   `system.createRentExemptComptime(args, comptime space)`,
    `system.createRentExemptComptimeRaw(args, comptime space, signers)`
    is the entry point — see `examples/vault.zig` for the call shape.
 

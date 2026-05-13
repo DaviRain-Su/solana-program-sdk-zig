@@ -46,6 +46,7 @@ pub const id = @import("id.zig");
 pub const state = @import("state.zig");
 pub const instruction = @import("instruction.zig");
 pub const return_data = @import("return_data.zig");
+pub const ui_amount = @import("ui_amount.zig");
 pub const cpi = @import("cpi.zig");
 
 /// Classic SPL Token program ID.

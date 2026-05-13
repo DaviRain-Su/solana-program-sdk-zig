@@ -71,6 +71,11 @@ var return_buf: [16]u8 = undefined;
 const returned = sol.cpi.getReturnData(return_buf[0..]) orelse return error.InvalidInstructionData;
 const account_size = try spl_token.return_data.parseGetAccountDataSizeReturn(returned);
 
+// Local zero-allocation UI-amount formatting/parsing:
+var ui_buf: [spl_token.ui_amount.MAX_FORMATTED_UI_AMOUNT_LEN]u8 = undefined;
+const ui = try spl_token.ui_amount.amountToUiAmountStringTrimmed(1_230_000, 6, ui_buf[0..]);
+const parsed_amount = try spl_token.ui_amount.tryUiAmountIntoAmount(ui, 6);
+
 // ──────────── Zero-copy state views ────────────
 const mint = try spl_token.Mint.fromBytes(mint_account.data());
 const balance = (try spl_token.Account.fromBytes(token_account.data())).amount;
@@ -100,6 +105,8 @@ Instructions:
   (`getAccountDataSize`, `amountToUiAmount`, and `uiAmountToAmount`
   return their answers via `sol.cpi.getReturnData(...)` after CPI;
   decode them with `spl_token.return_data.*` helpers)
+- local zero-allocation UI amount helpers via `spl_token.ui_amount.*`
+  for formatting / parsing amounts without CPI
 - `batch` (255)
   (p-token / Pinocchio-style concatenated child-instruction envelope;
   available as both `spl_token.instruction.batch(...)` and

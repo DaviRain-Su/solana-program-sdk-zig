@@ -69,6 +69,8 @@ BENCHES=(
     "program_entry_lazy_1"
     "transfer_lamports"
     "transfer_lamports_raw"
+    "create_rent_exempt"
+    "create_rent_exempt_comptime"
     "spl_token_mint_to_checked_signed"
     "spl_token_mint_to_checked_signed_single"
     "spl_token_mint_to_checked_multisig"

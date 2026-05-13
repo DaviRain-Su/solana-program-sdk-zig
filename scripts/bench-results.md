@@ -25,6 +25,8 @@ Reproduce: `./scripts/bench.sh` from the repo root. Requires
 | `program_entry_lazy_1` (lazy)      |   10 |
 | `transfer_lamports`                |   23 |
 | `transfer_lamports_raw`            |   22 |
+| `create_rent_exempt`               | 1419 |
+| `create_rent_exempt_comptime`      | 1252 |
 | `spl_token_mint_to_checked_signed` | 1136 |
 | `spl_token_mint_to_checked_signed_single` | 1134 |
 | `spl_token_mint_to_checked_multisig` | 1209 |
@@ -92,6 +94,10 @@ comes from:
 
 ## SPL Token CPI notes
 
+- `create_rent_exempt_comptime` lands at **1252 CU** versus
+  **1419 CU** for the runtime-rent `create_rent_exempt` helper,
+  confirming a direct **167 CU** saving from baking the rent-exempt
+  minimum at build time even on the plain no-signer account-creation path.
 - `mint_to_checked_signed_single` remains just 2 CU cheaper than
   `mint_to_checked_signed`, confirming the single-PDA path is mostly an
   ergonomics improvement for already-raw wrappers.

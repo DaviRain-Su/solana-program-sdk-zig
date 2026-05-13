@@ -77,6 +77,8 @@ fn print_usage(prog: &str) {
         "program_entry_lazy_1",
         "transfer_lamports",
         "transfer_lamports_raw",
+        "create_rent_exempt",
+        "create_rent_exempt_comptime",
         "spl_token_mint_to_checked_signed",
         "spl_token_mint_to_checked_signed_single",
         "spl_token_mint_to_checked_multisig",
@@ -242,6 +244,13 @@ async fn run_benchmark(name: &'static str) {
                 "benchmark_spl_token_batch_transfer_checked_prepared",
             )
             .await
+        }
+
+        "create_rent_exempt" => {
+            run_create_rent_exempt_primitive("benchmark_create_rent_exempt").await
+        }
+        "create_rent_exempt_comptime" => {
+            run_create_rent_exempt_primitive("benchmark_create_rent_exempt_comptime").await
         }
 
         // Primitives: pubkey_*, pda_*, parse_*, transfer_*
@@ -1096,6 +1105,30 @@ async fn run_token_dispatch(program_name: &'static str, tag: u32, amount: u64) {
     match banks_client.process_transaction(tx).await {
         Ok(()) => println!("token_dispatch tag={} succeeded", tag),
         Err(e) => println!("token_dispatch tag={} failed: {}", tag, e),
+    }
+}
+
+async fn run_create_rent_exempt_primitive(program_name: &'static str) {
+    let program_id = Pubkey::from_str(BENCH_PROGRAM_ID).unwrap();
+    let pt = ProgramTest::new(program_name, program_id, None);
+    let new_account = Keypair::new();
+
+    let (banks_client, payer, recent_blockhash) = pt.start().await;
+
+    let accounts = vec![
+        AccountMeta::new(payer.pubkey(), true),
+        AccountMeta::new(new_account.pubkey(), true),
+        AccountMeta::new_readonly(system_program::ID, false),
+    ];
+
+    let mut tx = Transaction::new_with_payer(
+        &[Instruction::new_with_bytes(program_id, &[], accounts)],
+        Some(&payer.pubkey()),
+    );
+    tx.sign(&[&payer, &new_account], recent_blockhash);
+    match banks_client.process_transaction(tx).await {
+        Ok(()) => println!("create_rent_exempt {} succeeded", program_name),
+        Err(e) => println!("create_rent_exempt {} failed: {}", program_name, e),
     }
 }
 

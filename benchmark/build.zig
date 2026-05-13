@@ -36,6 +36,8 @@ pub fn build(b: *std.Build) !void {
         .{ "benchmark_program_entry_lazy_1", "program_entry_lazy_1.zig" },
         .{ "benchmark_transfer_lamports", "transfer_lamports.zig" },
         .{ "benchmark_transfer_lamports_raw", "transfer_lamports_raw.zig" },
+        .{ "benchmark_create_rent_exempt", "create_rent_exempt.zig" },
+        .{ "benchmark_create_rent_exempt_comptime", "create_rent_exempt_comptime.zig" },
         .{ "example_vault", "../examples/vault.zig" },
         .{ "example_token_dispatch", "../examples/token_dispatch.zig" },
         .{ "example_hello", "../examples/hello.zig" },

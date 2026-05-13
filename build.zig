@@ -38,6 +38,8 @@ pub fn build(b: *std.Build) void {
             "counter",
             "vault",
             "escrow",
+            "mock_router",
+            "mock_adapter",
             "token_dispatch",
             "cpi",
             "pubkey",

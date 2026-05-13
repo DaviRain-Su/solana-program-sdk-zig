@@ -16,6 +16,8 @@ pub fn build(b: *std.Build) !void {
         .{ "example_counter", "../examples/counter.zig" },
         .{ "example_vault", "../examples/vault.zig" },
         .{ "example_escrow", "../examples/escrow.zig" },
+        .{ "example_mock_router", "../examples/mock_router.zig" },
+        .{ "example_mock_adapter", "../examples/mock_adapter.zig" },
     };
 
     inline for (programs) |p| {

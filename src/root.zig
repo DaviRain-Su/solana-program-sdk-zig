@@ -187,6 +187,8 @@ const mock_only_source_paths = [_][]const u8{
     "examples/vault.zig",
     "examples/escrow.zig",
     "examples/counter.zig",
+    "examples/mock_router.zig",
+    "examples/mock_adapter.zig",
     "program-test/build.zig",
     "program-test/tests/hello.rs",
     "program-test/tests/token_2022.rs",
@@ -197,6 +199,7 @@ const mock_only_source_paths = [_][]const u8{
     "program-test/tests/pubkey.rs",
     "program-test/tests/cpi.rs",
     "program-test/tests/spl_memo.rs",
+    "program-test/tests/mock_router.rs",
 };
 
 const banned_offchain_terms = [_][]const u8{

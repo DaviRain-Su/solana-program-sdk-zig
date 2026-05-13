@@ -27,7 +27,7 @@ and can be depended on individually from outside the repo via
 | **`spl_token_2022`** | `packages/spl-token-2022` | host + on-chain-safe parsing | ✅ released (v0.1 parsing-only) | Token-2022 TLV + fixed-length extension parsing |
 | **`spl_ata`** | `packages/spl-ata` | dual | ✅ released (v0.1) | Associated Token Account address derivation + create CPI |
 | **`spl_memo`** | `packages/spl-memo` | dual | ✅ released (v0.1) | SPL Memo program CPI |
-| **`spl_transfer_hook`** | `packages/spl-transfer-hook` | on-chain/interface | 🚧 v0.1 scaffold | SPL Transfer Hook package wiring, import guards, and future interface namespace |
+| **`spl_transfer_hook`** | `packages/spl-transfer-hook` | on-chain/interface | 🚧 v0.1 interface-core | SPL Transfer Hook instruction interface: canonical discriminators, validation PDA helper, raw `ExtraAccountMeta` helpers, and tested builders/parsers |
 | *(future)* `solana_client` | `packages/solana-client` | off-chain | 🔮 idea | RPC client for off-chain code |
 | *(future)* `solana_tx` | `packages/solana-tx` | off-chain | 🔮 idea | Off-chain transaction construction + signing |
 
@@ -42,9 +42,10 @@ and can be depended on individually from outside the repo via
    raw instruction bytes plus optional `cpi.zig` wrappers), while
    parsing-only packages such as `spl_token_2022` expose read-only
    state / TLV views without instruction-builder or CPI APIs in v0.1.
-   Interface-only scaffolds such as `spl_transfer_hook` keep the
-   public surface explicitly on-chain/package scoped and avoid
-   off-chain RPC / transaction / keypair namespaces.
+   Interface-focused packages such as `spl_transfer_hook` keep the
+   public surface explicitly on-chain/package scoped, expose canonical
+   instruction/discriminator and raw meta helpers, and avoid off-chain
+   RPC / transaction / keypair namespaces.
 3. Other `solana_*` packages (planned) are **strictly off-chain** —
    RPC clients, key management, host-side transaction tooling.
 

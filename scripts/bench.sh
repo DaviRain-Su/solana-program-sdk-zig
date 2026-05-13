@@ -71,6 +71,7 @@ BENCHES=(
     "transfer_lamports_raw"
     "spl_token_mint_to_checked_signed"
     "spl_token_mint_to_checked_signed_single"
+    "spl_token_mint_to_checked_multisig"
     "token_dispatch_transfer"
     "token_dispatch_burn"
     "token_dispatch_mint"

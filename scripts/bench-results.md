@@ -27,6 +27,7 @@ Reproduce: `./scripts/bench.sh` from the repo root. Requires
 | `transfer_lamports_raw`            |   22 |
 | `spl_token_mint_to_checked_signed` | 1136 |
 | `spl_token_mint_to_checked_signed_single` | 1134 |
+| `spl_token_mint_to_checked_multisig` | 1239 |
 | `token_dispatch_transfer` (current path)   |   37 |
 | `token_dispatch_burn` (current path)       |   36 |
 | `token_dispatch_mint` (current path)       |   34 |
@@ -81,3 +82,12 @@ comes from:
   typed ix-data length-check/bind path as the main remaining cost.
 - The current end-to-end path adds another ~2 CU on top of `bind_only`,
   largely from the fully safe account-consumption bookkeeping.
+
+## SPL Token CPI notes
+
+- `mint_to_checked_signed_single` remains just 2 CU cheaper than
+  `mint_to_checked_signed`, confirming the single-PDA path is mostly an
+  ergonomics improvement for already-raw wrappers.
+- A new wrapper-only multisig benchmark (`mint_to_checked_multisig`
+  against the no-op callee) lands at **1239 CU** after collapsing the
+  signer-pubkey extraction and runtime-account staging into one pass.

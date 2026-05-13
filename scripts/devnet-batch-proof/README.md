@@ -39,6 +39,8 @@ One deployed Zig program compares five path families:
 
 The script creates fresh devnet mints + token accounts, initializes the proof PDA when needed, sends every instruction, and prints:
 
+For a deeper attribution write-up, see [`COST_ANALYSIS.md`](./COST_ANALYSIS.md).
+
 - transaction signature
 - `meta.computeUnitsConsumed`
 - number of token-program invoke log lines
@@ -131,3 +133,9 @@ Current deltas vs the direct double-CPI baseline:
 - router-style stateful swap `TransferChecked`: `batch +678 CU`, `batchPrepared +619 CU`
 
 So the repo can now reproduce the **one-invoke batch shape** on a real cluster across plain, mixed-signer, two-mint swap, and **stateful router-style** wrappers. Even after adding program-owned config validation and mutable swap counters around the token flow, these devnet proofs still do **not** reproduce the CU win claimed by more complex p-token / AMM-style examples.
+
+See [`COST_ANALYSIS.md`](./COST_ANALYSIS.md) for the breakdown showing that:
+
+- local `batchPrepared*` only saves tens of CU over `batch*`
+- Tokenkeg's inner Batch execution is already ~`+217` to `+242` CU above the sum of the direct child transfers
+- the remaining penalty is shared between token-program Batch internals and caller-side residual cost, not primarily the Zig wrapper itself

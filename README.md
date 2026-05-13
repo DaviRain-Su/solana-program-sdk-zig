@@ -24,6 +24,7 @@ and can be depended on individually from outside the repo via
 |---|---|---|---|---|
 | **`solana_program_sdk`** | (repo root) | on-chain | ✅ released | Core SDK for writing Solana on-chain programs in Zig |
 | **`spl_token`** | `packages/spl-token` | dual (on-chain CPI + off-chain ix builder) | ✅ released (v0.2) | SPL Token client (transfer / authority / multisig / …) |
+| **`spl_token_2022`** | `packages/spl-token-2022` | host + on-chain-safe parsing | ✅ released (v0.1 parsing-only) | Token-2022 TLV + fixed-length extension parsing |
 | **`spl_ata`** | `packages/spl-ata` | dual | ✅ released (v0.1) | Associated Token Account address derivation + create CPI |
 | **`spl_memo`** | `packages/spl-memo` | dual | ✅ released (v0.1) | SPL Memo program CPI |
 | *(future)* `solana_client` | `packages/solana-client` | off-chain | 🔮 idea | RPC client for off-chain code |
@@ -34,11 +35,12 @@ and can be depended on individually from outside the repo via
 1. Packages containing `program` (e.g. `solana_program_sdk`) are
    **strictly on-chain** — they use `sol_*` syscalls and only build
    under the `sbf` / `bpfel` targets.
-2. Packages starting with `spl_` are **dual-target**: the
-   `instruction.zig` submodule builds raw instruction bytes (usable
-   both on-chain via the SDK's CPI helpers, and off-chain as part of
-   a host-built transaction), while `cpi.zig` adds an on-chain
-   convenience wrapper.
+2. Packages starting with `spl_` usually expose **shared byte-level
+   program surfaces**. Client packages such as `spl_token`,
+   `spl_ata`, and `spl_memo` are dual-target (`instruction.zig` for
+   raw instruction bytes plus optional `cpi.zig` wrappers), while
+   parsing-only packages such as `spl_token_2022` expose read-only
+   state / TLV views without instruction-builder or CPI APIs in v0.1.
 3. Other `solana_*` packages (planned) are **strictly off-chain** —
    RPC clients, key management, host-side transaction tooling.
 
@@ -66,6 +68,7 @@ tar -xjf zig-aarch64-macos-none.tar.bz2
 export SOLANA_ZIG="$(pwd)/zig-aarch64-macos-none-baseline/zig"
 
 # Run tests
+"$SOLANA_ZIG" build --build-file packages/spl-token-2022/build.zig test --summary all
 "$SOLANA_ZIG" build test --summary all
 ./program-test/test.sh "$SOLANA_ZIG"
 ```
@@ -1244,6 +1247,9 @@ zig version
 ## Tests
 
 ```console
+# Token-2022 package host tests (any Zig 0.16)
+zig build --build-file packages/spl-token-2022/build.zig test --summary all
+
 # Host unit tests (any Zig 0.16)
 zig build test --summary all
 

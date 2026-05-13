@@ -1,4 +1,7 @@
 const std = @import("std");
+const program_error = @import("program_error.zig");
+
+const ProgramError = program_error.ProgramError;
 
 /// Helper for no-alloc instruction data serialization.
 ///
@@ -398,6 +401,52 @@ pub const IxDataCursor = struct {
     }
 };
 
+/// Caller-buffer-backed instruction-data staging.
+///
+/// Appends raw bytes and little-endian integers into a fixed caller
+/// buffer while exposing only the initialized prefix via `written()`.
+pub const IxDataStaging = struct {
+    buf: []u8,
+    len: usize = 0,
+
+    const Self = @This();
+
+    pub inline fn init(buf: []u8) Self {
+        return .{ .buf = buf };
+    }
+
+    pub inline fn reset(self: *Self) void {
+        self.len = 0;
+    }
+
+    pub inline fn written(self: *const Self) []const u8 {
+        return self.buf[0..self.len];
+    }
+
+    pub inline fn appendBytes(self: *Self, bytes: []const u8) ProgramError!void {
+        if (self.buf.len - self.len < bytes.len) return error.InvalidArgument;
+        @memcpy(self.buf[self.len..][0..bytes.len], bytes);
+        self.len += bytes.len;
+    }
+
+    pub inline fn writeIntLittleEndian(
+        self: *Self,
+        comptime T: type,
+        value: T,
+    ) ProgramError!void {
+        comptime {
+            if (@typeInfo(T) != .int) {
+                @compileError("IxDataStaging.writeIntLittleEndian requires an integer type");
+            }
+        }
+
+        const size = @sizeOf(T);
+        if (self.buf.len - self.len < size) return error.InvalidArgument;
+        std.mem.writeInt(T, self.buf[self.len..][0..size], value, .little);
+        self.len += size;
+    }
+};
+
 // =============================================================================
 // Tests
 // =============================================================================
@@ -550,9 +599,20 @@ test "instruction: IxDataCursor stores only slice and offset" {
 test "instruction: IxDataCursor reads little-endian integers and advances only on success" {
     const data = [_]u8{
         0xff,
-        0x34, 0x12,
-        0x78, 0x56, 0x34, 0x12,
-        0xef, 0xcd, 0xab, 0x90, 0x78, 0x56, 0x34, 0x12,
+        0x34,
+        0x12,
+        0x78,
+        0x56,
+        0x34,
+        0x12,
+        0xef,
+        0xcd,
+        0xab,
+        0x90,
+        0x78,
+        0x56,
+        0x34,
+        0x12,
     };
 
     var cursor = IxDataCursor.init(data[1..]);
@@ -620,7 +680,8 @@ test "instruction: IxDataCursor count and segment helpers rollback on failure" {
     const payload = [_]u8{
         4,
         2,
-        0xaa, 0xbb,
+        0xaa,
+        0xbb,
         0xcc,
     };
     var payload_cursor = IxDataCursor.init(&payload);
@@ -660,4 +721,51 @@ test "instruction: IxDataCursor expectEnd rejects trailing bytes without advanci
     try std.testing.expectError(error.InvalidInstructionData, trailing.expectEnd());
     try std.testing.expectEqual(before, trailing.offset());
     try std.testing.expectEqual(@as(usize, 1), trailing.remaining());
+}
+
+test "instruction: IxDataStaging writes little-endian payloads and raw bytes" {
+    var backing: [16]u8 = .{0xcc} ** 16;
+    var staging = IxDataStaging.init(backing[0..]);
+
+    try std.testing.expectEqual(@as(usize, 0), staging.written().len);
+
+    try staging.writeIntLittleEndian(u16, 0x1234);
+    try staging.writeIntLittleEndian(u32, 0x90abcdef);
+    try staging.appendBytes(&.{ 0xaa, 0xbb, 0xcc });
+
+    try std.testing.expectEqual(@as(usize, 9), staging.written().len);
+    try std.testing.expectEqualSlices(
+        u8,
+        &.{ 0x34, 0x12, 0xef, 0xcd, 0xab, 0x90, 0xaa, 0xbb, 0xcc },
+        staging.written(),
+    );
+    try std.testing.expectEqual(@as(u8, 0xcc), backing[9]);
+}
+
+test "instruction: IxDataStaging capacity failures rollback logical length and reset reuses buffer" {
+    var zero_backing: [0]u8 = .{};
+    var zero = IxDataStaging.init(zero_backing[0..]);
+    try std.testing.expectError(error.InvalidArgument, zero.appendBytes(&.{0x01}));
+    try std.testing.expectEqual(@as(usize, 0), zero.written().len);
+
+    var backing: [4]u8 = .{0xee} ** 4;
+    var staging = IxDataStaging.init(backing[0..]);
+
+    try staging.writeIntLittleEndian(u16, 0x4321);
+    try std.testing.expectEqualSlices(u8, &.{ 0x21, 0x43 }, staging.written());
+
+    try std.testing.expectError(
+        error.InvalidArgument,
+        staging.writeIntLittleEndian(u32, 0x12345678),
+    );
+    try std.testing.expectEqual(@as(usize, 2), staging.written().len);
+    try std.testing.expectEqualSlices(u8, &.{ 0x21, 0x43 }, staging.written());
+
+    staging.reset();
+    try std.testing.expectEqual(@as(usize, 0), staging.written().len);
+
+    try staging.appendBytes(&.{ 0xaa, 0xbb, 0xcc, 0xdd });
+    try std.testing.expectEqualSlices(u8, &.{ 0xaa, 0xbb, 0xcc, 0xdd }, staging.written());
+    try std.testing.expectError(error.InvalidArgument, staging.appendBytes(&.{0xee}));
+    try std.testing.expectEqualSlices(u8, &.{ 0xaa, 0xbb, 0xcc, 0xdd }, staging.written());
 }

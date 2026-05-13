@@ -316,6 +316,96 @@ pub fn stageDynamicAccountsWithPubkeys(
     };
 }
 
+/// Caller-buffer-backed CPI staging for dynamic account metas and
+/// runtime account infos.
+///
+/// The first `accountMetas().len` entries of `accountInfos()` always
+/// correspond to the same staged input accounts in the same order.
+/// `appendProgram` explicitly adds a runtime-only trailing program
+/// account for `invoke*` calls; it does not add a matching meta entry.
+pub const CpiAccountStaging = struct {
+    metas_buf: []AccountMeta,
+    infos_buf: []CpiAccountInfo,
+    meta_len: usize = 0,
+    info_len: usize = 0,
+
+    const Self = @This();
+
+    pub inline fn init(
+        metas_buf: []AccountMeta,
+        infos_buf: []CpiAccountInfo,
+    ) Self {
+        return .{
+            .metas_buf = metas_buf,
+            .infos_buf = infos_buf,
+        };
+    }
+
+    pub inline fn reset(self: *Self) void {
+        self.meta_len = 0;
+        self.info_len = 0;
+    }
+
+    pub inline fn accountMetas(self: *const Self) []const AccountMeta {
+        return self.metas_buf[0..self.meta_len];
+    }
+
+    pub inline fn accountInfos(self: *const Self) []const CpiAccountInfo {
+        return self.infos_buf[0..self.info_len];
+    }
+
+    pub inline fn appendAccount(self: *Self, info: CpiAccountInfo) ProgramError!void {
+        return self.appendMetaInfoUnchecked(
+            AccountMeta.init(info.key(), info.isWritable(), info.isSigner()),
+            info,
+        );
+    }
+
+    pub inline fn appendMetaInfo(
+        self: *Self,
+        meta: AccountMeta,
+        info: CpiAccountInfo,
+    ) ProgramError!void {
+        if (!pubkey.pubkeyEq(meta.pubkey, info.key())) return error.InvalidArgument;
+        if (meta.is_writable != @as(u8, @intFromBool(info.isWritable()))) return error.InvalidArgument;
+        if (meta.is_signer != @as(u8, @intFromBool(info.isSigner()))) return error.InvalidArgument;
+        return self.appendMetaInfoUnchecked(meta, info);
+    }
+
+    /// Capacity-checked hot path that skips meta/info consistency
+    /// validation. Caller must guarantee the pubkey and flag bytes line
+    /// up with the supplied runtime account.
+    pub inline fn appendMetaInfoUnchecked(
+        self: *Self,
+        meta: AccountMeta,
+        info: CpiAccountInfo,
+    ) ProgramError!void {
+        if (self.meta_len >= self.metas_buf.len) return error.InvalidArgument;
+        if (self.info_len >= self.infos_buf.len) return error.InvalidArgument;
+
+        self.metas_buf[self.meta_len] = meta;
+        self.infos_buf[self.info_len] = info;
+        self.meta_len += 1;
+        self.info_len += 1;
+    }
+
+    /// Explicitly append the CPI program account (or another
+    /// runtime-only trailing account) to the staged runtime slice.
+    pub inline fn appendProgram(self: *Self, program: CpiAccountInfo) ProgramError!void {
+        if (self.info_len >= self.infos_buf.len) return error.InvalidArgument;
+        self.infos_buf[self.info_len] = program;
+        self.info_len += 1;
+    }
+
+    pub inline fn instructionFromProgram(
+        self: *const Self,
+        program: CpiAccountInfo,
+        data: []const u8,
+    ) Instruction {
+        return Instruction.fromCpiAccount(program, self.accountMetas(), data);
+    }
+};
+
 comptime {
     // Catch ABI regressions at build time.
     std.debug.assert(@sizeOf(Seed) == 16);
@@ -735,4 +825,201 @@ test "cpi: stageDynamicAccountsWithPubkeys preserves order" {
     try std.testing.expectEqualSlices(u8, raw_b.key[0..], staged.runtime_accounts[1].key()[0..]);
     try std.testing.expectEqualSlices(u8, raw_c.key[0..], staged.runtime_accounts[2].key()[0..]);
     try std.testing.expectEqualSlices(u8, raw_program.key[0..], staged.runtime_accounts[3].key()[0..]);
+}
+
+test "cpi: CpiAccountStaging keeps aligned prefixes and resets for reuse" {
+    var raw_a: account.Account = .{
+        .borrow_state = account.NOT_BORROWED,
+        .is_signer = 1,
+        .is_writable = 1,
+        .is_executable = 0,
+        ._padding = .{0} ** 4,
+        .key = .{0x21} ** 32,
+        .owner = .{0x31} ** 32,
+        .lamports = 5,
+        .data_len = 0,
+    };
+    var raw_program: account.Account = .{
+        .borrow_state = account.NOT_BORROWED,
+        .is_signer = 0,
+        .is_writable = 0,
+        .is_executable = 1,
+        ._padding = .{0} ** 4,
+        .key = .{0x99} ** 32,
+        .owner = .{0x41} ** 32,
+        .lamports = 9,
+        .data_len = 0,
+    };
+
+    var metas: [2]AccountMeta = undefined;
+    var infos: [2]CpiAccountInfo = undefined;
+    var staging = CpiAccountStaging.init(metas[0..], infos[0..]);
+
+    try std.testing.expectEqual(@as(usize, 0), staging.accountMetas().len);
+    try std.testing.expectEqual(@as(usize, 0), staging.accountInfos().len);
+
+    try staging.appendAccount(CpiAccountInfo.fromPtr(&raw_a));
+    try staging.appendProgram(CpiAccountInfo.fromPtr(&raw_program));
+    try std.testing.expectEqual(@as(usize, 1), staging.accountMetas().len);
+    try std.testing.expectEqual(@as(usize, 2), staging.accountInfos().len);
+    try std.testing.expectEqual(@intFromPtr(&raw_a.key), @intFromPtr(staging.accountMetas()[0].pubkey));
+    try std.testing.expectEqual(@intFromPtr(&raw_a.lamports), @intFromPtr(staging.accountInfos()[0].lamports_ptr));
+    try std.testing.expectEqual(@intFromPtr(&raw_program.key), @intFromPtr(staging.accountInfos()[1].key()));
+
+    staging.reset();
+    try std.testing.expectEqual(@as(usize, 0), staging.accountMetas().len);
+    try std.testing.expectEqual(@as(usize, 0), staging.accountInfos().len);
+
+    try staging.appendProgram(CpiAccountInfo.fromPtr(&raw_program));
+    try std.testing.expectEqual(@as(usize, 0), staging.accountMetas().len);
+    try std.testing.expectEqual(@as(usize, 1), staging.accountInfos().len);
+}
+
+test "cpi: CpiAccountStaging capacity failures leave lengths unchanged" {
+    var raw_a: account.Account = .{
+        .borrow_state = account.NOT_BORROWED,
+        .is_signer = 1,
+        .is_writable = 1,
+        .is_executable = 0,
+        ._padding = .{0} ** 4,
+        .key = .{0x11} ** 32,
+        .owner = .{0x22} ** 32,
+        .lamports = 1,
+        .data_len = 0,
+    };
+    var raw_b: account.Account = .{
+        .borrow_state = account.NOT_BORROWED,
+        .is_signer = 0,
+        .is_writable = 1,
+        .is_executable = 0,
+        ._padding = .{0} ** 4,
+        .key = .{0x12} ** 32,
+        .owner = .{0x23} ** 32,
+        .lamports = 2,
+        .data_len = 0,
+    };
+    var raw_program: account.Account = .{
+        .borrow_state = account.NOT_BORROWED,
+        .is_signer = 0,
+        .is_writable = 0,
+        .is_executable = 1,
+        ._padding = .{0} ** 4,
+        .key = .{0x13} ** 32,
+        .owner = .{0x24} ** 32,
+        .lamports = 3,
+        .data_len = 0,
+    };
+
+    var metas: [1]AccountMeta = undefined;
+    var infos: [2]CpiAccountInfo = undefined;
+    var staging = CpiAccountStaging.init(metas[0..], infos[0..]);
+
+    try staging.appendAccount(CpiAccountInfo.fromPtr(&raw_a));
+    try std.testing.expectEqual(@as(usize, 1), staging.accountMetas().len);
+    try std.testing.expectEqual(@as(usize, 1), staging.accountInfos().len);
+
+    try std.testing.expectError(
+        error.InvalidArgument,
+        staging.appendAccount(CpiAccountInfo.fromPtr(&raw_b)),
+    );
+    try std.testing.expectEqual(@as(usize, 1), staging.accountMetas().len);
+    try std.testing.expectEqual(@as(usize, 1), staging.accountInfos().len);
+    try std.testing.expectEqual(@intFromPtr(&raw_a.key), @intFromPtr(staging.accountMetas()[0].pubkey));
+
+    try staging.appendProgram(CpiAccountInfo.fromPtr(&raw_program));
+    try std.testing.expectEqual(@as(usize, 2), staging.accountInfos().len);
+    try std.testing.expectError(
+        error.InvalidArgument,
+        staging.appendProgram(CpiAccountInfo.fromPtr(&raw_program)),
+    );
+    try std.testing.expectEqual(@as(usize, 1), staging.accountMetas().len);
+    try std.testing.expectEqual(@as(usize, 2), staging.accountInfos().len);
+}
+
+test "cpi: CpiAccountStaging checked vs unchecked staging names are explicit" {
+    var raw: account.Account = .{
+        .borrow_state = account.NOT_BORROWED,
+        .is_signer = 1,
+        .is_writable = 0,
+        .is_executable = 0,
+        ._padding = .{0} ** 4,
+        .key = .{0x44} ** 32,
+        .owner = .{0x55} ** 32,
+        .lamports = 4,
+        .data_len = 0,
+    };
+
+    var metas: [1]AccountMeta = undefined;
+    var infos: [1]CpiAccountInfo = undefined;
+    var staging = CpiAccountStaging.init(metas[0..], infos[0..]);
+    const info = CpiAccountInfo.fromPtr(&raw);
+
+    try std.testing.expectError(
+        error.InvalidArgument,
+        staging.appendMetaInfo(AccountMeta.writable(info.key()), info),
+    );
+    try std.testing.expectEqual(@as(usize, 0), staging.accountMetas().len);
+    try std.testing.expectEqual(@as(usize, 0), staging.accountInfos().len);
+
+    try staging.appendMetaInfoUnchecked(AccountMeta.writable(info.key()), info);
+    try std.testing.expectEqual(@as(usize, 1), staging.accountMetas().len);
+    try std.testing.expectEqual(@as(usize, 1), staging.accountInfos().len);
+}
+
+test "cpi: CpiAccountStaging instruction uses explicit program account and keeps order" {
+    var raw_a: account.Account = .{
+        .borrow_state = account.NOT_BORROWED,
+        .is_signer = 1,
+        .is_writable = 1,
+        .is_executable = 0,
+        ._padding = .{0} ** 4,
+        .key = .{0xa1} ** 32,
+        .owner = .{0xb1} ** 32,
+        .lamports = 11,
+        .data_len = 0,
+    };
+    var raw_b: account.Account = .{
+        .borrow_state = account.NOT_BORROWED,
+        .is_signer = 0,
+        .is_writable = 1,
+        .is_executable = 0,
+        ._padding = .{0} ** 4,
+        .key = .{0xa2} ** 32,
+        .owner = .{0xb2} ** 32,
+        .lamports = 12,
+        .data_len = 0,
+    };
+    var raw_program: account.Account = .{
+        .borrow_state = account.NOT_BORROWED,
+        .is_signer = 0,
+        .is_writable = 0,
+        .is_executable = 1,
+        ._padding = .{0} ** 4,
+        .key = .{0xa3} ** 32,
+        .owner = .{0xb3} ** 32,
+        .lamports = 13,
+        .data_len = 0,
+    };
+
+    var metas: [2]AccountMeta = undefined;
+    var infos: [3]CpiAccountInfo = undefined;
+    var staging = CpiAccountStaging.init(metas[0..], infos[0..]);
+
+    try staging.appendAccount(CpiAccountInfo.fromPtr(&raw_a));
+    try staging.appendAccount(CpiAccountInfo.fromPtr(&raw_b));
+    try staging.appendProgram(CpiAccountInfo.fromPtr(&raw_program));
+
+    const data = [_]u8{ 0xaa, 0xbb, 0xcc };
+    const ix = staging.instructionFromProgram(CpiAccountInfo.fromPtr(&raw_program), &data);
+
+    try std.testing.expectEqual(@intFromPtr(&raw_program.key), @intFromPtr(ix.program_id));
+    try std.testing.expectEqual(@as(usize, 2), ix.accounts.len);
+    try std.testing.expectEqual(@as(usize, 3), staging.accountInfos().len);
+    try std.testing.expectEqual(@intFromPtr(&raw_a.key), @intFromPtr(ix.accounts[0].pubkey));
+    try std.testing.expectEqual(@intFromPtr(&raw_a.key), @intFromPtr(staging.accountInfos()[0].key()));
+    try std.testing.expectEqual(ix.accounts[0].is_signer, @as(u8, @intFromBool(staging.accountInfos()[0].isSigner())));
+    try std.testing.expectEqual(ix.accounts[0].is_writable, @as(u8, @intFromBool(staging.accountInfos()[0].isWritable())));
+    try std.testing.expectEqual(@intFromPtr(&raw_b.key), @intFromPtr(ix.accounts[1].pubkey));
+    try std.testing.expectEqual(@intFromPtr(&raw_b.key), @intFromPtr(staging.accountInfos()[1].key()));
+    try std.testing.expectEqual(@intFromPtr(&raw_program.key), @intFromPtr(staging.accountInfos()[2].key()));
 }

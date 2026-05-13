@@ -7,6 +7,7 @@
 
 const std = @import("std");
 const account = @import("account.zig");
+const account_cursor = @import("account_cursor.zig");
 const pubkey = @import("pubkey.zig");
 const program_error = @import("program_error.zig");
 const error_code = @import("error_code.zig");
@@ -14,6 +15,7 @@ const instruction_mod = @import("instruction.zig");
 
 const Account = account.Account;
 const AccountInfo = account.AccountInfo;
+const AccountCursor = account_cursor.AccountCursor;
 const MaybeAccount = account.MaybeAccount;
 const Pubkey = pubkey.Pubkey;
 const ProgramResult = program_error.ProgramResult;
@@ -254,6 +256,25 @@ pub const InstructionContext = struct {
             _ = self.nextAccountMaybeUnchecked();
             self.remaining -= 1;
         }
+    }
+
+    /// Create an `AccountCursor` over the remaining serialized account
+    /// slots. Use this on a fresh context for the full instruction
+    /// account list, or after fixed parsing when duplicate references
+    /// cannot target accounts outside the remaining range.
+    pub inline fn accountCursor(self: *const InstructionContext) ProgramError!AccountCursor {
+        return AccountCursor.initRemaining(self.buffer, self.remaining, &.{});
+    }
+
+    /// Create an `AccountCursor` over the remaining account range while
+    /// seeding already-parsed earlier accounts. This lets duplicate
+    /// markers in the remaining range resolve back to fixed accounts
+    /// that were consumed before the cursor was created.
+    pub inline fn accountCursorWithPrefix(
+        self: *const InstructionContext,
+        prefix: []const AccountInfo,
+    ) ProgramError!AccountCursor {
+        return AccountCursor.initRemaining(self.buffer, self.remaining, prefix);
     }
 
     /// Get instruction data. Returns an error if there are still
@@ -1396,6 +1417,61 @@ fn buildInputWithDup(buf: *[32768]u8) void {
     std.mem.writeInt(u64, ptr[0..8], 0, .little);
 }
 
+fn buildInputWithNonAdjacentDup(buf: *[32768]u8) void {
+    @memset(buf, 0);
+    var ptr: [*]u8 = buf;
+
+    std.mem.writeInt(u64, ptr[0..8], 4, .little);
+    ptr += 8;
+
+    const acc0: Account = .{
+        .borrow_state = account.NON_DUP_MARKER,
+        .is_signer = 1,
+        .is_writable = 1,
+        .is_executable = 0,
+        ._padding = .{0} ** 4,
+        .key = makePubkey(0x11),
+        .owner = makePubkey(0x21),
+        .lamports = 11,
+        .data_len = 0,
+    };
+    @memcpy(ptr[0..@sizeOf(Account)], std.mem.asBytes(&acc0));
+    ptr += @sizeOf(Account) + MAX_PERMITTED_DATA_INCREASE + 8;
+
+    const acc1: Account = .{
+        .borrow_state = account.NON_DUP_MARKER,
+        .is_signer = 0,
+        .is_writable = 1,
+        .is_executable = 0,
+        ._padding = .{0} ** 4,
+        .key = makePubkey(0x12),
+        .owner = makePubkey(0x22),
+        .lamports = 22,
+        .data_len = 0,
+    };
+    @memcpy(ptr[0..@sizeOf(Account)], std.mem.asBytes(&acc1));
+    ptr += @sizeOf(Account) + MAX_PERMITTED_DATA_INCREASE + 8;
+
+    ptr[0] = 0;
+    ptr += 8;
+
+    const acc3: Account = .{
+        .borrow_state = account.NON_DUP_MARKER,
+        .is_signer = 0,
+        .is_writable = 0,
+        .is_executable = 0,
+        ._padding = .{0} ** 4,
+        .key = makePubkey(0x13),
+        .owner = makePubkey(0x23),
+        .lamports = 33,
+        .data_len = 0,
+    };
+    @memcpy(ptr[0..@sizeOf(Account)], std.mem.asBytes(&acc3));
+    ptr += @sizeOf(Account) + MAX_PERMITTED_DATA_INCREASE + 8;
+
+    std.mem.writeInt(u64, ptr[0..8], 0, .little);
+}
+
 test "entrypoint: nextAccountMaybe handles dup marker" {
     var input: [32768]u8 align(8) = undefined;
     buildInputWithDup(&input);
@@ -1461,6 +1537,221 @@ test "entrypoint: skipAccounts is dup-aware" {
 
     const last = ctx.nextAccount().?;
     try std.testing.expectEqual(@as(u64, 333), last.lamports());
+}
+
+// =========================================================================
+// AccountCursor tests
+// =========================================================================
+
+test "entrypoint: accountCursor supports full and remaining sources" {
+    var input: [32768]u8 align(8) = undefined;
+    buildInputWithDup(&input);
+
+    var full_ctx = InstructionContext.init(&input);
+    var full_cursor = try full_ctx.accountCursor();
+    try std.testing.expectEqual(@as(usize, 0), full_cursor.nextIndex());
+    try std.testing.expectEqual(@as(u64, 3), full_cursor.remainingAccounts());
+
+    const first = try full_cursor.takeOne();
+    try std.testing.expectEqual(@as(u64, 777), first.lamports());
+    try std.testing.expectEqual(@as(usize, 1), full_cursor.nextIndex());
+
+    const full_peek = try full_cursor.peek();
+    try std.testing.expectEqual(@intFromPtr(first.raw), @intFromPtr(full_peek.raw));
+    try std.testing.expectEqual(@as(u64, 2), full_cursor.remainingAccounts());
+
+    var remaining_ctx = InstructionContext.init(&input);
+    const fixed = try remaining_ctx.parseAccounts(.{"authority"});
+    var remaining_cursor = try remaining_ctx.accountCursorWithPrefix(&.{fixed.authority});
+    try std.testing.expectEqual(@as(usize, 1), remaining_cursor.nextIndex());
+    try std.testing.expectEqual(@as(u64, 2), remaining_cursor.remainingAccounts());
+
+    const remaining_peek = try remaining_cursor.peek();
+    try std.testing.expectEqual(
+        @intFromPtr(fixed.authority.raw),
+        @intFromPtr(remaining_peek.raw),
+    );
+
+    const window = try remaining_cursor.takeWindow(2);
+    try std.testing.expectEqual(@as(usize, 2), window.len());
+    try std.testing.expectEqual(@intFromPtr(fixed.authority.raw), @intFromPtr(window.at(0).raw));
+    try std.testing.expectEqual(@as(u64, 333), window.at(1).lamports());
+    try std.testing.expectEqual(@as(u64, 0), remaining_cursor.remainingAccounts());
+}
+
+test "entrypoint: accountCursor takeOne peek and skip are all-or-nothing" {
+    var input: [32768]u8 align(8) = undefined;
+    buildTwoAccountInput(&input, 1, 1, makePubkey(9), 0, 1);
+
+    var ctx = InstructionContext.init(&input);
+    var cursor = try ctx.accountCursor();
+
+    const first = try cursor.takeOne();
+    try std.testing.expectEqual(@as(u8, 1), first.key()[0]);
+    try std.testing.expectEqual(@as(u64, 1), cursor.remainingAccounts());
+
+    const peek_a = try cursor.peek();
+    const peek_b = try cursor.peek();
+    const peek_c = try cursor.peek();
+    try std.testing.expectEqual(@intFromPtr(peek_a.raw), @intFromPtr(peek_b.raw));
+    try std.testing.expectEqual(@intFromPtr(peek_a.raw), @intFromPtr(peek_c.raw));
+    try std.testing.expectEqual(@as(u64, 1), cursor.remainingAccounts());
+
+    try std.testing.expectError(error.NotEnoughAccountKeys, cursor.skip(2));
+    try std.testing.expectEqual(@as(u64, 1), cursor.remainingAccounts());
+
+    const second = try cursor.takeOne();
+    try std.testing.expectEqual(@intFromPtr(peek_a.raw), @intFromPtr(second.raw));
+    try std.testing.expectEqual(@as(u64, 0), cursor.remainingAccounts());
+    try std.testing.expectError(error.NotEnoughAccountKeys, cursor.takeOne());
+    try std.testing.expectError(error.NotEnoughAccountKeys, cursor.peek());
+}
+
+test "entrypoint: accountCursor windows stay ordered and stable after parent advances" {
+    var input: [32768]u8 align(8) = undefined;
+    buildInputWithDup(&input);
+
+    var ctx = InstructionContext.init(&input);
+    var cursor = try ctx.accountCursor();
+
+    const empty = try cursor.takeWindow(0);
+    try std.testing.expectEqual(@as(usize, 0), empty.len());
+    try std.testing.expectEqual(@as(u64, 3), cursor.remainingAccounts());
+
+    const window = try cursor.takeWindow(2);
+    try std.testing.expectEqual(@as(usize, 2), window.len());
+    try std.testing.expectEqual(@as(u64, 777), window.at(0).lamports());
+    try std.testing.expectEqual(@as(u64, 777), window.at(1).lamports());
+
+    const tail = try cursor.takeOne();
+    try std.testing.expectEqual(@as(u64, 333), tail.lamports());
+    try std.testing.expectEqual(@as(usize, 2), window.len());
+    try std.testing.expectEqual(@as(u64, 777), window.at(0).lamports());
+    try std.testing.expectEqual(@as(u64, 777), window.at(1).lamports());
+
+    var count: usize = 0;
+    var sum: u64 = 0;
+    var it = window.iterator();
+    while (it.next()) |acc| {
+        count += 1;
+        sum += acc.lamports();
+    }
+    try std.testing.expectEqual(@as(usize, 2), count);
+    try std.testing.expectEqual(@as(u64, 1_554), sum);
+}
+
+test "entrypoint: accountCursor duplicate policies and assume-unique path behave as specified" {
+    var dup_input: [32768]u8 align(8) = undefined;
+    buildInputWithDup(&dup_input);
+
+    var dup_ctx = InstructionContext.init(&dup_input);
+    var dup_cursor = try dup_ctx.accountCursor();
+    try std.testing.expectError(
+        error.InvalidArgument,
+        dup_cursor.takeWindowWithPolicy(2, .reject),
+    );
+    try std.testing.expectEqual(@as(u64, 3), dup_cursor.remainingAccounts());
+    try std.testing.expectEqual(@as(u64, 777), (try dup_cursor.takeOne()).lamports());
+
+    var unique_input: [32768]u8 align(8) = undefined;
+    buildTwoAccountInput(&unique_input, 1, 1, makePubkey(9), 0, 1);
+
+    var safe_ctx = InstructionContext.init(&unique_input);
+    var safe_cursor = try safe_ctx.accountCursor();
+    const safe_window = try safe_cursor.takeWindow(2);
+
+    var unique_ctx = InstructionContext.init(&unique_input);
+    var unique_cursor = try unique_ctx.accountCursor();
+    const unique_window = try unique_cursor.takeWindowAssumeUnique(2);
+
+    try std.testing.expectEqual(@as(usize, safe_window.len()), unique_window.len());
+    inline for (0..2) |i| {
+        try std.testing.expectEqual(
+            @intFromPtr(safe_window.at(i).raw),
+            @intFromPtr(unique_window.at(i).raw),
+        );
+    }
+    try std.testing.expectEqual(safe_cursor.nextIndex(), unique_cursor.nextIndex());
+    try std.testing.expectEqual(safe_cursor.remainingAccounts(), unique_cursor.remainingAccounts());
+}
+
+test "entrypoint: accountCursor safe skip and reject duplicate windows stay aligned" {
+    var adjacent_input: [32768]u8 align(8) = undefined;
+    buildInputWithDup(&adjacent_input);
+
+    var adjacent_ctx = InstructionContext.init(&adjacent_input);
+    var adjacent_cursor = try adjacent_ctx.accountCursor();
+    try adjacent_cursor.skip(2);
+    try std.testing.expectEqual(@as(u64, 1), adjacent_cursor.remainingAccounts());
+    try std.testing.expectEqual(@as(u64, 333), (try adjacent_cursor.takeOne()).lamports());
+
+    var spaced_input: [32768]u8 align(8) = undefined;
+    buildInputWithNonAdjacentDup(&spaced_input);
+
+    var reject_ctx = InstructionContext.init(&spaced_input);
+    var reject_cursor = try reject_ctx.accountCursor();
+    try std.testing.expectError(
+        error.InvalidArgument,
+        reject_cursor.takeWindowWithPolicy(3, .reject),
+    );
+    try std.testing.expectEqual(@as(u64, 4), reject_cursor.remainingAccounts());
+
+    var allow_ctx = InstructionContext.init(&spaced_input);
+    var allow_cursor = try allow_ctx.accountCursor();
+    const allow_window = try allow_cursor.takeWindow(3);
+    try std.testing.expectEqual(@as(usize, 3), allow_window.len());
+    try std.testing.expectEqual(@intFromPtr(allow_window.at(0).raw), @intFromPtr(allow_window.at(2).raw));
+    try std.testing.expectEqual(@as(u64, 1), allow_cursor.remainingAccounts());
+    try std.testing.expectEqual(@as(u64, 33), (try allow_cursor.takeOne()).lamports());
+}
+
+test "entrypoint: accountCursor validation maps canonical errors and rolls back" {
+    var signer_input: [32768]u8 align(8) = undefined;
+    buildTwoAccountInput(&signer_input, 0, 1, makePubkey(9), 1, 1);
+    var signer_ctx = InstructionContext.init(&signer_input);
+    var signer_cursor = try signer_ctx.accountCursor();
+    try std.testing.expectError(
+        error.MissingRequiredSignature,
+        signer_cursor.takeWindowValidated(1, .allow, .{ .writable = true, .signer = true }),
+    );
+    try std.testing.expectEqual(@as(u64, 2), signer_cursor.remainingAccounts());
+    try std.testing.expectEqual(@as(u8, 1), (try signer_cursor.takeOne()).key()[0]);
+
+    var writable_input: [32768]u8 align(8) = undefined;
+    buildTwoAccountInput(&writable_input, 1, 0, makePubkey(9), 1, 1);
+    var writable_ctx = InstructionContext.init(&writable_input);
+    var writable_cursor = try writable_ctx.accountCursor();
+    try std.testing.expectError(
+        error.ImmutableAccount,
+        writable_cursor.takeWindowValidated(1, .allow, .{ .signer = true, .writable = true }),
+    );
+
+    var executable_input: [32768]u8 align(8) = undefined;
+    buildTwoAccountInput(&executable_input, 1, 1, makePubkey(9), 1, 1);
+    var executable_ctx = InstructionContext.init(&executable_input);
+    var executable_cursor = try executable_ctx.accountCursor();
+    try std.testing.expectError(
+        error.InvalidAccountData,
+        executable_cursor.takeWindowValidated(1, .allow, .{ .executable = true }),
+    );
+
+    var owner_input: [32768]u8 align(8) = undefined;
+    buildTwoAccountInput(&owner_input, 1, 1, makePubkey(9), 1, 1);
+    var owner_ctx = InstructionContext.init(&owner_input);
+    var owner_cursor = try owner_ctx.accountCursor();
+    try std.testing.expectError(
+        error.IncorrectProgramId,
+        owner_cursor.takeWindowValidated(1, .allow, .{ .owner = comptime makePubkey(77) }),
+    );
+
+    var key_input: [32768]u8 align(8) = undefined;
+    buildTwoAccountInput(&key_input, 1, 1, makePubkey(9), 1, 1);
+    var key_ctx = InstructionContext.init(&key_input);
+    var key_cursor = try key_ctx.accountCursor();
+    try std.testing.expectError(
+        error.InvalidArgument,
+        key_cursor.takeWindowValidated(1, .allow, .{ .key = comptime makePubkey(77) }),
+    );
 }
 
 // =========================================================================

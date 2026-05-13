@@ -3,6 +3,7 @@ const std = @import("std");
 // Core types
 pub const pubkey = @import("pubkey.zig");
 pub const account = @import("account.zig");
+pub const account_cursor = @import("account_cursor.zig");
 pub const program_error = @import("program_error.zig");
 pub const entrypoint = @import("entrypoint.zig");
 
@@ -59,6 +60,9 @@ pub const PUBKEY_BYTES = pubkey.PUBKEY_BYTES;
 pub const Account = account.Account;
 pub const AccountInfo = account.AccountInfo;
 pub const CpiAccountInfo = account.CpiAccountInfo;
+pub const AccountCursor = account_cursor.AccountCursor;
+pub const AccountWindow = account_cursor.AccountWindow;
+pub const DuplicatePolicy = account_cursor.DuplicatePolicy;
 pub const MaybeAccount = account.MaybeAccount;
 pub const InstructionContext = entrypoint.InstructionContext;
 pub const IxDataCursor = instruction.IxDataCursor;

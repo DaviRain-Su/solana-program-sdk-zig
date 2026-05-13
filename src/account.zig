@@ -210,55 +210,63 @@ pub const AccountInfo = struct {
         if (info != .@"struct") {
             @compileError("AccountInfo.expect requires a struct literal");
         }
+        inline for (info.@"struct".fields) |field| {
+            const name = field.name;
+            if (comptime !std.mem.eql(u8, name, "signer") and
+                !std.mem.eql(u8, name, "writable") and
+                !std.mem.eql(u8, name, "executable") and
+                !std.mem.eql(u8, name, "owner") and
+                !std.mem.eql(u8, name, "owner_any") and
+                !std.mem.eql(u8, name, "key") and
+                !std.mem.eql(u8, name, "key_any"))
+            {
+                @compileError("Unknown expectation field: '" ++ name ++
+                    "'. Allowed: signer, writable, executable, owner, owner_any, key, key_any.");
+            }
+        }
         // NOTE: we deliberately do NOT auto-fold `signer + writable`
         // into `expectSignerWritable`. Measurements showed the
         // u16-combined check helps some instructions and hurts others
         // (the wider load interacts differently with the register
         // scheduler). The user can call `expectSignerWritable` directly
         // when measurement says it wins.
-        inline for (info.@"struct".fields) |field| {
-            const name = field.name;
-            const val = @field(spec, name);
-            if (comptime std.mem.eql(u8, name, "signer")) {
-                if (val) try self.expectSigner();
-            } else if (comptime std.mem.eql(u8, name, "writable")) {
-                if (val) try self.expectWritable();
-            } else if (comptime std.mem.eql(u8, name, "executable")) {
-                if (val) try self.expectExecutable();
-            } else if (comptime std.mem.eql(u8, name, "owner")) {
-                // `owner` field: pass either a comptime `Pubkey` (uses
-                // immediate compares) or a `*const Pubkey` (uses
-                // runtime compare). Comptime case is ~3-4 CU cheaper.
-                const owner_val: Pubkey = val;
-                if (!pubkey.pubkeyEqComptime(self.owner(), owner_val)) {
-                    return program_error.fail(
-                        @src(),
-                        "expect:owner_mismatch",
-                        error.IncorrectProgramId,
-                    );
-                }
-            } else if (comptime std.mem.eql(u8, name, "owner_any")) {
-                // Multi-program owner check: comptime slice of Pubkeys.
-                // Useful for "either SPL Token or Token-2022" patterns.
-                if (!pubkey.pubkeyEqAny(self.owner(), val)) {
-                    return program_error.fail(
-                        @src(),
-                        "expect:owner_any_mismatch",
-                        error.IncorrectProgramId,
-                    );
-                }
-            } else if (comptime std.mem.eql(u8, name, "key")) {
-                const key_val: Pubkey = val;
-                if (!pubkey.pubkeyEqComptime(self.key(), key_val)) {
-                    return program_error.fail(@src(), "expect:key_mismatch", error.InvalidArgument);
-                }
-            } else if (comptime std.mem.eql(u8, name, "key_any")) {
-                if (!pubkey.pubkeyEqAny(self.key(), val)) {
-                    return program_error.fail(@src(), "expect:key_any_mismatch", error.InvalidArgument);
-                }
-            } else {
-                @compileError("Unknown expectation field: '" ++ name ++
-                    "'. Allowed: signer, writable, executable, owner, owner_any, key, key_any.");
+        if (comptime @hasField(S, "signer") and @field(spec, "signer")) {
+            try self.expectSigner();
+        }
+        if (comptime @hasField(S, "writable") and @field(spec, "writable")) {
+            try self.expectWritable();
+        }
+        if (comptime @hasField(S, "executable") and @field(spec, "executable")) {
+            try self.expectExecutable();
+        }
+        if (comptime @hasField(S, "owner")) {
+            const owner_val: Pubkey = @field(spec, "owner");
+            if (!pubkey.pubkeyEqComptime(self.owner(), owner_val)) {
+                return program_error.fail(
+                    @src(),
+                    "expect:owner_mismatch",
+                    error.IncorrectProgramId,
+                );
+            }
+        }
+        if (comptime @hasField(S, "owner_any")) {
+            if (!pubkey.pubkeyEqAny(self.owner(), @field(spec, "owner_any"))) {
+                return program_error.fail(
+                    @src(),
+                    "expect:owner_any_mismatch",
+                    error.IncorrectProgramId,
+                );
+            }
+        }
+        if (comptime @hasField(S, "key")) {
+            const key_val: Pubkey = @field(spec, "key");
+            if (!pubkey.pubkeyEqComptime(self.key(), key_val)) {
+                return program_error.fail(@src(), "expect:key_mismatch", error.InvalidArgument);
+            }
+        }
+        if (comptime @hasField(S, "key_any")) {
+            if (!pubkey.pubkeyEqAny(self.key(), @field(spec, "key_any"))) {
+                return program_error.fail(@src(), "expect:key_any_mismatch", error.InvalidArgument);
             }
         }
     }

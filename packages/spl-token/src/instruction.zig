@@ -241,18 +241,24 @@ pub const ui_amount_to_amount_prefix_len: usize = 1;
 /// from a `Spec`. Using the function form means every call site
 /// reads `metasArray(transfer_spec)` instead of a bare `[3]`, so
 /// rebinding the spec to a different instruction propagates.
+/// Return the exact `AccountMeta` array type required by `spec`.
 pub fn metasArray(comptime spec: Spec) type {
     return [spec.accounts_len]AccountMeta;
 }
 
+/// Return the exact instruction-data array type required by `spec`.
 pub fn dataArray(comptime spec: Spec) type {
     return [spec.data_len]u8;
 }
 
+/// Return an `AccountMeta` array large enough for a multisig instruction
+/// with `base_accounts_len` fixed accounts plus up to `MAX_SIGNERS` extras.
 pub fn multisigMetasArray(comptime base_accounts_len: usize) type {
     return [base_accounts_len + MAX_SIGNERS]AccountMeta;
 }
 
+/// Compute the total encoded byte length for `UiAmountToAmount`,
+/// including the 1-byte discriminant.
 pub fn uiAmountToAmountLen(ui_amount: []const u8) ?usize {
     return std.math.add(usize, ui_amount_to_amount_prefix_len, ui_amount.len) catch null;
 }
@@ -433,6 +439,7 @@ fn validateBatchEntry(entry: BatchEntry) BatchInstructionError!void {
     }
 }
 
+/// Compute the flattened account-meta count required by `batch(entries...)`.
 pub fn batchEntriesAccountsLen(entries: []const BatchEntry) BatchInstructionError!usize {
     var total: usize = 0;
     for (entries) |entry| {
@@ -442,6 +449,7 @@ pub fn batchEntriesAccountsLen(entries: []const BatchEntry) BatchInstructionErro
     return total;
 }
 
+/// Compute the total encoded data length required by `batch(entries...)`.
 pub fn batchEntriesDataLen(entries: []const BatchEntry) BatchInstructionError!usize {
     var total: usize = 1;
     for (entries) |entry| {
@@ -452,6 +460,8 @@ pub fn batchEntriesDataLen(entries: []const BatchEntry) BatchInstructionError!us
     return total;
 }
 
+/// Build a `Batch` instruction for `program_id` from prevalidated
+/// `BatchEntry` values.
 pub fn batchEntriesForProgram(
     program_id: *const Pubkey,
     entries: []const BatchEntry,
@@ -485,6 +495,8 @@ pub fn batchEntriesForProgram(
     };
 }
 
+/// Build a `Batch` instruction for `program_id` from child
+/// `Instruction` values that already target that program.
 pub fn batchForProgram(
     program_id: *const Pubkey,
     children: []const Instruction,
@@ -525,6 +537,8 @@ pub fn batchForProgram(
     };
 }
 
+/// Build a classic-SPL-Token `Batch` instruction from child
+/// `Instruction` values.
 pub fn batch(
     children: []const Instruction,
     metas: []AccountMeta,
@@ -542,7 +556,7 @@ pub fn batch(
 /// `InitializeMint { decimals, mint_authority, freeze_authority }` —
 /// discriminant 0.
 ///
-/// Account metas (in order):
+/// Accounts expected by this instruction (in order):
 ///   0. mint account — writable
 ///   1. rent sysvar  — readonly
 pub fn initializeMint(
@@ -573,7 +587,7 @@ pub fn initializeMint(
 
 /// `InitializeAccount` — discriminant 1.
 ///
-/// Account metas (in order):
+/// Accounts expected by this instruction (in order):
 ///   0. account — writable
 ///   1. mint    — readonly
 ///   2. owner   — readonly
@@ -599,7 +613,7 @@ pub fn initializeAccount(
 
 /// `InitializeMultisig { m }` — discriminant 2.
 ///
-/// Account metas (in order):
+/// Accounts expected by this instruction (in order):
 ///   0. multisig account — writable
 ///   1. rent sysvar      — readonly
 ///   2+. signer pubkeys  — readonly, caller order
@@ -625,7 +639,7 @@ pub fn initializeMultisig(
 
 /// `Transfer { amount }` — discriminant 3.
 ///
-/// Account metas (in order):
+/// Accounts expected by this instruction (in order):
 ///   0. source       — writable
 ///   1. destination  — writable
 ///   2. authority    — signer
@@ -658,7 +672,7 @@ pub fn transfer(
 
 /// `Transfer { amount }` with a multisig authority.
 ///
-/// Account metas (in order):
+/// Accounts expected by this instruction (in order):
 ///   0. source              — writable
 ///   1. destination         — writable
 ///   2. multisig authority  — readonly
@@ -689,7 +703,7 @@ pub fn transferMultisig(
 
 /// `TransferChecked { amount, decimals }` — discriminant 12.
 ///
-/// Account metas (in order):
+/// Accounts expected by this instruction (in order):
 ///   0. source       — writable
 ///   1. mint         — readonly  (decimals checked against this)
 ///   2. destination  — writable
@@ -749,7 +763,7 @@ pub fn transferCheckedMultisig(
 
 /// `Approve { amount }` — discriminant 4.
 ///
-/// Account metas (in order):
+/// Accounts expected by this instruction (in order):
 ///   0. source    — writable
 ///   1. delegate  — readonly
 ///   2. owner     — signer
@@ -802,7 +816,7 @@ pub fn approveMultisig(
 
 /// `ApproveChecked { amount, decimals }` — discriminant 13.
 ///
-/// Account metas (in order):
+/// Accounts expected by this instruction (in order):
 ///   0. source    — writable
 ///   1. mint      — readonly
 ///   2. delegate  — readonly
@@ -862,7 +876,7 @@ pub fn approveCheckedMultisig(
 
 /// `Revoke` — discriminant 5.
 ///
-/// Account metas (in order):
+/// Accounts expected by this instruction (in order):
 ///   0. source    — writable
 ///   1. owner     — signer
 pub fn revoke(
@@ -903,7 +917,7 @@ pub fn revokeMultisig(
 /// `SetAuthority { authority_type, new_authority }` —
 /// discriminant 6.
 ///
-/// Account metas (in order):
+/// Accounts expected by this instruction (in order):
 ///   0. mint_or_account    — writable
 ///   1. current_authority  — signer
 ///
@@ -978,7 +992,7 @@ pub fn setAuthorityMultisig(
 
 /// `FreezeAccount` — discriminant 10.
 ///
-/// Account metas (in order):
+/// Accounts expected by this instruction (in order):
 ///   0. account            — writable
 ///   1. mint               — readonly
 ///   2. freeze_authority   — signer
@@ -1023,7 +1037,7 @@ pub fn freezeAccountMultisig(
 
 /// `ThawAccount` — discriminant 11.
 ///
-/// Account metas (in order):
+/// Accounts expected by this instruction (in order):
 ///   0. account            — writable
 ///   1. mint               — readonly
 ///   2. freeze_authority   — signer
@@ -1068,7 +1082,7 @@ pub fn thawAccountMultisig(
 
 /// `MintTo { amount }` — discriminant 7.
 ///
-/// Account metas (in order):
+/// Accounts expected by this instruction (in order):
 ///   0. mint                — writable
 ///   1. destination account — writable
 ///   2. mint authority      — signer
@@ -1172,7 +1186,7 @@ pub fn mintToCheckedMultisig(
 
 /// `Burn { amount }` — discriminant 8.
 ///
-/// Account metas (in order):
+/// Accounts expected by this instruction (in order):
 ///   0. source    — writable
 ///   1. mint      — writable
 ///   2. authority — signer
@@ -1275,7 +1289,7 @@ pub fn burnCheckedMultisig(
 
 /// `CloseAccount` — discriminant 9.
 ///
-/// Account metas (in order):
+/// Accounts expected by this instruction (in order):
 ///   0. account   — writable (the token account being closed)
 ///   1. destination — writable (where the rent lamports go)
 ///   2. authority   — signer  (close authority or owner)
@@ -1320,7 +1334,7 @@ pub fn closeAccountMultisig(
 
 /// `SyncNative` — discriminant 17.
 ///
-/// Account metas (in order):
+/// Accounts expected by this instruction (in order):
 ///   0. native token account — writable
 pub fn syncNative(
     account: *const Pubkey,
@@ -1338,7 +1352,7 @@ pub fn syncNative(
 
 /// `InitializeAccount2 { owner }` — discriminant 16.
 ///
-/// Account metas (in order):
+/// Accounts expected by this instruction (in order):
 ///   0. account — writable
 ///   1. mint    — readonly
 ///   2. rent    — readonly
@@ -1368,7 +1382,7 @@ pub fn initializeAccount2(
 
 /// `InitializeAccount3 { owner }` — discriminant 18.
 ///
-/// Account metas (in order):
+/// Accounts expected by this instruction (in order):
 ///   0. account — writable
 ///   1. mint    — readonly
 ///
@@ -1396,7 +1410,7 @@ pub fn initializeAccount3(
 
 /// `InitializeMultisig2 { m }` — discriminant 19.
 ///
-/// Account metas (in order):
+/// Accounts expected by this instruction (in order):
 ///   0. multisig account — writable
 ///   1+. signer pubkeys  — readonly, caller order
 ///
@@ -1459,7 +1473,7 @@ pub fn initializeMint2(
 
 /// `GetAccountDataSize` — discriminant 21.
 ///
-/// Account metas (in order):
+/// Accounts expected by this instruction (in order):
 ///   0. mint — readonly
 pub fn getAccountDataSize(
     mint: *const Pubkey,
@@ -1477,7 +1491,7 @@ pub fn getAccountDataSize(
 
 /// `InitializeImmutableOwner` — discriminant 22.
 ///
-/// Account metas (in order):
+/// Accounts expected by this instruction (in order):
 ///   0. account — writable
 pub fn initializeImmutableOwner(
     account: *const Pubkey,
@@ -1495,7 +1509,7 @@ pub fn initializeImmutableOwner(
 
 /// `AmountToUiAmount { amount }` — discriminant 23.
 ///
-/// Account metas (in order):
+/// Accounts expected by this instruction (in order):
 ///   0. mint — readonly
 pub fn amountToUiAmount(
     mint: *const Pubkey,
@@ -1517,7 +1531,7 @@ pub fn amountToUiAmount(
 
 /// `UiAmountToAmount { ui_amount }` — discriminant 24.
 ///
-/// Account metas (in order):
+/// Accounts expected by this instruction (in order):
 ///   0. mint — readonly
 pub fn uiAmountToAmount(
     mint: *const Pubkey,

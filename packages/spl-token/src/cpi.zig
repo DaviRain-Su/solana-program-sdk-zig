@@ -155,6 +155,8 @@ fn stageBatchRuntimeAccounts(
 // Transfer
 // =============================================================================
 
+/// Invoke `Transfer { amount }` via CPI.
+/// Runtime accounts: source, destination, authority, token program.
 pub fn transfer(
     token_program: CpiAccountInfo,
     source: CpiAccountInfo,
@@ -171,6 +173,7 @@ pub fn transfer(
     try sol.cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ source, destination, authority, token_program });
 }
 
+/// Signed-authority variant of `transfer`; runtime accounts match `transfer`.
 pub fn transferSigned(
     token_program: CpiAccountInfo,
     source: CpiAccountInfo,
@@ -192,6 +195,7 @@ pub fn transferSigned(
     );
 }
 
+/// Single-signer-seeds fast path for `transferSigned`.
 pub inline fn transferSignedSingle(
     token_program: CpiAccountInfo,
     source: CpiAccountInfo,
@@ -213,6 +217,8 @@ pub inline fn transferSignedSingle(
     );
 }
 
+/// Invoke `Transfer { amount }` with a multisig authority.
+/// Runtime accounts: source, destination, multisig authority, signer accounts..., token program.
 pub fn transferMultisig(
     token_program: CpiAccountInfo,
     source: CpiAccountInfo,
@@ -250,6 +256,8 @@ pub fn transferMultisig(
 // TransferChecked
 // =============================================================================
 
+/// Invoke `TransferChecked { amount, decimals }` via CPI.
+/// Runtime accounts: source, mint, destination, authority, token program.
 pub fn transferChecked(
     token_program: CpiAccountInfo,
     source: CpiAccountInfo,
@@ -280,6 +288,7 @@ pub fn transferChecked(
     );
 }
 
+/// Signed-authority variant of `transferChecked`.
 pub fn transferCheckedSigned(
     token_program: CpiAccountInfo,
     source: CpiAccountInfo,
@@ -312,6 +321,7 @@ pub fn transferCheckedSigned(
     );
 }
 
+/// Single-signer-seeds fast path for `transferCheckedSigned`.
 pub inline fn transferCheckedSignedSingle(
     token_program: CpiAccountInfo,
     source: CpiAccountInfo,
@@ -344,6 +354,7 @@ pub inline fn transferCheckedSignedSingle(
     );
 }
 
+/// Invoke `TransferChecked` with a multisig authority.
 pub fn transferCheckedMultisig(
     token_program: CpiAccountInfo,
     source: CpiAccountInfo,
@@ -384,6 +395,7 @@ pub fn transferCheckedMultisig(
 // Approve / Revoke / SetAuthority / Freeze / Thaw
 // =============================================================================
 
+/// Invoke `Approve { amount }` via CPI.
 pub fn approve(
     token_program: CpiAccountInfo,
     source: CpiAccountInfo,
@@ -400,6 +412,7 @@ pub fn approve(
     try sol.cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ source, delegate, owner, token_program });
 }
 
+/// Signed-authority variant of `approve`.
 pub fn approveSigned(
     token_program: CpiAccountInfo,
     source: CpiAccountInfo,
@@ -421,6 +434,7 @@ pub fn approveSigned(
     );
 }
 
+/// Single-signer-seeds fast path for `approveSigned`.
 pub inline fn approveSignedSingle(
     token_program: CpiAccountInfo,
     source: CpiAccountInfo,
@@ -442,6 +456,7 @@ pub inline fn approveSignedSingle(
     );
 }
 
+/// Invoke `Approve` with a multisig authority.
 pub fn approveMultisig(
     token_program: CpiAccountInfo,
     source: CpiAccountInfo,
@@ -475,6 +490,7 @@ pub fn approveMultisig(
     try sol.cpi.invokeRaw(&ix, staged.runtime_accounts);
 }
 
+/// Invoke `ApproveChecked { amount, decimals }` via CPI.
 pub fn approveChecked(
     token_program: CpiAccountInfo,
     source: CpiAccountInfo,
@@ -505,6 +521,7 @@ pub fn approveChecked(
     );
 }
 
+/// Signed-authority variant of `approveChecked`.
 pub fn approveCheckedSigned(
     token_program: CpiAccountInfo,
     source: CpiAccountInfo,
@@ -537,6 +554,7 @@ pub fn approveCheckedSigned(
     );
 }
 
+/// Single-signer-seeds fast path for `approveCheckedSigned`.
 pub inline fn approveCheckedSignedSingle(
     token_program: CpiAccountInfo,
     source: CpiAccountInfo,
@@ -569,6 +587,7 @@ pub inline fn approveCheckedSignedSingle(
     );
 }
 
+/// Invoke `ApproveChecked` with a multisig authority.
 pub fn approveCheckedMultisig(
     token_program: CpiAccountInfo,
     source: CpiAccountInfo,
@@ -605,6 +624,7 @@ pub fn approveCheckedMultisig(
     try sol.cpi.invokeRaw(&ix, staged.runtime_accounts);
 }
 
+/// Invoke `Revoke` via CPI.
 pub fn revoke(
     token_program: CpiAccountInfo,
     source: CpiAccountInfo,
@@ -619,6 +639,7 @@ pub fn revoke(
     try sol.cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ source, owner, token_program });
 }
 
+/// Signed-authority variant of `revoke`.
 pub fn revokeSigned(
     token_program: CpiAccountInfo,
     source: CpiAccountInfo,
@@ -638,6 +659,7 @@ pub fn revokeSigned(
     );
 }
 
+/// Single-signer-seeds fast path for `revokeSigned`.
 pub inline fn revokeSignedSingle(
     token_program: CpiAccountInfo,
     source: CpiAccountInfo,
@@ -657,6 +679,7 @@ pub inline fn revokeSignedSingle(
     );
 }
 
+/// Invoke `Revoke` with a multisig authority.
 pub fn revokeMultisig(
     token_program: CpiAccountInfo,
     source: CpiAccountInfo,
@@ -684,6 +707,7 @@ pub fn revokeMultisig(
     try sol.cpi.invokeRaw(&ix, staged.runtime_accounts);
 }
 
+/// Invoke `SetAuthority` via CPI.
 pub fn setAuthority(
     token_program: CpiAccountInfo,
     target: CpiAccountInfo,
@@ -710,6 +734,7 @@ pub fn setAuthority(
     );
 }
 
+/// Signed-authority variant of `setAuthority`.
 pub fn setAuthoritySigned(
     token_program: CpiAccountInfo,
     target: CpiAccountInfo,
@@ -738,6 +763,7 @@ pub fn setAuthoritySigned(
     );
 }
 
+/// Single-signer-seeds fast path for `setAuthoritySigned`.
 pub inline fn setAuthoritySignedSingle(
     token_program: CpiAccountInfo,
     target: CpiAccountInfo,
@@ -766,6 +792,7 @@ pub inline fn setAuthoritySignedSingle(
     );
 }
 
+/// Invoke `SetAuthority` with a multisig authority.
 pub fn setAuthorityMultisig(
     token_program: CpiAccountInfo,
     target: CpiAccountInfo,
@@ -806,6 +833,7 @@ pub fn setAuthorityMultisig(
     try sol.cpi.invokeRaw(&ix, staged.runtime_accounts);
 }
 
+/// Invoke `FreezeAccount` via CPI.
 pub fn freezeAccount(
     token_program: CpiAccountInfo,
     account: CpiAccountInfo,
@@ -830,6 +858,7 @@ pub fn freezeAccount(
     );
 }
 
+/// Signed-authority variant of `freezeAccount`.
 pub fn freezeAccountSigned(
     token_program: CpiAccountInfo,
     account: CpiAccountInfo,
@@ -856,6 +885,7 @@ pub fn freezeAccountSigned(
     );
 }
 
+/// Single-signer-seeds fast path for `freezeAccountSigned`.
 pub inline fn freezeAccountSignedSingle(
     token_program: CpiAccountInfo,
     account: CpiAccountInfo,
@@ -882,6 +912,7 @@ pub inline fn freezeAccountSignedSingle(
     );
 }
 
+/// Invoke `FreezeAccount` with a multisig authority.
 pub fn freezeAccountMultisig(
     token_program: CpiAccountInfo,
     account: CpiAccountInfo,
@@ -911,6 +942,7 @@ pub fn freezeAccountMultisig(
     try sol.cpi.invokeRaw(&ix, staged.runtime_accounts);
 }
 
+/// Invoke `ThawAccount` via CPI.
 pub fn thawAccount(
     token_program: CpiAccountInfo,
     account: CpiAccountInfo,
@@ -929,6 +961,7 @@ pub fn thawAccount(
     );
 }
 
+/// Signed-authority variant of `thawAccount`.
 pub fn thawAccountSigned(
     token_program: CpiAccountInfo,
     account: CpiAccountInfo,
@@ -949,6 +982,7 @@ pub fn thawAccountSigned(
     );
 }
 
+/// Single-signer-seeds fast path for `thawAccountSigned`.
 pub inline fn thawAccountSignedSingle(
     token_program: CpiAccountInfo,
     account: CpiAccountInfo,
@@ -969,6 +1003,7 @@ pub inline fn thawAccountSignedSingle(
     );
 }
 
+/// Invoke `ThawAccount` with a multisig authority.
 pub fn thawAccountMultisig(
     token_program: CpiAccountInfo,
     account: CpiAccountInfo,
@@ -1002,6 +1037,7 @@ pub fn thawAccountMultisig(
 // MintTo
 // =============================================================================
 
+/// Invoke `MintTo { amount }` via CPI.
 pub fn mintTo(
     token_program: CpiAccountInfo,
     mint: CpiAccountInfo,
@@ -1018,6 +1054,7 @@ pub fn mintTo(
     try sol.cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ mint, destination, authority, token_program });
 }
 
+/// Signed-authority variant of `mintTo`.
 pub fn mintToSigned(
     token_program: CpiAccountInfo,
     mint: CpiAccountInfo,
@@ -1039,6 +1076,7 @@ pub fn mintToSigned(
     );
 }
 
+/// Single-signer-seeds fast path for `mintToSigned`.
 pub inline fn mintToSignedSingle(
     token_program: CpiAccountInfo,
     mint: CpiAccountInfo,
@@ -1060,6 +1098,7 @@ pub inline fn mintToSignedSingle(
     );
 }
 
+/// Invoke `MintToChecked { amount, decimals }` via CPI.
 pub fn mintToChecked(
     token_program: CpiAccountInfo,
     mint: CpiAccountInfo,
@@ -1085,6 +1124,7 @@ pub fn mintToChecked(
     try sol.cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ mint, destination, authority, token_program });
 }
 
+/// Signed-authority variant of `mintToChecked`.
 pub fn mintToCheckedSigned(
     token_program: CpiAccountInfo,
     mint: CpiAccountInfo,
@@ -1115,6 +1155,7 @@ pub fn mintToCheckedSigned(
     );
 }
 
+/// Single-signer-seeds fast path for `mintToCheckedSigned`.
 pub inline fn mintToCheckedSignedSingle(
     token_program: CpiAccountInfo,
     mint: CpiAccountInfo,
@@ -1145,6 +1186,7 @@ pub inline fn mintToCheckedSignedSingle(
     );
 }
 
+/// Invoke `MintTo` with a multisig mint authority.
 pub fn mintToMultisig(
     token_program: CpiAccountInfo,
     mint: CpiAccountInfo,
@@ -1178,6 +1220,7 @@ pub fn mintToMultisig(
     try sol.cpi.invokeRaw(&ix, staged.runtime_accounts);
 }
 
+/// Invoke `MintToChecked` with a multisig mint authority.
 pub fn mintToCheckedMultisig(
     token_program: CpiAccountInfo,
     mint: CpiAccountInfo,
@@ -1216,6 +1259,7 @@ pub fn mintToCheckedMultisig(
 // Burn
 // =============================================================================
 
+/// Invoke `Burn { amount }` via CPI.
 pub fn burn(
     token_program: CpiAccountInfo,
     source: CpiAccountInfo,
@@ -1232,6 +1276,7 @@ pub fn burn(
     try sol.cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ source, mint, authority, token_program });
 }
 
+/// Signed-authority variant of `burn`.
 pub fn burnSigned(
     token_program: CpiAccountInfo,
     source: CpiAccountInfo,
@@ -1253,6 +1298,7 @@ pub fn burnSigned(
     );
 }
 
+/// Single-signer-seeds fast path for `burnSigned`.
 pub inline fn burnSignedSingle(
     token_program: CpiAccountInfo,
     source: CpiAccountInfo,
@@ -1274,6 +1320,7 @@ pub inline fn burnSignedSingle(
     );
 }
 
+/// Invoke `BurnChecked { amount, decimals }` via CPI.
 pub fn burnChecked(
     token_program: CpiAccountInfo,
     source: CpiAccountInfo,
@@ -1299,6 +1346,7 @@ pub fn burnChecked(
     try sol.cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ source, mint, authority, token_program });
 }
 
+/// Signed-authority variant of `burnChecked`.
 pub fn burnCheckedSigned(
     token_program: CpiAccountInfo,
     source: CpiAccountInfo,
@@ -1329,6 +1377,7 @@ pub fn burnCheckedSigned(
     );
 }
 
+/// Single-signer-seeds fast path for `burnCheckedSigned`.
 pub inline fn burnCheckedSignedSingle(
     token_program: CpiAccountInfo,
     source: CpiAccountInfo,
@@ -1359,6 +1408,7 @@ pub inline fn burnCheckedSignedSingle(
     );
 }
 
+/// Invoke `Burn` with a multisig authority.
 pub fn burnMultisig(
     token_program: CpiAccountInfo,
     source: CpiAccountInfo,
@@ -1392,6 +1442,7 @@ pub fn burnMultisig(
     try sol.cpi.invokeRaw(&ix, staged.runtime_accounts);
 }
 
+/// Invoke `BurnChecked` with a multisig authority.
 pub fn burnCheckedMultisig(
     token_program: CpiAccountInfo,
     source: CpiAccountInfo,
@@ -1430,6 +1481,7 @@ pub fn burnCheckedMultisig(
 // CloseAccount
 // =============================================================================
 
+/// Invoke `CloseAccount` via CPI.
 pub fn closeAccount(
     token_program: CpiAccountInfo,
     account: CpiAccountInfo,
@@ -1445,6 +1497,7 @@ pub fn closeAccount(
     try sol.cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ account, destination, authority, token_program });
 }
 
+/// Signed-authority variant of `closeAccount`.
 pub fn closeAccountSigned(
     token_program: CpiAccountInfo,
     account: CpiAccountInfo,
@@ -1465,6 +1518,7 @@ pub fn closeAccountSigned(
     );
 }
 
+/// Single-signer-seeds fast path for `closeAccountSigned`.
 pub inline fn closeAccountSignedSingle(
     token_program: CpiAccountInfo,
     account: CpiAccountInfo,
@@ -1485,6 +1539,7 @@ pub inline fn closeAccountSignedSingle(
     );
 }
 
+/// Invoke `CloseAccount` with a multisig authority.
 pub fn closeAccountMultisig(
     token_program: CpiAccountInfo,
     account: CpiAccountInfo,
@@ -1521,6 +1576,7 @@ pub fn closeAccountMultisig(
 /// concatenated `AccountMeta`s across every entry. `invoke_accounts_out`
 /// provides caller-owned scratch with room for all child accounts plus the
 /// token-program account appended at the end.
+/// Invoke the pinocchio-style `Batch` instruction via CPI.
 pub fn batch(
     token_program: CpiAccountInfo,
     entries: []const BatchEntry,
@@ -1541,6 +1597,7 @@ pub fn batch(
     try sol.cpi.invokeRaw(&ix, invoke_accounts);
 }
 
+/// Signed-authority variant of `batch`.
 pub fn batchSigned(
     token_program: CpiAccountInfo,
     entries: []const BatchEntry,
@@ -1562,6 +1619,7 @@ pub fn batchSigned(
     try sol.cpi.invokeSignedRaw(&ix, invoke_accounts, signers);
 }
 
+/// Single-signer-seeds fast path for `batchSigned`.
 pub inline fn batchSignedSingle(
     token_program: CpiAccountInfo,
     entries: []const BatchEntry,
@@ -1583,6 +1641,7 @@ pub inline fn batchSignedSingle(
     try sol.cpi.invokeSignedSingle(&ix, invoke_accounts, signer_seeds);
 }
 
+/// Invoke `SyncNative` via CPI.
 pub fn syncNative(
     token_program: CpiAccountInfo,
     account: CpiAccountInfo,
@@ -1600,6 +1659,7 @@ pub fn syncNative(
 // Utility / return-data helpers.
 // =============================================================================
 
+/// Invoke `GetAccountDataSize`; read the answer from `sol.cpi.getReturnData(...)`.
 pub fn getAccountDataSize(
     token_program: CpiAccountInfo,
     mint: CpiAccountInfo,
@@ -1613,6 +1673,7 @@ pub fn getAccountDataSize(
     try sol.cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ mint, token_program });
 }
 
+/// Invoke `InitializeImmutableOwner` via CPI.
 pub fn initializeImmutableOwner(
     token_program: CpiAccountInfo,
     account: CpiAccountInfo,
@@ -1626,6 +1687,7 @@ pub fn initializeImmutableOwner(
     try sol.cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ account, token_program });
 }
 
+/// Invoke `AmountToUiAmount`; read the UTF-8 result from `sol.cpi.getReturnData(...)`.
 pub fn amountToUiAmount(
     token_program: CpiAccountInfo,
     mint: CpiAccountInfo,
@@ -1640,6 +1702,7 @@ pub fn amountToUiAmount(
     try sol.cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ mint, token_program });
 }
 
+/// Invoke `UiAmountToAmount`; read the little-endian `u64` result from `sol.cpi.getReturnData(...)`.
 pub fn uiAmountToAmount(
     token_program: CpiAccountInfo,
     mint: CpiAccountInfo,
@@ -1658,6 +1721,7 @@ pub fn uiAmountToAmount(
 // Initialize* — typically used at mint/account creation time.
 // =============================================================================
 
+/// Invoke legacy `InitializeMint` via CPI.
 pub fn initializeMint(
     token_program: CpiAccountInfo,
     mint: CpiAccountInfo,
@@ -1676,6 +1740,7 @@ pub fn initializeMint(
     try sol.cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ mint, rent_sysvar, token_program });
 }
 
+/// Invoke legacy `InitializeAccount` via CPI.
 pub fn initializeAccount(
     token_program: CpiAccountInfo,
     account: CpiAccountInfo,
@@ -1693,6 +1758,7 @@ pub fn initializeAccount(
     try sol.cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ account, mint, owner, rent_sysvar, token_program });
 }
 
+/// Invoke `InitializeAccount2` via CPI.
 pub fn initializeAccount2(
     token_program: CpiAccountInfo,
     account: CpiAccountInfo,
@@ -1710,6 +1776,7 @@ pub fn initializeAccount2(
     try sol.cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ account, mint, rent_sysvar, token_program });
 }
 
+/// Invoke `InitializeAccount3` via CPI.
 pub fn initializeAccount3(
     token_program: CpiAccountInfo,
     account: CpiAccountInfo,
@@ -1725,6 +1792,7 @@ pub fn initializeAccount3(
     try sol.cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ account, mint, token_program });
 }
 
+/// Invoke `InitializeMint2` via CPI.
 pub fn initializeMint2(
     token_program: CpiAccountInfo,
     mint: CpiAccountInfo,
@@ -1748,6 +1816,7 @@ pub fn initializeMint2(
     try sol.cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ mint, token_program });
 }
 
+/// Invoke legacy `InitializeMultisig` via CPI.
 pub fn initializeMultisig(
     token_program: CpiAccountInfo,
     multisig: CpiAccountInfo,
@@ -1783,6 +1852,7 @@ pub fn initializeMultisig(
     try sol.cpi.invokeRaw(&ix, runtime_accounts);
 }
 
+/// Invoke `InitializeMultisig2` via CPI.
 pub fn initializeMultisig2(
     token_program: CpiAccountInfo,
     multisig: CpiAccountInfo,

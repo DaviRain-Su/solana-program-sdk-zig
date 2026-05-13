@@ -3,6 +3,8 @@
 
 const std = @import("std");
 const sol = @import("solana_program_sdk");
+const seed = @import("seed.zig");
+const pubkey_data = @import("pubkey_data.zig");
 
 const Pubkey = sol.Pubkey;
 const AccountMeta = sol.cpi.AccountMeta;
@@ -43,6 +45,48 @@ pub const ExtraAccountMeta = extern struct {
             account_meta.is_signer != 0,
             account_meta.is_writable != 0,
         );
+    }
+
+    pub fn hookProgramDerived(
+        seeds: []const seed.Seed,
+        is_signer: bool,
+        is_writable: bool,
+    ) ProgramError!ExtraAccountMeta {
+        return .{
+            .discriminator = HOOK_PROGRAM_PDA_DISCRIMINATOR,
+            .address_config = try seed.packIntoAddressConfig(seeds),
+            .is_signer = @intFromBool(is_signer),
+            .is_writable = @intFromBool(is_writable),
+        };
+    }
+
+    pub fn externalProgramDerived(
+        program_index: u8,
+        seeds: []const seed.Seed,
+        is_signer: bool,
+        is_writable: bool,
+    ) ProgramError!ExtraAccountMeta {
+        if (program_index > 127) return ProgramError.InvalidAccountData;
+        return .{
+            .discriminator = std.math.add(u8, EXTERNAL_PDA_DISCRIMINATOR_MIN, program_index)
+                catch return ProgramError.InvalidAccountData,
+            .address_config = try seed.packIntoAddressConfig(seeds),
+            .is_signer = @intFromBool(is_signer),
+            .is_writable = @intFromBool(is_writable),
+        };
+    }
+
+    pub fn pubkeyData(
+        key_data: pubkey_data.PubkeyData,
+        is_signer: bool,
+        is_writable: bool,
+    ) ProgramError!ExtraAccountMeta {
+        return .{
+            .discriminator = PUBKEY_DATA_DISCRIMINATOR,
+            .address_config = try pubkey_data.packIntoAddressConfig(key_data),
+            .is_signer = @intFromBool(is_signer),
+            .is_writable = @intFromBool(is_writable),
+        };
     }
 
     pub fn parse(bytes: []const u8) ProgramError!ExtraAccountMeta {
@@ -169,8 +213,8 @@ test "ExtraAccountMeta parser rejects reserved discriminators and invalid boolea
     try std.testing.expectError(ProgramError.InvalidAccountData, ExtraAccountMeta.parse(reserved_bytes[0..]));
 
     reserved_bytes[0] = 2;
-    const pubkey_data = try ExtraAccountMeta.parse(reserved_bytes[0..]);
-    try std.testing.expectEqual(@as(u8, 2), pubkey_data.discriminator);
+    const parsed_pubkey_data = try ExtraAccountMeta.parse(reserved_bytes[0..]);
+    try std.testing.expectEqual(@as(u8, 2), parsed_pubkey_data.discriminator);
 
     var bad_signer_bytes = reserved_bytes;
     bad_signer_bytes[0] = 0;
@@ -209,4 +253,31 @@ test "ExtraAccountMeta fixed records resolve to canonical AccountMeta without mu
         try std.testing.expectEqual(@as(u8, @intFromBool(case.is_signer)), resolved.is_signer);
         try std.testing.expectEqual(@as(u8, @intFromBool(case.is_writable)), resolved.is_writable);
     }
+}
+
+test "ExtraAccountMeta dynamic constructors preserve discriminators and packed configs" {
+    const seeds = [_]seed.Seed{
+        .{ .literal = "vault" },
+        .{ .instruction_data = .{ .index = 7, .length = 4 } },
+    };
+    const internal = try ExtraAccountMeta.hookProgramDerived(&seeds, false, true);
+    try std.testing.expectEqual(HOOK_PROGRAM_PDA_DISCRIMINATOR, internal.discriminator);
+    try std.testing.expectEqual(@as(u8, 0), internal.is_signer);
+    try std.testing.expectEqual(@as(u8, 1), internal.is_writable);
+
+    const external = try ExtraAccountMeta.externalProgramDerived(5, &seeds, true, false);
+    try std.testing.expectEqual(@as(u8, EXTERNAL_PDA_DISCRIMINATOR_MIN + 5), external.discriminator);
+    try std.testing.expectEqual(@as(u8, 1), external.is_signer);
+    try std.testing.expectEqual(@as(u8, 0), external.is_writable);
+
+    const key_data = pubkey_data.PubkeyData{
+        .account_data = .{
+            .account_index = 3,
+            .data_index = 9,
+        },
+    };
+    const pubkey_data_meta = try ExtraAccountMeta.pubkeyData(key_data, true, true);
+    try std.testing.expectEqual(PUBKEY_DATA_DISCRIMINATOR, pubkey_data_meta.discriminator);
+    try std.testing.expectEqual(@as(u8, 1), pubkey_data_meta.is_signer);
+    try std.testing.expectEqual(@as(u8, 1), pubkey_data_meta.is_writable);
 }

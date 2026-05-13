@@ -12,14 +12,19 @@ pub const id = @import("id.zig");
 pub const instruction = @import("instruction.zig");
 pub const meta = @import("meta.zig");
 pub const resolve = @import("resolve.zig");
+pub const Seed = @import("seed.zig").Seed;
+pub const PubkeyData = @import("pubkey_data.zig").PubkeyData;
 
 pub const PACKAGE_NAME = id.PACKAGE_NAME;
 pub const MODULE_NAME = id.MODULE_NAME;
 pub const INTERFACE_VERSION = id.INTERFACE_VERSION;
 pub const SCOPE = id.SCOPE;
 pub const ProgramDerivedAddress = resolve.ProgramDerivedAddress;
+pub const AccountKeyData = resolve.AccountKeyData;
 pub const EXTRA_ACCOUNT_METAS_SEED = resolve.EXTRA_ACCOUNT_METAS_SEED;
 pub const findValidationAddress = resolve.findValidationAddress;
+pub const resolveExtraAccountMeta = resolve.resolveExtraAccountMeta;
+pub const resolveExtraAccountMetaList = resolve.resolveExtraAccountMetaList;
 
 test "@import(\"spl_transfer_hook\") exposes only the intended scaffold surface" {
     try std.testing.expect(@hasDecl(@This(), "id"));
@@ -28,8 +33,13 @@ test "@import(\"spl_transfer_hook\") exposes only the intended scaffold surface"
     try std.testing.expect(@hasDecl(@This(), "INTERFACE_VERSION"));
     try std.testing.expect(@hasDecl(@This(), "SCOPE"));
     try std.testing.expect(@hasDecl(@This(), "ProgramDerivedAddress"));
+    try std.testing.expect(@hasDecl(@This(), "Seed"));
+    try std.testing.expect(@hasDecl(@This(), "PubkeyData"));
+    try std.testing.expect(@hasDecl(@This(), "AccountKeyData"));
     try std.testing.expect(@hasDecl(@This(), "EXTRA_ACCOUNT_METAS_SEED"));
     try std.testing.expect(@hasDecl(@This(), "findValidationAddress"));
+    try std.testing.expect(@hasDecl(@This(), "resolveExtraAccountMeta"));
+    try std.testing.expect(@hasDecl(@This(), "resolveExtraAccountMetaList"));
     try std.testing.expect(@hasDecl(@This(), "instruction"));
     try std.testing.expect(@hasDecl(@This(), "meta"));
     try std.testing.expect(@hasDecl(@This(), "resolve"));
@@ -54,8 +64,13 @@ test "source-review guards keep spl_transfer_hook on-chain/interface scoped" {
     const root_source = @embedFile("root.zig");
     try expectContains(root_source, "spl_transfer_hook");
     try expectContains(root_source, "pub const ProgramDerivedAddress = resolve.ProgramDerivedAddress;");
+    try expectContains(root_source, "pub const Seed = @import(\"seed.zig\").Seed;");
+    try expectContains(root_source, "pub const PubkeyData = @import(\"pubkey_data.zig\").PubkeyData;");
+    try expectContains(root_source, "pub const AccountKeyData = resolve.AccountKeyData;");
     try expectContains(root_source, "pub const EXTRA_ACCOUNT_METAS_SEED = resolve.EXTRA_ACCOUNT_METAS_SEED;");
     try expectContains(root_source, "pub const findValidationAddress = resolve.findValidationAddress;");
+    try expectContains(root_source, "pub const resolveExtraAccountMeta = resolve.resolveExtraAccountMeta;");
+    try expectContains(root_source, "pub const resolveExtraAccountMetaList = resolve.resolveExtraAccountMetaList;");
     try expectNotContains(root_source, "pub const " ++ "PROGRAM_ID =");
     try expectNotContains(root_source, "pub const " ++ "rpc =");
     try expectNotContains(root_source, "pub const " ++ "client =");
@@ -68,6 +83,8 @@ test "source-review guards keep spl_transfer_hook on-chain/interface scoped" {
         @embedFile("id.zig"),
         @embedFile("instruction.zig"),
         @embedFile("meta.zig"),
+        @embedFile("seed.zig"),
+        @embedFile("pubkey_data.zig"),
         @embedFile("resolve.zig"),
     };
     inline for (package_sources) |source| {

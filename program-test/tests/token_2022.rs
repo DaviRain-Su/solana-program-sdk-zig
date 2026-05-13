@@ -33,6 +33,7 @@ const EXT_UNKNOWN_BETWEEN: u16 = 0x7FFD;
 const EXT_UNKNOWN_AFTER: u16 = 0x7FFC;
 
 const MINT_BASE_LEN: usize = 82;
+const ACCOUNT_BASE_LEN: usize = 165;
 const ACCOUNT_TYPE_OFFSET: usize = 165;
 const TLV_START_OFFSET: usize = 166;
 
@@ -134,6 +135,14 @@ fn demo_ix(
     }
 }
 
+fn raw_demo_ix(data: Vec<u8>, accounts: Vec<AccountMeta>) -> Instruction {
+    Instruction {
+        program_id: program::id(),
+        accounts,
+        data,
+    }
+}
+
 fn run(
     mollusk: &Mollusk,
     instruction: &Instruction,
@@ -185,6 +194,25 @@ fn assert_account_unchanged(
     assert_eq!(after_account.owner, before_account.owner);
     assert_eq!(after_account.executable, before_account.executable);
     assert_eq!(after_account.rent_epoch, before_account.rent_epoch);
+}
+
+fn assert_all_accounts_unchanged(before: &[(Pubkey, Account)], after: &[(Pubkey, Account)]) {
+    for (key, _) in before {
+        assert_account_unchanged(before, after, key);
+    }
+}
+
+fn multisig_shaped_data(account_type: u8) -> Vec<u8> {
+    let mut data = vec![0u8; 355];
+    data[0] = 2;
+    data[1] = 3;
+    data[2] = 1;
+    data[3..35].fill(0x11);
+    data[35..67].fill(0x22);
+    data[67..99].fill(0x33);
+    data[ACCOUNT_TYPE_OFFSET] = account_type;
+    append_record(&mut data, EXT_DEFAULT_ACCOUNT_STATE, &[2u8]);
+    data
 }
 
 #[test]
@@ -483,6 +511,181 @@ fn token_2022_demo_maps_representative_failures_to_documented_categories() {
 }
 
 #[test]
+fn token_2022_demo_rejects_short_data_padding_and_malformed_tlv_without_mutation() {
+    let mollusk = fresh_mollusk();
+
+    for account_data in [
+        vec![0u8; MINT_BASE_LEN - 1],
+        vec![0u8; 83],
+        vec![0u8; 164],
+        vec![0xA5u8; ACCOUNT_BASE_LEN - 1],
+    ] {
+        let account_key = Pubkey::new_unique();
+        let accounts = vec![(
+            account_key,
+            readonly_data_account(spl_token_2022_program::ID, account_data),
+        )];
+        let result = run(
+            &mollusk,
+            &demo_ix(
+                ROUTE_MINT,
+                EXT_DEFAULT_ACCOUNT_STATE,
+                &[2u8],
+                Some((account_key, false, false)),
+            ),
+            &accounts,
+        );
+        assert_custom_failure(&result, DemoFailure::InvalidAccountData);
+        assert_account_unchanged(&accounts, &result.resulting_accounts, &account_key);
+    }
+
+    for tail_len in 1..=3 {
+        let account_key = Pubkey::new_unique();
+        let mut malformed = vec![0u8; TLV_START_OFFSET];
+        malformed[ACCOUNT_TYPE_OFFSET] = 1;
+        malformed.extend(std::iter::repeat_n(0xAB, tail_len));
+        let accounts = vec![(
+            account_key,
+            readonly_data_account(spl_token_2022_program::ID, malformed),
+        )];
+        let result = run(
+            &mollusk,
+            &demo_ix(
+                ROUTE_MINT,
+                EXT_DEFAULT_ACCOUNT_STATE,
+                &[2u8],
+                Some((account_key, false, false)),
+            ),
+            &accounts,
+        );
+        assert_custom_failure(&result, DemoFailure::InvalidAccountData);
+        assert_account_unchanged(&accounts, &result.resulting_accounts, &account_key);
+    }
+
+    let account_key = Pubkey::new_unique();
+    let mut overrun = mint_with_extensions(&[]);
+    overrun.extend_from_slice(&EXT_DEFAULT_ACCOUNT_STATE.to_le_bytes());
+    overrun.extend_from_slice(&(4u16).to_le_bytes());
+    overrun.extend_from_slice(&[1u8, 2u8]);
+    let overrun_accounts = vec![(
+        account_key,
+        readonly_data_account(spl_token_2022_program::ID, overrun),
+    )];
+    let overrun_result = run(
+        &mollusk,
+        &demo_ix(
+            ROUTE_MINT,
+            EXT_DEFAULT_ACCOUNT_STATE,
+            &[2u8],
+            Some((account_key, false, false)),
+        ),
+        &overrun_accounts,
+    );
+    assert_custom_failure(&overrun_result, DemoFailure::InvalidAccountData);
+    assert_account_unchanged(
+        &overrun_accounts,
+        &overrun_result.resulting_accounts,
+        &account_key,
+    );
+
+    let padding_key = Pubkey::new_unique();
+    let mut bad_padding = mint_with_extensions(&[(EXT_DEFAULT_ACCOUNT_STATE, vec![2u8])]);
+    bad_padding[MINT_BASE_LEN + 5] = 1;
+    let padding_accounts = vec![(
+        padding_key,
+        readonly_data_account(spl_token_2022_program::ID, bad_padding),
+    )];
+    let padding_result = run(
+        &mollusk,
+        &demo_ix(
+            ROUTE_MINT,
+            EXT_DEFAULT_ACCOUNT_STATE,
+            &[2u8],
+            Some((padding_key, false, false)),
+        ),
+        &padding_accounts,
+    );
+    assert_custom_failure(&padding_result, DemoFailure::InvalidAccountData);
+    assert_account_unchanged(
+        &padding_accounts,
+        &padding_result.resulting_accounts,
+        &padding_key,
+    );
+}
+
+#[test]
+fn token_2022_demo_rejects_wrong_account_types_and_wrong_owners_before_parsing() {
+    let mollusk = fresh_mollusk();
+
+    let mint_payload = vec![2u8];
+    let account_payload = 0x8877_6655_4433_2211u64.to_le_bytes().to_vec();
+
+    for wrong_type in [0u8, 2u8] {
+        let account_key = Pubkey::new_unique();
+        let mut data = vec![0u8; TLV_START_OFFSET];
+        data[ACCOUNT_TYPE_OFFSET] = wrong_type;
+        append_record(&mut data, EXT_DEFAULT_ACCOUNT_STATE, &mint_payload);
+        let accounts = vec![(
+            account_key,
+            readonly_data_account(spl_token_2022_program::ID, data),
+        )];
+        let result = run(
+            &mollusk,
+            &demo_ix(
+                ROUTE_MINT,
+                EXT_DEFAULT_ACCOUNT_STATE,
+                &mint_payload,
+                Some((account_key, false, false)),
+            ),
+            &accounts,
+        );
+        assert_custom_failure(&result, DemoFailure::WrongAccountType);
+        assert_account_unchanged(&accounts, &result.resulting_accounts, &account_key);
+    }
+
+    for wrong_type in [0u8, 1u8] {
+        let account_key = Pubkey::new_unique();
+        let mut data = vec![0xA5u8; TLV_START_OFFSET];
+        data[ACCOUNT_TYPE_OFFSET] = wrong_type;
+        append_record(&mut data, EXT_TRANSFER_FEE_AMOUNT, &account_payload);
+        let accounts = vec![(
+            account_key,
+            readonly_data_account(spl_token_2022_program::ID, data),
+        )];
+        let result = run(
+            &mollusk,
+            &demo_ix(
+                ROUTE_ACCOUNT,
+                EXT_TRANSFER_FEE_AMOUNT,
+                &account_payload,
+                Some((account_key, false, false)),
+            ),
+            &accounts,
+        );
+        assert_custom_failure(&result, DemoFailure::WrongAccountType);
+        assert_account_unchanged(&accounts, &result.resulting_accounts, &account_key);
+    }
+
+    for owner in [spl_token_program::ID, Pubkey::new_unique()] {
+        let account_key = Pubkey::new_unique();
+        let malformed_owned = vec![0u8; 8];
+        let accounts = vec![(account_key, readonly_data_account(owner, malformed_owned))];
+        let result = run(
+            &mollusk,
+            &demo_ix(
+                ROUTE_MINT,
+                EXT_DEFAULT_ACCOUNT_STATE,
+                &mint_payload,
+                Some((account_key, false, false)),
+            ),
+            &accounts,
+        );
+        assert_custom_failure(&result, DemoFailure::IncorrectProgramId);
+        assert_account_unchanged(&accounts, &result.resulting_accounts, &account_key);
+    }
+}
+
+#[test]
 fn token_2022_demo_rejects_representative_wrong_kind_and_length_cases() {
     let mollusk = fresh_mollusk();
 
@@ -617,6 +820,126 @@ fn token_2022_demo_rejects_representative_wrong_kind_and_length_cases() {
         &wrong_len_numeric.resulting_accounts,
         &wrong_len_numeric_key,
     );
+}
+
+#[test]
+fn token_2022_demo_rejects_multisig_shapes_malformed_instruction_data_and_account_lists() {
+    let mollusk = fresh_mollusk();
+    let account_key = Pubkey::new_unique();
+    let base_accounts = vec![(
+        account_key,
+        readonly_data_account(
+            spl_token_2022_program::ID,
+            mint_with_extensions(&[(EXT_DEFAULT_ACCOUNT_STATE, vec![2u8])]),
+        ),
+    )];
+
+    let mint_multisig_accounts = vec![(
+        account_key,
+        readonly_data_account(spl_token_2022_program::ID, multisig_shaped_data(1)),
+    )];
+    let mint_multisig = run(
+        &mollusk,
+        &demo_ix(
+            ROUTE_MINT,
+            EXT_DEFAULT_ACCOUNT_STATE,
+            &[2u8],
+            Some((account_key, false, false)),
+        ),
+        &mint_multisig_accounts,
+    );
+    assert_custom_failure(&mint_multisig, DemoFailure::InvalidAccountData);
+    assert_account_unchanged(
+        &mint_multisig_accounts,
+        &mint_multisig.resulting_accounts,
+        &account_key,
+    );
+
+    let account_multisig_accounts = vec![(
+        account_key,
+        readonly_data_account(spl_token_2022_program::ID, multisig_shaped_data(2)),
+    )];
+    let account_multisig = run(
+        &mollusk,
+        &demo_ix(
+            ROUTE_ACCOUNT,
+            EXT_TRANSFER_FEE_AMOUNT,
+            &[0u8; 8],
+            Some((account_key, false, false)),
+        ),
+        &account_multisig_accounts,
+    );
+    assert_custom_failure(&account_multisig, DemoFailure::InvalidAccountData);
+    assert_account_unchanged(
+        &account_multisig_accounts,
+        &account_multisig.resulting_accounts,
+        &account_key,
+    );
+
+    for data in [
+        vec![],
+        vec![ROUTE_MINT],
+        vec![ROUTE_MINT, 0, 0],
+        vec![ROUTE_MINT, 0, 0, 0],
+        vec![ROUTE_MINT, 0x34, 0x12, 0, 0],
+        vec![ROUTE_MINT, 0x06, 0x00, 0x02, 0x00, 0xAA],
+    ] {
+        let ix = raw_demo_ix(
+            data,
+            vec![AccountMeta::new_readonly(account_key, false)],
+        );
+        let result = run(&mollusk, &ix, &base_accounts);
+        assert_custom_failure(&result, DemoFailure::InvalidInstructionData);
+        assert_account_unchanged(&base_accounts, &result.resulting_accounts, &account_key);
+    }
+
+    let no_account_ix = raw_demo_ix(vec![ROUTE_MINT, 0x06, 0x00, 0x01, 0x00, 2], vec![]);
+    let no_account = run(&mollusk, &no_account_ix, &[]);
+    assert_custom_failure(&no_account, DemoFailure::InvalidAccountList);
+
+    let signer_ix = raw_demo_ix(
+        vec![ROUTE_MINT, 0x06, 0x00, 0x01, 0x00, 2],
+        vec![AccountMeta::new_readonly(account_key, true)],
+    );
+    let signer = run(&mollusk, &signer_ix, &base_accounts);
+    assert_custom_failure(&signer, DemoFailure::InvalidAccountList);
+    assert_account_unchanged(&base_accounts, &signer.resulting_accounts, &account_key);
+
+    let writable_ix = raw_demo_ix(
+        vec![ROUTE_MINT, 0x06, 0x00, 0x01, 0x00, 2],
+        vec![AccountMeta::new(account_key, false)],
+    );
+    let writable = run(&mollusk, &writable_ix, &base_accounts);
+    assert_custom_failure(&writable, DemoFailure::InvalidAccountList);
+    assert_account_unchanged(&base_accounts, &writable.resulting_accounts, &account_key);
+
+    let extra_key = Pubkey::new_unique();
+    let extra_accounts = vec![
+        (
+            account_key,
+            readonly_data_account(
+                spl_token_2022_program::ID,
+                mint_with_extensions(&[(EXT_DEFAULT_ACCOUNT_STATE, vec![2u8])]),
+            ),
+        ),
+        (
+            extra_key,
+            readonly_data_account(
+                spl_token_2022_program::ID,
+                account_with_extensions(&[(EXT_TRANSFER_FEE_AMOUNT, vec![0u8; 8])]),
+            ),
+        ),
+    ];
+    let extra_ix = raw_demo_ix(
+        vec![ROUTE_MINT, 0x06, 0x00, 0x01, 0x00, 2],
+        vec![
+            AccountMeta::new_readonly(account_key, false),
+            AccountMeta::new_readonly(extra_key, false),
+        ],
+    );
+    let extra = run(&mollusk, &extra_ix, &extra_accounts);
+    assert_custom_failure(&extra, DemoFailure::InvalidAccountList);
+    assert_all_accounts_unchanged(&extra_accounts, &extra.resulting_accounts);
 }
 
 #[test]

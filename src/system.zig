@@ -310,6 +310,44 @@ pub fn transfer(
     try cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ from, to, system_program });
 }
 
+/// PDA-signed variant of `transfer`.
+pub fn transferSigned(
+    from: CpiAccountInfo,
+    to: CpiAccountInfo,
+    system_program: CpiAccountInfo,
+    lamports: u64,
+    signers: []const cpi.Signer,
+) ProgramResult {
+    const ix_data = fixedIxData(SystemInstruction.Transfer, TransferPayload, .{ .lamports = lamports });
+
+    const account_metas = [_]cpi.AccountMeta{
+        cpi.AccountMeta.signerWritable(from.key()),
+        cpi.AccountMeta.writable(to.key()),
+    };
+
+    const ix = cpi.Instruction.fromCpiAccount(system_program, &account_metas, &ix_data);
+    try cpi.invokeSignedRaw(&ix, &[_]CpiAccountInfo{ from, to, system_program }, signers);
+}
+
+/// Single-PDA fast path for `transferSigned`.
+pub inline fn transferSignedSingle(
+    from: CpiAccountInfo,
+    to: CpiAccountInfo,
+    system_program: CpiAccountInfo,
+    lamports: u64,
+    signer_seeds: anytype,
+) ProgramResult {
+    const ix_data = fixedIxData(SystemInstruction.Transfer, TransferPayload, .{ .lamports = lamports });
+
+    const account_metas = [_]cpi.AccountMeta{
+        cpi.AccountMeta.signerWritable(from.key()),
+        cpi.AccountMeta.writable(to.key()),
+    };
+
+    const ix = cpi.Instruction.fromCpiAccount(system_program, &account_metas, &ix_data);
+    try cpi.invokeSignedSingle(&ix, &[_]CpiAccountInfo{ from, to, system_program }, signer_seeds);
+}
+
 /// Assign a new owner to an account.
 pub fn assign(
     account: CpiAccountInfo,
@@ -327,6 +365,40 @@ pub fn assign(
     try cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ account, system_program });
 }
 
+/// PDA-signed variant of `assign`.
+pub fn assignSigned(
+    account: CpiAccountInfo,
+    system_program: CpiAccountInfo,
+    owner: *const Pubkey,
+    signers: []const cpi.Signer,
+) ProgramResult {
+    const ix_data = fixedIxData(SystemInstruction.Assign, AssignPayload, .{ .owner = owner.* });
+
+    const account_metas = [_]cpi.AccountMeta{
+        cpi.AccountMeta.signerWritable(account.key()),
+    };
+
+    const ix = cpi.Instruction.fromCpiAccount(system_program, &account_metas, &ix_data);
+    try cpi.invokeSignedRaw(&ix, &[_]CpiAccountInfo{ account, system_program }, signers);
+}
+
+/// Single-PDA fast path for `assignSigned`.
+pub inline fn assignSignedSingle(
+    account: CpiAccountInfo,
+    system_program: CpiAccountInfo,
+    owner: *const Pubkey,
+    signer_seeds: anytype,
+) ProgramResult {
+    const ix_data = fixedIxData(SystemInstruction.Assign, AssignPayload, .{ .owner = owner.* });
+
+    const account_metas = [_]cpi.AccountMeta{
+        cpi.AccountMeta.signerWritable(account.key()),
+    };
+
+    const ix = cpi.Instruction.fromCpiAccount(system_program, &account_metas, &ix_data);
+    try cpi.invokeSignedSingle(&ix, &[_]CpiAccountInfo{ account, system_program }, signer_seeds);
+}
+
 /// Allocate space in an account.
 pub fn allocate(
     account: CpiAccountInfo,
@@ -342,6 +414,40 @@ pub fn allocate(
     const ix = cpi.Instruction.fromCpiAccount(system_program, &account_metas, &ix_data);
 
     try cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ account, system_program });
+}
+
+/// PDA-signed variant of `allocate`.
+pub fn allocateSigned(
+    account: CpiAccountInfo,
+    system_program: CpiAccountInfo,
+    space: u64,
+    signers: []const cpi.Signer,
+) ProgramResult {
+    const ix_data = fixedIxData(SystemInstruction.Allocate, AllocatePayload, .{ .space = space });
+
+    const account_metas = [_]cpi.AccountMeta{
+        cpi.AccountMeta.signerWritable(account.key()),
+    };
+
+    const ix = cpi.Instruction.fromCpiAccount(system_program, &account_metas, &ix_data);
+    try cpi.invokeSignedRaw(&ix, &[_]CpiAccountInfo{ account, system_program }, signers);
+}
+
+/// Single-PDA fast path for `allocateSigned`.
+pub inline fn allocateSignedSingle(
+    account: CpiAccountInfo,
+    system_program: CpiAccountInfo,
+    space: u64,
+    signer_seeds: anytype,
+) ProgramResult {
+    const ix_data = fixedIxData(SystemInstruction.Allocate, AllocatePayload, .{ .space = space });
+
+    const account_metas = [_]cpi.AccountMeta{
+        cpi.AccountMeta.signerWritable(account.key()),
+    };
+
+    const ix = cpi.Instruction.fromCpiAccount(system_program, &account_metas, &ix_data);
+    try cpi.invokeSignedSingle(&ix, &[_]CpiAccountInfo{ account, system_program }, signer_seeds);
 }
 
 // Note: there is no System Program `Realloc` instruction. Accounts that
@@ -625,6 +731,82 @@ pub fn createAccountWithSeed(
     // so the bounds check in `cpi.invoke` is provably-true at compile
     // time — skip it.
     try cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ from, to, system_program });
+}
+
+/// PDA-signed variant of `createAccountWithSeed`.
+pub fn createAccountWithSeedSigned(
+    from: CpiAccountInfo,
+    to: CpiAccountInfo,
+    system_program: CpiAccountInfo,
+    base: *const Pubkey,
+    seed: []const u8,
+    lamports: u64,
+    space: u64,
+    owner: *const Pubkey,
+    signers: []const cpi.Signer,
+) ProgramResult {
+    if (seed.len > MAX_SEED_LEN) return error.MaxSeedLengthExceeded;
+
+    var ix_data = StackIxDataWriter(variableSeedIxCapacity(
+        DISCRIMINANT_BYTES + PUBKEY_BYTES + U64_BYTES + U64_BYTES + U64_BYTES + PUBKEY_BYTES,
+    )).init();
+    ix_data.writeDiscriminant(SystemInstruction.CreateAccountWithSeed);
+    ix_data.writePubkey(base);
+    ix_data.writeSeed(seed);
+    ix_data.writeU64(lamports);
+    ix_data.writeU64(space);
+    ix_data.writePubkey(owner);
+
+    const account_metas = [_]cpi.AccountMeta{
+        cpi.AccountMeta.signerWritable(from.key()),
+        cpi.AccountMeta.writable(to.key()),
+    };
+
+    const ix = cpi.Instruction.fromCpiAccount(
+        system_program,
+        &account_metas,
+        ix_data.written(),
+    );
+
+    try cpi.invokeSignedRaw(&ix, &[_]CpiAccountInfo{ from, to, system_program }, signers);
+}
+
+/// Single-PDA fast path for `createAccountWithSeedSigned`.
+pub inline fn createAccountWithSeedSignedSingle(
+    from: CpiAccountInfo,
+    to: CpiAccountInfo,
+    system_program: CpiAccountInfo,
+    base: *const Pubkey,
+    seed: []const u8,
+    lamports: u64,
+    space: u64,
+    owner: *const Pubkey,
+    signer_seeds: anytype,
+) ProgramResult {
+    if (seed.len > MAX_SEED_LEN) return error.MaxSeedLengthExceeded;
+
+    var ix_data = StackIxDataWriter(variableSeedIxCapacity(
+        DISCRIMINANT_BYTES + PUBKEY_BYTES + U64_BYTES + U64_BYTES + U64_BYTES + PUBKEY_BYTES,
+    )).init();
+    ix_data.writeDiscriminant(SystemInstruction.CreateAccountWithSeed);
+    ix_data.writePubkey(base);
+    ix_data.writeSeed(seed);
+    ix_data.writeU64(lamports);
+    ix_data.writeU64(space);
+    ix_data.writePubkey(owner);
+
+    const account_metas = [_]cpi.AccountMeta{
+        cpi.AccountMeta.signerWritable(from.key()),
+        cpi.AccountMeta.writable(to.key()),
+    };
+
+    const ix = cpi.Instruction.fromCpiAccount(
+        system_program,
+        &account_metas,
+        ix_data.written(),
+    );
+
+    try cpi.invokeSignedSingle(&ix, &[_]CpiAccountInfo{ from, to, system_program }, signer_seeds);
 }
 
 /// Assign a derived account to a new owner using `(base, seed, owner)`.
@@ -1226,6 +1408,14 @@ test "system: seed-based helpers reject too-long seeds before CPI" {
     );
     const bump_seed = [_]u8{1};
     const signer = cpi.Signer.from(&cpi.seedPack(.{ "base", &bump_seed }));
+    try std.testing.expectError(
+        error.MaxSeedLengthExceeded,
+        createAccountWithSeedSigned(account, to, system_program, base.key(), &too_long, 1, 1, &owner, &.{signer}),
+    );
+    try std.testing.expectError(
+        error.MaxSeedLengthExceeded,
+        createAccountWithSeedSignedSingle(account, to, system_program, base.key(), &too_long, 1, 1, &owner, .{ "base", &bump_seed }),
+    );
 
     try std.testing.expectError(
         error.MaxSeedLengthExceeded,
@@ -1262,6 +1452,82 @@ test "system: seed-based helpers reject too-long seeds before CPI" {
     try std.testing.expectError(
         error.MaxSeedLengthExceeded,
         transferWithSeedSignedSingle(account, base, to, system_program, &too_long, &owner, 1, .{ "base", &bump_seed }),
+    );
+}
+
+test "system: signed core wrappers return InvalidArgument on host" {
+    var account_acc: account_mod.Account = .{
+        .borrow_state = account_mod.NOT_BORROWED,
+        .is_signer = 1,
+        .is_writable = 1,
+        .is_executable = 0,
+        ._padding = .{0} ** 4,
+        .key = .{1} ** 32,
+        .owner = .{2} ** 32,
+        .lamports = 1_000,
+        .data_len = 0,
+    };
+    var to_acc: account_mod.Account = .{
+        .borrow_state = account_mod.NOT_BORROWED,
+        .is_signer = 0,
+        .is_writable = 1,
+        .is_executable = 0,
+        ._padding = .{0} ** 4,
+        .key = .{3} ** 32,
+        .owner = .{4} ** 32,
+        .lamports = 1_000,
+        .data_len = 0,
+    };
+    var system_acc: account_mod.Account = .{
+        .borrow_state = account_mod.NOT_BORROWED,
+        .is_signer = 0,
+        .is_writable = 0,
+        .is_executable = 1,
+        ._padding = .{0} ** 4,
+        .key = SYSTEM_PROGRAM_ID,
+        .owner = .{0} ** 32,
+        .lamports = 1_000,
+        .data_len = 0,
+    };
+
+    const account = (account_mod.AccountInfo{ .raw = &account_acc }).toCpiInfo();
+    const to = (account_mod.AccountInfo{ .raw = &to_acc }).toCpiInfo();
+    const system_program = (account_mod.AccountInfo{ .raw = &system_acc }).toCpiInfo();
+    const owner: Pubkey = .{9} ** 32;
+    const bump_seed = [_]u8{1};
+    const signer = cpi.Signer.from(&cpi.seedPack(.{ "base", &bump_seed }));
+
+    try std.testing.expectError(
+        error.InvalidArgument,
+        transferSigned(account, to, system_program, 1, &.{signer}),
+    );
+    try std.testing.expectError(
+        error.InvalidArgument,
+        transferSignedSingle(account, to, system_program, 1, .{ "base", &bump_seed }),
+    );
+    try std.testing.expectError(
+        error.InvalidArgument,
+        assignSigned(account, system_program, &owner, &.{signer}),
+    );
+    try std.testing.expectError(
+        error.InvalidArgument,
+        assignSignedSingle(account, system_program, &owner, .{ "base", &bump_seed }),
+    );
+    try std.testing.expectError(
+        error.InvalidArgument,
+        allocateSigned(account, system_program, 1, &.{signer}),
+    );
+    try std.testing.expectError(
+        error.InvalidArgument,
+        allocateSignedSingle(account, system_program, 1, .{ "base", &bump_seed }),
+    );
+    try std.testing.expectError(
+        error.InvalidArgument,
+        createAccountWithSeedSigned(account, to, system_program, account.key(), "seed", 1, 1, &owner, &.{signer}),
+    );
+    try std.testing.expectError(
+        error.InvalidArgument,
+        createAccountWithSeedSignedSingle(account, to, system_program, account.key(), "seed", 1, 1, &owner, .{ "base", &bump_seed }),
     );
 }
 

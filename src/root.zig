@@ -160,6 +160,32 @@ pub const instructions_sysvar_id = sysvar.INSTRUCTIONS_ID;
 // from a parsed `CpiAccountInfo`.
 pub const system_program_id = system.SYSTEM_PROGRAM_ID;
 
+test "SPL Token family program ids are canonical and non-conflicting" {
+    var classic_out: [44]u8 = undefined;
+    var token_2022_out: [44]u8 = undefined;
+    var ata_out: [44]u8 = undefined;
+
+    const classic_len = pubkey.encodeBase58(&spl_token_program_id, &classic_out);
+    const token_2022_len = pubkey.encodeBase58(&spl_token_2022_program_id, &token_2022_out);
+    const ata_len = pubkey.encodeBase58(&spl_associated_token_account_id, &ata_out);
+
+    try std.testing.expectEqualStrings(
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        classic_out[0..classic_len],
+    );
+    try std.testing.expectEqualStrings(
+        "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+        token_2022_out[0..token_2022_len],
+    );
+    try std.testing.expectEqualStrings(
+        "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+        ata_out[0..ata_len],
+    );
+    try std.testing.expect(!pubkey.pubkeyEq(&spl_token_program_id, &spl_token_2022_program_id));
+    try std.testing.expect(!pubkey.pubkeyEq(&spl_token_program_id, &spl_associated_token_account_id));
+    try std.testing.expect(!pubkey.pubkeyEq(&spl_token_2022_program_id, &spl_associated_token_account_id));
+}
+
 test {
     std.testing.refAllDecls(@This());
 }

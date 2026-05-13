@@ -19,3 +19,9 @@ test "PROGRAM_ID is canonical Token-2022 id" {
         out[0..len],
     );
 }
+
+test "PROGRAM_ID matches root SDK Token-2022 id and stays distinct from classic ids" {
+    try std.testing.expectEqualSlices(u8, &sol.spl_token_2022_program_id, &PROGRAM_ID);
+    try std.testing.expect(!sol.pubkey.pubkeyEq(&PROGRAM_ID, &sol.spl_token_program_id));
+    try std.testing.expect(!sol.pubkey.pubkeyEq(&PROGRAM_ID, &sol.spl_associated_token_account_id));
+}

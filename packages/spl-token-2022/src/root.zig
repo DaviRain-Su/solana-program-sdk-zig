@@ -67,6 +67,40 @@ test "PROGRAM_ID aliases id.PROGRAM_ID" {
     try std.testing.expectEqualSlices(u8, &id.PROGRAM_ID, &PROGRAM_ID);
 }
 
+fn expectContains(haystack: []const u8, needle: []const u8) !void {
+    try std.testing.expect(std.mem.indexOf(u8, haystack, needle) != null);
+}
+
+fn expectNotContains(haystack: []const u8, needle: []const u8) !void {
+    try std.testing.expect(std.mem.indexOf(u8, haystack, needle) == null);
+}
+
+test "source-review guards keep spl_token_2022 parsing-only and canonically wired" {
+    const root_source = @embedFile("root.zig");
+    try expectNotContains(root_source, "pub const " ++ "instruction =");
+    try expectNotContains(root_source, "pub const " ++ "cpi =");
+    try expectNotContains(root_source, "pub const " ++ "rpc =");
+    try expectNotContains(root_source, "pub const " ++ "client =");
+    try expectNotContains(root_source, "pub const " ++ "keypair =");
+    try expectNotContains(root_source, "pub const " ++ "transaction =");
+
+    const package_sources = [_][]const u8{
+        root_source,
+        @embedFile("id.zig"),
+        @embedFile("state.zig"),
+        @embedFile("tlv.zig"),
+        @embedFile("extension.zig"),
+    };
+    inline for (package_sources) |source| {
+        try expectNotContains(source, "solana_" ++ "client");
+        try expectNotContains(source, "solana_" ++ "tx");
+        try expectNotContains(source, "solana_" ++ "keypair");
+        try expectNotContains(source, "@import(\"spl" ++ "_token\")");
+        try expectNotContains(source, "@import(\"spl" ++ "_ata\")");
+        try expectNotContains(source, "@import(\"spl" ++ "_memo\")");
+    }
+}
+
 test {
     std.testing.refAllDecls(@This());
 }

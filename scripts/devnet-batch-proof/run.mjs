@@ -72,49 +72,169 @@ async function sendProofIx(label, data, keys) {
   });
   const cu = tx?.meta?.computeUnitsConsumed ?? null;
   const tokenInvokeCount = countTokenInvokes(tx);
-  console.log(JSON.stringify({ label, signature: sig, computeUnitsConsumed: cu, tokenInvokeCount }, null, 2));
-  return { sig, cu, tokenInvokeCount };
+  const result = { label, signature: sig, computeUnitsConsumed: cu, tokenInvokeCount };
+  console.log(JSON.stringify(result, null, 2));
+  return result;
 }
 
-async function main() {
-  console.log('payer', payer.publicKey.toBase58());
-  console.log('program', programId.toBase58());
+async function ensurePdaState() {
+  const [pdaState, bump] = PublicKey.findProgramAddressSync([Buffer.from('vault')], programId);
+  const info = await connection.getAccountInfo(pdaState, 'confirmed');
+  if (info) {
+    console.log('pda_state', pdaState.toBase58(), 'already initialized');
+    return { pdaState, bump, created: false };
+  }
 
   const mint = await createMint(connection, payer, payer.publicKey, null, 6, undefined, undefined, TOKEN_PROGRAM_ID);
-  const source = await createTokenAccount(mint, payer.publicKey);
+  const userSource = await createTokenAccount(mint, payer.publicKey);
   const destinationA = await createTokenAccount(mint, payer.publicKey);
   const destinationB = await createTokenAccount(mint, payer.publicKey);
-  await mintTo(connection, payer, mint, source, payer, 1_000_000_000n, [], undefined, TOKEN_PROGRAM_ID);
+  const vaultSource = await createTokenAccount(mint, payer.publicKey);
 
-  const amountA = 10_000;
-  const amountB = 20_000;
-  const keys = [
+  const initKeys = [
+    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: userSource, isSigner: false, isWritable: true },
+    { pubkey: mint, isSigner: false, isWritable: false },
+    { pubkey: destinationA, isSigner: false, isWritable: true },
+    { pubkey: destinationB, isSigner: false, isWritable: true },
+    { pubkey: payer.publicKey, isSigner: true, isWritable: true },
+    { pubkey: vaultSource, isSigner: false, isWritable: true },
+    { pubkey: pdaState, isSigner: false, isWritable: true },
+    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+  ];
+  await sendProofIx('init_pda', Buffer.from([0, bump]), initKeys);
+  return { pdaState, bump, created: true };
+}
+
+function simpleKeys(source, mint, destinationA, destinationB, extraAccount, pdaState) {
+  return [
     { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
     { pubkey: source, isSigner: false, isWritable: true },
     { pubkey: mint, isSigner: false, isWritable: false },
     { pubkey: destinationA, isSigner: false, isWritable: true },
     { pubkey: destinationB, isSigner: false, isWritable: true },
     { pubkey: payer.publicKey, isSigner: true, isWritable: false },
+    { pubkey: extraAccount, isSigner: false, isWritable: false },
+    { pubkey: pdaState, isSigner: false, isWritable: false },
+    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
   ];
+}
 
-  await sendProofIx('double_transfer_checked', encodeTransferArgs(1, amountA, amountB, 6), keys);
-  await sendProofIx('batch_transfer_checked', encodeTransferArgs(2, amountA, amountB, 6), keys);
-  await sendProofIx('batch_prepared_transfer_checked', encodeTransferArgs(3, amountA, amountB, 6), keys);
+function mixedKeys(userSource, mint, destinationA, destinationB, vaultSource, pdaState) {
+  return [
+    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: userSource, isSigner: false, isWritable: true },
+    { pubkey: mint, isSigner: false, isWritable: false },
+    { pubkey: destinationA, isSigner: false, isWritable: true },
+    { pubkey: destinationB, isSigner: false, isWritable: true },
+    { pubkey: payer.publicKey, isSigner: true, isWritable: false },
+    { pubkey: vaultSource, isSigner: false, isWritable: true },
+    { pubkey: pdaState, isSigner: false, isWritable: false },
+    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+  ];
+}
 
-  const sourceAccount = await getAccount(connection, source, 'confirmed', TOKEN_PROGRAM_ID);
-  const destinationAAccount = await getAccount(connection, destinationA, 'confirmed', TOKEN_PROGRAM_ID);
-  const destinationBAccount = await getAccount(connection, destinationB, 'confirmed', TOKEN_PROGRAM_ID);
-  console.log(JSON.stringify({
-    mint: mint.toBase58(),
-    source: source.toBase58(),
-    destinationA: destinationA.toBase58(),
-    destinationB: destinationB.toBase58(),
-    balances: {
-      source: sourceAccount.amount.toString(),
-      destinationA: destinationAAccount.amount.toString(),
-      destinationB: destinationBAccount.amount.toString(),
-    },
-  }, null, 2));
+async function createSimpleScenario() {
+  const mint = await createMint(connection, payer, payer.publicKey, null, 6, undefined, undefined, TOKEN_PROGRAM_ID);
+  const source = await createTokenAccount(mint, payer.publicKey);
+  const destinationA = await createTokenAccount(mint, payer.publicKey);
+  const destinationB = await createTokenAccount(mint, payer.publicKey);
+  const extraAccount = await createTokenAccount(mint, payer.publicKey);
+  await mintTo(connection, payer, mint, source, payer, 1_000_000_000n, [], undefined, TOKEN_PROGRAM_ID);
+  return { mint, source, destinationA, destinationB, extraAccount };
+}
+
+async function createMixedScenario(pdaState) {
+  const mint = await createMint(connection, payer, payer.publicKey, null, 6, undefined, undefined, TOKEN_PROGRAM_ID);
+  const userSource = await createTokenAccount(mint, payer.publicKey);
+  const destinationA = await createTokenAccount(mint, payer.publicKey);
+  const destinationB = await createTokenAccount(mint, payer.publicKey);
+  const vaultSource = await createTokenAccount(mint, pdaState);
+  await mintTo(connection, payer, mint, userSource, payer, 1_000_000_000n, [], undefined, TOKEN_PROGRAM_ID);
+  await mintTo(connection, payer, mint, vaultSource, payer, 1_000_000_000n, [], undefined, TOKEN_PROGRAM_ID);
+  return { mint, userSource, destinationA, destinationB, vaultSource };
+}
+
+async function fetchBalances(label, accounts) {
+  const entries = await Promise.all(
+    Object.entries(accounts).map(async ([name, pubkey]) => {
+      const account = await getAccount(connection, pubkey, 'confirmed', TOKEN_PROGRAM_ID);
+      return [name, account.amount.toString()];
+    }),
+  );
+  console.log(JSON.stringify({ label, balances: Object.fromEntries(entries) }, null, 2));
+}
+
+async function runSimpleFamily(prefix, baseTag, pdaState) {
+  const scenario = await createSimpleScenario();
+  const keys = simpleKeys(
+    scenario.source,
+    scenario.mint,
+    scenario.destinationA,
+    scenario.destinationB,
+    scenario.extraAccount,
+    pdaState,
+  );
+  const amountA = 10_000;
+  const amountB = 20_000;
+  const results = [];
+  results.push(await sendProofIx(`${prefix}_double`, encodeTransferArgs(baseTag, amountA, amountB, 6), keys));
+  results.push(await sendProofIx(`${prefix}_batch`, encodeTransferArgs(baseTag + 1, amountA, amountB, 6), keys));
+  results.push(await sendProofIx(`${prefix}_batch_prepared`, encodeTransferArgs(baseTag + 2, amountA, amountB, 6), keys));
+  await fetchBalances(prefix, {
+    source: scenario.source,
+    destinationA: scenario.destinationA,
+    destinationB: scenario.destinationB,
+  });
+  return results;
+}
+
+async function runMixedFamily(pdaState) {
+  const scenario = await createMixedScenario(pdaState);
+  const keys = mixedKeys(
+    scenario.userSource,
+    scenario.mint,
+    scenario.destinationA,
+    scenario.destinationB,
+    scenario.vaultSource,
+    pdaState,
+  );
+  const amountA = 30_000;
+  const amountB = 15_000;
+  const results = [];
+  results.push(await sendProofIx('mixed_checked_double', encodeTransferArgs(7, amountA, amountB, 6), keys));
+  results.push(await sendProofIx('mixed_checked_batch', encodeTransferArgs(8, amountA, amountB, 6), keys));
+  results.push(await sendProofIx('mixed_checked_batch_prepared', encodeTransferArgs(9, amountA, amountB, 6), keys));
+  await fetchBalances('mixed_checked', {
+    userSource: scenario.userSource,
+    vaultSource: scenario.vaultSource,
+    destinationA: scenario.destinationA,
+    destinationB: scenario.destinationB,
+  });
+  return results;
+}
+
+function printSummary(results) {
+  console.log('\nSummary');
+  for (const result of results) {
+    console.log(
+      `${result.label}: ${result.computeUnitsConsumed} CU, token invokes ${result.tokenInvokeCount}, sig ${result.signature}`,
+    );
+  }
+}
+
+async function main() {
+  console.log('payer', payer.publicKey.toBase58());
+  console.log('program', programId.toBase58());
+
+  const { pdaState, bump } = await ensurePdaState();
+  console.log('pda_state', pdaState.toBase58(), 'bump', bump);
+
+  const results = [];
+  results.push(...(await runSimpleFamily('transfer', 1, pdaState)));
+  results.push(...(await runSimpleFamily('transfer_checked', 4, pdaState)));
+  results.push(...(await runMixedFamily(pdaState)));
+  printSummary(results);
 }
 
 main().catch((err) => {

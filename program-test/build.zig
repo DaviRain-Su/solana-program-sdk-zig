@@ -76,4 +76,19 @@ pub fn build(b: *std.Build) !void {
             .{ .name = "spl_ata", .module = spl_ata_mod },
         },
     });
+
+    const spl_token_2022_dep = b.dependency("spl_token_2022", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const spl_token_2022_mod = spl_token_2022_dep.module("spl_token_2022");
+
+    _ = solana.buildProgram(b, .{
+        .name = "example_spl_token_2022_parse",
+        .root_source_file = b.path("../packages/spl-token-2022/examples/parse_demo.zig"),
+        .optimize = optimize,
+        .extra_imports = &.{
+            .{ .name = "spl_token_2022", .module = spl_token_2022_mod },
+        },
+    });
 }

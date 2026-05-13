@@ -167,6 +167,124 @@ pub const instructions_sysvar_id = sysvar.INSTRUCTIONS_ID;
 // from a parsed `CpiAccountInfo`.
 pub const system_program_id = system.SYSTEM_PROGRAM_ID;
 
+const EmbeddedSource = struct {
+    path: []const u8,
+    text: []const u8,
+};
+
+const execution_source_files = [_]EmbeddedSource{
+    .{ .path = "src/instruction.zig", .text = @embedFile("instruction.zig") },
+    .{ .path = "src/cpi.zig", .text = @embedFile("cpi.zig") },
+    .{ .path = "src/compute_budget.zig", .text = @embedFile("compute_budget.zig") },
+    .{ .path = "src/math.zig", .text = @embedFile("math.zig") },
+};
+
+const mock_only_source_paths = [_][]const u8{
+    "examples/hello.zig",
+    "examples/token_dispatch.zig",
+    "examples/cpi.zig",
+    "examples/pubkey.zig",
+    "examples/vault.zig",
+    "examples/escrow.zig",
+    "examples/counter.zig",
+    "program-test/build.zig",
+    "program-test/tests/hello.rs",
+    "program-test/tests/token_2022.rs",
+    "program-test/tests/escrow.rs",
+    "program-test/tests/counter.rs",
+    "program-test/tests/spl_token.rs",
+    "program-test/tests/spl_ata.rs",
+    "program-test/tests/pubkey.rs",
+    "program-test/tests/cpi.rs",
+    "program-test/tests/spl_memo.rs",
+};
+
+const banned_offchain_terms = [_][]const u8{
+    "solana_client",
+    "solana_tx",
+    "solana_keypair",
+    "raydium",
+    "orca",
+    "meteora",
+    "jupiter",
+    "okx",
+    "quote engine",
+    "tx builder",
+    "tx-builder",
+    "searcher",
+    "rpc client",
+    "geyser",
+    "jito",
+};
+
+fn containsAllocatorType(comptime T: type) bool {
+    if (T == std.mem.Allocator) return true;
+
+    return switch (@typeInfo(T)) {
+        .array => |array_info| containsAllocatorType(array_info.child),
+        .optional => |optional_info| containsAllocatorType(optional_info.child),
+        .pointer => |pointer_info| containsAllocatorType(pointer_info.child),
+        .@"struct" => |struct_info| blk: {
+            inline for (struct_info.fields) |field| {
+                if (containsAllocatorType(field.type)) break :blk true;
+            }
+            break :blk false;
+        },
+        else => false,
+    };
+}
+
+fn expectStructFieldsAllocatorFree(comptime T: type) !void {
+    const info = @typeInfo(T);
+    try std.testing.expect(info == .@"struct");
+    inline for (info.@"struct".fields) |field| {
+        try std.testing.expect(!containsAllocatorType(field.type));
+    }
+}
+
+fn expectNoAllocatorParams(comptime func: anytype) !void {
+    const info = @typeInfo(@TypeOf(func));
+    try std.testing.expect(info == .@"fn");
+    inline for (info.@"fn".params) |param| {
+        if (param.type) |ParamT| {
+            try std.testing.expect(!containsAllocatorType(ParamT));
+        }
+    }
+}
+
+fn indexOfAsciiIgnoreCase(haystack: []const u8, needle: []const u8) ?usize {
+    if (needle.len == 0 or haystack.len < needle.len) return null;
+
+    var i: usize = 0;
+    while (i + needle.len <= haystack.len) : (i += 1) {
+        if (std.ascii.eqlIgnoreCase(haystack[i .. i + needle.len], needle)) return i;
+    }
+    return null;
+}
+
+fn expectTextOmitsTerms(file_path: []const u8, text: []const u8, banned_terms: []const []const u8) !void {
+    for (banned_terms) |term| {
+        if (indexOfAsciiIgnoreCase(text, term)) |idx| {
+            std.debug.print("forbidden term \"{s}\" found in {s} at byte {d}\n", .{ term, file_path, idx });
+            return error.TestUnexpectedResult;
+        }
+    }
+}
+
+fn expectRepoFileOmitsTerms(file_path: []const u8, banned_terms: []const []const u8) !void {
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+
+    const text = try std.Io.Dir.cwd().readFileAlloc(
+        threaded.io(),
+        file_path,
+        std.testing.allocator,
+        .limited(1 << 20),
+    );
+    defer std.testing.allocator.free(text);
+    try expectTextOmitsTerms(file_path, text, banned_terms);
+}
+
 test "SPL Token family program ids are canonical and non-conflicting" {
     var classic_out: [44]u8 = undefined;
     var token_2022_out: [44]u8 = undefined;
@@ -191,6 +309,46 @@ test "SPL Token family program ids are canonical and non-conflicting" {
     try std.testing.expect(!pubkey.pubkeyEq(&spl_token_program_id, &spl_token_2022_program_id));
     try std.testing.expect(!pubkey.pubkeyEq(&spl_token_program_id, &spl_associated_token_account_id));
     try std.testing.expect(!pubkey.pubkeyEq(&spl_token_2022_program_id, &spl_associated_token_account_id));
+}
+
+test "execution primitive root exports stay wired to core modules" {
+    try std.testing.expect(IxDataStaging == instruction.IxDataStaging);
+    try std.testing.expect(CpiAccountStaging == cpi.CpiAccountStaging);
+    try std.testing.expect(@TypeOf(remainingComputeUnits) == @TypeOf(compute_budget.remaining));
+    try std.testing.expectEqual(compute_budget.remaining(), remainingComputeUnits());
+}
+
+test "execution primitive hot-path APIs stay allocator free" {
+    try expectStructFieldsAllocatorFree(IxDataCursor);
+    try expectStructFieldsAllocatorFree(IxDataStaging);
+    try expectStructFieldsAllocatorFree(CpiAccountStaging);
+
+    try expectNoAllocatorParams(instruction.IxDataCursor.init);
+    try expectNoAllocatorParams(instruction.IxDataStaging.init);
+    try expectNoAllocatorParams(instruction.IxDataStaging.appendBytes);
+    try expectNoAllocatorParams(cpi.stageDynamicAccountsWithPubkeys);
+    try expectNoAllocatorParams(cpi.CpiAccountStaging.init);
+    try expectNoAllocatorParams(cpi.CpiAccountStaging.appendAccount);
+    try expectNoAllocatorParams(cpi.CpiAccountStaging.appendMetaInfo);
+    try expectNoAllocatorParams(cpi.CpiAccountStaging.appendMetaInfoUnchecked);
+    try expectNoAllocatorParams(cpi.CpiAccountStaging.appendProgram);
+    try expectNoAllocatorParams(cpi.CpiAccountStaging.instructionFromProgram);
+    try expectNoAllocatorParams(compute_budget.remaining);
+    try expectNoAllocatorParams(compute_budget.hasAtLeast);
+    try expectNoAllocatorParams(compute_budget.requireAtLeast);
+    try expectNoAllocatorParams(compute_budget.requireRemaining);
+}
+
+test "execution primitive sources avoid off-chain product scope" {
+    for (execution_source_files) |file| {
+        try expectTextOmitsTerms(file.path, file.text, &banned_offchain_terms);
+    }
+}
+
+test "examples and program-test remain mock only" {
+    for (mock_only_source_paths) |file_path| {
+        try expectRepoFileOmitsTerms(file_path, &banned_offchain_terms);
+    }
 }
 
 test {

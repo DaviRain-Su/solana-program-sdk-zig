@@ -19,6 +19,9 @@ Reproduce: `./scripts/bench.sh` from the repo root. Requires
 | `pda_comptime` (build-time fold)   |    6 |
 | `parse_accounts`                   |   23 |
 | `parse_accounts_with`              |   29 |
+| `parse_accounts_with_signer_only`  |   26 |
+| `parse_accounts_with_writable_only` |   29 |
+| `parse_accounts_with_owner_only`   |   37 |
 | `parse_accounts_with_unchecked`    |   18 |
 | `sysvar_copy`                      |   15 |
 | `sysvar_ref`                       |   14 |
@@ -94,6 +97,18 @@ much closer to the unchecked baseline than the older snapshot rows:
 
 That leaves `parseAccountsWith` at roughly **+11 CU** over the fully
 unchecked path and **+6 CU** over the non-validating safe parse.
+
+The new expectation-shape benches show where that validation tax comes
+from:
+
+- `parse_accounts_with_signer_only` = **26 CU**
+- `parse_accounts_with_writable_only` = **29 CU**
+- `parse_accounts_with_owner_only` = **37 CU**
+
+So the remaining validated-parse cost is not uniform: signer-only checks
+are relatively cheap, writable checks land near the current mixed spec,
+and comptime owner validation is the most expensive single expectation
+shape of the three.
 
 For dispatch, the decomposition benches isolate the remaining checked
 path costs:

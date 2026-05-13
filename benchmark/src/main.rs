@@ -70,6 +70,9 @@ fn print_usage(prog: &str) {
         "pda_comptime",
         "parse_accounts",
         "parse_accounts_with",
+        "parse_accounts_with_signer_only",
+        "parse_accounts_with_writable_only",
+        "parse_accounts_with_owner_only",
         "parse_accounts_with_unchecked",
         "sysvar_copy",
         "sysvar_ref",
@@ -150,6 +153,15 @@ async fn run_benchmark(name: &'static str) {
         "parse_accounts" => run_parse_accounts_primitive("benchmark_parse_accounts", false).await,
         "parse_accounts_with" => {
             run_parse_accounts_primitive("benchmark_parse_accounts_with", true).await
+        }
+        "parse_accounts_with_signer_only" => {
+            run_parse_accounts_primitive("benchmark_parse_accounts_with_signer_only", false).await
+        }
+        "parse_accounts_with_writable_only" => {
+            run_parse_accounts_primitive("benchmark_parse_accounts_with_writable_only", true).await
+        }
+        "parse_accounts_with_owner_only" => {
+            run_parse_accounts_primitive("benchmark_parse_accounts_with_owner_only", false).await
         }
         "parse_accounts_with_unchecked" => {
             run_parse_accounts_primitive("benchmark_parse_accounts_with_unchecked", true).await

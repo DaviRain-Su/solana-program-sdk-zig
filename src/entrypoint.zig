@@ -10,6 +10,7 @@ const account = @import("account.zig");
 const pubkey = @import("pubkey.zig");
 const program_error = @import("program_error.zig");
 const error_code = @import("error_code.zig");
+const instruction_mod = @import("instruction.zig");
 
 const Account = account.Account;
 const AccountInfo = account.AccountInfo;
@@ -212,8 +213,7 @@ pub const InstructionContext = struct {
     /// const index = ctx.readIx(u32, 8);
     /// ```
     pub inline fn readIx(self: *InstructionContext, comptime T: type, comptime offset: usize) T {
-        const data = self.instructionDataUnchecked();
-        const ptr: *align(1) const T = @ptrCast(@alignCast(data.ptr + offset));
+        const ptr: *align(1) const T = @ptrCast(@alignCast(self.buffer + @sizeOf(u64) + offset));
         return ptr.*;
     }
 
@@ -226,8 +226,7 @@ pub const InstructionContext = struct {
     /// // ix.amount is a plain u64
     /// ```
     pub inline fn unpackIx(self: *InstructionContext, comptime T: type) T {
-        const data = self.instructionDataUnchecked();
-        const ptr: *align(1) const T = @ptrCast(@alignCast(data.ptr));
+        const ptr: *align(1) const T = @ptrCast(@alignCast(self.buffer + @sizeOf(u64)));
         return ptr.*;
     }
 
@@ -257,6 +256,39 @@ pub const InstructionContext = struct {
         };
         const raw = self.readIx(TagInt, 0);
         return @enumFromInt(raw);
+    }
+
+    /// Bind an extern-struct instruction-data view in one step.
+    ///
+    /// Compared to `try instructionData()` + `IxDataReader(T).bind(...)`,
+    /// this folds the "accounts consumed" and "buffer large enough" checks
+    /// into a single helper while still returning the same zero-copy typed view.
+    pub inline fn bindIxData(
+        self: *const InstructionContext,
+        comptime T: type,
+    ) ProgramError!instruction_mod.IxDataReader(T) {
+        if (self.remaining > 0) {
+            return program_error.fail(
+                @src(),
+                "ctx:accounts_not_consumed",
+                error.InvalidInstructionData,
+            );
+        }
+        return self.bindIxDataUnchecked(T);
+    }
+
+    /// Same as `bindIxData`, but skips the `remaining == 0` check.
+    /// Caller asserts the buffer is already positioned at ix-data.
+    pub inline fn bindIxDataUnchecked(
+        self: *const InstructionContext,
+        comptime T: type,
+    ) ProgramError!instruction_mod.IxDataReader(T) {
+        const data_len: usize = @intCast(@as(*const u64, @ptrCast(@alignCast(self.buffer))).*);
+        if (data_len < @sizeOf(T)) {
+            return error.InvalidInstructionData;
+        }
+        const bytes = self.buffer[@sizeOf(u64) .. @sizeOf(u64) + data_len];
+        return instruction_mod.IxDataReader(T).bindUnchecked(bytes);
     }
 
     /// Parse a fixed set of accounts into a named struct.
@@ -1127,6 +1159,42 @@ test "entrypoint: parseAccountsWith — key mismatch fails" {
     );
 }
 
+test "entrypoint: bindIxData returns typed ix reader" {
+    var input align(8) = [_]u8{0} ** 128;
+    std.mem.writeInt(u64, input[0..8], 0, .little); // num_accounts
+    std.mem.writeInt(u64, input[8..16], 16, .little); // ix_data_len
+    std.mem.writeInt(u32, input[16..20], 7, .little);
+    std.mem.writeInt(u64, input[20..28], 42, .little);
+
+    const Args = extern struct {
+        tag: u32 align(1),
+        amount: u64 align(1),
+    };
+
+    var ctx = InstructionContext.init(&input);
+    const args = try ctx.bindIxData(Args);
+    try std.testing.expectEqual(@as(u32, 7), args.get(.tag));
+    try std.testing.expectEqual(@as(u64, 42), args.get(.amount));
+
+    std.mem.writeInt(u64, input[8..16], 4, .little);
+    var short_ctx = InstructionContext.init(&input);
+    try std.testing.expectError(error.InvalidInstructionData, short_ctx.bindIxData(Args));
+}
+
+test "entrypoint: bindIxData rejects unconsumed accounts" {
+    var input align(8) = [_]u8{0} ** 128;
+    std.mem.writeInt(u64, input[0..8], 1, .little); // num_accounts
+    std.mem.writeInt(u64, input[8..16], 16, .little); // ix_data_len
+
+    const Args = extern struct {
+        tag: u32 align(1),
+        amount: u64 align(1),
+    };
+
+    var ctx = InstructionContext.init(&input);
+    try std.testing.expectError(error.InvalidInstructionData, ctx.bindIxData(Args));
+}
+
 test "entrypoint: parseAccountsWithUnchecked — happy path" {
     var input: [32768]u8 align(8) = undefined;
     buildTwoAccountInput(&input, 1, 1, makePubkey(99), 0, 1);
@@ -1370,20 +1438,28 @@ test "entrypoint: programEntrypoint parses 2 accounts + ix data" {
 
     const acc0: Account = .{
         .borrow_state = account.NON_DUP_MARKER,
-        .is_signer = 1, .is_writable = 1, .is_executable = 0,
+        .is_signer = 1,
+        .is_writable = 1,
+        .is_executable = 0,
         ._padding = .{0} ** 4,
-        .key = makePubkey(1), .owner = makePubkey(2),
-        .lamports = 12345, .data_len = 0,
+        .key = makePubkey(1),
+        .owner = makePubkey(2),
+        .lamports = 12345,
+        .data_len = 0,
     };
     @memcpy(ptr[0..@sizeOf(Account)], std.mem.asBytes(&acc0));
     ptr += @sizeOf(Account) + MAX_PERMITTED_DATA_INCREASE + 8;
 
     const acc1: Account = .{
         .borrow_state = account.NON_DUP_MARKER,
-        .is_signer = 0, .is_writable = 0, .is_executable = 0,
+        .is_signer = 0,
+        .is_writable = 0,
+        .is_executable = 0,
         ._padding = .{0} ** 4,
-        .key = makePubkey(3), .owner = makePubkey(2),
-        .lamports = 67890, .data_len = 0,
+        .key = makePubkey(3),
+        .owner = makePubkey(2),
+        .lamports = 67890,
+        .data_len = 0,
     };
     @memcpy(ptr[0..@sizeOf(Account)], std.mem.asBytes(&acc1));
     ptr += @sizeOf(Account) + MAX_PERMITTED_DATA_INCREASE + 8;

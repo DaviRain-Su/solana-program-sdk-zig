@@ -66,17 +66,16 @@ fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
     // The unchecked variant skips the dup-aware tagged-union switch
     // and saves ~70 CU on this path vs the safe `parseAccounts`.
     const accs = try ctx.parseAccountsUnchecked(.{ "first", "second" });
-    const data = try ctx.instructionData();
 
     // Typed deserialization — comptime field offsets, identical BPF
     // to hand-written pointer casts but no runtime overhead and the
-    // layout is documented as a struct.
+    // layout is documented as a struct. `bindIxData` fuses the
+    // "accounts consumed" and bounds checks into one helper.
     const Args = extern struct {
         tag: u32 align(1),
         amount: u64 align(1),
     };
-    const args = sol.instruction.IxDataReader(Args).bind(data) orelse
-        return error.InvalidInstructionData;
+    const args = try ctx.bindIxData(Args);
 
     const tag: Tag = @enumFromInt(args.get(.tag));
     const amount = args.get(.amount);

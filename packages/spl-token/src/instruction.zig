@@ -48,6 +48,7 @@ pub const TokenInstruction = enum(u8) {
     approve_checked = 13,
     mint_to_checked = 14,
     burn_checked = 15,
+    initialize_account2 = 16,
     sync_native = 17,
     initialize_account3 = 18,
     initialize_multisig2 = 19,
@@ -129,6 +130,7 @@ pub const mint_to_checked_spec: Spec = .{ .disc = .mint_to_checked, .accounts_le
 pub const burn_spec: Spec = .{ .disc = .burn, .accounts_len = 3, .data_len = 1 + 8 };
 pub const burn_checked_spec: Spec = .{ .disc = .burn_checked, .accounts_len = 3, .data_len = 1 + 8 + 1 };
 pub const close_account_spec: Spec = .{ .disc = .close_account, .accounts_len = 3, .data_len = 1 };
+pub const initialize_account2_spec: Spec = .{ .disc = .initialize_account2, .accounts_len = 3, .data_len = 1 + 32 };
 pub const sync_native_spec: Spec = .{ .disc = .sync_native, .accounts_len = 1, .data_len = 1 };
 pub const initialize_account3_spec: Spec = .{ .disc = .initialize_account3, .accounts_len = 2, .data_len = 1 + 32 };
 pub const initialize_multisig2_spec: Spec = .{ .disc = .initialize_multisig2, .accounts_len = 1, .data_len = 1 + 1 };
@@ -156,6 +158,10 @@ pub fn multisigMetasArray(comptime base_accounts_len: usize) type {
 
 pub fn uiAmountToAmountLen(ui_amount: []const u8) ?usize {
     return std.math.add(usize, ui_amount_to_amount_prefix_len, ui_amount.len) catch null;
+}
+
+pub inline fn isValidSignerIndex(index: usize) bool {
+    return index >= MIN_SIGNERS and index <= MAX_SIGNERS;
 }
 
 // =============================================================================
@@ -191,6 +197,7 @@ comptime {
         .{ burn_spec, 3, AMOUNT_LEN },
         .{ burn_checked_spec, 3, AMOUNT_LEN + DECIMALS_LEN },
         .{ close_account_spec, 3, 0 },
+        .{ initialize_account2_spec, 3, PUBKEY_LEN },
         .{ sync_native_spec, 1, 0 },
         .{ initialize_account3_spec, 2, PUBKEY_LEN },
         .{ initialize_multisig2_spec, 1, 1 },
@@ -255,6 +262,7 @@ comptime {
     std.debug.assert(AmountIx.bytes == mint_to_spec.data_len);
     std.debug.assert(AmountIx.bytes == burn_spec.data_len);
     std.debug.assert(AmountIx.bytes == amount_to_ui_amount_spec.data_len);
+    std.debug.assert(InitAccount3Ix.bytes == initialize_account2_spec.data_len);
     std.debug.assert(AmountDecimalsIx.bytes == transfer_checked_spec.data_len);
     std.debug.assert(AmountDecimalsIx.bytes == approve_checked_spec.data_len);
     std.debug.assert(AmountDecimalsIx.bytes == mint_to_checked_spec.data_len);
@@ -1133,6 +1141,36 @@ pub fn syncNative(
     };
 }
 
+/// `InitializeAccount2 { owner }` — discriminant 16.
+///
+/// Account metas (in order):
+///   0. account — writable
+///   1. mint    — readonly
+///   2. rent    — readonly
+///
+/// Mirrors the upstream interface variant where the owner pubkey is carried in
+/// instruction data but the Rent sysvar is still supplied as an account.
+pub fn initializeAccount2(
+    account: *const Pubkey,
+    mint: *const Pubkey,
+    owner: *const Pubkey,
+    metas: *metasArray(initialize_account2_spec),
+    data: *dataArray(initialize_account2_spec),
+) Instruction {
+    data.* = InitAccount3Ix.initWithDiscriminant(
+        @intFromEnum(TokenInstruction.initialize_account2),
+        .{ .owner = owner.* },
+    );
+    metas[0] = AccountMeta.writable(account);
+    metas[1] = AccountMeta.readonly(mint);
+    metas[2] = AccountMeta.readonly(&sol.rent_id);
+    return .{
+        .program_id = &id.PROGRAM_ID,
+        .accounts = metas,
+        .data = data,
+    };
+}
+
 /// `InitializeAccount3 { owner }` — discriminant 18.
 ///
 /// Account metas (in order):
@@ -1645,6 +1683,20 @@ test "syncNative: single writable account and 1-byte body" {
     try expectMeta(ix.accounts[0], &account, 1, 0);
 }
 
+test "initializeAccount2: 33-byte body carries owner pubkey and rent sysvar meta" {
+    const acct: Pubkey = .{0xA9} ** 32;
+    const mint: Pubkey = .{0xBA} ** 32;
+    const owner: Pubkey = .{0xCB} ** 32;
+    var metas: [3]AccountMeta = undefined;
+    var data: [33]u8 = undefined;
+    _ = initializeAccount2(&acct, &mint, &owner, &metas, &data);
+    try std.testing.expectEqual(@as(u8, 16), data[0]);
+    try std.testing.expectEqualSlices(u8, &owner, data[1..33]);
+    try expectMeta(metas[0], &acct, 1, 0);
+    try expectMeta(metas[1], &mint, 0, 0);
+    try expectMeta(metas[2], &sol.rent_id, 0, 0);
+}
+
 test "initializeAccount3: 33-byte body carries owner pubkey" {
     const acct: Pubkey = .{0xAA} ** 32;
     const mint: Pubkey = .{0xBB} ** 32;
@@ -1690,6 +1742,13 @@ test "utility helpers: canonical metas and data encodings" {
     try expectMeta(ui_ix.accounts[0], &mint, 0, 0);
     try std.testing.expectEqual(@as(usize, 6), uiAmountToAmountLen("12.34").?);
     try std.testing.expectError(error.InvalidArgument, uiAmountToAmount(&mint, "12.34", &ui_metas, ui_data[0..5]));
+}
+
+test "isValidSignerIndex: mirrors upstream signer bounds" {
+    try std.testing.expect(!isValidSignerIndex(0));
+    try std.testing.expect(isValidSignerIndex(1));
+    try std.testing.expect(isValidSignerIndex(MAX_SIGNERS));
+    try std.testing.expect(!isValidSignerIndex(MAX_SIGNERS + 1));
 }
 
 test "initializeMultisig2: canonical data/metas, caller scratch, and threshold bounds" {

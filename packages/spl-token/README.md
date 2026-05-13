@@ -96,6 +96,7 @@ Instructions:
 - `closeAccount` (9)
 - `freezeAccount` (10) / `thawAccount` (11)
 - `syncNative` (17)
+- `initializeAccount2` (16)
 - `initializeMint2` (20) / `initializeAccount3` (18)
 - `initializeMultisig2` (19)
   (modern "2"/"3" variants — no Rent sysvar, owner/freeze authority
@@ -131,12 +132,14 @@ State (zero-copy `extern struct`):
   `unpackAccountOwnerUnchecked(...)` for GenericTokenAccount-style
   mint/owner inspection without full parsing
 - `MIN_SIGNERS` / `MAX_SIGNERS` parity constants
+- `isValidSignerIndex(...)` parity helper
 - `NATIVE_MINT` constant + `isNativeMint(...)` helper for wrapped SOL flows
 - `checkProgramAccount(...)` parity helper for the classic Token program ID
 
 ## Not yet covered
 
-Legacy Rent-sysvar initializers and Token-2022 extension
+Legacy Rent-sysvar initializers (`initializeMint`,
+`initializeAccount`, `initializeMultisig`) and Token-2022 extension
 instructions. Add when there's a concrete consumer — these are
 mechanically the same patterns as above (single comptime
 instruction-data builder + CPI wrapper).

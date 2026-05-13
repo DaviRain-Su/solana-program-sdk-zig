@@ -95,6 +95,10 @@ pub inline fn unpackAccountOwnerUnchecked(account_data: []const u8) *const sol.P
     return state.unpackAccountOwnerUnchecked(account_data);
 }
 
+pub inline fn isValidSignerIndex(index: usize) bool {
+    return instruction.isValidSignerIndex(index);
+}
+
 test "spl-token: interface parity helpers" {
     const std = @import("std");
 
@@ -102,6 +106,10 @@ test "spl-token: interface parity helpers" {
     try std.testing.expectError(error.IncorrectProgramId, checkProgramAccount(&PROGRAM_ID_2022));
     try std.testing.expectEqual(@as(usize, 1), MIN_SIGNERS);
     try std.testing.expectEqual(MULTISIG_SIGNER_MAX, MAX_SIGNERS);
+    try std.testing.expect(isValidSignerIndex(MIN_SIGNERS));
+    try std.testing.expect(isValidSignerIndex(MAX_SIGNERS));
+    try std.testing.expect(!isValidSignerIndex(0));
+    try std.testing.expect(!isValidSignerIndex(MAX_SIGNERS + 1));
 
     var account_buf: [ACCOUNT_LEN]u8 = [_]u8{0} ** ACCOUNT_LEN;
     @memset(account_buf[ACCOUNT_MINT_OFFSET .. ACCOUNT_MINT_OFFSET + sol.PUBKEY_BYTES], 0x11);

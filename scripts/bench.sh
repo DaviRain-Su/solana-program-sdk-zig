@@ -61,6 +61,7 @@ BENCHES=(
     "pubkey_cmp_runtime_const"
     "pda_runtime"
     "pda_comptime"
+    "parse_accounts"
     "parse_accounts_with"
     "parse_accounts_with_unchecked"
     "sysvar_copy"

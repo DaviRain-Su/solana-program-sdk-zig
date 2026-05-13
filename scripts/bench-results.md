@@ -17,8 +17,9 @@ Reproduce: `./scripts/bench.sh` from the repo root. Requires
 | `pubkey_cmp_runtime_const`         |   30 |
 | `pda_runtime` (syscall)            | 3025 |
 | `pda_comptime` (build-time fold)   |    6 |
-| `parse_accounts_with`              |   93 |
-| `parse_accounts_with_unchecked`    |   25 |
+| `parse_accounts`                   |   23 |
+| `parse_accounts_with`              |   29 |
+| `parse_accounts_with_unchecked`    |   18 |
 | `sysvar_copy`                      |   15 |
 | `sysvar_ref`                       |   14 |
 | `program_entry_1` (eager)          |   11 |
@@ -82,10 +83,20 @@ which are documented in their respective `perf:` commits:
 The remaining 2 CU vs. Pinocchio is sub-instruction noise that LLVM
 has already optimized flat.
 
-## Token-dispatch decomposition
+## Safe-parse / token-dispatch snapshot
 
-The new decomposition benches isolate where the remaining dispatch gap
-comes from:
+Fresh reruns against the current tree show the safe parse path is now
+much closer to the unchecked baseline than the older snapshot rows:
+
+- `parse_accounts` = **23 CU**
+- `parse_accounts_with` = **29 CU**
+- `parse_accounts_with_unchecked` = **18 CU**
+
+That leaves `parseAccountsWith` at roughly **+11 CU** over the fully
+unchecked path and **+6 CU** over the non-validating safe parse.
+
+For dispatch, the decomposition benches isolate the remaining checked
+path costs:
 
 - `parse_only` ~= unchecked baseline on transfer/burn and +2 CU on mint,
   so `parseAccountsUnchecked` itself is already near-minimal.

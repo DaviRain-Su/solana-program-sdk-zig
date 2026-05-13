@@ -20,13 +20,16 @@ pub const MODULE_NAME = id.MODULE_NAME;
 pub const INTERFACE_VERSION = id.INTERFACE_VERSION;
 pub const SCOPE = id.SCOPE;
 pub const ProgramDerivedAddress = resolve.ProgramDerivedAddress;
+pub const DuplicatePolicy = resolve.DuplicatePolicy;
 pub const AccountKeyData = resolve.AccountKeyData;
 pub const EXTRA_ACCOUNT_METAS_SEED = resolve.EXTRA_ACCOUNT_METAS_SEED;
 pub const findValidationAddress = resolve.findValidationAddress;
 pub const resolveExtraAccountMeta = resolve.resolveExtraAccountMeta;
 pub const resolveExtraAccountMetaList = resolve.resolveExtraAccountMetaList;
 pub const unpackExecuteExtraAccountMetaListFromAccount = resolve.unpackExecuteExtraAccountMetaListFromAccount;
+pub const validateResolvedExtraAccountInfosWithPolicy = resolve.validateResolvedExtraAccountInfosWithPolicy;
 pub const validateResolvedExtraAccountInfos = resolve.validateResolvedExtraAccountInfos;
+pub const validateExecuteExtraAccountInfosWithPolicy = resolve.validateExecuteExtraAccountInfosWithPolicy;
 pub const validateExecuteExtraAccountInfos = resolve.validateExecuteExtraAccountInfos;
 
 test "@import(\"spl_transfer_hook\") exposes only the intended scaffold surface" {
@@ -36,6 +39,7 @@ test "@import(\"spl_transfer_hook\") exposes only the intended scaffold surface"
     try std.testing.expect(@hasDecl(@This(), "INTERFACE_VERSION"));
     try std.testing.expect(@hasDecl(@This(), "SCOPE"));
     try std.testing.expect(@hasDecl(@This(), "ProgramDerivedAddress"));
+    try std.testing.expect(@hasDecl(@This(), "DuplicatePolicy"));
     try std.testing.expect(@hasDecl(@This(), "Seed"));
     try std.testing.expect(@hasDecl(@This(), "PubkeyData"));
     try std.testing.expect(@hasDecl(@This(), "AccountKeyData"));
@@ -44,7 +48,9 @@ test "@import(\"spl_transfer_hook\") exposes only the intended scaffold surface"
     try std.testing.expect(@hasDecl(@This(), "resolveExtraAccountMeta"));
     try std.testing.expect(@hasDecl(@This(), "resolveExtraAccountMetaList"));
     try std.testing.expect(@hasDecl(@This(), "unpackExecuteExtraAccountMetaListFromAccount"));
+    try std.testing.expect(@hasDecl(@This(), "validateResolvedExtraAccountInfosWithPolicy"));
     try std.testing.expect(@hasDecl(@This(), "validateResolvedExtraAccountInfos"));
+    try std.testing.expect(@hasDecl(@This(), "validateExecuteExtraAccountInfosWithPolicy"));
     try std.testing.expect(@hasDecl(@This(), "validateExecuteExtraAccountInfos"));
     try std.testing.expect(@hasDecl(@This(), "instruction"));
     try std.testing.expect(@hasDecl(@This(), "meta"));
@@ -70,6 +76,7 @@ test "source-review guards keep spl_transfer_hook on-chain/interface scoped" {
     const root_source = @embedFile("root.zig");
     try expectContains(root_source, "spl_transfer_hook");
     try expectContains(root_source, "pub const ProgramDerivedAddress = resolve.ProgramDerivedAddress;");
+    try expectContains(root_source, "pub const DuplicatePolicy = resolve.DuplicatePolicy;");
     try expectContains(root_source, "pub const Seed = @import(\"seed.zig\").Seed;");
     try expectContains(root_source, "pub const PubkeyData = @import(\"pubkey_data.zig\").PubkeyData;");
     try expectContains(root_source, "pub const AccountKeyData = resolve.AccountKeyData;");
@@ -78,7 +85,9 @@ test "source-review guards keep spl_transfer_hook on-chain/interface scoped" {
     try expectContains(root_source, "pub const resolveExtraAccountMeta = resolve.resolveExtraAccountMeta;");
     try expectContains(root_source, "pub const resolveExtraAccountMetaList = resolve.resolveExtraAccountMetaList;");
     try expectContains(root_source, "pub const unpackExecuteExtraAccountMetaListFromAccount = resolve.unpackExecuteExtraAccountMetaListFromAccount;");
+    try expectContains(root_source, "pub const validateResolvedExtraAccountInfosWithPolicy = resolve.validateResolvedExtraAccountInfosWithPolicy;");
     try expectContains(root_source, "pub const validateResolvedExtraAccountInfos = resolve.validateResolvedExtraAccountInfos;");
+    try expectContains(root_source, "pub const validateExecuteExtraAccountInfosWithPolicy = resolve.validateExecuteExtraAccountInfosWithPolicy;");
     try expectContains(root_source, "pub const validateExecuteExtraAccountInfos = resolve.validateExecuteExtraAccountInfos;");
     try expectNotContains(root_source, "pub const " ++ "PROGRAM_ID =");
     try expectNotContains(root_source, "pub const " ++ "rpc =");

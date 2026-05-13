@@ -40,7 +40,7 @@ use {
     solana_program_error::ProgramError,
     solana_pubkey::Pubkey,
     solana_sdk_ids::{bpf_loader_upgradeable, system_program},
-    std::path::Path,
+    std::path::{Path, PathBuf},
 };
 
 mod router_program {
@@ -51,11 +51,6 @@ mod adapter_program {
     solana_pubkey::declare_id!("7d3y2WdzxE7CfsWjkGy3WndkvZcj1EHMkzKJiFPiDecH");
 }
 
-const ROUTER_ARTIFACT_LOAD_PATH: &str = "zig-out/lib/example_mock_router";
-const ADAPTER_ARTIFACT_LOAD_PATH: &str = "zig-out/lib/example_mock_adapter";
-const ROUTER_ARTIFACT_FILE_PATH: &str = "zig-out/lib/example_mock_router.so";
-const ADAPTER_ARTIFACT_FILE_PATH: &str = "zig-out/lib/example_mock_adapter.so";
-
 const ROUTE_TAG_EXACT_IN_HOPS: u8 = 0;
 const ROUTE_TAG_EXACT_IN_SPLIT: u8 = 1;
 const MAX_HOPS: usize = 8;
@@ -63,7 +58,8 @@ const MAX_SPLIT_COUNT: usize = 4;
 const MAX_ACCOUNT_WINDOW: usize = 8;
 
 const ROUTER_RETURN_PREFIX_LEN: usize = 32;
-const ADAPTER_RETURN_LEN: usize = 1 + 8 + 8 + 1 + 1 + 1 + 1 + 32 + 32;
+const ADAPTER_RETURN_LEN: usize = 1 + 8 + 8 + 8 + 1 + 1 + 1 + 1 + 32 + 32;
+const DUPLICATE_REJECT_FLAG: u8 = 0x80;
 
 #[derive(Clone, Copy, Debug)]
 struct HopSpec {
@@ -74,6 +70,27 @@ struct HopSpec {
 #[derive(Clone, Debug)]
 struct SplitLeg {
     hops: Vec<HopSpec>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct HopTrace {
+    program_id: Pubkey,
+    adapter_opcode: u8,
+    amount_in: u64,
+    amount_out: u64,
+    min_out: u64,
+    hop_index: u8,
+    account_count: u8,
+    first_flags: u8,
+    second_flags: u8,
+    first_pubkey: Pubkey,
+    second_pubkey: Pubkey,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct RouterTrace {
+    hops: Vec<HopTrace>,
+    final_output: u64,
 }
 
 fn build_exact_in_hops_route(amount_in: u64, min_out: u64, hops: &[HopSpec]) -> Vec<u8> {
@@ -152,28 +169,125 @@ fn regular_account() -> Account {
     }
 }
 
+fn program_test_dir() -> &'static Path {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+}
+
+fn artifact_load_path(name: &str) -> String {
+    program_test_dir()
+        .join("zig-out")
+        .join("lib")
+        .join(name)
+        .display()
+        .to_string()
+}
+
+fn artifact_file_path(name: &str) -> PathBuf {
+    program_test_dir()
+        .join("zig-out")
+        .join("lib")
+        .join(format!("{name}.so"))
+}
+
 fn setup() -> Mollusk {
+    let router_artifact_file = artifact_file_path("example_mock_router");
+    let adapter_artifact_file = artifact_file_path("example_mock_adapter");
     assert!(
-        Path::new(ROUTER_ARTIFACT_FILE_PATH).exists(),
-        "router artifact missing at {ROUTER_ARTIFACT_FILE_PATH}",
+        router_artifact_file.exists(),
+        "router artifact missing at {}",
+        router_artifact_file.display(),
     );
     assert!(
-        Path::new(ADAPTER_ARTIFACT_FILE_PATH).exists(),
-        "adapter artifact missing at {ADAPTER_ARTIFACT_FILE_PATH}",
+        adapter_artifact_file.exists(),
+        "adapter artifact missing at {}",
+        adapter_artifact_file.display(),
     );
+
+    let router_artifact_load = artifact_load_path("example_mock_router");
+    let adapter_artifact_load = artifact_load_path("example_mock_adapter");
 
     let mut mollusk = Mollusk::default();
     mollusk.add_program(
         &router_program::id(),
-        ROUTER_ARTIFACT_LOAD_PATH,
+        &router_artifact_load,
         &bpf_loader_upgradeable::id(),
     );
     mollusk.add_program(
         &adapter_program::id(),
-        ADAPTER_ARTIFACT_LOAD_PATH,
+        &adapter_artifact_load,
         &bpf_loader_upgradeable::id(),
     );
     mollusk
+}
+
+fn read_pubkey(bytes: &[u8]) -> Pubkey {
+    Pubkey::new_from_array(bytes.try_into().unwrap())
+}
+
+fn parse_router_trace(data: &[u8]) -> RouterTrace {
+    assert!(!data.is_empty(), "router return data must include hop count");
+
+    let hop_count = data[0] as usize;
+    let expected_len = 1 + hop_count * (ROUTER_RETURN_PREFIX_LEN + ADAPTER_RETURN_LEN) + 8;
+    assert_eq!(
+        data.len(),
+        expected_len,
+        "router return data should encode exactly {hop_count} traces plus final output",
+    );
+
+    let mut offset = 1;
+    let mut hops = Vec::with_capacity(hop_count);
+    for _ in 0..hop_count {
+        let program_id = read_pubkey(&data[offset..offset + ROUTER_RETURN_PREFIX_LEN]);
+        offset += ROUTER_RETURN_PREFIX_LEN;
+
+        let adapter_opcode = data[offset];
+        offset += 1;
+
+        let amount_in = u64::from_le_bytes(data[offset..offset + 8].try_into().unwrap());
+        offset += 8;
+
+        let amount_out = u64::from_le_bytes(data[offset..offset + 8].try_into().unwrap());
+        offset += 8;
+
+        let min_out = u64::from_le_bytes(data[offset..offset + 8].try_into().unwrap());
+        offset += 8;
+
+        let hop_index = data[offset];
+        offset += 1;
+
+        let account_count = data[offset];
+        offset += 1;
+
+        let first_flags = data[offset];
+        offset += 1;
+
+        let second_flags = data[offset];
+        offset += 1;
+
+        let first_pubkey = read_pubkey(&data[offset..offset + 32]);
+        offset += 32;
+
+        let second_pubkey = read_pubkey(&data[offset..offset + 32]);
+        offset += 32;
+
+        hops.push(HopTrace {
+            program_id,
+            adapter_opcode,
+            amount_in,
+            amount_out,
+            min_out,
+            hop_index,
+            account_count,
+            first_flags,
+            second_flags,
+            first_pubkey,
+            second_pubkey,
+        });
+    }
+
+    let final_output = u64::from_le_bytes(data[offset..offset + 8].try_into().unwrap());
+    RouterTrace { hops, final_output }
 }
 
 #[test]
@@ -300,51 +414,198 @@ fn mock_router_loads_exact_artifact_and_reaches_mock_adapter_boundary() {
         "mock router failed: {:?}",
         result.program_result,
     );
-    assert_eq!(
-        result.return_data.len(),
-        ROUTER_RETURN_PREFIX_LEN + ADAPTER_RETURN_LEN,
-        "router should forward adapter program id plus adapter echo payload",
-    );
+    let trace = parse_router_trace(&result.return_data);
+    assert_eq!(trace.hops.len(), 1, "single-hop route should produce one trace");
+    assert_eq!(trace.final_output, 500, "9 bps on 500 should round down to zero fee");
 
-    let (returned_program, adapter_echo) = result.return_data.split_at(ROUTER_RETURN_PREFIX_LEN);
+    let hop = &trace.hops[0];
     assert_eq!(
-        returned_program,
-        adapter_program::id().as_ref(),
+        hop.program_id,
+        adapter_program::id(),
         "router should prove the adapter boundary by forwarding the adapter program id",
     );
-    assert_eq!(adapter_echo[0], 9, "adapter opcode mismatch");
+    assert_eq!(hop.adapter_opcode, 9, "adapter opcode mismatch");
+    assert_eq!(hop.amount_in, 500, "amount_in should stay little-endian all the way to the adapter");
+    assert_eq!(hop.amount_out, 500, "mock adapter should deterministically echo the computed amount_out");
+    assert_eq!(hop.min_out, 450, "min_out should stay little-endian all the way to the adapter");
+    assert_eq!(hop.hop_index, 0, "hop index mismatch");
+    assert_eq!(hop.account_count, 2, "adapter should observe both staged window accounts");
     assert_eq!(
-        u64::from_le_bytes(adapter_echo[1..9].try_into().unwrap()),
-        500,
-        "amount_in should stay little-endian all the way to the adapter",
-    );
-    assert_eq!(
-        u64::from_le_bytes(adapter_echo[9..17].try_into().unwrap()),
-        450,
-        "min_out should stay little-endian all the way to the adapter",
-    );
-    assert_eq!(adapter_echo[17], 0, "hop index mismatch");
-    assert_eq!(adapter_echo[18], 2, "adapter should observe both staged window accounts");
-    assert_eq!(
-        adapter_echo[19],
+        hop.first_flags,
         0b01,
         "first account should arrive as signer + readonly",
     );
     assert_eq!(
-        adapter_echo[20],
+        hop.second_flags,
         0b10,
         "second account should arrive as writable + non-signer",
     );
     assert_eq!(
-        &adapter_echo[21..53],
-        alpha.as_ref(),
+        hop.first_pubkey,
+        alpha,
         "first staged pubkey should stay first",
     );
     assert_eq!(
-        &adapter_echo[53..85],
-        beta.as_ref(),
+        hop.second_pubkey,
+        beta,
         "second staged pubkey should stay second",
     );
+}
+
+#[test]
+fn mock_router_two_hop_route_executes_in_order_with_exact_min_out_and_duplicate_modes() {
+    let mollusk = setup();
+
+    let alpha = Pubkey::new_from_array([0x51; 32]);
+    let beta = Pubkey::new_from_array([0x52; 32]);
+    let gamma = Pubkey::new_from_array([0x53; 32]);
+
+    let instruction = Instruction {
+        program_id: router_program::id(),
+        accounts: vec![
+            AccountMeta::new_readonly(alpha, true),
+            AccountMeta::new_readonly(alpha, true),
+            AccountMeta::new_readonly(adapter_program::id(), false),
+            AccountMeta::new(beta, false),
+            AccountMeta::new_readonly(gamma, false),
+            AccountMeta::new_readonly(adapter_program::id(), false),
+        ],
+        data: build_exact_in_hops_route(
+            10_000,
+            9_901,
+            &[
+                HopSpec {
+                    account_window_len: 2,
+                    adapter_opcode: 25,
+                },
+                HopSpec {
+                    account_window_len: 2,
+                    adapter_opcode: DUPLICATE_REJECT_FLAG | 75,
+                },
+            ],
+        ),
+    };
+
+    let result = mollusk.process_instruction(
+        &instruction,
+        &[
+            (alpha, regular_account()),
+            (beta, regular_account()),
+            (gamma, regular_account()),
+            (adapter_program::id(), executable_program_account()),
+        ],
+    );
+
+    assert!(
+        result.program_result.is_ok(),
+        "mock router failed: {:?}",
+        result.program_result,
+    );
+
+    let trace = parse_router_trace(&result.return_data);
+    assert_eq!(trace.hops.len(), 2, "2-hop route should execute both hops");
+    assert_eq!(trace.final_output, 9_901, "final output should satisfy exact min_out equality");
+
+    let first = &trace.hops[0];
+    assert_eq!(first.program_id, adapter_program::id());
+    assert_eq!(first.adapter_opcode, 25);
+    assert_eq!(first.amount_in, 10_000);
+    assert_eq!(first.amount_out, 9_975);
+    assert_eq!(first.min_out, 9_901);
+    assert_eq!(first.hop_index, 0);
+    assert_eq!(first.account_count, 2);
+    assert_eq!(first.first_pubkey, alpha, "allow policy should preserve the first duplicate account");
+    assert_eq!(first.second_pubkey, alpha, "allow policy should resolve the second slot back to the duplicate account");
+
+    let second = &trace.hops[1];
+    assert_eq!(second.program_id, adapter_program::id());
+    assert_eq!(second.adapter_opcode, DUPLICATE_REJECT_FLAG | 75);
+    assert_eq!(second.amount_in, 9_975, "second hop must consume the first hop output");
+    assert_eq!(second.amount_out, 9_901);
+    assert_eq!(second.min_out, 9_901);
+    assert_eq!(second.hop_index, 1, "router should execute hops in-order");
+    assert_eq!(second.account_count, 2);
+    assert_eq!(second.first_pubkey, beta);
+    assert_eq!(second.second_pubkey, gamma);
+}
+
+#[test]
+fn mock_router_split_route_uses_bounded_leg_segments_and_exact_output_accounting() {
+    let mollusk = setup();
+
+    let alpha = Pubkey::new_from_array([0x51; 32]);
+    let beta = Pubkey::new_from_array([0x52; 32]);
+    let gamma = Pubkey::new_from_array([0x53; 32]);
+
+    let instruction = Instruction {
+        program_id: router_program::id(),
+        accounts: vec![
+            AccountMeta::new_readonly(alpha, true),
+            AccountMeta::new_readonly(alpha, true),
+            AccountMeta::new_readonly(adapter_program::id(), false),
+            AccountMeta::new(beta, false),
+            AccountMeta::new_readonly(gamma, false),
+            AccountMeta::new_readonly(adapter_program::id(), false),
+        ],
+        data: build_exact_in_split_route(
+            10_000,
+            9_900,
+            &[
+                SplitLeg {
+                    hops: vec![HopSpec {
+                        account_window_len: 2,
+                        adapter_opcode: 25,
+                    }],
+                },
+                SplitLeg {
+                    hops: vec![HopSpec {
+                        account_window_len: 2,
+                        adapter_opcode: DUPLICATE_REJECT_FLAG | 75,
+                    }],
+                },
+            ],
+        ),
+    };
+
+    let result = mollusk.process_instruction(
+        &instruction,
+        &[
+            (alpha, regular_account()),
+            (beta, regular_account()),
+            (gamma, regular_account()),
+            (adapter_program::id(), executable_program_account()),
+        ],
+    );
+
+    assert!(
+        result.program_result.is_ok(),
+        "mock router failed: {:?}",
+        result.program_result,
+    );
+
+    let trace = parse_router_trace(&result.return_data);
+    assert_eq!(trace.hops.len(), 2, "split route should execute exactly the declared two hops");
+    assert_eq!(trace.final_output, 9_951, "split route should sum deterministic leg outputs exactly");
+    assert!(
+        trace.final_output > 9_900,
+        "split route should also cover the greater-than-min_out happy path",
+    );
+
+    assert_eq!(trace.hops[0].hop_index, 0);
+    assert_eq!(trace.hops[0].program_id, adapter_program::id());
+    assert_eq!(trace.hops[0].amount_in, 5_000);
+    assert_eq!(trace.hops[0].amount_out, 4_988);
+    assert_eq!(trace.hops[0].account_count, 2);
+    assert_eq!(trace.hops[0].first_pubkey, alpha);
+    assert_eq!(trace.hops[0].second_pubkey, alpha);
+
+    assert_eq!(trace.hops[1].hop_index, 1);
+    assert_eq!(trace.hops[1].program_id, adapter_program::id());
+    assert_eq!(trace.hops[1].amount_in, 5_000);
+    assert_eq!(trace.hops[1].amount_out, 4_963);
+    assert_eq!(trace.hops[1].account_count, 2);
+    assert_eq!(trace.hops[1].first_pubkey, beta);
+    assert_eq!(trace.hops[1].second_pubkey, gamma);
 }
 
 #[test]

@@ -13,6 +13,7 @@
 //! Return data ABI:
 //!   - `u8 adapter_opcode`
 //!   - `u64 amount_in`
+//!   - `u64 amount_out`
 //!   - `u64 min_out`
 //!   - `u8 hop_index`
 //!   - `u8 account_count`
@@ -24,6 +25,8 @@
 const sol = @import("solana_program_sdk");
 
 pub const panic = sol.panic.Panic;
+
+const FEE_BPS_MASK: u8 = 0x7f;
 
 fn accountFlags(info: sol.AccountInfo) u8 {
     return @as(u8, @intFromBool(info.isSigner())) |
@@ -40,6 +43,12 @@ fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
     const min_out = try ix.read(u64);
     const hop_index = try ix.read(u8);
     try ix.expectEnd();
+
+    const amount_out = try sol.math.amountAfterFeeBps(
+        amount_in,
+        @as(u64, adapter_opcode & FEE_BPS_MASK),
+        .down,
+    );
 
     var accounts = try ctx.accountCursor();
     var first: ?sol.AccountInfo = null;
@@ -70,10 +79,11 @@ fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
         second_flags = accountFlags(info);
     }
 
-    var buf: [85]u8 = undefined;
+    var buf: [93]u8 = undefined;
     var out = sol.IxDataStaging.init(buf[0..]);
     try out.writeIntLittleEndian(u8, adapter_opcode);
     try out.writeIntLittleEndian(u64, amount_in);
+    try out.writeIntLittleEndian(u64, amount_out);
     try out.writeIntLittleEndian(u64, min_out);
     try out.writeIntLittleEndian(u8, hop_index);
     try out.writeIntLittleEndian(u8, account_count);

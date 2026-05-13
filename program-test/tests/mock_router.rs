@@ -36,7 +36,7 @@
 use {
     mollusk_svm::Mollusk,
     solana_account::Account,
-    solana_instruction::{AccountMeta, Instruction},
+    solana_instruction::{error::InstructionError, AccountMeta, Instruction},
     solana_program_error::ProgramError,
     solana_pubkey::Pubkey,
     solana_sdk_ids::{bpf_loader_upgradeable, system_program},
@@ -721,8 +721,39 @@ fn mock_router_rejects_malformed_payloads_without_mutating_accounts() {
         data.push(0xff);
         data
     };
+    let invalid_tag = vec![0xff, 10, 0, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 1, 0];
+    let truncated_header = vec![ROUTE_TAG_EXACT_IN_HOPS, 10, 0, 0, 0];
+    let truncated_hop = {
+        let mut data = build_exact_in_hops_route(
+            10,
+            9,
+            &[HopSpec {
+                account_window_len: 1,
+                adapter_opcode: 1,
+            }],
+        );
+        data.pop();
+        data
+    };
+    let overlong_hop_count = {
+        let mut data = build_exact_in_hops_route(
+            10,
+            9,
+            &[HopSpec {
+                account_window_len: 1,
+                adapter_opcode: 1,
+            }],
+        );
+        data[17] = (MAX_HOPS as u8) + 1;
+        data
+    };
 
     let cases = vec![
+        ("empty data", vec![]),
+        ("unknown route tag", invalid_tag),
+        ("truncated header", truncated_header),
+        ("truncated hop body", truncated_hop),
+        ("overlong hop count", overlong_hop_count),
         (
             "invalid reserved opcode",
             build_exact_in_hops_route(
@@ -748,11 +779,19 @@ fn mock_router_rejects_malformed_payloads_without_mutating_accounts() {
         };
 
         let result = mollusk.process_instruction(&instruction, &accounts);
-        assert!(
-            result.program_result.is_err(),
-            "{label}: malformed route should fail, got {:?}",
-            result.program_result,
-        );
+        match result.program_result {
+            mollusk_svm::result::ProgramResult::UnknownError(ref err) => {
+                assert_eq!(
+                    err,
+                    &InstructionError::UnsupportedProgramId,
+                    "{label}: malformed route should use the documented stable Mollusk translation",
+                );
+            }
+            ref other => panic!(
+                "{label}: malformed route should fail with UnsupportedProgramId translation, got {:?} / {:?}",
+                other, result.raw_result
+            ),
+        }
         assert!(
             result.return_data.is_empty(),
             "{label}: malformed route should not return trace data",

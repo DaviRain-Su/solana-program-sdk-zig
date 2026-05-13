@@ -139,6 +139,14 @@ fn applyHopGuards(
 fn process(ctx: *sol.entrypoint.InstructionContext) RouterErr.Error!void {
     errdefer sol.cpi.setReturnData(&.{});
 
+    // NOTE: The decode/shape checks in this demo intentionally return
+    // `InvalidInstructionData`. Under the current SBF + Mollusk stack used by
+    // `program-test`, several of those early malformed-payload exits surface to
+    // Rust as `UnknownError(UnsupportedProgramId)` instead of the builtin
+    // invalid-instruction-data category. The integration tests pin that
+    // observed translation while still proving the important contract:
+    // malformed payloads fail safely, leave accounts unchanged, and skip
+    // downstream adapter work.
     var data_ctx = ctx.*;
     data_ctx.skipAccounts(data_ctx.remainingAccounts());
     const ix_data = data_ctx.instructionDataUnchecked();

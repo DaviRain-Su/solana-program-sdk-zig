@@ -22,9 +22,15 @@ mod program {
 const ROUTE_MINT: u8 = 0;
 const ROUTE_ACCOUNT: u8 = 1;
 
+const EXT_MINT_CLOSE_AUTHORITY: u16 = 3;
 const EXT_DEFAULT_ACCOUNT_STATE: u16 = 6;
+const EXT_IMMUTABLE_OWNER: u16 = 7;
+const EXT_NON_TRANSFERABLE: u16 = 9;
 const EXT_TOKEN_METADATA: u16 = 19;
 const EXT_TRANSFER_FEE_AMOUNT: u16 = 2;
+const EXT_UNKNOWN_BEFORE: u16 = 0x7FFE;
+const EXT_UNKNOWN_BETWEEN: u16 = 0x7FFD;
+const EXT_UNKNOWN_AFTER: u16 = 0x7FFC;
 
 const MINT_BASE_LEN: usize = 82;
 const ACCOUNT_TYPE_OFFSET: usize = 165;
@@ -242,6 +248,88 @@ fn token_2022_demo_verifies_exact_account_extension_bytes() {
 }
 
 #[test]
+fn token_2022_demo_covers_representative_positive_extension_matrix() {
+    let mollusk = fresh_mollusk();
+
+    let mint_key = Pubkey::new_unique();
+    let mint_optional_pubkey = (0..32)
+        .map(|i| 0x80u8.wrapping_add(i as u8))
+        .collect::<Vec<_>>();
+    let mint_records = vec![
+        (EXT_UNKNOWN_BEFORE, vec![0xAA, 0xBB]),
+        (EXT_DEFAULT_ACCOUNT_STATE, vec![2u8]),
+        (EXT_UNKNOWN_BETWEEN, vec![0xCC]),
+        (EXT_MINT_CLOSE_AUTHORITY, mint_optional_pubkey.clone()),
+        (EXT_NON_TRANSFERABLE, vec![]),
+        (EXT_UNKNOWN_AFTER, vec![0xDD, 0xEE, 0xFF]),
+    ];
+    let mint_accounts = vec![(
+        mint_key,
+        readonly_data_account(spl_token_2022_program::ID, mint_with_extensions(&mint_records)),
+    )];
+
+    let mint_optional = run(
+        &mollusk,
+        &demo_ix(
+            ROUTE_MINT,
+            EXT_MINT_CLOSE_AUTHORITY,
+            &mint_optional_pubkey,
+            Some((mint_key, false, false)),
+        ),
+        &mint_accounts,
+    );
+    assert_success(&mint_optional);
+    assert_account_unchanged(&mint_accounts, &mint_optional.resulting_accounts, &mint_key);
+
+    let mint_marker = run(
+        &mollusk,
+        &demo_ix(
+            ROUTE_MINT,
+            EXT_NON_TRANSFERABLE,
+            &[],
+            Some((mint_key, false, false)),
+        ),
+        &mint_accounts,
+    );
+    assert_success(&mint_marker);
+    assert_account_unchanged(&mint_accounts, &mint_marker.resulting_accounts, &mint_key);
+
+    let account_key = Pubkey::new_unique();
+    let account_numeric = 0x0123_4567_89AB_CDEFu64.to_le_bytes().to_vec();
+    let account_records = vec![
+        (EXT_UNKNOWN_BEFORE, vec![0x10]),
+        (EXT_IMMUTABLE_OWNER, vec![]),
+        (EXT_UNKNOWN_BETWEEN, vec![0x20, 0x21]),
+        (EXT_TRANSFER_FEE_AMOUNT, account_numeric.clone()),
+        (EXT_UNKNOWN_AFTER, vec![0x30]),
+    ];
+    let account_accounts = vec![(
+        account_key,
+        readonly_data_account(
+            spl_token_2022_program::ID,
+            account_with_extensions(&account_records),
+        ),
+    )];
+
+    let account_numeric_result = run(
+        &mollusk,
+        &demo_ix(
+            ROUTE_ACCOUNT,
+            EXT_TRANSFER_FEE_AMOUNT,
+            &account_numeric,
+            Some((account_key, false, false)),
+        ),
+        &account_accounts,
+    );
+    assert_success(&account_numeric_result);
+    assert_account_unchanged(
+        &account_accounts,
+        &account_numeric_result.resulting_accounts,
+        &account_key,
+    );
+}
+
+#[test]
 fn token_2022_demo_maps_representative_failures_to_documented_categories() {
     let mollusk = fresh_mollusk();
     let account_key = Pubkey::new_unique();
@@ -392,6 +480,143 @@ fn token_2022_demo_maps_representative_failures_to_documented_categories() {
         &base_accounts,
     );
     assert_custom_failure(&unknown_route, DemoFailure::InvalidInstructionData);
+}
+
+#[test]
+fn token_2022_demo_rejects_representative_wrong_kind_and_length_cases() {
+    let mollusk = fresh_mollusk();
+
+    let wrong_kind_account_key = Pubkey::new_unique();
+    let wrong_kind_account_payload = 0x0102_0304_0506_0708u64.to_le_bytes().to_vec();
+    let wrong_kind_account_accounts = vec![(
+        wrong_kind_account_key,
+        readonly_data_account(
+            spl_token_2022_program::ID,
+            account_with_extensions(&[(EXT_TRANSFER_FEE_AMOUNT, wrong_kind_account_payload.clone())]),
+        ),
+    )];
+    let wrong_kind_account = run(
+        &mollusk,
+        &demo_ix(
+            ROUTE_MINT,
+            EXT_TRANSFER_FEE_AMOUNT,
+            &wrong_kind_account_payload,
+            Some((wrong_kind_account_key, false, false)),
+        ),
+        &wrong_kind_account_accounts,
+    );
+    assert_custom_failure(&wrong_kind_account, DemoFailure::WrongAccountType);
+    assert_account_unchanged(
+        &wrong_kind_account_accounts,
+        &wrong_kind_account.resulting_accounts,
+        &wrong_kind_account_key,
+    );
+
+    let wrong_kind_mint_key = Pubkey::new_unique();
+    let wrong_kind_mint_payload = (0..32)
+        .map(|i| 0x40u8.wrapping_add(i as u8))
+        .collect::<Vec<_>>();
+    let wrong_kind_mint_accounts = vec![(
+        wrong_kind_mint_key,
+        readonly_data_account(
+            spl_token_2022_program::ID,
+            mint_with_extensions(&[(EXT_MINT_CLOSE_AUTHORITY, wrong_kind_mint_payload.clone())]),
+        ),
+    )];
+    let wrong_kind_mint = run(
+        &mollusk,
+        &demo_ix(
+            ROUTE_ACCOUNT,
+            EXT_MINT_CLOSE_AUTHORITY,
+            &wrong_kind_mint_payload,
+            Some((wrong_kind_mint_key, false, false)),
+        ),
+        &wrong_kind_mint_accounts,
+    );
+    assert_custom_failure(&wrong_kind_mint, DemoFailure::WrongAccountType);
+    assert_account_unchanged(
+        &wrong_kind_mint_accounts,
+        &wrong_kind_mint.resulting_accounts,
+        &wrong_kind_mint_key,
+    );
+
+    let wrong_len_optional_key = Pubkey::new_unique();
+    let wrong_len_optional_payload = vec![0x55; 31];
+    let wrong_len_optional_accounts = vec![(
+        wrong_len_optional_key,
+        readonly_data_account(
+            spl_token_2022_program::ID,
+            mint_with_extensions(&[(EXT_MINT_CLOSE_AUTHORITY, wrong_len_optional_payload.clone())]),
+        ),
+    )];
+    let wrong_len_optional = run(
+        &mollusk,
+        &demo_ix(
+            ROUTE_MINT,
+            EXT_MINT_CLOSE_AUTHORITY,
+            &wrong_len_optional_payload,
+            Some((wrong_len_optional_key, false, false)),
+        ),
+        &wrong_len_optional_accounts,
+    );
+    assert_custom_failure(&wrong_len_optional, DemoFailure::InvalidExtensionLength);
+    assert_account_unchanged(
+        &wrong_len_optional_accounts,
+        &wrong_len_optional.resulting_accounts,
+        &wrong_len_optional_key,
+    );
+
+    let wrong_len_marker_key = Pubkey::new_unique();
+    let wrong_len_marker_payload = vec![1u8];
+    let wrong_len_marker_accounts = vec![(
+        wrong_len_marker_key,
+        readonly_data_account(
+            spl_token_2022_program::ID,
+            mint_with_extensions(&[(EXT_NON_TRANSFERABLE, wrong_len_marker_payload.clone())]),
+        ),
+    )];
+    let wrong_len_marker = run(
+        &mollusk,
+        &demo_ix(
+            ROUTE_MINT,
+            EXT_NON_TRANSFERABLE,
+            &wrong_len_marker_payload,
+            Some((wrong_len_marker_key, false, false)),
+        ),
+        &wrong_len_marker_accounts,
+    );
+    assert_custom_failure(&wrong_len_marker, DemoFailure::InvalidExtensionLength);
+    assert_account_unchanged(
+        &wrong_len_marker_accounts,
+        &wrong_len_marker.resulting_accounts,
+        &wrong_len_marker_key,
+    );
+
+    let wrong_len_numeric_key = Pubkey::new_unique();
+    let wrong_len_numeric_payload = vec![0x77; 7];
+    let wrong_len_numeric_accounts = vec![(
+        wrong_len_numeric_key,
+        readonly_data_account(
+            spl_token_2022_program::ID,
+            account_with_extensions(&[(EXT_TRANSFER_FEE_AMOUNT, wrong_len_numeric_payload.clone())]),
+        ),
+    )];
+    let wrong_len_numeric = run(
+        &mollusk,
+        &demo_ix(
+            ROUTE_ACCOUNT,
+            EXT_TRANSFER_FEE_AMOUNT,
+            &wrong_len_numeric_payload,
+            Some((wrong_len_numeric_key, false, false)),
+        ),
+        &wrong_len_numeric_accounts,
+    );
+    assert_custom_failure(&wrong_len_numeric, DemoFailure::InvalidExtensionLength);
+    assert_account_unchanged(
+        &wrong_len_numeric_accounts,
+        &wrong_len_numeric.resulting_accounts,
+        &wrong_len_numeric_key,
+    );
 }
 
 #[test]

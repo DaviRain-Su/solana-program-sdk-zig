@@ -23,6 +23,15 @@ try spl_memo.cpi.memoNoSigners("hello on-chain", memo_program.toCpi());
 // Memo enforcing one or more signers:
 try spl_memo.cpi.memo("audit:withdraw", memo_program.toCpi(), &.{authority.toCpi()});
 
+// PDA signer fast path:
+const bump_seed = [_]u8{bump};
+try spl_memo.cpi.memoSignedSingle(
+    "audit:pda",
+    memo_program.toCpi(),
+    &.{vault_authority.toCpi()},
+    .{ "vault", &bump_seed },
+);
+
 // ──────────── Off-chain (host code building a tx) ────────────
 
 var metas: [1]sol.cpi.AccountMeta = undefined;
@@ -38,6 +47,8 @@ const ix2 = spl_memo.instruction.memoNoSigners("hello off-chain");
 - `instruction.memo(message, signers, account_metas)` — full builder, caller-provided scratch
 - `instruction.memoNoSigners(message)` — convenience for the empty-signer case
 - `cpi.memo(message, memo_program, signers)` — on-chain wrapper, stack-allocates scratch
+- `cpi.memoSigned(message, memo_program, signers, pda_signers)` — PDA-signed CPI variant
+- `cpi.memoSignedSingle(message, memo_program, signers, signer_seeds)` — single-PDA fast path
 - `cpi.memoNoSigners(message, memo_program)` — on-chain convenience
 - Constants: `PROGRAM_ID` (v2 modern), `PROGRAM_ID_V1` (legacy)
 
@@ -47,5 +58,5 @@ const ix2 = spl_memo.instruction.memoNoSigners("hello off-chain");
 - Both v2 (`MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr`) and v1
   (`Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo`) program IDs are
   exported; new code should always use v2.
-- The on-chain `cpi.memo` caps signers at 11 to keep stack scratch
+- The on-chain `cpi.memo*` helpers cap signers at 11 to keep stack scratch
   bounded; that's well beyond any realistic memo's needs.

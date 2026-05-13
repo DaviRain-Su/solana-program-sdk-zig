@@ -434,14 +434,16 @@ pub const InstructionContext = struct {
         self: *InstructionContext,
         comptime names: anytype,
     ) ProgramError!ParsedAccounts(names) {
+        if (self.remaining < names.len) return error.NotEnoughAccountKeys;
+        self.remaining -= @intCast(names.len);
+
         const T = ParsedAccounts(names);
         var out: T = undefined;
-        // Dup-aware: walk the slot list with `nextAccountMaybe`,
-        // resolving duplicates back to the corresponding earlier
-        // AccountInfo via a small parallel array.
+        // Dup-aware: walk the slot list with a single upfront account-count
+        // check, then resolve duplicates against the already-seen accounts.
         var seen: [names.len]AccountInfo = undefined;
         inline for (names, 0..) |name, i| {
-            const acc = try self.nextResolvedAccount(names.len, &seen);
+            const acc = self.nextResolvedAccountUnchecked(names.len, &seen);
             seen[i] = acc;
             @field(out, name) = acc;
         }
@@ -511,6 +513,9 @@ pub const InstructionContext = struct {
         self: *InstructionContext,
         comptime spec: anytype,
     ) ProgramError!ParsedAccountsWith(spec) {
+        if (self.remaining < spec.len) return error.NotEnoughAccountKeys;
+        self.remaining -= @intCast(spec.len);
+
         const T = ParsedAccountsWith(spec);
         var out: T = undefined;
         // Dup-aware: see parseAccounts. Duplicates are resolved against
@@ -525,7 +530,7 @@ pub const InstructionContext = struct {
             const name = entry[0];
             const exp: AccountExpectation = entry[1];
 
-            const acc = try self.nextResolvedAccount(spec.len, &seen);
+            const acc = self.nextResolvedAccountUnchecked(spec.len, &seen);
             seen[i] = acc;
 
             try validateExpectedAccount(acc, name, exp);

@@ -11,17 +11,20 @@
 //!   7. double_mixed_transfer_checked         [tag, amount_a:u64, amount_b:u64, decimals:u8]
 //!   8. batch_mixed_transfer_checked          [tag, amount_a:u64, amount_b:u64, decimals:u8]
 //!   9. batch_prepared_mixed_transfer_checked [tag, amount_a:u64, amount_b:u64, decimals:u8]
+//!   10. double_swap_checked                  [tag, amount_in:u64, amount_out:u64, decimals:u8]
+//!   11. batch_swap_checked                   [tag, amount_in:u64, amount_out:u64, decimals:u8]
+//!   12. batch_prepared_swap_checked          [tag, amount_in:u64, amount_out:u64, decimals:u8]
 //!
 //! Fixed account order (9 accounts):
-//!   0. token_program   — readonly
-//!   1. user_source     — writable
-//!   2. mint            — readonly
-//!   3. destination_a   — writable
-//!   4. destination_b   — writable
-//!   5. user_authority  — signer (payer for `init_pda`)
-//!   6. vault_source    — writable for mixed paths
-//!   7. pda_state       — writable for `init_pda`, readonly otherwise
-//!   8. system_program  — readonly
+//!   0. token_program          — readonly
+//!   1. user_source            — writable
+//!   2. mint / mint_a          — readonly
+//!   3. destination_a / vault_a — writable
+//!   4. destination_b / user_destination_b — writable
+//!   5. user_authority         — signer (payer for `init_pda`)
+//!   6. vault_source / vault_b — writable for mixed / swap paths
+//!   7. pda_state              — writable for `init_pda`, readonly otherwise
+//!   8. system_program / mint_b — readonly
 
 const sol = @import("solana_program_sdk");
 const spl_token = @import("spl_token");
@@ -39,6 +42,9 @@ const Ix = enum(u8) {
     double_mixed_transfer_checked = 7,
     batch_mixed_transfer_checked = 8,
     batch_prepared_mixed_transfer_checked = 9,
+    double_swap_checked = 10,
+    batch_swap_checked = 11,
+    batch_prepared_swap_checked = 12,
 };
 
 const TransferArgs = extern struct {
@@ -112,6 +118,7 @@ fn processTransfer(
     const user_authority = accounts[5];
     const vault_source = accounts[6];
     const pda_state = accounts[7];
+    const mint_b = accounts[8];
 
     try user_source.expect(.{ .writable = true });
     try destination_a.expect(.{ .writable = true });
@@ -173,6 +180,9 @@ fn processTransfer(
         .double_mixed_transfer_checked,
         .batch_mixed_transfer_checked,
         .batch_prepared_mixed_transfer_checked,
+        .double_swap_checked,
+        .batch_swap_checked,
+        .batch_prepared_swap_checked,
         => {
             try vault_source.expect(.{ .writable = true });
             if (!sol.pubkey.pubkeyEq(pda_state.owner(), program_id)) return error.IncorrectProgramId;
@@ -212,6 +222,45 @@ fn processTransfer(
                     user_authority,
                     vault_source,
                     pda_state,
+                    args,
+                    .{ "vault", &bump_seed },
+                ),
+                .double_swap_checked => processDoubleSwapChecked(
+                    token_program,
+                    user_source,
+                    mint,
+                    destination_a,
+                    destination_b,
+                    user_authority,
+                    vault_source,
+                    pda_state,
+                    mint_b,
+                    args,
+                    .{ "vault", &bump_seed },
+                ),
+                .batch_swap_checked => processBatchSwapChecked(
+                    token_program,
+                    user_source,
+                    mint,
+                    destination_a,
+                    destination_b,
+                    user_authority,
+                    vault_source,
+                    pda_state,
+                    mint_b,
+                    args,
+                    .{ "vault", &bump_seed },
+                ),
+                .batch_prepared_swap_checked => processBatchPreparedSwapChecked(
+                    token_program,
+                    user_source,
+                    mint,
+                    destination_a,
+                    destination_b,
+                    user_authority,
+                    vault_source,
+                    pda_state,
+                    mint_b,
                     args,
                     .{ "vault", &bump_seed },
                 ),
@@ -688,6 +737,167 @@ fn processBatchPreparedMixedTransferChecked(
             vault_source.toCpiInfo(),
             mint.toCpiInfo(),
             destination_b.toCpiInfo(),
+            pda_state.toCpiInfo(),
+            token_program.toCpiInfo(),
+        },
+        batch_metas[0..],
+        batch_data[0..],
+        signer_seeds,
+    );
+}
+
+fn processDoubleSwapChecked(
+    token_program: AccountInfo,
+    user_source_a: AccountInfo,
+    mint_a: AccountInfo,
+    vault_a: AccountInfo,
+    user_destination_b: AccountInfo,
+    user_authority: AccountInfo,
+    vault_b: AccountInfo,
+    pda_state: AccountInfo,
+    mint_b: AccountInfo,
+    args: TransferArgsReader,
+    signer_seeds: anytype,
+) !void {
+    try spl_token.cpi.transferChecked(
+        token_program.toCpiInfo(),
+        user_source_a.toCpiInfo(),
+        mint_a.toCpiInfo(),
+        vault_a.toCpiInfo(),
+        user_authority.toCpiInfo(),
+        args.get(.amount_a),
+        args.get(.decimals),
+    );
+    try spl_token.cpi.transferCheckedSignedSingle(
+        token_program.toCpiInfo(),
+        vault_b.toCpiInfo(),
+        mint_b.toCpiInfo(),
+        user_destination_b.toCpiInfo(),
+        pda_state.toCpiInfo(),
+        args.get(.amount_b),
+        args.get(.decimals),
+        signer_seeds,
+    );
+}
+
+fn processBatchSwapChecked(
+    token_program: AccountInfo,
+    user_source_a: AccountInfo,
+    mint_a: AccountInfo,
+    vault_a: AccountInfo,
+    user_destination_b: AccountInfo,
+    user_authority: AccountInfo,
+    vault_b: AccountInfo,
+    pda_state: AccountInfo,
+    mint_b: AccountInfo,
+    args: TransferArgsReader,
+    signer_seeds: anytype,
+) !void {
+    var child_a_metas: spl_token.instruction.metasArray(spl_token.instruction.transfer_checked_spec) = undefined;
+    var child_a_data: spl_token.instruction.dataArray(spl_token.instruction.transfer_checked_spec) = undefined;
+    const child_a = transferCheckedEntry(
+        user_source_a.key(),
+        mint_a.key(),
+        vault_a.key(),
+        user_authority.key(),
+        args.get(.amount_a),
+        args.get(.decimals),
+        &child_a_metas,
+        &child_a_data,
+    );
+
+    var child_b_metas: spl_token.instruction.metasArray(spl_token.instruction.transfer_checked_spec) = undefined;
+    var child_b_data: spl_token.instruction.dataArray(spl_token.instruction.transfer_checked_spec) = undefined;
+    const child_b = transferCheckedEntry(
+        vault_b.key(),
+        mint_b.key(),
+        user_destination_b.key(),
+        pda_state.key(),
+        args.get(.amount_b),
+        args.get(.decimals),
+        &child_b_metas,
+        &child_b_data,
+    );
+
+    const entries = [_]BatchEntry{ child_a, child_b };
+    var batch_metas: [spl_token.instruction.transfer_checked_spec.accounts_len * entries.len]sol.cpi.AccountMeta = undefined;
+    var batch_data: [1 + entries.len * (2 + spl_token.instruction.transfer_checked_spec.data_len)]u8 = undefined;
+    var invoke_accounts: [spl_token.instruction.transfer_checked_spec.accounts_len * entries.len + 1]sol.CpiAccountInfo = undefined;
+
+    try spl_token.cpi.batchSignedSingle(
+        token_program.toCpiInfo(),
+        &entries,
+        &.{
+            user_source_a.toCpiInfo(),
+            mint_a.toCpiInfo(),
+            vault_a.toCpiInfo(),
+            user_authority.toCpiInfo(),
+            vault_b.toCpiInfo(),
+            mint_b.toCpiInfo(),
+            user_destination_b.toCpiInfo(),
+            pda_state.toCpiInfo(),
+        },
+        invoke_accounts[0..],
+        batch_metas[0..],
+        batch_data[0..],
+        signer_seeds,
+    );
+}
+
+fn processBatchPreparedSwapChecked(
+    token_program: AccountInfo,
+    user_source_a: AccountInfo,
+    mint_a: AccountInfo,
+    vault_a: AccountInfo,
+    user_destination_b: AccountInfo,
+    user_authority: AccountInfo,
+    vault_b: AccountInfo,
+    pda_state: AccountInfo,
+    mint_b: AccountInfo,
+    args: TransferArgsReader,
+    signer_seeds: anytype,
+) !void {
+    var child_a_metas: spl_token.instruction.metasArray(spl_token.instruction.transfer_checked_spec) = undefined;
+    var child_a_data: spl_token.instruction.dataArray(spl_token.instruction.transfer_checked_spec) = undefined;
+    const child_a = transferCheckedEntry(
+        user_source_a.key(),
+        mint_a.key(),
+        vault_a.key(),
+        user_authority.key(),
+        args.get(.amount_a),
+        args.get(.decimals),
+        &child_a_metas,
+        &child_a_data,
+    );
+
+    var child_b_metas: spl_token.instruction.metasArray(spl_token.instruction.transfer_checked_spec) = undefined;
+    var child_b_data: spl_token.instruction.dataArray(spl_token.instruction.transfer_checked_spec) = undefined;
+    const child_b = transferCheckedEntry(
+        vault_b.key(),
+        mint_b.key(),
+        user_destination_b.key(),
+        pda_state.key(),
+        args.get(.amount_b),
+        args.get(.decimals),
+        &child_b_metas,
+        &child_b_data,
+    );
+
+    const entries = [_]BatchEntry{ child_a, child_b };
+    var batch_metas: [spl_token.instruction.transfer_checked_spec.accounts_len * entries.len]sol.cpi.AccountMeta = undefined;
+    var batch_data: [1 + entries.len * (2 + spl_token.instruction.transfer_checked_spec.data_len)]u8 = undefined;
+
+    try spl_token.cpi.batchPreparedSignedSingle(
+        token_program.toCpiInfo(),
+        &entries,
+        &.{
+            user_source_a.toCpiInfo(),
+            mint_a.toCpiInfo(),
+            vault_a.toCpiInfo(),
+            user_authority.toCpiInfo(),
+            vault_b.toCpiInfo(),
+            mint_b.toCpiInfo(),
+            user_destination_b.toCpiInfo(),
             pda_state.toCpiInfo(),
             token_program.toCpiInfo(),
         },

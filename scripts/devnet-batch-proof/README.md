@@ -24,6 +24,12 @@ One deployed Zig program compares three path families:
 2. `batch_mixed_transfer_checked` — same child operations inside one `Batch` CPI via `spl_token.cpi.batchSignedSingle(...)`
 3. `batch_prepared_mixed_transfer_checked` — same mixed child operations via `spl_token.cpi.batchPreparedSignedSingle(...)`
 
+### 4. Swap-style two-mint `TransferChecked`
+
+1. `double_swap_checked` — user-signed transfer into vault A plus PDA-signed transfer out of vault B
+2. `batch_swap_checked` — same two-mint flow inside one `Batch` CPI via `spl_token.cpi.batchSignedSingle(...)`
+3. `batch_prepared_swap_checked` — same flow via `spl_token.cpi.batchPreparedSignedSingle(...)`
+
 The script creates fresh devnet mints + token accounts, initializes the proof PDA when needed, sends every instruction, and prints:
 
 - transaction signature
@@ -68,24 +74,30 @@ BATCH_PROOF_PROGRAM_ID=<DEPLOYED_PROGRAM_ID> node run.mjs
 ### Transfer
 
 - `double_transfer` → `2375 CU`, token invokes: `2`
-- `batch_transfer` → `2693 CU`, token invokes: `1`
-- `batch_prepared_transfer` → `2677 CU`, token invokes: `1`
+- `batch_transfer` → `2689 CU`, token invokes: `1`
+- `batch_prepared_transfer` → `2678 CU`, token invokes: `1`
 
 ### TransferChecked
 
-- `double_transfer_checked` → `2492 CU`, token invokes: `2`
-- `batch_transfer_checked` → `3107 CU`, token invokes: `1`
-- `batch_prepared_transfer_checked` → `3085 CU`, token invokes: `1`
+- `double_transfer_checked` → `2494 CU`, token invokes: `2`
+- `batch_transfer_checked` → `3104 CU`, token invokes: `1`
+- `batch_prepared_transfer_checked` → `3082 CU`, token invokes: `1`
 
 ### Mixed signer TransferChecked
 
-- `double_mixed_transfer_checked` → `2554 CU`, token invokes: `2`
-- `batch_mixed_transfer_checked` → `3211 CU`, token invokes: `1`
-- `batch_prepared_mixed_transfer_checked` → `3172 CU`, token invokes: `1`
+- `double_mixed_transfer_checked` → `2551 CU`, token invokes: `2`
+- `batch_mixed_transfer_checked` → `3208 CU`, token invokes: `1`
+- `batch_prepared_mixed_transfer_checked` → `3171 CU`, token invokes: `1`
+
+### Swap-style two-mint TransferChecked
+
+- `double_swap_checked` → `2553 CU`, token invokes: `2`
+- `batch_swap_checked` → `3232 CU`, token invokes: `1`
+- `batch_prepared_swap_checked` → `3188 CU`, token invokes: `1`
 
 ## Interpretation
 
-Across all three families on current devnet:
+Across all four families on current devnet:
 
 - batch is **functionally working**
 - batch consistently collapses **2 token-program invokes → 1 token-program invoke**
@@ -94,8 +106,9 @@ Across all three families on current devnet:
 
 Current deltas vs the direct double-CPI baseline:
 
-- `Transfer`: `batch +318 CU`, `batchPrepared +302 CU`
-- `TransferChecked`: `batch +615 CU`, `batchPrepared +593 CU`
-- mixed signer `TransferChecked`: `batch +657 CU`, `batchPrepared +618 CU`
+- `Transfer`: `batch +314 CU`, `batchPrepared +303 CU`
+- `TransferChecked`: `batch +610 CU`, `batchPrepared +588 CU`
+- mixed signer `TransferChecked`: `batch +657 CU`, `batchPrepared +620 CU`
+- swap-style two-mint `TransferChecked`: `batch +679 CU`, `batchPrepared +635 CU`
 
-So the repo can now reproduce the **one-invoke batch shape** on a real cluster, including a **mixed outer-signer + PDA-signer** path, but this exact minimal proof still does **not** reproduce the CU win claimed by more complex p-token / AMM-style examples.
+So the repo can now reproduce the **one-invoke batch shape** on a real cluster, including both a **mixed outer-signer + PDA-signer** path and a more **AMM-like two-mint swap-shaped flow**, but these direct devnet proofs still do **not** reproduce the CU win claimed by more complex p-token / AMM-style examples.

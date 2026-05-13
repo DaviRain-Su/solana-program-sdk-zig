@@ -134,6 +134,20 @@ function mixedKeys(userSource, mint, destinationA, destinationB, vaultSource, pd
   ];
 }
 
+function swapKeys(userSourceA, mintA, vaultA, userDestinationB, vaultB, pdaState, mintB) {
+  return [
+    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: userSourceA, isSigner: false, isWritable: true },
+    { pubkey: mintA, isSigner: false, isWritable: false },
+    { pubkey: vaultA, isSigner: false, isWritable: true },
+    { pubkey: userDestinationB, isSigner: false, isWritable: true },
+    { pubkey: payer.publicKey, isSigner: true, isWritable: false },
+    { pubkey: vaultB, isSigner: false, isWritable: true },
+    { pubkey: pdaState, isSigner: false, isWritable: false },
+    { pubkey: mintB, isSigner: false, isWritable: false },
+  ];
+}
+
 async function createSimpleScenario() {
   const mint = await createMint(connection, payer, payer.publicKey, null, 6, undefined, undefined, TOKEN_PROGRAM_ID);
   const source = await createTokenAccount(mint, payer.publicKey);
@@ -153,6 +167,18 @@ async function createMixedScenario(pdaState) {
   await mintTo(connection, payer, mint, userSource, payer, 1_000_000_000n, [], undefined, TOKEN_PROGRAM_ID);
   await mintTo(connection, payer, mint, vaultSource, payer, 1_000_000_000n, [], undefined, TOKEN_PROGRAM_ID);
   return { mint, userSource, destinationA, destinationB, vaultSource };
+}
+
+async function createSwapScenario(pdaState) {
+  const mintA = await createMint(connection, payer, payer.publicKey, null, 6, undefined, undefined, TOKEN_PROGRAM_ID);
+  const mintB = await createMint(connection, payer, payer.publicKey, null, 6, undefined, undefined, TOKEN_PROGRAM_ID);
+  const userSourceA = await createTokenAccount(mintA, payer.publicKey);
+  const vaultA = await createTokenAccount(mintA, pdaState);
+  const userDestinationB = await createTokenAccount(mintB, payer.publicKey);
+  const vaultB = await createTokenAccount(mintB, pdaState);
+  await mintTo(connection, payer, mintA, userSourceA, payer, 1_000_000_000n, [], undefined, TOKEN_PROGRAM_ID);
+  await mintTo(connection, payer, mintB, vaultB, payer, 1_000_000_000n, [], undefined, TOKEN_PROGRAM_ID);
+  return { mintA, mintB, userSourceA, vaultA, userDestinationB, vaultB };
 }
 
 async function fetchBalances(label, accounts) {
@@ -214,6 +240,32 @@ async function runMixedFamily(pdaState) {
   return results;
 }
 
+async function runSwapFamily(pdaState) {
+  const scenario = await createSwapScenario(pdaState);
+  const keys = swapKeys(
+    scenario.userSourceA,
+    scenario.mintA,
+    scenario.vaultA,
+    scenario.userDestinationB,
+    scenario.vaultB,
+    pdaState,
+    scenario.mintB,
+  );
+  const amountIn = 25_000;
+  const amountOut = 12_500;
+  const results = [];
+  results.push(await sendProofIx('swap_checked_double', encodeTransferArgs(10, amountIn, amountOut, 6), keys));
+  results.push(await sendProofIx('swap_checked_batch', encodeTransferArgs(11, amountIn, amountOut, 6), keys));
+  results.push(await sendProofIx('swap_checked_batch_prepared', encodeTransferArgs(12, amountIn, amountOut, 6), keys));
+  await fetchBalances('swap_checked', {
+    userSourceA: scenario.userSourceA,
+    vaultA: scenario.vaultA,
+    vaultB: scenario.vaultB,
+    userDestinationB: scenario.userDestinationB,
+  });
+  return results;
+}
+
 function printSummary(results) {
   console.log('\nSummary');
   for (const result of results) {
@@ -234,6 +286,7 @@ async function main() {
   results.push(...(await runSimpleFamily('transfer', 1, pdaState)));
   results.push(...(await runSimpleFamily('transfer_checked', 4, pdaState)));
   results.push(...(await runMixedFamily(pdaState)));
+  results.push(...(await runSwapFamily(pdaState)));
   printSummary(results);
 }
 

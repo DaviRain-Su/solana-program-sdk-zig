@@ -36,39 +36,128 @@ const Pubkey = sol.Pubkey;
 const AccountMeta = sol.cpi.AccountMeta;
 const Instruction = sol.cpi.Instruction;
 
+/// SPL Token instruction discriminants.
+///
+/// Unlike the upstream Rust interface, Zig's `enum(u8)` cannot carry payload
+/// fields directly, so this type models the opcode space only. The associated
+/// payload/account semantics live in the per-instruction builders below, and
+/// each variant is documented here to keep the top-level instruction catalog
+/// easy to scan.
 pub const TokenInstruction = enum(u8) {
+    /// `InitializeMint { decimals, mint_authority, freeze_authority }`.
+    ///
+    /// Legacy mint initializer: writable mint account + Rent sysvar account;
+    /// authorities are carried in instruction data.
     initialize_mint = 0,
+
+    /// `InitializeAccount`.
+    ///
+    /// Legacy token-account initializer: writable account + mint + owner +
+    /// Rent sysvar accounts.
     initialize_account = 1,
+
+    /// `InitializeMultisig { m }`.
+    ///
+    /// Legacy multisig initializer: writable multisig account + Rent sysvar +
+    /// `N` readonly signer pubkeys.
     initialize_multisig = 2,
+
+    /// `Transfer { amount }`.
     transfer = 3,
+
+    /// `Approve { amount }`.
     approve = 4,
+
+    /// `Revoke`.
     revoke = 5,
+
+    /// `SetAuthority { authority_type, new_authority }`.
     set_authority = 6,
+
+    /// `MintTo { amount }`.
     mint_to = 7,
+
+    /// `Burn { amount }`.
     burn = 8,
+
+    /// `CloseAccount`.
     close_account = 9,
+
+    /// `FreezeAccount`.
     freeze_account = 10,
+
+    /// `ThawAccount`.
     thaw_account = 11,
+
+    /// `TransferChecked { amount, decimals }`.
     transfer_checked = 12,
+
+    /// `ApproveChecked { amount, decimals }`.
     approve_checked = 13,
+
+    /// `MintToChecked { amount, decimals }`.
     mint_to_checked = 14,
+
+    /// `BurnChecked { amount, decimals }`.
     burn_checked = 15,
+
+    /// `InitializeAccount2 { owner }`.
+    ///
+    /// Owner moves into instruction data; Rent sysvar is still an account.
     initialize_account2 = 16,
+
+    /// `SyncNative`.
     sync_native = 17,
+
+    /// `InitializeAccount3 { owner }`.
+    ///
+    /// Owner moves into instruction data and the Rent sysvar account is no
+    /// longer required.
     initialize_account3 = 18,
+
+    /// `InitializeMultisig2 { m }`.
+    ///
+    /// Modern multisig initializer without the Rent sysvar account.
     initialize_multisig2 = 19,
+
+    /// `InitializeMint2 { decimals, mint_authority, freeze_authority }`.
+    ///
+    /// Modern mint initializer without the Rent sysvar account.
     initialize_mint2 = 20,
+
+    /// `GetAccountDataSize`.
+    ///
+    /// Returns a little-endian `u64` via `sol_get_return_data`.
     get_account_data_size = 21,
+
+    /// `InitializeImmutableOwner`.
     initialize_immutable_owner = 22,
+
+    /// `AmountToUiAmount { amount }`.
+    ///
+    /// Returns a UTF-8 UI amount string via `sol_get_return_data`.
     amount_to_ui_amount = 23,
+
+    /// `UiAmountToAmount { ui_amount }`.
+    ///
+    /// Returns a little-endian `u64` via `sol_get_return_data`.
     ui_amount_to_amount = 24,
+
+    /// `Batch`.
+    ///
+    /// Pinocchio / p-token-style envelope of concatenated child instructions.
     batch = 255,
 };
 
+/// SPL Token authority kinds accepted by `SetAuthority`.
 pub const AuthorityType = enum(u8) {
+    /// Mint authority (`Mint.mint_authority`).
     MintTokens = 0,
+    /// Freeze authority (`Mint.freeze_authority`).
     FreezeAccount = 1,
+    /// Token-account owner authority.
     AccountOwner = 2,
+    /// Token-account close authority.
     CloseAccount = 3,
 };
 

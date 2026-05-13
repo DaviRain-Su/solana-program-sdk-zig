@@ -148,3 +148,45 @@ path costs:
   prepared runtime-account slice (with the token program already appended)
   and therefore skipping the extra runtime-account staging memcpy inside
   `spl_token.cpi.batch(...)`.
+
+## Current priority takeaway
+
+### Real CU wins
+
+- **PDA strategy dominates.** `pda_runtime` (`findProgramAddress`) is
+  **3025 CU** versus **6 CU** for `pda_comptime`, and stored-bump
+  `verifyPda` remains far cheaper than `verifyPdaCanonical`.
+- **Comptime rent folding is real.** `create_rent_exempt_comptime`
+  saves **167 CU** over the runtime-rent helper.
+- **Prepared Batch is a measurable local win.**
+  `batch_transfer_checked_prepared` saves **30 CU** over the higher-level
+  `batch_transfer_checked` wrapper, even though current devnet proofs do
+  not show a net end-to-end CU win for Batch versus lean direct flows.
+
+### Mostly ergonomics wins
+
+- `*SignedSingle` helper families are valuable API surface, but current
+  wrapper-only evidence shows little or no CU change once a path already
+  uses raw signer staging:
+  - `system_transfer_with_seed_signed` = `1163`
+  - `system_transfer_with_seed_signed_single` = `1163`
+  - `spl_token_mint_to_checked_signed` = `1136`
+  - `spl_token_mint_to_checked_signed_single` = `1134`
+
+### Areas that now look largely flat
+
+- Sysvar copy-vs-ref (`15` vs `14`), eager-vs-lazy entrypoint (`11` vs `10`),
+  and raw lamport transfer (`23` vs `22`) are already near the floor.
+- Owner-check and bind-path experiments did not produce a benchmark-backed
+  improvement under low-risk code-shape changes.
+
+### Remaining hotspot worth revisiting
+
+- **Safe parse / checked dispatch bookkeeping** is still the one internal
+  area with visible but now modest headroom. `parse_accounts_with` is
+  **29 CU** versus **18 CU** for `parse_accounts_with_unchecked`, and the
+  checked token-dispatch path is **36/35/33 CU** versus
+  **31/30/28 CU** for the unchecked baseline. Within validated parse,
+  owner checks are the most expensive single expectation shape
+  (`parse_accounts_with_owner_only` = **37 CU**), but recent local
+  experiments did not uncover a low-risk win there.

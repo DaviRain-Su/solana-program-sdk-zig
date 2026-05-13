@@ -82,6 +82,26 @@ See:
 - [`scripts/devnet-batch-proof/README.md`](./scripts/devnet-batch-proof/README.md)
 - [`scripts/devnet-batch-proof/COST_ANALYSIS.md`](./scripts/devnet-batch-proof/COST_ANALYSIS.md)
 
+## Current performance-priority takeaway
+
+Based on the in-repo benchmark snapshot in
+[`scripts/bench-results.md`](./scripts/bench-results.md):
+
+- **Big real wins** still come from usage-pattern choices:
+  - avoid runtime PDA search when possible (`pda_runtime` `3025 CU` vs
+    `pda_comptime` `6 CU`)
+  - prefer stored-bump `verifyPda` over `verifyPdaCanonical`
+  - use `system.createRentExemptComptime*` when `space` is comptime-known
+  - use `batchPrepared*` when you already own the exact prepared invoke
+    account slice
+- **Many newer helper families are mainly ergonomics wins**, not major CU
+  reductions. Current wrapper-only benches show little or no delta for
+  `*SignedSingle` once a path already uses raw signer staging.
+- **Most tiny primitive gaps are already flat enough that further churn is
+  hard to justify.** The main remaining internal hotspot is the safe
+  parse / checked dispatch path, and even there the remaining gap is now
+  modest rather than dramatic.
+
 ## Quick start
 
 ```console

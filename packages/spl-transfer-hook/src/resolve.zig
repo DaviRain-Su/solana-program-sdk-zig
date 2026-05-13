@@ -1445,6 +1445,288 @@ test "Execute validation requires the exact fixed Execute prefix and canonical v
     );
 }
 
+test "Execute validation has explicit zero-extra, one-extra, multi-extra, missing-extra, and trailing-extra fixtures" {
+    const hook_program_id: Pubkey = .{0x58} ** 32;
+    const mint: Pubkey = .{0x29} ** 32;
+    const source: Pubkey = .{0x11} ** 32;
+    const destination: Pubkey = .{0x33} ** 32;
+    const authority: Pubkey = .{0x44} ** 32;
+    const first_extra: Pubkey = .{0xa1} ** 32;
+    const second_extra: Pubkey = .{0xb2} ** 32;
+    const third_extra: Pubkey = .{0xc3} ** 32;
+
+    const validation = findValidationAddress(&mint, &hook_program_id);
+
+    var zero_value: [4]u8 = undefined;
+    std.mem.writeInt(u32, zero_value[0..4], 0, .little);
+    var zero_tlv_data: [tlv_entry_header_len + zero_value.len]u8 = undefined;
+    writeTestTlvEntry(&instruction.EXECUTE_DISCRIMINATOR, zero_value[0..], zero_tlv_data[0..]);
+    var zero_validation_account = TestAccount(zero_tlv_data.len).init(.{
+        .key = validation.address,
+        .owner = hook_program_id,
+        .data = zero_tlv_data,
+    });
+
+    const one_entries = [_]meta.ExtraAccountMeta{
+        meta.ExtraAccountMeta.fixed(&first_extra, false, false),
+    };
+    var one_meta_bytes: [one_entries.len * meta.EXTRA_ACCOUNT_META_LEN]u8 = undefined;
+    inline for (one_entries, 0..) |entry, i| {
+        entry.write(one_meta_bytes[i * meta.EXTRA_ACCOUNT_META_LEN ..][0..meta.EXTRA_ACCOUNT_META_LEN]);
+    }
+    var one_value: [4 + one_meta_bytes.len]u8 = undefined;
+    std.mem.writeInt(u32, one_value[0..4], one_entries.len, .little);
+    @memcpy(one_value[4..], one_meta_bytes[0..]);
+    var one_tlv_data: [tlv_entry_header_len + one_value.len]u8 = undefined;
+    writeTestTlvEntry(&instruction.EXECUTE_DISCRIMINATOR, one_value[0..], one_tlv_data[0..]);
+    var one_validation_account = TestAccount(one_tlv_data.len).init(.{
+        .key = validation.address,
+        .owner = hook_program_id,
+        .data = one_tlv_data,
+    });
+
+    const multi_entries = [_]meta.ExtraAccountMeta{
+        meta.ExtraAccountMeta.fixed(&first_extra, false, false),
+        meta.ExtraAccountMeta.fixed(&second_extra, false, true),
+        meta.ExtraAccountMeta.fixed(&third_extra, true, false),
+    };
+    var multi_meta_bytes: [multi_entries.len * meta.EXTRA_ACCOUNT_META_LEN]u8 = undefined;
+    inline for (multi_entries, 0..) |entry, i| {
+        entry.write(multi_meta_bytes[i * meta.EXTRA_ACCOUNT_META_LEN ..][0..meta.EXTRA_ACCOUNT_META_LEN]);
+    }
+    var multi_value: [4 + multi_meta_bytes.len]u8 = undefined;
+    std.mem.writeInt(u32, multi_value[0..4], multi_entries.len, .little);
+    @memcpy(multi_value[4..], multi_meta_bytes[0..]);
+    var multi_tlv_data: [tlv_entry_header_len + multi_value.len]u8 = undefined;
+    writeTestTlvEntry(&instruction.EXECUTE_DISCRIMINATOR, multi_value[0..], multi_tlv_data[0..]);
+    var multi_validation_account = TestAccount(multi_tlv_data.len).init(.{
+        .key = validation.address,
+        .owner = hook_program_id,
+        .data = multi_tlv_data,
+    });
+
+    var first_extra_account = TestAccount(0).init(.{
+        .key = first_extra,
+        .owner = .{0x01} ** 32,
+    });
+    var second_extra_account = TestAccount(0).init(.{
+        .key = second_extra,
+        .owner = .{0x02} ** 32,
+        .is_writable = true,
+    });
+    var third_extra_account = TestAccount(0).init(.{
+        .key = third_extra,
+        .owner = .{0x03} ** 32,
+        .is_signer = true,
+    });
+    var trailing_extra_account = TestAccount(0).init(.{
+        .key = .{0xdd} ** 32,
+        .owner = .{0x04} ** 32,
+    });
+
+    const zero_base_accounts = [_]AccountKeyData{
+        .{ .key = &source, .data = null },
+        .{ .key = &mint, .data = null },
+        .{ .key = &destination, .data = null },
+        .{ .key = &authority, .data = null },
+        .{ .key = zero_validation_account.info().key(), .data = zero_validation_account.info().data() },
+    };
+    const one_base_accounts = [_]AccountKeyData{
+        .{ .key = &source, .data = null },
+        .{ .key = &mint, .data = null },
+        .{ .key = &destination, .data = null },
+        .{ .key = &authority, .data = null },
+        .{ .key = one_validation_account.info().key(), .data = one_validation_account.info().data() },
+    };
+    const multi_base_accounts = [_]AccountKeyData{
+        .{ .key = &source, .data = null },
+        .{ .key = &mint, .data = null },
+        .{ .key = &destination, .data = null },
+        .{ .key = &authority, .data = null },
+        .{ .key = multi_validation_account.info().key(), .data = multi_validation_account.info().data() },
+    };
+
+    var execute_data: instruction.ExecuteData = undefined;
+    @memcpy(execute_data[0..sol.DISCRIMINATOR_LEN], &instruction.EXECUTE_DISCRIMINATOR);
+    std.mem.writeInt(u64, execute_data[sol.DISCRIMINATOR_LEN..][0..@sizeOf(u64)], 11, .little);
+
+    var zero_out_metas: [0]AccountMeta = .{};
+    var zero_out_keys: [0]Pubkey = .{};
+    const zero_validated = try validateExecuteExtraAccountInfos(
+        zero_validation_account.info(),
+        &mint,
+        &hook_program_id,
+        execute_data[0..],
+        zero_base_accounts[0..],
+        &.{},
+        zero_out_metas[0..],
+        zero_out_keys[0..],
+    );
+    try std.testing.expectEqual(@as(usize, 0), zero_validated.len);
+
+    var one_out_metas: [one_entries.len]AccountMeta = undefined;
+    var one_out_keys: [one_entries.len]Pubkey = undefined;
+    const one_validated = try validateExecuteExtraAccountInfos(
+        one_validation_account.info(),
+        &mint,
+        &hook_program_id,
+        execute_data[0..],
+        one_base_accounts[0..],
+        &.{first_extra_account.info()},
+        one_out_metas[0..],
+        one_out_keys[0..],
+    );
+    try std.testing.expectEqual(@as(usize, 1), one_validated.len);
+    try std.testing.expectEqualSlices(u8, &first_extra, one_validated[0].pubkey[0..]);
+
+    var multi_out_metas: [multi_entries.len]AccountMeta = undefined;
+    var multi_out_keys: [multi_entries.len]Pubkey = undefined;
+    const multi_validated = try validateExecuteExtraAccountInfos(
+        multi_validation_account.info(),
+        &mint,
+        &hook_program_id,
+        execute_data[0..],
+        multi_base_accounts[0..],
+        &.{ first_extra_account.info(), second_extra_account.info(), third_extra_account.info() },
+        multi_out_metas[0..],
+        multi_out_keys[0..],
+    );
+    try std.testing.expectEqual(@as(usize, 3), multi_validated.len);
+    try std.testing.expectEqualSlices(u8, &third_extra, multi_validated[2].pubkey[0..]);
+
+    try std.testing.expectError(
+        ProgramError.NotEnoughAccountKeys,
+        validateExecuteExtraAccountInfos(
+            multi_validation_account.info(),
+            &mint,
+            &hook_program_id,
+            execute_data[0..],
+            multi_base_accounts[0..],
+            &.{ first_extra_account.info(), second_extra_account.info() },
+            multi_out_metas[0..],
+            multi_out_keys[0..],
+        ),
+    );
+    try std.testing.expectError(
+        ProgramError.InvalidArgument,
+        validateExecuteExtraAccountInfos(
+            multi_validation_account.info(),
+            &mint,
+            &hook_program_id,
+            execute_data[0..],
+            multi_base_accounts[0..],
+            &.{ first_extra_account.info(), second_extra_account.info(), third_extra_account.info(), trailing_extra_account.info() },
+            multi_out_metas[0..],
+            multi_out_keys[0..],
+        ),
+    );
+}
+
+test "static-address validation rejects wrong-key same-owner, wrong-key different-owner, and duplicate-slot spoofing" {
+    const first_expected_key: Pubkey = .{0x91} ** 32;
+    const second_expected_key: Pubkey = .{0x92} ** 32;
+    const wrong_key_same_owner: Pubkey = .{0xa1} ** 32;
+    const wrong_key_different_owner: Pubkey = .{0xb2} ** 32;
+    const shared_owner: Pubkey = .{0x55} ** 32;
+
+    const expected = [_]AccountMeta{
+        .{ .pubkey = &first_expected_key, .is_signer = 0, .is_writable = 0 },
+        .{ .pubkey = &second_expected_key, .is_signer = 0, .is_writable = 0 },
+    };
+
+    var first_account = TestAccount(0).init(.{
+        .key = first_expected_key,
+        .owner = shared_owner,
+    });
+    var wrong_same_owner_account = TestAccount(0).init(.{
+        .key = wrong_key_same_owner,
+        .owner = shared_owner,
+    });
+    var wrong_different_owner_account = TestAccount(0).init(.{
+        .key = wrong_key_different_owner,
+        .owner = .{0x66} ** 32,
+    });
+
+    try std.testing.expectError(
+        ProgramError.InvalidArgument,
+        validateResolvedExtraAccountInfos(
+            expected[0..1],
+            &.{wrong_same_owner_account.info()},
+        ),
+    );
+    try std.testing.expectError(
+        ProgramError.InvalidArgument,
+        validateResolvedExtraAccountInfos(
+            expected[0..1],
+            &.{wrong_different_owner_account.info()},
+        ),
+    );
+    try std.testing.expectError(
+        ProgramError.InvalidArgument,
+        validateResolvedExtraAccountInfos(
+            expected[0..],
+            &.{ first_account.info(), first_account.info() },
+        ),
+    );
+}
+
+test "hook-program PDA validation rejects wrong program id, alternate hook id, altered seed, stale bump, and random key" {
+    const hook_program_id: Pubkey = .{0x67} ** 32;
+    const alternate_hook_program_id: Pubkey = .{0x68} ** 32;
+    const authority: Pubkey = .{0x42} ** 32;
+    const seeds = [_][]const u8{ "vault", authority[0..] };
+    const correct = try sol.pda.findProgramAddress(&seeds, &hook_program_id);
+    const wrong_program = try sol.pda.findProgramAddress(&seeds, &sol.spl_token_program_id);
+    const alternate_hook = try sol.pda.findProgramAddress(&seeds, &alternate_hook_program_id);
+    const altered_seed = try sol.pda.findProgramAddress(&.{ "vault-alt", authority[0..] }, &hook_program_id);
+
+    var stale_bump_key: ?Pubkey = null;
+    var bump: u16 = 255;
+    while (true) : (bump -= 1) {
+        const bump_byte = [_]u8{@intCast(bump)};
+        const derived = sol.pda.createProgramAddress(
+            &.{ "vault", authority[0..], &bump_byte },
+            &hook_program_id,
+        ) catch null;
+        if (derived) |key| {
+            if (!sol.pubkey.pubkeyEq(&key, &correct.address)) {
+                stale_bump_key = key;
+                break;
+            }
+        }
+        if (bump == 0) break;
+    }
+    try std.testing.expect(stale_bump_key != null);
+
+    const expected = [_]AccountMeta{
+        .{ .pubkey = &correct.address, .is_signer = 0, .is_writable = 0 },
+    };
+
+    var correct_account = TestAccount(0).init(.{
+        .key = correct.address,
+        .owner = hook_program_id,
+    });
+    try validateResolvedExtraAccountInfos(expected[0..], &.{correct_account.info()});
+
+    const negative_keys = [_]Pubkey{
+        wrong_program.address,
+        alternate_hook.address,
+        altered_seed.address,
+        stale_bump_key.?,
+        .{0xe1} ** 32,
+    };
+    inline for (negative_keys) |wrong_key| {
+        var wrong_account = TestAccount(0).init(.{
+            .key = wrong_key,
+            .owner = hook_program_id,
+        });
+        try std.testing.expectError(
+            ProgramError.InvalidArgument,
+            validateResolvedExtraAccountInfos(expected[0..], &.{wrong_account.info()}),
+        );
+    }
+}
+
 test "remaining-account resolver rejects self, forward, and cyclic dependencies" {
     const hook_program_id: Pubkey = .{0x62} ** 32;
     const base_program: Pubkey = .{0x17} ** 32;
@@ -1659,6 +1941,74 @@ test "external PDA program-source handling is explicit, bounded, and rejects for
     );
 }
 
+test "external PDA validation rejects swapped program-source accounts" {
+    const hook_program_id: Pubkey = .{0x73} ** 32;
+    const base_account: Pubkey = .{0x21} ** 32;
+    const external_program_id: Pubkey = .{0xb4} ** 32;
+    const swapped_program_id: Pubkey = .{0xc5} ** 32;
+    const instruction_data = [_]u8{ 0x09, 0x08, 0x07, 0x06 };
+    const seeds = [_]Seed{.{ .instruction_data = .{ .index = 1, .length = 2 } }};
+
+    const base_accounts = [_]AccountKeyData{
+        .{ .key = &base_account, .data = null },
+    };
+
+    const entries = [_]meta.ExtraAccountMeta{
+        meta.ExtraAccountMeta.fixed(&external_program_id, false, false),
+        try meta.ExtraAccountMeta.externalProgramDerived(1, &seeds, false, false),
+    };
+    var meta_bytes: [entries.len * meta.EXTRA_ACCOUNT_META_LEN]u8 = undefined;
+    inline for (entries, 0..) |entry, i| {
+        entry.write(meta_bytes[i * meta.EXTRA_ACCOUNT_META_LEN ..][0..meta.EXTRA_ACCOUNT_META_LEN]);
+    }
+    const slice = try meta.ExtraAccountMetaSlice.init(meta_bytes[0..]);
+
+    var out_metas: [entries.len]AccountMeta = undefined;
+    var out_keys: [entries.len]Pubkey = undefined;
+    const resolved = try resolveExtraAccountMetaList(
+        slice,
+        instruction_data[0..],
+        &hook_program_id,
+        base_accounts[0..],
+        out_metas[0..],
+        out_keys[0..],
+    );
+
+    const swapped_derived = try sol.pda.findProgramAddress(
+        &.{instruction_data[1..3]},
+        &swapped_program_id,
+    );
+
+    var correct_program_account = TestAccount(0).init(.{
+        .key = external_program_id,
+        .owner = .{0x11} ** 32,
+    });
+    var correct_external_pda_account = TestAccount(0).init(.{
+        .key = resolved[1].pubkey.*,
+        .owner = .{0x12} ** 32,
+    });
+    try validateResolvedExtraAccountInfos(
+        resolved,
+        &.{ correct_program_account.info(), correct_external_pda_account.info() },
+    );
+
+    var swapped_program_account = TestAccount(0).init(.{
+        .key = swapped_program_id,
+        .owner = .{0x13} ** 32,
+    });
+    var swapped_external_pda_account = TestAccount(0).init(.{
+        .key = swapped_derived.address,
+        .owner = .{0x14} ** 32,
+    });
+    try std.testing.expectError(
+        ProgramError.InvalidArgument,
+        validateResolvedExtraAccountInfos(
+            resolved,
+            &.{ swapped_program_account.info(), swapped_external_pda_account.info() },
+        ),
+    );
+}
+
 test "remaining-account resolution failures are side-effect-free and retry-stable" {
     const hook_program_id: Pubkey = .{0x79} ** 32;
     const base_key: Pubkey = .{0x31} ** 32;
@@ -1768,6 +2118,121 @@ test "remaining-account resolution failures are side-effect-free and retry-stabl
     try std.testing.expectEqual(@as(usize, 2), resolved.len);
     try std.testing.expectEqualSlices(u8, &first_extra, resolved[0].pubkey[0..]);
     try std.testing.expectEqualSlices(u8, &expected_second, resolved[1].pubkey[0..]);
+}
+
+test "literal, instruction-data, account-key, and account-data seed failures are side-effect-free and retry-stable" {
+    const hook_program_id: Pubkey = .{0x7b} ** 32;
+    const base_key: Pubkey = .{0x41} ** 32;
+    const short_data_key: Pubkey = .{0x42} ** 32;
+    const short_instruction_data = [_]u8{ 0xaa, 0xbb };
+    const short_account_data = [_]u8{ 0x10, 0x20, 0x30 };
+
+    var short_data_account = TestAccount(short_account_data.len).init(.{
+        .key = short_data_key,
+        .owner = .{0x19} ** 32,
+        .data = short_account_data,
+    });
+
+    const literal_fail_entry = meta.ExtraAccountMeta{
+        .discriminator = meta.HOOK_PROGRAM_PDA_DISCRIMINATOR,
+        .address_config = .{1, 31} ++ .{0} ** 30,
+        .is_signer = 0,
+        .is_writable = 0,
+    };
+    const instruction_fail_entry = try meta.ExtraAccountMeta.hookProgramDerived(
+        &.{.{ .instruction_data = .{ .index = 1, .length = 4 } }},
+        false,
+        false,
+    );
+    const account_key_fail_entry = try meta.ExtraAccountMeta.hookProgramDerived(
+        &.{.{ .account_key = .{ .index = 3 } }},
+        false,
+        false,
+    );
+    const account_data_fail_entry = try meta.ExtraAccountMeta.hookProgramDerived(
+        &.{.{ .account_data = .{ .account_index = 1, .data_index = 1, .length = 4 } }},
+        false,
+        false,
+    );
+
+    const cases = [_]struct {
+        name: []const u8,
+        entry: meta.ExtraAccountMeta,
+        instruction_data: []const u8,
+        base_accounts: [2]AccountKeyData,
+    }{
+        .{
+            .name = "literal",
+            .entry = literal_fail_entry,
+            .instruction_data = &.{},
+            .base_accounts = .{
+                .{ .key = &base_key, .data = null },
+                .{ .key = &short_data_key, .data = short_data_account.info().data() },
+            },
+        },
+        .{
+            .name = "instruction-data",
+            .entry = instruction_fail_entry,
+            .instruction_data = short_instruction_data[0..],
+            .base_accounts = .{
+                .{ .key = &base_key, .data = null },
+                .{ .key = &short_data_key, .data = short_data_account.info().data() },
+            },
+        },
+        .{
+            .name = "account-key",
+            .entry = account_key_fail_entry,
+            .instruction_data = &.{},
+            .base_accounts = .{
+                .{ .key = &base_key, .data = null },
+                .{ .key = &short_data_key, .data = short_data_account.info().data() },
+            },
+        },
+        .{
+            .name = "account-data",
+            .entry = account_data_fail_entry,
+            .instruction_data = &.{},
+            .base_accounts = .{
+                .{ .key = &base_key, .data = null },
+                .{ .key = &short_data_key, .data = short_data_account.info().data() },
+            },
+        },
+    };
+
+    inline for (cases) |case| {
+        _ = case.name;
+        const entries = [_]meta.ExtraAccountMeta{case.entry};
+        var bytes: [entries.len * meta.EXTRA_ACCOUNT_META_LEN]u8 = undefined;
+        inline for (entries, 0..) |entry, i| {
+            entry.write(bytes[i * meta.EXTRA_ACCOUNT_META_LEN ..][0..meta.EXTRA_ACCOUNT_META_LEN]);
+        }
+        const slice = try meta.ExtraAccountMetaSlice.init(bytes[0..]);
+
+        const sentinel_meta_key: Pubkey = .{0xd1} ** 32;
+        const sentinel_out_key: Pubkey = .{0xe2} ** 32;
+        var out_metas = [_]AccountMeta{
+            .{ .pubkey = &sentinel_meta_key, .is_signer = 1, .is_writable = 1 },
+        };
+        var out_keys = [_]Pubkey{sentinel_out_key};
+
+        inline for (0..2) |_| {
+            try std.testing.expectError(
+                ProgramError.InvalidAccountData,
+                resolveExtraAccountMetaList(
+                    slice,
+                    case.instruction_data,
+                    &hook_program_id,
+                    case.base_accounts[0..],
+                    out_metas[0..],
+                    out_keys[0..],
+                ),
+            );
+            try std.testing.expectEqual(@intFromPtr(@as(*const Pubkey, @ptrCast(&sentinel_meta_key))), @intFromPtr(out_metas[0].pubkey));
+            try std.testing.expectEqual(@as(u8, 1), out_metas[0].is_signer);
+            try std.testing.expectEqual(@as(u8, 1), out_metas[0].is_writable);
+            try std.testing.expectEqualSlices(u8, &sentinel_out_key, &out_keys[0]);
+        }
+    }
 }
 
 test "official TLV account-resolution parity vectors match Zig behavior" {
@@ -1978,6 +2443,155 @@ test "allowed duplicates still validate each role independently" {
     );
 }
 
+test "duplicate handling covers static, PDA, signer, and writable roles in reject and allow modes" {
+    const duplicate_key: Pubkey = .{0x97} ** 32;
+    const middle_key: Pubkey = .{0x98} ** 32;
+
+    const static_expected = [_]AccountMeta{
+        .{ .pubkey = &duplicate_key, .is_signer = 0, .is_writable = 0 },
+        .{ .pubkey = &middle_key, .is_signer = 0, .is_writable = 0 },
+        .{ .pubkey = &duplicate_key, .is_signer = 0, .is_writable = 0 },
+    };
+    var duplicate_account = TestAccount(0).init(.{
+        .key = duplicate_key,
+        .owner = .{0x21} ** 32,
+    });
+    var middle_account = TestAccount(0).init(.{
+        .key = middle_key,
+        .owner = .{0x22} ** 32,
+    });
+    const static_actual = [_]sol.AccountInfo{
+        duplicate_account.info(),
+        middle_account.info(),
+        duplicate_account.info(),
+    };
+    try validateResolvedExtraAccountInfosWithPolicy(static_expected[0..], static_actual[0..], .allow);
+    try std.testing.expectError(
+        ProgramError.InvalidArgument,
+        validateResolvedExtraAccountInfosWithPolicy(static_expected[0..], static_actual[0..], .reject),
+    );
+
+    const signer_expected = [_]AccountMeta{
+        .{ .pubkey = &duplicate_key, .is_signer = 0, .is_writable = 0 },
+        .{ .pubkey = &duplicate_key, .is_signer = 1, .is_writable = 0 },
+    };
+    var signer_duplicate = TestAccount(0).init(.{
+        .key = duplicate_key,
+        .owner = .{0x23} ** 32,
+    });
+    const signer_actual = [_]sol.AccountInfo{
+        signer_duplicate.info(),
+        signer_duplicate.info(),
+    };
+    try std.testing.expectError(
+        ProgramError.MissingRequiredSignature,
+        validateResolvedExtraAccountInfosWithPolicy(signer_expected[0..], signer_actual[0..], .allow),
+    );
+    try std.testing.expectError(
+        ProgramError.InvalidArgument,
+        validateResolvedExtraAccountInfosWithPolicy(signer_expected[0..], signer_actual[0..], .reject),
+    );
+
+    const writable_expected = [_]AccountMeta{
+        .{ .pubkey = &duplicate_key, .is_signer = 0, .is_writable = 0 },
+        .{ .pubkey = &duplicate_key, .is_signer = 0, .is_writable = 1 },
+    };
+    var writable_duplicate = TestAccount(0).init(.{
+        .key = duplicate_key,
+        .owner = .{0x24} ** 32,
+    });
+    const writable_actual = [_]sol.AccountInfo{
+        writable_duplicate.info(),
+        writable_duplicate.info(),
+    };
+    try std.testing.expectError(
+        ProgramError.ImmutableAccount,
+        validateResolvedExtraAccountInfosWithPolicy(writable_expected[0..], writable_actual[0..], .allow),
+    );
+    try std.testing.expectError(
+        ProgramError.InvalidArgument,
+        validateResolvedExtraAccountInfosWithPolicy(writable_expected[0..], writable_actual[0..], .reject),
+    );
+
+    const hook_program_id: Pubkey = .{0xd1} ** 32;
+    const source: Pubkey = .{0xd2} ** 32;
+    const mint: Pubkey = .{0xd3} ** 32;
+    const destination: Pubkey = .{0xd4} ** 32;
+    const authority: Pubkey = .{0xd5} ** 32;
+    const pda_seeds = [_]Seed{
+        .{ .literal = "vault" },
+        .{ .account_key = .{ .index = 0 } },
+    };
+    const duplicated_pda_entry = try meta.ExtraAccountMeta.hookProgramDerived(&pda_seeds, false, false);
+    const pda_entries = [_]meta.ExtraAccountMeta{
+        duplicated_pda_entry,
+        duplicated_pda_entry,
+    };
+    var pda_meta_bytes: [pda_entries.len * meta.EXTRA_ACCOUNT_META_LEN]u8 = undefined;
+    inline for (pda_entries, 0..) |entry, i| {
+        entry.write(pda_meta_bytes[i * meta.EXTRA_ACCOUNT_META_LEN ..][0..meta.EXTRA_ACCOUNT_META_LEN]);
+    }
+    var pda_value: [4 + pda_meta_bytes.len]u8 = undefined;
+    std.mem.writeInt(u32, pda_value[0..4], pda_entries.len, .little);
+    @memcpy(pda_value[4..], pda_meta_bytes[0..]);
+    var pda_tlv_data: [tlv_entry_header_len + pda_value.len]u8 = undefined;
+    writeTestTlvEntry(&instruction.EXECUTE_DISCRIMINATOR, pda_value[0..], pda_tlv_data[0..]);
+
+    const validation = findValidationAddress(&mint, &hook_program_id);
+    var validation_account = TestAccount(pda_tlv_data.len).init(.{
+        .key = validation.address,
+        .owner = hook_program_id,
+        .data = pda_tlv_data,
+    });
+    const base_accounts = [_]AccountKeyData{
+        .{ .key = &source, .data = null },
+        .{ .key = &mint, .data = null },
+        .{ .key = &destination, .data = null },
+        .{ .key = &authority, .data = null },
+        .{ .key = validation_account.info().key(), .data = validation_account.info().data() },
+    };
+
+    const expected_pda = try sol.pda.findProgramAddress(
+        &.{ "vault", &source },
+        &hook_program_id,
+    );
+    var duplicated_pda_account = TestAccount(0).init(.{
+        .key = expected_pda.address,
+        .owner = hook_program_id,
+    });
+    var execute_data: instruction.ExecuteData = undefined;
+    @memcpy(execute_data[0..sol.DISCRIMINATOR_LEN], &instruction.EXECUTE_DISCRIMINATOR);
+    std.mem.writeInt(u64, execute_data[sol.DISCRIMINATOR_LEN..][0..@sizeOf(u64)], 77, .little);
+    var pda_out_metas: [pda_entries.len]AccountMeta = undefined;
+    var pda_out_keys: [pda_entries.len]Pubkey = undefined;
+    const pda_allowed = try validateExecuteExtraAccountInfosWithPolicy(
+        validation_account.info(),
+        &mint,
+        &hook_program_id,
+        execute_data[0..],
+        base_accounts[0..],
+        &.{ duplicated_pda_account.info(), duplicated_pda_account.info() },
+        pda_out_metas[0..],
+        pda_out_keys[0..],
+        .allow,
+    );
+    try std.testing.expectEqual(@as(usize, 2), pda_allowed.len);
+    try std.testing.expectError(
+        ProgramError.InvalidArgument,
+        validateExecuteExtraAccountInfosWithPolicy(
+            validation_account.info(),
+            &mint,
+            &hook_program_id,
+            execute_data[0..],
+            base_accounts[0..],
+            &.{ duplicated_pda_account.info(), duplicated_pda_account.info() },
+            pda_out_metas[0..],
+            pda_out_keys[0..],
+            .reject,
+        ),
+    );
+}
+
 test "Execute duplicate policy rejects fixed-account reuse by default and allows explicit duplicates" {
     const hook_program_id: Pubkey = .{0xd1} ** 32;
     const mint: Pubkey = .{0xd2} ** 32;
@@ -2102,4 +2716,126 @@ test "Execute duplicate policy rejects fixed-account reuse by default and allows
     );
     try std.testing.expectEqual(@as(usize, 1), allowed_validation.len);
     try std.testing.expectEqualSlices(u8, validation_account.info().key()[0..], allowed_validation[0].pubkey[0..]);
+}
+
+test "malformed count, key, PDA, duplicate, seed, signer, and writable failures are deterministic and repeat-stable" {
+    const malformed_value = [_]u8{ 0xff, 0xff, 0xff, 0xff };
+    var malformed_tlv: [tlv_entry_header_len + malformed_value.len]u8 = undefined;
+    writeTestTlvEntry(&instruction.EXECUTE_DISCRIMINATOR, malformed_value[0..], malformed_tlv[0..]);
+    inline for (0..2) |_| {
+        try std.testing.expectError(
+            ProgramError.InvalidAccountData,
+            unpackExecuteExtraAccountMetaList(malformed_tlv[0..]),
+        );
+    }
+
+    const expected_key: Pubkey = .{0xa1} ** 32;
+    var wrong_key_account = TestAccount(0).init(.{
+        .key = .{0xa2} ** 32,
+        .owner = .{0x11} ** 32,
+    });
+    inline for (0..2) |_| {
+        try std.testing.expectError(
+            ProgramError.InvalidArgument,
+            validateResolvedExtraAccountInfos(
+                &.{.{ .pubkey = &expected_key, .is_signer = 0, .is_writable = 0 }},
+                &.{wrong_key_account.info()},
+            ),
+        );
+    }
+
+    const expected_pda_key: Pubkey = .{0xb1} ** 32;
+    var wrong_pda_account = TestAccount(0).init(.{
+        .key = .{0xb2} ** 32,
+        .owner = .{0x12} ** 32,
+    });
+    inline for (0..2) |_| {
+        try std.testing.expectError(
+            ProgramError.InvalidArgument,
+            validateResolvedExtraAccountInfos(
+                &.{.{ .pubkey = &expected_pda_key, .is_signer = 0, .is_writable = 0 }},
+                &.{wrong_pda_account.info()},
+            ),
+        );
+    }
+
+    const duplicate_key: Pubkey = .{0xc1} ** 32;
+    var duplicate_account = TestAccount(0).init(.{
+        .key = duplicate_key,
+        .owner = .{0x13} ** 32,
+    });
+    inline for (0..2) |_| {
+        try std.testing.expectError(
+            ProgramError.InvalidArgument,
+            validateResolvedExtraAccountInfosWithPolicy(
+                &.{
+                    .{ .pubkey = &duplicate_key, .is_signer = 0, .is_writable = 0 },
+                    .{ .pubkey = &duplicate_key, .is_signer = 0, .is_writable = 0 },
+                },
+                &.{ duplicate_account.info(), duplicate_account.info() },
+                .reject,
+            ),
+        );
+    }
+
+    const hook_program_id: Pubkey = .{0xd1} ** 32;
+    const base_key: Pubkey = .{0xd2} ** 32;
+    const failing_seed_entry = try meta.ExtraAccountMeta.hookProgramDerived(
+        &.{.{ .instruction_data = .{ .index = 1, .length = 4 } }},
+        false,
+        false,
+    );
+    const failing_entries = [_]meta.ExtraAccountMeta{failing_seed_entry};
+    var failing_seed_bytes: [failing_entries.len * meta.EXTRA_ACCOUNT_META_LEN]u8 = undefined;
+    inline for (failing_entries, 0..) |entry, i| {
+        entry.write(failing_seed_bytes[i * meta.EXTRA_ACCOUNT_META_LEN ..][0..meta.EXTRA_ACCOUNT_META_LEN]);
+    }
+    const failing_seed_slice = try meta.ExtraAccountMetaSlice.init(failing_seed_bytes[0..]);
+    var failing_seed_out_metas: [1]AccountMeta = undefined;
+    var failing_seed_out_keys: [1]Pubkey = undefined;
+    inline for (0..2) |_| {
+        try std.testing.expectError(
+            ProgramError.InvalidAccountData,
+            resolveExtraAccountMetaList(
+                failing_seed_slice,
+                &.{0xaa, 0xbb},
+                &hook_program_id,
+                &.{.{ .key = &base_key, .data = null }},
+                failing_seed_out_metas[0..],
+                failing_seed_out_keys[0..],
+            ),
+        );
+    }
+
+    const signer_key: Pubkey = .{0xe1} ** 32;
+    var missing_signer_account = TestAccount(0).init(.{
+        .key = signer_key,
+        .owner = .{0x14} ** 32,
+    });
+    inline for (0..2) |_| {
+        try std.testing.expectError(
+            ProgramError.MissingRequiredSignature,
+            validateResolvedExtraAccountInfosWithPolicy(
+                &.{.{ .pubkey = &signer_key, .is_signer = 1, .is_writable = 0 }},
+                &.{missing_signer_account.info()},
+                .reject,
+            ),
+        );
+    }
+
+    const writable_key: Pubkey = .{0xf1} ** 32;
+    var readonly_account = TestAccount(0).init(.{
+        .key = writable_key,
+        .owner = .{0x15} ** 32,
+    });
+    inline for (0..2) |_| {
+        try std.testing.expectError(
+            ProgramError.ImmutableAccount,
+            validateResolvedExtraAccountInfosWithPolicy(
+                &.{.{ .pubkey = &writable_key, .is_signer = 0, .is_writable = 1 }},
+                &.{readonly_account.info()},
+                .reject,
+            ),
+        );
+    }
 }

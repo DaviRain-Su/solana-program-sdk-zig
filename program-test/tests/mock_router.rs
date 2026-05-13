@@ -56,6 +56,15 @@ const ROUTE_TAG_EXACT_IN_SPLIT: u8 = 1;
 const MAX_HOPS: usize = 8;
 const MAX_SPLIT_COUNT: usize = 4;
 const MAX_ACCOUNT_WINDOW: usize = 8;
+const MAX_FEE_BPS_OPCODE: u8 = 100;
+const INVALID_RESERVED_OPCODE: u8 = 111;
+const OPCODE_REQUIRE_SIGNER: u8 = 120;
+const OPCODE_REQUIRE_WRITABLE: u8 = 121;
+const OPCODE_REQUIRE_OWNER: u8 = 122;
+const OPCODE_FAIL_DIV_ZERO: u8 = 124;
+const OPCODE_FAIL_MULDIV_OVERFLOW: u8 = 125;
+const OPCODE_FAIL_FEE_SCALE: u8 = 126;
+const OPCODE_FAIL_COMPUTE_GUARD: u8 = 127;
 
 const ROUTER_RETURN_PREFIX_LEN: usize = 32;
 const ADAPTER_RETURN_LEN: usize = 1 + 8 + 8 + 8 + 1 + 1 + 1 + 1 + 32 + 32;
@@ -169,6 +178,16 @@ fn regular_account() -> Account {
     }
 }
 
+fn regular_account_owned_by(owner: Pubkey) -> Account {
+    Account {
+        lamports: 1_000_000,
+        data: vec![],
+        owner,
+        executable: false,
+        rent_epoch: 0,
+    }
+}
+
 fn program_test_dir() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
 }
@@ -218,6 +237,29 @@ fn setup() -> Mollusk {
         &bpf_loader_upgradeable::id(),
     );
     mollusk
+}
+
+fn account<'a>(accounts: &'a [(Pubkey, Account)], key: &Pubkey) -> &'a Account {
+    accounts
+        .iter()
+        .find(|(candidate, _)| candidate == key)
+        .map(|(_, account)| account)
+        .unwrap_or_else(|| panic!("missing account {key}"))
+}
+
+fn assert_accounts_unchanged(
+    before: &[(Pubkey, Account)],
+    after: &[(Pubkey, Account)],
+    keys: &[Pubkey],
+    label: &str,
+) {
+    for key in keys {
+        assert_eq!(
+            account(before, key),
+            account(after, key),
+            "{label}: account {key} changed unexpectedly",
+        );
+    }
 }
 
 fn read_pubkey(bytes: &[u8]) -> Pubkey {
@@ -655,4 +697,394 @@ fn mock_router_missing_adapter_program_fails_before_boundary() {
         }
         other => panic!("expected NotEnoughAccountKeys failure, got {other:?}"),
     }
+}
+
+#[test]
+fn mock_router_rejects_malformed_payloads_without_mutating_accounts() {
+    let mollusk = setup();
+    let alpha = Pubkey::new_from_array([0x61; 32]);
+
+    let accounts = vec![
+        (alpha, regular_account()),
+        (adapter_program::id(), executable_program_account()),
+    ];
+
+    let trailing_bytes = {
+        let mut data = build_exact_in_hops_route(
+            10,
+            9,
+            &[HopSpec {
+                account_window_len: 1,
+                adapter_opcode: 1,
+            }],
+        );
+        data.push(0xff);
+        data
+    };
+
+    let cases = vec![
+        (
+            "invalid reserved opcode",
+            build_exact_in_hops_route(
+                10,
+                9,
+                &[HopSpec {
+                    account_window_len: 1,
+                    adapter_opcode: INVALID_RESERVED_OPCODE,
+                }],
+            ),
+        ),
+        ("non-canonical trailing bytes", trailing_bytes),
+    ];
+
+    for (label, data) in cases {
+        let instruction = Instruction {
+            program_id: router_program::id(),
+            accounts: vec![
+                AccountMeta::new_readonly(alpha, true),
+                AccountMeta::new_readonly(adapter_program::id(), false),
+            ],
+            data,
+        };
+
+        let result = mollusk.process_instruction(&instruction, &accounts);
+        assert!(
+            result.program_result.is_err(),
+            "{label}: malformed route should fail, got {:?}",
+            result.program_result,
+        );
+        assert!(
+            result.return_data.is_empty(),
+            "{label}: malformed route should not return trace data",
+        );
+        assert_accounts_unchanged(
+            &accounts,
+            &result.resulting_accounts,
+            &[alpha, adapter_program::id()],
+            label,
+        );
+    }
+}
+
+#[test]
+fn mock_router_account_validation_failures_are_canonical_and_stop_before_adapter() {
+    let mollusk = setup();
+    let signer_probe = Pubkey::new_from_array([0x71; 32]);
+    let writable_probe = Pubkey::new_from_array([0x72; 32]);
+    let owner_probe = Pubkey::new_from_array([0x73; 32]);
+    let wrong_program = Pubkey::new_from_array([0x74; 32]);
+
+    let cases = vec![
+        (
+            "missing signer",
+            vec![(signer_probe, regular_account()), (adapter_program::id(), executable_program_account())],
+            vec![
+                AccountMeta::new_readonly(signer_probe, false),
+                AccountMeta::new_readonly(adapter_program::id(), false),
+            ],
+            build_exact_in_hops_route(
+                10,
+                0,
+                &[HopSpec {
+                    account_window_len: 1,
+                    adapter_opcode: OPCODE_REQUIRE_SIGNER,
+                }],
+            ),
+            ProgramError::MissingRequiredSignature,
+            vec![signer_probe, adapter_program::id()],
+        ),
+        (
+            "immutable probe",
+            vec![(writable_probe, regular_account()), (adapter_program::id(), executable_program_account())],
+            vec![
+                AccountMeta::new_readonly(writable_probe, true),
+                AccountMeta::new_readonly(adapter_program::id(), false),
+            ],
+            build_exact_in_hops_route(
+                10,
+                0,
+                &[HopSpec {
+                    account_window_len: 1,
+                    adapter_opcode: OPCODE_REQUIRE_WRITABLE,
+                }],
+            ),
+            ProgramError::Immutable,
+            vec![writable_probe, adapter_program::id()],
+        ),
+        (
+            "wrong owner",
+            vec![
+                (owner_probe, regular_account_owned_by(adapter_program::id())),
+                (adapter_program::id(), executable_program_account()),
+            ],
+            vec![
+                AccountMeta::new(owner_probe, false),
+                AccountMeta::new_readonly(adapter_program::id(), false),
+            ],
+            build_exact_in_hops_route(
+                10,
+                0,
+                &[HopSpec {
+                    account_window_len: 1,
+                    adapter_opcode: OPCODE_REQUIRE_OWNER,
+                }],
+            ),
+            ProgramError::IncorrectProgramId,
+            vec![owner_probe, adapter_program::id()],
+        ),
+        (
+            "wrong fixed program id",
+            vec![(signer_probe, regular_account()), (wrong_program, executable_program_account())],
+            vec![
+                AccountMeta::new_readonly(signer_probe, true),
+                AccountMeta::new_readonly(wrong_program, false),
+            ],
+            build_exact_in_hops_route(
+                10,
+                0,
+                &[HopSpec {
+                    account_window_len: 1,
+                    adapter_opcode: MAX_FEE_BPS_OPCODE,
+                }],
+            ),
+            ProgramError::InvalidArgument,
+            vec![signer_probe, wrong_program],
+        ),
+        (
+            "non executable adapter program",
+            vec![(signer_probe, regular_account()), (adapter_program::id(), regular_account())],
+            vec![
+                AccountMeta::new_readonly(signer_probe, true),
+                AccountMeta::new_readonly(adapter_program::id(), false),
+            ],
+            build_exact_in_hops_route(
+                10,
+                0,
+                &[HopSpec {
+                    account_window_len: 1,
+                    adapter_opcode: MAX_FEE_BPS_OPCODE,
+                }],
+            ),
+            ProgramError::InvalidAccountData,
+            vec![signer_probe, adapter_program::id()],
+        ),
+    ];
+
+    for (label, before, metas, data, expected_error, unchanged_keys) in cases {
+        let instruction = Instruction {
+            program_id: router_program::id(),
+            accounts: metas,
+            data,
+        };
+        let result = mollusk.process_instruction(&instruction, &before);
+        match result.program_result {
+            mollusk_svm::result::ProgramResult::Failure(ref err) => {
+                assert_eq!(
+                    err,
+                    &expected_error,
+                    "{label}: expected {expected_error:?}, got {err:?}",
+                );
+            }
+            ref other => panic!("{label}: expected failure, got {other:?}"),
+        }
+        assert!(
+            result.return_data.is_empty(),
+            "{label}: account validation failure should not return trace data",
+        );
+        assert_accounts_unchanged(&before, &result.resulting_accounts, &unchanged_keys, label);
+    }
+}
+
+#[test]
+fn mock_router_math_and_slippage_failures_are_deterministic() {
+    let mollusk = setup();
+    let alpha = Pubkey::new_from_array([0x81; 32]);
+
+    let math_accounts = vec![
+        (alpha, regular_account()),
+        (adapter_program::id(), executable_program_account()),
+    ];
+
+    let math_cases = vec![
+        ("checkedDiv zero", OPCODE_FAIL_DIV_ZERO, ProgramError::InvalidArgument),
+        (
+            "mulDiv overflow",
+            OPCODE_FAIL_MULDIV_OVERFLOW,
+            ProgramError::ArithmeticOverflow,
+        ),
+        ("fee scale overflow", OPCODE_FAIL_FEE_SCALE, ProgramError::InvalidArgument),
+    ];
+
+    for (label, opcode, expected_error) in math_cases {
+        let instruction = Instruction {
+            program_id: router_program::id(),
+            accounts: vec![
+                AccountMeta::new_readonly(alpha, true),
+                AccountMeta::new_readonly(adapter_program::id(), false),
+            ],
+            data: build_exact_in_hops_route(
+                10_000,
+                0,
+                &[HopSpec {
+                    account_window_len: 1,
+                    adapter_opcode: opcode,
+                }],
+            ),
+        };
+
+        let result = mollusk.process_instruction(&instruction, &math_accounts);
+        match result.program_result {
+            mollusk_svm::result::ProgramResult::Failure(ref err) => {
+                assert_eq!(
+                    err,
+                    &expected_error,
+                    "{label}: expected {expected_error:?}, got {err:?}",
+                );
+            }
+            ref other => panic!("{label}: expected failure, got {other:?}"),
+        }
+        assert!(
+            result.return_data.is_empty(),
+            "{label}: math failure should not return trace data",
+        );
+        assert_accounts_unchanged(
+            &math_accounts,
+            &result.resulting_accounts,
+            &[alpha, adapter_program::id()],
+            label,
+        );
+    }
+
+    let slippage_instruction = Instruction {
+        program_id: router_program::id(),
+        accounts: vec![
+            AccountMeta::new_readonly(alpha, true),
+            AccountMeta::new_readonly(adapter_program::id(), false),
+        ],
+        data: build_exact_in_hops_route(
+            10_000,
+            9_976,
+            &[HopSpec {
+                account_window_len: 1,
+                adapter_opcode: 25,
+            }],
+        ),
+    };
+    let slippage_result = mollusk.process_instruction(&slippage_instruction, &math_accounts);
+    match slippage_result.program_result {
+        mollusk_svm::result::ProgramResult::Failure(ref err) => {
+            assert_eq!(
+                err,
+                &ProgramError::Custom(6000),
+                "slippage: expected Custom(6000), got {err:?}",
+            );
+        }
+        ref other => panic!("slippage: expected failure, got {other:?}"),
+    }
+    assert!(
+        slippage_result.return_data.is_empty(),
+        "slippage failure should not expose partial trace data",
+    );
+}
+
+#[test]
+fn mock_router_compute_guard_failure_skips_downstream_adapter_execution() {
+    let mollusk = setup();
+    let probe_a = Pubkey::new_from_array([0x91; 32]);
+    let probe_b = Pubkey::new_from_array([0x92; 32]);
+    let probe_c = Pubkey::new_from_array([0x93; 32]);
+
+    let before = vec![
+        (probe_a, regular_account()),
+        (adapter_program::id(), executable_program_account()),
+        (probe_b, regular_account()),
+        (probe_c, regular_account()),
+    ];
+
+    let failure_instruction = Instruction {
+        program_id: router_program::id(),
+        accounts: vec![
+            AccountMeta::new(probe_a, false),
+            AccountMeta::new_readonly(adapter_program::id(), false),
+            AccountMeta::new(probe_b, false),
+            AccountMeta::new_readonly(adapter_program::id(), false),
+            AccountMeta::new(probe_c, false),
+            AccountMeta::new_readonly(adapter_program::id(), false),
+        ],
+        data: build_exact_in_hops_route(
+            10_000,
+            0,
+            &[
+                HopSpec {
+                    account_window_len: 1,
+                    adapter_opcode: 1,
+                },
+                HopSpec {
+                    account_window_len: 1,
+                    adapter_opcode: OPCODE_FAIL_COMPUTE_GUARD,
+                },
+                HopSpec {
+                    account_window_len: 1,
+                    adapter_opcode: 1,
+                },
+            ],
+        ),
+    };
+
+    let result = mollusk.process_instruction(&failure_instruction, &before);
+    match result.program_result {
+        mollusk_svm::result::ProgramResult::Failure(ref err) => {
+            assert_eq!(
+                err,
+                &ProgramError::BuiltinProgramsMustConsumeComputeUnits,
+                "compute guard: expected BuiltinProgramsMustConsumeComputeUnits, got {err:?}",
+            );
+        }
+        ref other => panic!("compute guard: expected failure, got {other:?}"),
+    }
+    assert!(
+        result.return_data.is_empty(),
+        "compute guard failure should not expose a partial trace",
+    );
+    assert_accounts_unchanged(
+        &before,
+        &result.resulting_accounts,
+        &[probe_a, adapter_program::id(), probe_b, probe_c],
+        "compute guard",
+    );
+
+    let success_instruction = Instruction {
+        program_id: router_program::id(),
+        accounts: failure_instruction.accounts.clone(),
+        data: build_exact_in_hops_route(
+            10_000,
+            0,
+            &[
+                HopSpec {
+                    account_window_len: 1,
+                    adapter_opcode: 1,
+                },
+                HopSpec {
+                    account_window_len: 1,
+                    adapter_opcode: 1,
+                },
+                HopSpec {
+                    account_window_len: 1,
+                    adapter_opcode: 1,
+                },
+            ],
+        ),
+    };
+    let success_result = mollusk.process_instruction(&success_instruction, &before);
+    assert!(
+        success_result.program_result.is_ok(),
+        "3-hop success baseline failed: {:?}",
+        success_result.program_result,
+    );
+    assert!(
+        result.compute_units_consumed < success_result.compute_units_consumed,
+        "compute guard failure should consume fewer CU than a 3-hop success path (failure={}, success={})",
+        result.compute_units_consumed,
+        success_result.compute_units_consumed,
+    );
 }

@@ -21,10 +21,17 @@
 //!   - `u8 second_flags` (`bit0=signer`, `bit1=writable`)
 //!   - `[32]u8 first_pubkey`
 //!   - `[32]u8 second_pubkey`
+//!
+//! If the first staged account is writable, owned by this mock
+//! adapter, and has at least one data byte, the adapter increments
+//! byte 0. The Rust negative tests use that as a "CPI reached this
+//! hop" probe when proving downstream hops were skipped after an
+//! earlier failure.
 
 const sol = @import("solana_program_sdk");
 
 pub const panic = sol.panic.Panic;
+pub const ID = sol.pubkey.comptimeFromBase58("7d3y2WdzxE7CfsWjkGy3WndkvZcj1EHMkzKJiFPiDecH");
 
 const FEE_BPS_MASK: u8 = 0x7f;
 
@@ -71,6 +78,9 @@ fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
     var second_flags: u8 = 0;
 
     if (first) |info| {
+        if (info.isWritable() and info.isOwnedByComptime(ID) and info.dataLen() > 0) {
+            info.data()[0] +%= 1;
+        }
         first_key = info.key().*;
         first_flags = accountFlags(info);
     }

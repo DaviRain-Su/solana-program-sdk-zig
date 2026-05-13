@@ -34,9 +34,18 @@
 //!   - `adapter_opcode & 0x80 != 0` selects duplicate-policy reject
 //!     for that hop's dynamic account window; otherwise duplicates are
 //!     explicitly allowed and resolve back to the first matching slot
-//!   - `adapter_opcode & 0x7f` is interpreted by the mock adapter as a
-//!     fee in basis points, so every hop produces a deterministic
-//!     `amount_out`
+//!   - `adapter_opcode & 0x7f` is either:
+//!       - a direct fee in basis points when `<= 100`
+//!       - one of the reserved mock-router negative-safety controls:
+//!         - `120` require the first staged account to be a signer
+//!         - `121` require the first staged account to be writable
+//!         - `122` require the first staged account owner to be the
+//!           system program
+//!         - `124` fail with checked divide-by-zero
+//!         - `125` fail with `mulDiv` overflow
+//!         - `126` fail with invalid fee scale
+//!         - `127` fail the compute guard before CPI
+//!       - any other reserved value is invalid instruction data
 //!
 //! Return data:
 //!   - `u8 executed_hop_count`
@@ -58,12 +67,21 @@ const RouteTag = enum(u8) {
 const MAX_HOPS: u8 = 8;
 const MAX_SPLIT_COUNT: u8 = 4;
 const MAX_ACCOUNT_WINDOW: u8 = 8;
+const MAX_FEE_BPS_OPCODE: u8 = 100;
 const MAX_LEG_LEN: usize = 1 + (@as(usize, MAX_HOPS) * 2);
 const ADAPTER_IX_LEN: usize = 1 + 8 + 8 + 1;
 const ADAPTER_RETURN_LEN: usize = 93;
 const DUPLICATE_REJECT_FLAG: u8 = 0x80;
+const OPCODE_REQUIRE_SIGNER: u8 = 120;
+const OPCODE_REQUIRE_WRITABLE: u8 = 121;
+const OPCODE_REQUIRE_OWNER: u8 = 122;
+const OPCODE_FAIL_DIV_ZERO: u8 = 124;
+const OPCODE_FAIL_MULDIV_OVERFLOW: u8 = 125;
+const OPCODE_FAIL_FEE_SCALE: u8 = 126;
+const OPCODE_FAIL_COMPUTE_GUARD: u8 = 127;
 const TRACE_ENTRY_LEN: usize = sol.PUBKEY_BYTES + ADAPTER_RETURN_LEN;
 const ROUTER_RETURN_LEN: usize = 1 + (@as(usize, MAX_HOPS) * TRACE_ENTRY_LEN) + 8;
+const ADAPTER_PROGRAM_ID = sol.pubkey.comptimeFromBase58("7d3y2WdzxE7CfsWjkGy3WndkvZcj1EHMkzKJiFPiDecH");
 
 const RouterErr = sol.ErrorCode(
     enum(u32) {
@@ -85,15 +103,53 @@ const AdapterReturn = struct {
     hop_index: u8,
 };
 
+fn baseOpcode(adapter_opcode: u8) u8 {
+    return adapter_opcode & ~@as(u8, DUPLICATE_REJECT_FLAG);
+}
+
+fn firstWindowAccount(window: sol.AccountWindow) RouterErr.Error!sol.AccountInfo {
+    return window.get(0) orelse error.InvalidInstructionData;
+}
+
+fn applyHopGuards(
+    window: sol.AccountWindow,
+    base_opcode: u8,
+    amount_in: u64,
+) RouterErr.Error!void {
+    switch (base_opcode) {
+        0...MAX_FEE_BPS_OPCODE => {},
+        OPCODE_REQUIRE_SIGNER => try (try firstWindowAccount(window)).expect(.{ .signer = true }),
+        OPCODE_REQUIRE_WRITABLE => try (try firstWindowAccount(window)).expect(.{ .writable = true }),
+        OPCODE_REQUIRE_OWNER => try (try firstWindowAccount(window)).expect(.{ .owner = sol.system_program_id }),
+        OPCODE_FAIL_DIV_ZERO => _ = try sol.math.checkedDiv(amount_in, @as(u64, 0)),
+        OPCODE_FAIL_MULDIV_OVERFLOW => _ = try sol.math.mulDiv(
+            @as(u64, std.math.maxInt(u64)),
+            std.math.maxInt(u64),
+            1,
+            .down,
+        ),
+        OPCODE_FAIL_FEE_SCALE => _ = try sol.math.amountAfterFee(amount_in, 11, 10, .down),
+        OPCODE_FAIL_COMPUTE_GUARD => sol.compute_budget.requireRemaining(std.math.maxInt(u64)) catch {
+            return error.BuiltinProgramsMustConsumeComputeUnits;
+        },
+        else => return error.InvalidInstructionData,
+    }
+}
+
 fn process(ctx: *sol.entrypoint.InstructionContext) RouterErr.Error!void {
+    errdefer sol.cpi.setReturnData(&.{});
+
     var data_ctx = ctx.*;
     data_ctx.skipAccounts(data_ctx.remainingAccounts());
     const ix_data = data_ctx.instructionDataUnchecked();
-    const route_tag = sol.instruction.parseTag(RouteTag, ix_data) orelse
-        return error.InvalidInstructionData;
 
     var route = sol.IxDataCursor.init(ix_data);
-    try route.skip(1);
+    const route_tag_raw = try route.read(u8);
+    const route_tag: RouteTag = switch (route_tag_raw) {
+        @intFromEnum(RouteTag.exact_in_hops) => .exact_in_hops,
+        @intFromEnum(RouteTag.exact_in_split) => .exact_in_split,
+        else => return error.InvalidInstructionData,
+    };
 
     const amount_in = try route.read(u64);
     const min_out = try route.read(u64);
@@ -195,13 +251,16 @@ fn executeHop(
     const account_window_len = try cursor.readCount(u8, MAX_ACCOUNT_WINDOW);
     if (account_window_len == 0) return error.InvalidInstructionData;
     const adapter_opcode = try cursor.read(u8);
+    const base_opcode = baseOpcode(adapter_opcode);
 
     const window = if ((adapter_opcode & DUPLICATE_REJECT_FLAG) != 0)
         try accounts.takeWindowWithPolicy(@intCast(account_window_len), .reject)
     else
         try accounts.takeWindowWithPolicy(@intCast(account_window_len), .allow);
     const adapter_program = try accounts.takeOne();
+    try adapter_program.expect(.{ .key = ADAPTER_PROGRAM_ID });
     try adapter_program.expect(.{ .executable = true });
+    try applyHopGuards(window, base_opcode, amount_in);
 
     var metas: [MAX_ACCOUNT_WINDOW]sol.cpi.AccountMeta = undefined;
     var infos: [MAX_ACCOUNT_WINDOW + 1]sol.CpiAccountInfo = undefined;

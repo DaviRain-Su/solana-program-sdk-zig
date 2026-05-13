@@ -10,19 +10,29 @@ helper is covered by Zig wire/staging tests because the bundled
 classic token fixture currently rejects discriminator `255`.
 
 Zig client for the [SPL Token](https://github.com/solana-program/token)
-program. Dual-target:
+program.
+
+## Overview
+
+This package plays the same role for Zig that crates like
+`pinocchio-token` play for Rust CPI users: it gives you a compact,
+no-allocation way to invoke SPL Token instructions from on-chain code.
+
+Unlike the Pinocchio helper, this package is intentionally dual-target:
 
 - **on-chain**: CPI helpers (`spl_token.cpi.transfer(...)`)
 - **off-chain**: instruction builders (`spl_token.instruction.transfer(...)`)
   returning `sol.cpi.Instruction` byte buffers ready to embed in a
-  host-built transaction.
+  host-built transaction
+- **inspection / decoding**: zero-copy state views, return-data
+  decoders, UI-amount helpers, and classic `TokenError` parity helpers
 
 Works against both **classic SPL Token** (`TokenkegQ…`) and
 **Token-2022** (`TokenzQd…`) for the fungible subset — the CPI
 wrappers take the token program account from the caller, so the
 same call site works for either by just passing the right program.
 
-## API
+## Examples
 
 ```zig
 const sol = @import("solana_program_sdk");
@@ -84,6 +94,19 @@ const owner = spl_token.unpackAccountOwnerUnchecked(token_account.data());
 const mint_key = spl_token.unpackAccountMintUnchecked(token_account.data());
 ```
 
+## Module guide
+
+- `spl_token.cpi` — on-chain CPI wrappers, including signed and
+  multisig variants
+- `spl_token.instruction` — off-chain / generic instruction builders
+- `spl_token.state` — zero-copy `Mint`, `Account`, and `Multisig`
+  layouts plus GenericTokenAccount-style fast-path helpers
+- `spl_token.return_data` — decoders for utility instructions that
+  answer via `sol_get_return_data`
+- `spl_token.ui_amount` — local zero-allocation formatting / parsing
+  for UI amount strings
+- `spl_token.token_error` — classic SPL Token custom-error parity
+
 ## Scope (v0.3)
 
 Instructions:
@@ -124,6 +147,11 @@ Authority-based operations include single-authority and explicit
 multisig builders/CPI variants where the SPL Token program supports
 multisig signing.
 
+The package keeps the low-level account/data contract explicit: every
+instruction documents its canonical account order, and every builder or
+wrapper stays close to the upstream SPL Token interface instead of
+hiding protocol details behind a large abstraction layer.
+
 State (zero-copy `extern struct`):
 
 - `Mint` — 82 bytes, `mint_authority` + `supply` + `decimals` +
@@ -148,6 +176,21 @@ State (zero-copy `extern struct`):
 Token-2022 extension instructions. Add when there's a concrete
 consumer — these are mechanically the same patterns as above (single
 comptime instruction-data builder + CPI wrapper).
+
+## Documentation / style notes
+
+The public surface is documented in a deliberately instruction-by-
+instruction style:
+
+- each builder documents the exact account order it encodes
+- each CPI wrapper keeps runtime-account ordering explicit
+- state helpers call out exact byte lengths and field offsets
+- return-data and error helpers mirror the classic SPL Token interface
+  naming where practical
+
+That keeps the package close to both the upstream Token interface and
+Pinocchio's "one helper per instruction" philosophy while still feeling
+native in Zig.
 
 ## Notes
 

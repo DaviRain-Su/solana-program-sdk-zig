@@ -1,20 +1,21 @@
 //! On-chain CPI wrappers around the SPL Token program.
 //!
-//! Thin syntactic sugar over `instruction.zig` + `sol.cpi.invokeRaw`
-//! / `sol.cpi.invokeSignedRaw`. The wrappers stage their account
-//! metas and instruction bytes on the stack, derive the
+//! This is the runtime half of the package. If `instruction.zig` is the byte
+//! encoder, `cpi.zig` is the part that stages runtime accounts and actually
+//! performs the invoke.
+//!
+//! The wrappers are intentionally thin: they keep the upstream account order
+//! visible, stage their metas / instruction bytes on the stack, derive the
 //! `Instruction.program_id` from the caller-supplied
-//! `token_program: CpiAccountInfo` (so the same wrapper works
-//! against classic SPL Token and Token-2022 — caller decides which
-//! by passing the right account), and forward to the runtime
+//! `token_program: CpiAccountInfo` (so the same wrapper works against classic
+//! SPL Token and Token-2022), and forward to the runtime
 //! `sol_invoke_signed_c` syscall.
 //!
-//! All wrappers expose both an unsigned variant (`transfer`,
-//! `mintTo`, …) and a `*Signed` variant for PDA-derived authority
-//! signing. The most common 1-PDA case also gets `*SignedSingle`
-//! helpers, which route through `sol.cpi.invokeSignedSingle` and skip
-//! the raw `Signer` boilerplate at the call site while keeping the
-//! low-CU fast path.
+//! All wrappers expose both an unsigned variant (`transfer`, `mintTo`, …) and
+//! a `*Signed` variant for PDA-derived authority signing. The most common 1-PDA
+//! case also gets `*SignedSingle` helpers, which route through
+//! `sol.cpi.invokeSignedSingle` and skip the raw `Signer` boilerplate at the
+//! call site while keeping the low-CU fast path.
 
 const std = @import("std");
 const sol = @import("solana_program_sdk");

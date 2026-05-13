@@ -2,6 +2,13 @@
 //!
 //! Mirrors the classic `spl-token-interface` `TokenError` enum so Zig programs
 //! can decode, inspect, and re-emit the same custom error codes.
+//!
+//! The module provides three layers:
+//!
+//! - `TokenError` — the raw `enum(u32)` discriminator space
+//! - `Error` / `TokenErrorSet` — an `ErrorCode(...)` wrapper for ergonomic
+//!   typed entrypoints
+//! - `tryFrom`, `toStr`, `toU64` — decode / render / re-emit helpers
 
 const sol = @import("solana_program_sdk");
 

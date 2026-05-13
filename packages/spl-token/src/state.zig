@@ -1,17 +1,20 @@
-//! SPL Token on-chain state structs — zero-copy views over the
-//! token program's account data buffers.
+//! SPL Token on-chain state structs — zero-copy views over the token program's
+//! account data buffers.
 //!
-//! Layouts mirror the canonical Rust `Mint` (82 B) and `Account`
-//! (165 B) bincode-style encodings exactly: `Pubkey` is 32 raw
-//! bytes, `COption<T>` is a 4-byte little-endian tag followed by
-//! `T`'s bytes (whether or not the option is `Some`). Padding fields
-//! are kept explicit so a `@bitCast`/pointer-cast from the runtime
-//! account-data slice lands on the right bytes regardless of host
-//! alignment rules.
+//! This module mirrors the canonical Rust layouts for `Mint`, `Account`, and
+//! `Multisig`, but it also exposes the smaller "just give me the mint/owner"
+//! helpers that router-style programs often want.
 //!
-//! Use the `from*` constructors below to validate a slice's length
-//! and obtain a typed pointer in one step — they're the only
-//! supported way to materialise these structs.
+//! Layouts mirror the canonical Rust `Mint` (82 B) and `Account` (165 B)
+//! bincode-style encodings exactly: `Pubkey` is 32 raw bytes, `COption<T>` is
+//! a 4-byte little-endian tag followed by `T`'s bytes (whether or not the
+//! option is `Some`). Padding fields are kept explicit so a
+//! `@bitCast`/pointer-cast from the runtime account-data slice lands on the
+//! right bytes regardless of host alignment rules.
+//!
+//! Use the `from*` constructors below to validate a slice's length and obtain a
+//! typed pointer in one step — they're the only supported way to materialise
+//! these structs.
 
 const std = @import("std");
 const sol = @import("solana_program_sdk");

@@ -1,27 +1,31 @@
 //! SPL Token instruction builders — dual-target.
 //!
-//! Each builder returns a `sol.cpi.Instruction` referencing
-//! caller-provided `AccountMeta` scratch. The instruction is valid
-//! for both on-chain CPI (`sol.cpi.invoke(&ix, ...)`) and off-chain
-//! transaction construction.
+//! This module is the byte-level half of the package. It stays close to the
+//! upstream SPL Token interface: one helper per instruction, explicit account
+//! order, explicit payload layout, caller-owned scratch.
+//!
+//! Each builder returns a `sol.cpi.Instruction` referencing caller-provided
+//! `AccountMeta` scratch. The resulting value is valid for both on-chain CPI
+//! (`sol.cpi.invoke(&ix, ...)`) and off-chain transaction construction.
 //!
 //! Reference: <https://github.com/solana-program/token/blob/main/program/src/instruction.rs>
 //!
 //! ## Single source of truth: `Spec`
 //!
-//! Every instruction is described by a comptime `Spec` value that
-//! pins down the *three* numbers the on-chain wire format is built
-//! from — discriminant byte, number of `AccountMeta`s, payload byte
-//! count. Both the builder signatures and the CPI wrapper scratch
-//! buffers derive their array lengths from these specs (via
-//! `metasArray(spec)` / `dataArray(spec)`), so the constants live in
-//! exactly one place.
+//! Every instruction is described by a comptime `Spec` value that pins down the
+//! *three* protocol numbers the wire format is built from:
 //!
-//! A `comptime` audit block at the bottom of this file re-derives
-//! the canonical numbers from first principles (1-byte disc + named
-//! field sizes) and `@compileError`s if any spec drifts — that's
-//! the editor-typo-catcher you want when the SPL Token protocol
-//! gains a new field or someone fat-fingers a count.
+//! - discriminant byte
+//! - number of `AccountMeta`s
+//! - payload byte count
+//!
+//! Both the builder signatures and the CPI wrapper scratch buffers derive their
+//! array lengths from these specs (via `metasArray(spec)` /
+//! `dataArray(spec)`), so the constants live in exactly one place.
+//!
+//! A `comptime` audit block at the bottom of this file re-derives the canonical
+//! numbers from first principles (1-byte disc + named field sizes) and
+//! `@compileError`s if any spec drifts.
 
 const std = @import("std");
 const sol = @import("solana_program_sdk");

@@ -19,6 +19,8 @@ const is_bpf_program = @import("bpf.zig").is_bpf_program;
 
 extern fn sol_remaining_compute_units() callconv(.c) u64;
 
+pub const GuardError = error{ComputationalBudgetExceeded};
+
 /// Remaining compute units in the current transaction.
 ///
 /// On host, returns `std.math.maxInt(u64)` so test code can treat
@@ -33,6 +35,23 @@ pub fn remaining() u64 {
     }
 }
 
+/// Pure threshold predicate for host tests and caller-provided mocks.
+pub inline fn hasAtLeast(remaining_units: u64, threshold: u64) bool {
+    return remaining_units >= threshold;
+}
+
+/// Pure checked threshold helper.
+pub inline fn requireAtLeast(remaining_units: u64, threshold: u64) GuardError!void {
+    if (!hasAtLeast(remaining_units, threshold)) {
+        return error.ComputationalBudgetExceeded;
+    }
+}
+
+/// Query the current remaining CU and require at least `threshold`.
+pub inline fn requireRemaining(threshold: u64) GuardError!void {
+    return requireAtLeast(remaining(), threshold);
+}
+
 // =============================================================================
 // Tests
 // =============================================================================
@@ -41,4 +60,55 @@ const testing = std.testing;
 
 test "compute_budget: host returns sentinel" {
     try testing.expectEqual(@as(u64, std.math.maxInt(u64)), remaining());
+}
+
+test "compute_budget: pure threshold semantics are exact" {
+    try testing.expect(hasAtLeast(10, 10));
+    try testing.expect(hasAtLeast(11, 10));
+    try testing.expect(!hasAtLeast(9, 10));
+
+    try requireAtLeast(10, 10);
+    try requireAtLeast(11, 10);
+    try testing.expectError(error.ComputationalBudgetExceeded, requireAtLeast(9, 10));
+}
+
+test "compute_budget: guard failure is side-effect-free for caller state" {
+    const cpi = @import("cpi.zig");
+    const account = @import("account.zig");
+
+    var raw_a: account.Account = .{
+        .borrow_state = account.NOT_BORROWED,
+        .is_signer = 1,
+        .is_writable = 1,
+        .is_executable = 0,
+        ._padding = .{0} ** 4,
+        .key = .{0x11} ** 32,
+        .owner = .{0x22} ** 32,
+        .lamports = 1,
+        .data_len = 0,
+    };
+
+    var metas: [1]cpi.AccountMeta = undefined;
+    var infos: [1]account.CpiAccountInfo = undefined;
+    var staging = cpi.CpiAccountStaging.init(metas[0..], infos[0..]);
+
+    try staging.appendAccount(account.CpiAccountInfo.fromPtr(&raw_a));
+    const meta_len = staging.accountMetas().len;
+    const info_len = staging.accountInfos().len;
+
+    try testing.expectError(error.ComputationalBudgetExceeded, requireAtLeast(99, 100));
+    try testing.expectEqual(meta_len, staging.accountMetas().len);
+    try testing.expectEqual(info_len, staging.accountInfos().len);
+}
+
+test "compute_budget: guard API supports pre-route and per-hop checks" {
+    const route_threshold = 500;
+    const hop_thresholds = [_]u64{ 250, 200, 125 };
+
+    try requireAtLeast(500, route_threshold);
+    inline for (hop_thresholds) |threshold| {
+        try requireAtLeast(500, threshold);
+    }
+
+    try testing.expectError(error.ComputationalBudgetExceeded, requireAtLeast(199, 200));
 }

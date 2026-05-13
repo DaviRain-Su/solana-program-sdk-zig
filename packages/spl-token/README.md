@@ -154,25 +154,50 @@ try spl_token.cpi.approveCheckedMultisig(
 ### Batch and prepared batch
 
 ```zig
+var child_runtime_accounts: spl_token.cpi.batchChildRuntimeAccountsArray(
+    spl_token.instruction.transfer_checked_spec,
+    2,
+) = .{
+    source.toCpiInfo(), mint.toCpiInfo(), destination.toCpiInfo(), authority.toCpiInfo(),
+    source.toCpiInfo(), mint.toCpiInfo(), destination.toCpiInfo(), authority.toCpiInfo(),
+};
+var invoke_accounts: spl_token.cpi.batchInvokeAccountsArray(
+    spl_token.instruction.transfer_checked_spec,
+    2,
+) = undefined;
+var batch_metas: spl_token.instruction.batchMetasArray(
+    spl_token.instruction.transfer_checked_spec,
+    2,
+) = undefined;
+var batch_data: spl_token.instruction.batchDataArray(
+    spl_token.instruction.transfer_checked_spec,
+    2,
+) = undefined;
+
 // High-level / ergonomic path: caller passes logical child entries plus
 // the flattened child runtime accounts.
 try spl_token.cpi.batch(
     a.token_program.toCpiInfo(),
     &entries,
-    child_runtime_accounts,
-    invoke_accounts_scratch,
-    batch_metas_scratch,
-    batch_data_scratch,
+    child_runtime_accounts[0..],
+    invoke_accounts[0..],
+    batch_metas[0..],
+    batch_data[0..],
 );
 
 // Lower-overhead path: caller already owns the fully prepared invoke slice
 // with the token program appended last.
+invoke_accounts = .{
+    source.toCpiInfo(), mint.toCpiInfo(), destination.toCpiInfo(), authority.toCpiInfo(),
+    source.toCpiInfo(), mint.toCpiInfo(), destination.toCpiInfo(), authority.toCpiInfo(),
+    a.token_program.toCpiInfo(),
+};
 try spl_token.cpi.batchPrepared(
     a.token_program.toCpiInfo(),
     &entries,
-    prepared_invoke_accounts,
-    batch_metas_scratch,
-    batch_data_scratch,
+    invoke_accounts[0..],
+    batch_metas[0..],
+    batch_data[0..],
 );
 ```
 

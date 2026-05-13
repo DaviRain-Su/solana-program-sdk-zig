@@ -756,7 +756,10 @@ fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
                 spl_token.instruction.asBatchEntry(child_a),
                 spl_token.instruction.asBatchEntry(child_b),
             };
-            const child_runtime_accounts = [_]sol.CpiAccountInfo{
+            var child_runtime_accounts: spl_token.cpi.batchChildRuntimeAccountsArray(
+                spl_token.instruction.transfer_checked_spec,
+                entries.len,
+            ) = .{
                 source.toCpiInfo(),
                 mint.toCpiInfo(),
                 destination.toCpiInfo(),
@@ -766,13 +769,22 @@ fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
                 destination.toCpiInfo(),
                 authority.toCpiInfo(),
             };
-            var invoke_accounts: [child_runtime_accounts.len + 1]sol.CpiAccountInfo = undefined;
-            var batch_metas: [spl_token.instruction.transfer_checked_spec.accounts_len * entries.len]sol.cpi.AccountMeta = undefined;
-            var batch_data: [1 + entries.len * (2 + spl_token.instruction.transfer_checked_spec.data_len)]u8 = undefined;
+            var invoke_accounts: spl_token.cpi.batchInvokeAccountsArray(
+                spl_token.instruction.transfer_checked_spec,
+                entries.len,
+            ) = undefined;
+            var batch_metas: spl_token.instruction.batchMetasArray(
+                spl_token.instruction.transfer_checked_spec,
+                entries.len,
+            ) = undefined;
+            var batch_data: spl_token.instruction.batchDataArray(
+                spl_token.instruction.transfer_checked_spec,
+                entries.len,
+            ) = undefined;
             try spl_token.cpi.batch(
                 token_program.toCpiInfo(),
                 &entries,
-                &child_runtime_accounts,
+                child_runtime_accounts[0..],
                 invoke_accounts[0..],
                 batch_metas[0..],
                 batch_data[0..],

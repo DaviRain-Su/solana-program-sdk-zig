@@ -161,6 +161,22 @@ inline fn validatePreparedBatchRuntimeAccounts(
     }
 }
 
+/// Return the exact child-runtime-account array type required for a
+/// homogeneous Batch whose children all share `spec` and whose count is
+/// `child_count`.
+pub fn batchChildRuntimeAccountsArray(comptime spec: instruction.Spec, comptime child_count: usize) type {
+    return [spec.accounts_len * child_count]CpiAccountInfo;
+}
+
+/// Return the exact invoke-account array type required for a homogeneous
+/// Batch whose children all share `spec` and whose count is `child_count`.
+///
+/// This includes the trailing token-program account required by
+/// `batch(...)` / `batchPrepared(...)`.
+pub fn batchInvokeAccountsArray(comptime spec: instruction.Spec, comptime child_count: usize) type {
+    return [spec.accounts_len * child_count + 1]CpiAccountInfo;
+}
+
 // =============================================================================
 // Transfer
 // =============================================================================
@@ -2026,6 +2042,8 @@ test "spl-token cpi: public v0.3 wrapper decls exist" {
         "burnMultisig",
         "burnCheckedMultisig",
         "closeAccountMultisig",
+        "batchChildRuntimeAccountsArray",
+        "batchInvokeAccountsArray",
         "batch",
         "batchSigned",
         "batchSignedSingle",
@@ -2040,6 +2058,14 @@ test "spl-token cpi: public v0.3 wrapper decls exist" {
     }) |name| {
         try std.testing.expect(@hasDecl(@This(), name));
     }
+}
+
+test "spl-token cpi: batch runtime scratch helpers size homogeneous envelopes correctly" {
+    const child_accounts: batchChildRuntimeAccountsArray(instruction.transfer_checked_spec, 2) = undefined;
+    const invoke_accounts: batchInvokeAccountsArray(instruction.transfer_checked_spec, 2) = undefined;
+
+    try std.testing.expectEqual(@as(usize, instruction.transfer_checked_spec.accounts_len * 2), child_accounts.len);
+    try std.testing.expectEqual(@as(usize, instruction.transfer_checked_spec.accounts_len * 2 + 1), invoke_accounts.len);
 }
 
 test "spl-token cpi: multisig staging keeps signer metas and runtime accounts aligned" {

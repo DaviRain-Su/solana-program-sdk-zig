@@ -251,6 +251,25 @@ pub fn dataArray(comptime spec: Spec) type {
     return [spec.data_len]u8;
 }
 
+/// Return the exact `AccountMeta` array type required for a homogeneous
+/// Batch whose children all share `spec` and whose count is `child_count`.
+///
+/// Example: two `transfer_checked_spec` children need
+/// `transfer_checked_spec.accounts_len * 2` metas.
+pub fn batchMetasArray(comptime spec: Spec, comptime child_count: usize) type {
+    return [spec.accounts_len * child_count]AccountMeta;
+}
+
+/// Return the exact instruction-data array type required for a homogeneous
+/// Batch whose children all share `spec` and whose count is `child_count`.
+///
+/// Wire format: `1` batch discriminator byte plus, for each child,
+/// `1` byte for account count, `1` byte for payload length, and the child
+/// payload itself.
+pub fn batchDataArray(comptime spec: Spec, comptime child_count: usize) type {
+    return [1 + child_count * (2 + spec.data_len)]u8;
+}
+
 /// Return an `AccountMeta` array large enough for a multisig instruction
 /// with `base_accounts_len` fixed accounts plus up to `MAX_SIGNERS` extras.
 pub fn multisigMetasArray(comptime base_accounts_len: usize) type {
@@ -2086,6 +2105,14 @@ test "initializeMultisig2: canonical data/metas, caller scratch, and threshold b
         error.InvalidMultisigThreshold,
         initializeMultisig2(&multisig, &one_signer, 2, &metas, &data),
     );
+}
+
+test "batch scratch helpers size homogeneous envelopes correctly" {
+    const metas: batchMetasArray(transfer_checked_spec, 2) = undefined;
+    const data: batchDataArray(transfer_checked_spec, 2) = undefined;
+
+    try std.testing.expectEqual(@as(usize, transfer_checked_spec.accounts_len * 2), metas.len);
+    try std.testing.expectEqual(@as(usize, 1 + 2 * (2 + transfer_checked_spec.data_len)), data.len);
 }
 
 test "batch: concatenates child metas/data and rejects nested batches" {

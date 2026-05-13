@@ -30,6 +30,10 @@ pub const ACCOUNT_LEN: usize = 165;
 /// multisig account.
 pub const MULTISIG_SIGNER_MAX: usize = 11;
 
+/// Raw-byte offsets for the two most commonly inspected account fields.
+pub const ACCOUNT_MINT_OFFSET: usize = 0;
+pub const ACCOUNT_OWNER_OFFSET: usize = 32;
+
 /// Size of the encoded `Multisig` account — match the canonical
 /// Rust `spl_token::state::Multisig::LEN`.
 pub const MULTISIG_LEN: usize = 3 + (@sizeOf(Pubkey) * MULTISIG_SIGNER_MAX);
@@ -77,6 +81,10 @@ pub const Mint = extern struct {
     /// `mint_authority` above.
     freeze_authority_tag: u32 align(1),
     freeze_authority: Pubkey align(1),
+
+    pub inline fn isInitialized(self: *const Mint) bool {
+        return self.is_initialized != 0;
+    }
 
     pub inline fn mintAuthority(self: *const Mint) ?*const Pubkey {
         return if (self.mint_authority_tag == COPTION_SOME) &self.mint_authority else null;
@@ -155,6 +163,13 @@ pub const Account = extern struct {
         return if (self.close_authority_tag == COPTION_SOME) &self.close_authority else null;
     }
 
+    /// `true` if the token-account owner is the System Program or the
+    /// incinerator, mirroring the upstream SPL Token interface helper.
+    pub inline fn isOwnedBySystemProgramOrIncinerator(self: *const Account) bool {
+        return sol.pubkey.pubkeyEqComptime(&self.owner, sol.system_program_id) or
+            sol.pubkey.pubkeyEqComptime(&self.owner, sol.incinerator_id);
+    }
+
     /// `true` if the account is a wrapped-SOL holder. The token
     /// program uses the `is_native` `COption` to flag this and the
     /// inner `u64` carries the rent-exempt reserve.
@@ -183,7 +198,55 @@ pub const Account = extern struct {
         }
         return @ptrCast(@alignCast(bytes.ptr));
     }
+
+    /// Fast length-only validation for callers that only need selected raw
+    /// fields and want to avoid materializing the full `Account` view.
+    pub inline fn validAccountData(account_data: []const u8) bool {
+        return account_data.len == ACCOUNT_LEN;
+    }
+
+    /// Unpack a pubkey at a known offset after length has already been checked.
+    ///
+    /// Upstream SPL Token exposes these via `GenericTokenAccount`; Zig keeps
+    /// them as account-type helpers so on-chain routers and adapters can read
+    /// mint/owner straight from the account bytes without parsing the rest of
+    /// the struct.
+    pub inline fn unpackPubkeyUnchecked(account_data: []const u8, comptime offset: usize) *const Pubkey {
+        comptime std.debug.assert(offset + @sizeOf(Pubkey) <= ACCOUNT_LEN);
+        return @ptrCast(account_data.ptr + offset);
+    }
+
+    /// Fast-path unpack for the token-account mint pubkey.
+    pub inline fn unpackMintUnchecked(account_data: []const u8) *const Pubkey {
+        return unpackPubkeyUnchecked(account_data, ACCOUNT_MINT_OFFSET);
+    }
+
+    /// Fast-path unpack for the token-account owner pubkey.
+    pub inline fn unpackOwnerUnchecked(account_data: []const u8) *const Pubkey {
+        return unpackPubkeyUnchecked(account_data, ACCOUNT_OWNER_OFFSET);
+    }
 };
+
+/// `true` when `account_data` has the canonical SPL Token account length.
+pub inline fn validAccountData(account_data: []const u8) bool {
+    return Account.validAccountData(account_data);
+}
+
+/// Unpack the token-account mint pubkey after length has been validated.
+pub inline fn unpackAccountMintUnchecked(account_data: []const u8) *const Pubkey {
+    return Account.unpackMintUnchecked(account_data);
+}
+
+/// Unpack the token-account owner pubkey after length has been validated.
+pub inline fn unpackAccountOwnerUnchecked(account_data: []const u8) *const Pubkey {
+    return Account.unpackOwnerUnchecked(account_data);
+}
+
+/// Unpack a token-account pubkey at the supplied fixed offset after length has
+/// been validated.
+pub inline fn unpackAccountPubkeyUnchecked(account_data: []const u8, comptime offset: usize) *const Pubkey {
+    return Account.unpackPubkeyUnchecked(account_data, offset);
+}
 
 /// Token `Multisig` — zero-copy view over `MULTISIG_LEN` bytes.
 pub const Multisig = extern struct {
@@ -281,6 +344,7 @@ test "mint: round-trip authority decoding" {
     const mint = try Mint.fromBytes(&buf);
     try std.testing.expectEqual(@as(u64, 1_000_000_000), mint.supply);
     try std.testing.expectEqual(@as(u8, 9), mint.decimals);
+    try std.testing.expect(mint.isInitialized());
     try std.testing.expect(mint.mintAuthority() != null);
     try std.testing.expect(mint.freezeAuthority() == null);
     const expected: Pubkey = .{0x01} ** 32;
@@ -305,9 +369,39 @@ test "account: state + isNative round-trip" {
     const acc = try Account.fromBytes(&buf);
     try std.testing.expectEqual(@as(u64, 42), acc.amount);
     try std.testing.expect(acc.isFrozen());
+    try std.testing.expect(acc.isInitialized());
     try std.testing.expect(acc.isNative());
     try std.testing.expectEqual(@as(u64, 2_039_280), acc.is_native_rent_exempt_reserve);
     try std.testing.expect(acc.delegateKey() == null);
+    try std.testing.expect(!acc.isOwnedBySystemProgramOrIncinerator());
+}
+
+test "account: fast-path pubkey helpers match canonical offsets" {
+    var buf: [ACCOUNT_LEN]u8 = [_]u8{0} ** ACCOUNT_LEN;
+    @memset(buf[ACCOUNT_MINT_OFFSET .. ACCOUNT_MINT_OFFSET + sol.PUBKEY_BYTES], 0x44);
+    @memset(buf[ACCOUNT_OWNER_OFFSET .. ACCOUNT_OWNER_OFFSET + sol.PUBKEY_BYTES], 0x55);
+
+    try std.testing.expect(validAccountData(buf[0..]));
+    try std.testing.expect(!validAccountData(buf[0 .. ACCOUNT_LEN - 1]));
+    try std.testing.expectEqualSlices(u8, &([_]u8{0x44} ** 32), unpackAccountMintUnchecked(buf[0..])[0..]);
+    try std.testing.expectEqualSlices(u8, &([_]u8{0x55} ** 32), unpackAccountOwnerUnchecked(buf[0..])[0..]);
+    try std.testing.expectEqualSlices(
+        u8,
+        &([_]u8{0x55} ** 32),
+        unpackAccountPubkeyUnchecked(buf[0..], ACCOUNT_OWNER_OFFSET)[0..],
+    );
+}
+
+test "account: owner helper recognizes system program and incinerator" {
+    var system_buf: [ACCOUNT_LEN]u8 = [_]u8{0} ** ACCOUNT_LEN;
+    @memcpy(system_buf[ACCOUNT_OWNER_OFFSET .. ACCOUNT_OWNER_OFFSET + sol.PUBKEY_BYTES], sol.system_program_id[0..]);
+    const system_account = try Account.fromBytes(&system_buf);
+    try std.testing.expect(system_account.isOwnedBySystemProgramOrIncinerator());
+
+    var incinerator_buf: [ACCOUNT_LEN]u8 = [_]u8{0} ** ACCOUNT_LEN;
+    @memcpy(incinerator_buf[ACCOUNT_OWNER_OFFSET .. ACCOUNT_OWNER_OFFSET + sol.PUBKEY_BYTES], sol.incinerator_id[0..]);
+    const incinerator_account = try Account.fromBytes(&incinerator_buf);
+    try std.testing.expect(incinerator_account.isOwnedBySystemProgramOrIncinerator());
 }
 
 test "multisig: fromBytes rejects wrong length" {

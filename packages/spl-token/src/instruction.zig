@@ -66,6 +66,7 @@ pub const AuthorityType = enum(u8) {
     CloseAccount = 3,
 };
 
+pub const MIN_SIGNERS: usize = 1;
 pub const MAX_SIGNERS: usize = state.MULTISIG_SIGNER_MAX;
 
 pub const MultisigInstructionError = error{

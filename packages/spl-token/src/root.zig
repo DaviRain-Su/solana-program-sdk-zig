@@ -64,11 +64,53 @@ pub const MINT_LEN = state.MINT_LEN;
 pub const ACCOUNT_LEN = state.ACCOUNT_LEN;
 pub const MULTISIG_LEN = state.MULTISIG_LEN;
 pub const MULTISIG_SIGNER_MAX = state.MULTISIG_SIGNER_MAX;
+pub const ACCOUNT_MINT_OFFSET = state.ACCOUNT_MINT_OFFSET;
+pub const ACCOUNT_OWNER_OFFSET = state.ACCOUNT_OWNER_OFFSET;
 
 pub const TokenInstruction = instruction.TokenInstruction;
+pub const MIN_SIGNERS = instruction.MIN_SIGNERS;
+pub const MAX_SIGNERS = instruction.MAX_SIGNERS;
 
 pub inline fn isNativeMint(mint: *const sol.Pubkey) bool {
     return sol.pubkey.pubkeyEq(mint, &NATIVE_MINT);
+}
+
+/// Upstream `spl-token-interface` parity helper: validates the classic SPL
+/// Token program ID.
+pub inline fn checkProgramAccount(program_id: *const sol.Pubkey) sol.ProgramResult {
+    if (!sol.pubkey.pubkeyEqComptime(program_id, PROGRAM_ID)) {
+        return error.IncorrectProgramId;
+    }
+}
+
+pub inline fn validAccountData(account_data: []const u8) bool {
+    return state.validAccountData(account_data);
+}
+
+pub inline fn unpackAccountMintUnchecked(account_data: []const u8) *const sol.Pubkey {
+    return state.unpackAccountMintUnchecked(account_data);
+}
+
+pub inline fn unpackAccountOwnerUnchecked(account_data: []const u8) *const sol.Pubkey {
+    return state.unpackAccountOwnerUnchecked(account_data);
+}
+
+test "spl-token: interface parity helpers" {
+    const std = @import("std");
+
+    try checkProgramAccount(&PROGRAM_ID);
+    try std.testing.expectError(error.IncorrectProgramId, checkProgramAccount(&PROGRAM_ID_2022));
+    try std.testing.expectEqual(@as(usize, 1), MIN_SIGNERS);
+    try std.testing.expectEqual(MULTISIG_SIGNER_MAX, MAX_SIGNERS);
+
+    var account_buf: [ACCOUNT_LEN]u8 = [_]u8{0} ** ACCOUNT_LEN;
+    @memset(account_buf[ACCOUNT_MINT_OFFSET .. ACCOUNT_MINT_OFFSET + sol.PUBKEY_BYTES], 0x11);
+    @memset(account_buf[ACCOUNT_OWNER_OFFSET .. ACCOUNT_OWNER_OFFSET + sol.PUBKEY_BYTES], 0x22);
+
+    try std.testing.expect(validAccountData(account_buf[0..]));
+    try std.testing.expect(!validAccountData(account_buf[0 .. ACCOUNT_LEN - 1]));
+    try std.testing.expectEqualSlices(u8, &([_]u8{0x11} ** 32), unpackAccountMintUnchecked(account_buf[0..])[0..]);
+    try std.testing.expectEqualSlices(u8, &([_]u8{0x22} ** 32), unpackAccountOwnerUnchecked(account_buf[0..])[0..]);
 }
 
 test {

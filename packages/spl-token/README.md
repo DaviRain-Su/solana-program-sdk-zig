@@ -79,6 +79,8 @@ const parsed_amount = try spl_token.ui_amount.tryUiAmountIntoAmount(ui, 6);
 // ──────────── Zero-copy state views ────────────
 const mint = try spl_token.Mint.fromBytes(mint_account.data());
 const balance = (try spl_token.Account.fromBytes(token_account.data())).amount;
+const owner = spl_token.unpackAccountOwnerUnchecked(token_account.data());
+const mint_key = spl_token.unpackAccountMintUnchecked(token_account.data());
 ```
 
 ## Scope (v0.3)
@@ -124,7 +126,13 @@ State (zero-copy `extern struct`):
   `state` + `is_native` + `delegated_amount` + `close_authority`
 - `Multisig` — 355 bytes, `m`, `n`, `is_initialized` + up to 11 signer keys
 - `AccountState` enum (Uninitialized / Initialized / Frozen)
+- `ACCOUNT_MINT_OFFSET` / `ACCOUNT_OWNER_OFFSET` fast-path offsets
+- `validAccountData(...)`, `unpackAccountMintUnchecked(...)`,
+  `unpackAccountOwnerUnchecked(...)` for GenericTokenAccount-style
+  mint/owner inspection without full parsing
+- `MIN_SIGNERS` / `MAX_SIGNERS` parity constants
 - `NATIVE_MINT` constant + `isNativeMint(...)` helper for wrapped SOL flows
+- `checkProgramAccount(...)` parity helper for the classic Token program ID
 
 ## Not yet covered
 

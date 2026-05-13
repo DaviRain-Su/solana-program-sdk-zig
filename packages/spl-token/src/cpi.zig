@@ -28,6 +28,7 @@ const Signer = sol.cpi.Signer;
 const ProgramError = sol.ProgramError;
 const ProgramResult = sol.ProgramResult;
 const MAX_SIGNERS = instruction.MAX_SIGNERS;
+const BatchEntry = instruction.BatchEntry;
 
 // Pull the per-instruction wire-format specs into scope. The
 // builders' signatures already enforce that any local scratch
@@ -64,6 +65,18 @@ inline fn mapMultisigInstructionError(err: instruction.MultisigInstructionError)
     return switch (err) {
         error.InvalidMultisigSignerCount,
         error.InvalidMultisigThreshold,
+        => error.InvalidArgument,
+    };
+}
+
+inline fn mapBatchInstructionError(err: instruction.BatchInstructionError) ProgramError {
+    return switch (err) {
+        error.IncorrectProgramId => error.IncorrectProgramId,
+        error.NestedBatchInstruction,
+        error.TooManyAccounts,
+        error.InstructionDataTooLong,
+        error.ScratchTooSmall,
+        error.IntegerOverflow,
         => error.InvalidArgument,
     };
 }
@@ -118,6 +131,23 @@ fn multisigMetasAndRuntimeAccounts(
         .instruction_accounts = metas_out[0 .. base_accounts_len + signer_infos.len],
         .runtime_accounts = accounts_out[0 .. fixed_len + signer_infos.len + 1],
     };
+}
+
+fn stageBatchRuntimeAccounts(
+    entries: []const BatchEntry,
+    child_runtime_accounts: []const CpiAccountInfo,
+    token_program: CpiAccountInfo,
+    invoke_accounts_out: []CpiAccountInfo,
+) ProgramError![]const CpiAccountInfo {
+    const required_child_accounts = instruction.batchEntriesAccountsLen(entries) catch |err| {
+        return mapBatchInstructionError(err);
+    };
+    if (child_runtime_accounts.len != required_child_accounts) return error.InvalidArgument;
+    if (invoke_accounts_out.len < child_runtime_accounts.len + 1) return error.InvalidArgument;
+
+    @memcpy(invoke_accounts_out[0..child_runtime_accounts.len], child_runtime_accounts);
+    invoke_accounts_out[child_runtime_accounts.len] = token_program;
+    return invoke_accounts_out[0 .. child_runtime_accounts.len + 1];
 }
 
 // =============================================================================
@@ -1483,6 +1513,75 @@ pub fn closeAccountMultisig(
     try sol.cpi.invokeRaw(&ix, staged.runtime_accounts);
 }
 
+/// Invoke the SPL Token batch instruction.
+///
+/// `entries` is the logical child-instruction list. `child_runtime_accounts`
+/// must be the fully-flattened child-account list in the same order as the
+/// concatenated `AccountMeta`s across every entry. `invoke_accounts_out`
+/// provides caller-owned scratch with room for all child accounts plus the
+/// token-program account appended at the end.
+pub fn batch(
+    token_program: CpiAccountInfo,
+    entries: []const BatchEntry,
+    child_runtime_accounts: []const CpiAccountInfo,
+    invoke_accounts_out: []CpiAccountInfo,
+    metas: []AccountMeta,
+    data: []u8,
+) ProgramResult {
+    const ix = instruction.batchEntriesForProgram(token_program.key(), entries, metas, data) catch |err| {
+        return mapBatchInstructionError(err);
+    };
+    const invoke_accounts = try stageBatchRuntimeAccounts(
+        entries,
+        child_runtime_accounts,
+        token_program,
+        invoke_accounts_out,
+    );
+    try sol.cpi.invokeRaw(&ix, invoke_accounts);
+}
+
+pub fn batchSigned(
+    token_program: CpiAccountInfo,
+    entries: []const BatchEntry,
+    child_runtime_accounts: []const CpiAccountInfo,
+    invoke_accounts_out: []CpiAccountInfo,
+    metas: []AccountMeta,
+    data: []u8,
+    signers: []const Signer,
+) ProgramResult {
+    const ix = instruction.batchEntriesForProgram(token_program.key(), entries, metas, data) catch |err| {
+        return mapBatchInstructionError(err);
+    };
+    const invoke_accounts = try stageBatchRuntimeAccounts(
+        entries,
+        child_runtime_accounts,
+        token_program,
+        invoke_accounts_out,
+    );
+    try sol.cpi.invokeSignedRaw(&ix, invoke_accounts, signers);
+}
+
+pub inline fn batchSignedSingle(
+    token_program: CpiAccountInfo,
+    entries: []const BatchEntry,
+    child_runtime_accounts: []const CpiAccountInfo,
+    invoke_accounts_out: []CpiAccountInfo,
+    metas: []AccountMeta,
+    data: []u8,
+    signer_seeds: anytype,
+) ProgramResult {
+    const ix = instruction.batchEntriesForProgram(token_program.key(), entries, metas, data) catch |err| {
+        return mapBatchInstructionError(err);
+    };
+    const invoke_accounts = try stageBatchRuntimeAccounts(
+        entries,
+        child_runtime_accounts,
+        token_program,
+        invoke_accounts_out,
+    );
+    try sol.cpi.invokeSignedSingle(&ix, invoke_accounts, signer_seeds);
+}
+
 pub fn syncNative(
     token_program: CpiAccountInfo,
     account: CpiAccountInfo,
@@ -1638,6 +1737,9 @@ test "spl-token cpi: public v0.3 wrapper decls exist" {
         "burnMultisig",
         "burnCheckedMultisig",
         "closeAccountMultisig",
+        "batch",
+        "batchSigned",
+        "batchSignedSingle",
         "syncNative",
     }) |name| {
         try std.testing.expect(@hasDecl(@This(), name));
@@ -1690,6 +1792,87 @@ test "spl-token cpi: multisig staging keeps signer metas and runtime accounts al
     try std.testing.expectEqualSlices(u8, signer_a.key(), staged.runtime_accounts[3].key());
     try std.testing.expectEqualSlices(u8, signer_b.key(), staged.runtime_accounts[4].key());
     try std.testing.expectEqualSlices(u8, token_program.key(), staged.runtime_accounts[5].key());
+}
+
+test "spl-token cpi: batch rebrands callee and preserves flattened runtime account order" {
+    var source_account = testAccount(.{0x30} ** 32, .{0x90} ** 32, false, true, false);
+    var mint_account = testAccount(.{0x31} ** 32, .{0x91} ** 32, false, false, false);
+    var destination_account = testAccount(.{0x32} ** 32, .{0x92} ** 32, false, true, false);
+    var authority_account = testAccount(.{0x33} ** 32, .{0x93} ** 32, true, false, false);
+    var token_program_account = testAccount(sol.spl_token_2022_program_id, .{0x94} ** 32, false, false, true);
+
+    const source = testCpiInfo(&source_account.raw);
+    const mint = testCpiInfo(&mint_account.raw);
+    const destination = testCpiInfo(&destination_account.raw);
+    const authority = testCpiInfo(&authority_account.raw);
+    const token_program = testCpiInfo(&token_program_account.raw);
+
+    var child_a_metas: metasArray(instruction.transfer_checked_spec) = undefined;
+    var child_a_data: dataArray(instruction.transfer_checked_spec) = undefined;
+    const child_a = instruction.transferChecked(
+        source.key(),
+        mint.key(),
+        destination.key(),
+        authority.key(),
+        11,
+        6,
+        &child_a_metas,
+        &child_a_data,
+    );
+
+    var child_b_metas: metasArray(instruction.transfer_checked_spec) = undefined;
+    var child_b_data: dataArray(instruction.transfer_checked_spec) = undefined;
+    const child_b = instruction.transferChecked(
+        source.key(),
+        mint.key(),
+        destination.key(),
+        authority.key(),
+        22,
+        6,
+        &child_b_metas,
+        &child_b_data,
+    );
+
+    const entries = [_]BatchEntry{
+        instruction.asBatchEntry(child_a),
+        instruction.asBatchEntry(child_b),
+    };
+    var batch_metas: [instruction.transfer_checked_spec.accounts_len * entries.len]AccountMeta = undefined;
+    var batch_data: [1 + entries.len * (2 + instruction.transfer_checked_spec.data_len)]u8 = undefined;
+    const ix = try instruction.batchEntriesForProgram(
+        token_program.key(),
+        &entries,
+        batch_metas[0..],
+        batch_data[0..],
+    );
+
+    try std.testing.expectEqual(token_program.key(), ix.program_id);
+    try std.testing.expectEqual(@as(usize, 8), ix.accounts.len);
+    try std.testing.expectEqual(@as(usize, 25), ix.data.len);
+    try std.testing.expectEqual(@as(u8, @intFromEnum(instruction.TokenInstruction.batch)), ix.data[0]);
+
+    var invoke_accounts_buf: [instruction.transfer_checked_spec.accounts_len * entries.len + 1]CpiAccountInfo = undefined;
+    const invoke_accounts = try stageBatchRuntimeAccounts(
+        &entries,
+        &.{
+            source,
+            mint,
+            destination,
+            authority,
+            source,
+            mint,
+            destination,
+            authority,
+        },
+        token_program,
+        invoke_accounts_buf[0..],
+    );
+    try std.testing.expectEqual(@as(usize, 9), invoke_accounts.len);
+    try std.testing.expectEqualSlices(u8, source.key(), invoke_accounts[0].key());
+    try std.testing.expectEqualSlices(u8, authority.key(), invoke_accounts[3].key());
+    try std.testing.expectEqualSlices(u8, source.key(), invoke_accounts[4].key());
+    try std.testing.expectEqualSlices(u8, authority.key(), invoke_accounts[7].key());
+    try std.testing.expectEqualSlices(u8, token_program.key(), invoke_accounts[8].key());
 }
 
 test "spl-token cpi: syncNative rebrands callee and preserves single runtime account order" {
@@ -1866,6 +2049,34 @@ test "spl-token cpi: SignedSingle wrappers compile and use host fallback" {
         error.InvalidArgument,
         closeAccountSignedSingle(token_program, source, destination, authority, .{ "close", &bump_seed }),
     );
+
+    var batch_child_metas: metasArray(instruction.transfer_spec) = undefined;
+    var batch_child_data: dataArray(instruction.transfer_spec) = undefined;
+    const batch_child = instruction.transfer(
+        source.key(),
+        destination.key(),
+        authority.key(),
+        1,
+        &batch_child_metas,
+        &batch_child_data,
+    );
+    const batch_entries = [_]BatchEntry{instruction.asBatchEntry(batch_child)};
+    var batch_metas: [instruction.transfer_spec.accounts_len]AccountMeta = undefined;
+    var batch_data: [1 + 2 + instruction.transfer_spec.data_len]u8 = undefined;
+    var batch_accounts: [instruction.transfer_spec.accounts_len + 1]CpiAccountInfo = undefined;
+
+    try std.testing.expectError(
+        error.InvalidArgument,
+        batchSignedSingle(
+            token_program,
+            &batch_entries,
+            &.{ source, destination, authority },
+            batch_accounts[0..],
+            batch_metas[0..],
+            batch_data[0..],
+            .{ "batch", &bump_seed },
+        ),
+    );
 }
 
 test "spl-token cpi: new signed raw wrappers use host fallback" {
@@ -1968,5 +2179,46 @@ test "spl-token cpi: new signed raw wrappers use host fallback" {
     try std.testing.expectError(
         error.InvalidArgument,
         burnCheckedSigned(token_program, source, mint, authority, 1, 6, &.{signer}),
+    );
+
+    var batch_child_metas: metasArray(instruction.transfer_checked_spec) = undefined;
+    var batch_child_data: dataArray(instruction.transfer_checked_spec) = undefined;
+    const batch_child = instruction.transferChecked(
+        source.key(),
+        mint.key(),
+        destination.key(),
+        authority.key(),
+        1,
+        6,
+        &batch_child_metas,
+        &batch_child_data,
+    );
+    const batch_entries = [_]BatchEntry{instruction.asBatchEntry(batch_child)};
+    var batch_metas: [instruction.transfer_checked_spec.accounts_len]AccountMeta = undefined;
+    var batch_data: [1 + 2 + instruction.transfer_checked_spec.data_len]u8 = undefined;
+    var batch_accounts: [instruction.transfer_checked_spec.accounts_len + 1]CpiAccountInfo = undefined;
+
+    try std.testing.expectError(
+        error.InvalidArgument,
+        batch(
+            token_program,
+            &batch_entries,
+            &.{ source, mint, destination, authority },
+            batch_accounts[0..],
+            batch_metas[0..],
+            batch_data[0..],
+        ),
+    );
+    try std.testing.expectError(
+        error.InvalidArgument,
+        batchSigned(
+            token_program,
+            &batch_entries,
+            &.{ source, mint, destination, authority },
+            batch_accounts[0..],
+            batch_metas[0..],
+            batch_data[0..],
+            &.{signer},
+        ),
     );
 }

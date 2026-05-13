@@ -52,6 +52,7 @@ pub const TokenInstruction = enum(u8) {
     initialize_account3 = 18,
     initialize_multisig2 = 19,
     initialize_mint2 = 20,
+    batch = 255,
 };
 
 pub const AuthorityType = enum(u8) {
@@ -66,6 +67,20 @@ pub const MAX_SIGNERS: usize = state.MULTISIG_SIGNER_MAX;
 pub const MultisigInstructionError = error{
     InvalidMultisigSignerCount,
     InvalidMultisigThreshold,
+};
+
+pub const BatchEntry = struct {
+    accounts: []const AccountMeta,
+    data: []const u8,
+};
+
+pub const BatchInstructionError = error{
+    IncorrectProgramId,
+    NestedBatchInstruction,
+    TooManyAccounts,
+    InstructionDataTooLong,
+    ScratchTooSmall,
+    IntegerOverflow,
 };
 
 // =============================================================================
@@ -268,6 +283,118 @@ fn appendReadonlyMetas(
         metas[start_index + i] = AccountMeta.readonly(&signer_pubkeys[i]);
     }
     return metas[0 .. start_index + signer_pubkeys.len];
+}
+
+pub inline fn asBatchEntry(ix: Instruction) BatchEntry {
+    return .{ .accounts = ix.accounts, .data = ix.data };
+}
+
+fn validateBatchEntry(entry: BatchEntry) BatchInstructionError!void {
+    if (entry.accounts.len > std.math.maxInt(u8)) return error.TooManyAccounts;
+    if (entry.data.len > std.math.maxInt(u8)) return error.InstructionDataTooLong;
+    if (entry.data.len > 0 and entry.data[0] == @intFromEnum(TokenInstruction.batch)) {
+        return error.NestedBatchInstruction;
+    }
+}
+
+pub fn batchEntriesAccountsLen(entries: []const BatchEntry) BatchInstructionError!usize {
+    var total: usize = 0;
+    for (entries) |entry| {
+        try validateBatchEntry(entry);
+        total = std.math.add(usize, total, entry.accounts.len) catch return error.IntegerOverflow;
+    }
+    return total;
+}
+
+pub fn batchEntriesDataLen(entries: []const BatchEntry) BatchInstructionError!usize {
+    var total: usize = 1;
+    for (entries) |entry| {
+        try validateBatchEntry(entry);
+        total = std.math.add(usize, total, 2) catch return error.IntegerOverflow;
+        total = std.math.add(usize, total, entry.data.len) catch return error.IntegerOverflow;
+    }
+    return total;
+}
+
+pub fn batchEntriesForProgram(
+    program_id: *const Pubkey,
+    entries: []const BatchEntry,
+    metas: []AccountMeta,
+    data: []u8,
+) BatchInstructionError!Instruction {
+    const accounts_len = try batchEntriesAccountsLen(entries);
+    const data_len = try batchEntriesDataLen(entries);
+    if (metas.len < accounts_len or data.len < data_len) return error.ScratchTooSmall;
+
+    data[0] = @intFromEnum(TokenInstruction.batch);
+
+    var meta_offset: usize = 0;
+    var data_offset: usize = 1;
+    for (entries) |entry| {
+        data[data_offset] = @intCast(entry.accounts.len);
+        data[data_offset + 1] = @intCast(entry.data.len);
+        data_offset += 2;
+
+        @memcpy(metas[meta_offset..][0..entry.accounts.len], entry.accounts);
+        @memcpy(data[data_offset..][0..entry.data.len], entry.data);
+
+        meta_offset += entry.accounts.len;
+        data_offset += entry.data.len;
+    }
+
+    return .{
+        .program_id = program_id,
+        .accounts = metas[0..accounts_len],
+        .data = data[0..data_len],
+    };
+}
+
+pub fn batchForProgram(
+    program_id: *const Pubkey,
+    children: []const Instruction,
+    metas: []AccountMeta,
+    data: []u8,
+) BatchInstructionError!Instruction {
+    var total_accounts: usize = 0;
+    var total_data: usize = 1;
+    for (children) |child| {
+        if (!sol.pubkey.pubkeyEq(child.program_id, program_id)) return error.IncorrectProgramId;
+        try validateBatchEntry(asBatchEntry(child));
+        total_accounts = std.math.add(usize, total_accounts, child.accounts.len) catch return error.IntegerOverflow;
+        total_data = std.math.add(usize, total_data, 2) catch return error.IntegerOverflow;
+        total_data = std.math.add(usize, total_data, child.data.len) catch return error.IntegerOverflow;
+    }
+    if (metas.len < total_accounts or data.len < total_data) return error.ScratchTooSmall;
+
+    data[0] = @intFromEnum(TokenInstruction.batch);
+
+    var meta_offset: usize = 0;
+    var data_offset: usize = 1;
+    for (children) |child| {
+        data[data_offset] = @intCast(child.accounts.len);
+        data[data_offset + 1] = @intCast(child.data.len);
+        data_offset += 2;
+
+        @memcpy(metas[meta_offset..][0..child.accounts.len], child.accounts);
+        @memcpy(data[data_offset..][0..child.data.len], child.data);
+
+        meta_offset += child.accounts.len;
+        data_offset += child.data.len;
+    }
+
+    return .{
+        .program_id = program_id,
+        .accounts = metas[0..total_accounts],
+        .data = data[0..total_data],
+    };
+}
+
+pub fn batch(
+    children: []const Instruction,
+    metas: []AccountMeta,
+    data: []u8,
+) BatchInstructionError!Instruction {
+    return batchForProgram(&id.PROGRAM_ID, children, metas, data);
 }
 
 // =============================================================================
@@ -1134,6 +1261,7 @@ test "v0.3 authority/freeze/native specs and discriminants stay canonical" {
     try std.testing.expectEqual(@as(u8, 13), @intFromEnum(TokenInstruction.approve_checked));
     try std.testing.expectEqual(@as(u8, 17), @intFromEnum(TokenInstruction.sync_native));
     try std.testing.expectEqual(@as(u8, 19), @intFromEnum(TokenInstruction.initialize_multisig2));
+    try std.testing.expectEqual(@as(u8, 255), @intFromEnum(TokenInstruction.batch));
 
     try std.testing.expectEqual(@as(usize, 3), approve_spec.accounts_len);
     try std.testing.expectEqual(@as(usize, 9), approve_spec.data_len);
@@ -1461,6 +1589,134 @@ test "initializeMultisig2: canonical data/metas, caller scratch, and threshold b
     try std.testing.expectError(
         error.InvalidMultisigThreshold,
         initializeMultisig2(&multisig, &one_signer, 2, &metas, &data),
+    );
+}
+
+test "batch: concatenates child metas/data and rejects nested batches" {
+    const source: Pubkey = .{0xE1} ** 32;
+    const mint: Pubkey = .{0xE2} ** 32;
+    const destination: Pubkey = .{0xE3} ** 32;
+    const authority: Pubkey = .{0xE4} ** 32;
+
+    var child_a_metas: metasArray(transfer_checked_spec) = undefined;
+    var child_a_data: dataArray(transfer_checked_spec) = undefined;
+    const child_a = transferChecked(
+        &source,
+        &mint,
+        &destination,
+        &authority,
+        55,
+        6,
+        &child_a_metas,
+        &child_a_data,
+    );
+
+    var child_b_metas: metasArray(transfer_checked_spec) = undefined;
+    var child_b_data: dataArray(transfer_checked_spec) = undefined;
+    const child_b = transferChecked(
+        &source,
+        &mint,
+        &destination,
+        &authority,
+        66,
+        6,
+        &child_b_metas,
+        &child_b_data,
+    );
+
+    const children = [_]Instruction{ child_a, child_b };
+    var batch_metas: [transfer_checked_spec.accounts_len * children.len]AccountMeta = undefined;
+    var batch_data: [1 + children.len * (2 + transfer_checked_spec.data_len)]u8 = undefined;
+    const ix = try batch(&children, batch_metas[0..], batch_data[0..]);
+
+    try std.testing.expectEqual(&id.PROGRAM_ID, ix.program_id);
+    try std.testing.expectEqual(@as(usize, 8), ix.accounts.len);
+    try std.testing.expectEqual(@as(usize, 25), ix.data.len);
+    try std.testing.expectEqual(@as(u8, 255), ix.data[0]);
+    try std.testing.expectEqual(@as(u8, 4), ix.data[1]);
+    try std.testing.expectEqual(@as(u8, 10), ix.data[2]);
+    try std.testing.expectEqualSlices(u8, child_a.data, ix.data[3..13]);
+    try std.testing.expectEqual(@as(u8, 4), ix.data[13]);
+    try std.testing.expectEqual(@as(u8, 10), ix.data[14]);
+    try std.testing.expectEqualSlices(u8, child_b.data, ix.data[15..25]);
+
+    try expectMeta(ix.accounts[0], &source, 1, 0);
+    try expectMeta(ix.accounts[1], &mint, 0, 0);
+    try expectMeta(ix.accounts[2], &destination, 1, 0);
+    try expectMeta(ix.accounts[3], &authority, 0, 1);
+    try expectMeta(ix.accounts[4], &source, 1, 0);
+    try expectMeta(ix.accounts[5], &mint, 0, 0);
+    try expectMeta(ix.accounts[6], &destination, 1, 0);
+    try expectMeta(ix.accounts[7], &authority, 0, 1);
+
+    var nested_metas: [transfer_checked_spec.accounts_len]AccountMeta = undefined;
+    var nested_data: [1 + 2 + transfer_checked_spec.data_len]u8 = undefined;
+    const nested = try batch(&.{child_a}, nested_metas[0..], nested_data[0..]);
+    var reject_metas: [transfer_checked_spec.accounts_len]AccountMeta = undefined;
+    var reject_data: [1 + 2 + (1 + 2 + transfer_checked_spec.data_len)]u8 = undefined;
+    try std.testing.expectError(
+        error.NestedBatchInstruction,
+        batch(&.{nested}, reject_metas[0..], reject_data[0..]),
+    );
+}
+
+test "batch: enforces child bounds, program ids, and scratch sizing" {
+    const source: Pubkey = .{0xF1} ** 32;
+    const mint: Pubkey = .{0xF2} ** 32;
+    const destination: Pubkey = .{0xF3} ** 32;
+    const authority: Pubkey = .{0xF4} ** 32;
+
+    var child_metas: metasArray(transfer_checked_spec) = undefined;
+    var child_data: dataArray(transfer_checked_spec) = undefined;
+    const child = transferChecked(
+        &source,
+        &mint,
+        &destination,
+        &authority,
+        77,
+        6,
+        &child_metas,
+        &child_data,
+    );
+
+    var too_small_metas: [transfer_checked_spec.accounts_len - 1]AccountMeta = undefined;
+    var exact_data: [1 + 2 + transfer_checked_spec.data_len]u8 = undefined;
+    try std.testing.expectError(
+        error.ScratchTooSmall,
+        batch(&.{child}, too_small_metas[0..], exact_data[0..]),
+    );
+
+    const wrong_program: Pubkey = .{0xFA} ** 32;
+    const wrong_child = Instruction{ .program_id = &wrong_program, .accounts = child.accounts, .data = child.data };
+    var metas_ok: [transfer_checked_spec.accounts_len]AccountMeta = undefined;
+    try std.testing.expectError(
+        error.IncorrectProgramId,
+        batch(&.{wrong_child}, metas_ok[0..], exact_data[0..]),
+    );
+
+    var too_many_accounts: [256]AccountMeta = undefined;
+    for (&too_many_accounts) |*meta| meta.* = AccountMeta.readonly(&source);
+    const large_accounts_child = Instruction{
+        .program_id = &id.PROGRAM_ID,
+        .accounts = &too_many_accounts,
+        .data = child.data,
+    };
+    var large_accounts_scratch: [256]AccountMeta = undefined;
+    var large_accounts_data: [1 + 2 + transfer_checked_spec.data_len]u8 = undefined;
+    try std.testing.expectError(
+        error.TooManyAccounts,
+        batch(&.{large_accounts_child}, large_accounts_scratch[0..], large_accounts_data[0..]),
+    );
+
+    const huge_data = [_]u8{0xAB} ** 256;
+    const large_data_child = Instruction{
+        .program_id = &id.PROGRAM_ID,
+        .accounts = child.accounts,
+        .data = &huge_data,
+    };
+    try std.testing.expectError(
+        error.InstructionDataTooLong,
+        batch(&.{large_data_child}, metas_ok[0..], exact_data[0..]),
     );
 }
 

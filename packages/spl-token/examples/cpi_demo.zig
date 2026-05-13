@@ -36,6 +36,7 @@
 //!   tag = 28  burnCheckedMultisig       data: tag + amount + decimals
 //!   tag = 29  closeAccountMultisig      data: tag
 //!   tag = 30  syncNative                data: tag
+//!   tag = 31  batchTransferChecked      data: tag + amount_a + amount_b + decimals
 //!
 //! Signed routes use a PDA authority derived from:
 //!   seeds = ["authority", &[bump]]
@@ -78,6 +79,7 @@ const Op = enum(u8) {
     burn_checked_multisig = 28,
     close_account_multisig = 29,
     sync_native = 30,
+    batch_transfer_checked = 31,
     _,
 };
 
@@ -111,6 +113,19 @@ inline fn readAmountDecimals(data: []const u8) sol.ProgramError!struct { amount:
 inline fn readTrailingBump(data: []const u8, base_len: usize) sol.ProgramError!u8 {
     try requireDataLen(data, base_len + 1);
     return data[base_len];
+}
+
+inline fn readBatchTransferCheckedArgs(data: []const u8) sol.ProgramError!struct {
+    amount_a: u64,
+    amount_b: u64,
+    decimals: u8,
+} {
+    try requireDataLen(data, 1 + (@sizeOf(u64) * 2) + 1);
+    return .{
+        .amount_a = sol.instruction.tryReadUnaligned(u64, data, 1) orelse return error.InvalidInstructionData,
+        .amount_b = sol.instruction.tryReadUnaligned(u64, data, 1 + @sizeOf(u64)) orelse return error.InvalidInstructionData,
+        .decimals = data[1 + (@sizeOf(u64) * 2)],
+    };
 }
 
 fn readAuthorityType(data: []const u8) sol.ProgramError!spl_token.instruction.AuthorityType {
@@ -678,6 +693,67 @@ fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
             try spl_token.cpi.syncNative(
                 token_program.toCpiInfo(),
                 account.toCpiInfo(),
+            );
+        },
+        .batch_transfer_checked => {
+            try requireAccounts(ctx, 5);
+            const token_program = ctx.nextAccountUnchecked();
+            const mint = ctx.nextAccountUnchecked();
+            const source = ctx.nextAccountUnchecked();
+            const destination = ctx.nextAccountUnchecked();
+            const authority = ctx.nextAccountUnchecked();
+            const args = try readBatchTransferCheckedArgs(data);
+
+            var child_a_metas: spl_token.instruction.metasArray(spl_token.instruction.transfer_checked_spec) = undefined;
+            var child_a_data: spl_token.instruction.dataArray(spl_token.instruction.transfer_checked_spec) = undefined;
+            const child_a = spl_token.instruction.transferChecked(
+                source.key(),
+                mint.key(),
+                destination.key(),
+                authority.key(),
+                args.amount_a,
+                args.decimals,
+                &child_a_metas,
+                &child_a_data,
+            );
+
+            var child_b_metas: spl_token.instruction.metasArray(spl_token.instruction.transfer_checked_spec) = undefined;
+            var child_b_data: spl_token.instruction.dataArray(spl_token.instruction.transfer_checked_spec) = undefined;
+            const child_b = spl_token.instruction.transferChecked(
+                source.key(),
+                mint.key(),
+                destination.key(),
+                authority.key(),
+                args.amount_b,
+                args.decimals,
+                &child_b_metas,
+                &child_b_data,
+            );
+
+            const entries = [_]spl_token.instruction.BatchEntry{
+                spl_token.instruction.asBatchEntry(child_a),
+                spl_token.instruction.asBatchEntry(child_b),
+            };
+            const child_runtime_accounts = [_]sol.CpiAccountInfo{
+                source.toCpiInfo(),
+                mint.toCpiInfo(),
+                destination.toCpiInfo(),
+                authority.toCpiInfo(),
+                source.toCpiInfo(),
+                mint.toCpiInfo(),
+                destination.toCpiInfo(),
+                authority.toCpiInfo(),
+            };
+            var invoke_accounts: [child_runtime_accounts.len + 1]sol.CpiAccountInfo = undefined;
+            var batch_metas: [spl_token.instruction.transfer_checked_spec.accounts_len * entries.len]sol.cpi.AccountMeta = undefined;
+            var batch_data: [1 + entries.len * (2 + spl_token.instruction.transfer_checked_spec.data_len)]u8 = undefined;
+            try spl_token.cpi.batch(
+                token_program.toCpiInfo(),
+                &entries,
+                &child_runtime_accounts,
+                invoke_accounts[0..],
+                batch_metas[0..],
+                batch_data[0..],
             );
         },
         else => return error.InvalidInstructionData,

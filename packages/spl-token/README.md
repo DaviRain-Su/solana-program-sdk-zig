@@ -1,9 +1,12 @@
 # spl-token (Zig)
 
 Status: ✅ **v0.3** — instruction builders + on-chain CPI helpers
-for the fungible-token, authority, multisig, and native-SOL sync
-subset. Validated against the real on-chain SPL Token program inside
-Mollusk (see `program-test/tests/spl_token.rs`).
+for the fungible-token, authority, multisig, native-SOL sync, and
+p-token-style batch surface. The classic SPL Token subset is
+validated against the real on-chain SPL Token program inside Mollusk
+(see `program-test/tests/spl_token.rs`); the batch helper is covered
+by Zig wire/staging tests because the bundled classic token fixture
+currently rejects discriminator `255`.
 
 Zig client for the [SPL Token](https://github.com/solana-program/token)
 program. Dual-target:
@@ -84,6 +87,10 @@ Instructions:
 - `initializeMultisig2` (19)
   (modern "2"/"3" variants — no Rent sysvar, owner/freeze authority
   passed in instruction data)
+- `batch` (255)
+  (p-token / Pinocchio-style concatenated child-instruction envelope;
+  available as both `spl_token.instruction.batch(...)` and
+  `spl_token.cpi.batch(...)`)
 
 Authority-based operations include single-authority and explicit
 multisig builders/CPI variants where the SPL Token program supports

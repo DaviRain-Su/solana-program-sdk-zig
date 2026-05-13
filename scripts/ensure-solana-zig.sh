@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 #
 # Locate a solana-zig fork binary that can build this repository's SBF
-# programs without the known false-positive probe problem where `-target
-# sbf-solana -mcpu v2` succeeds but the real repo build still warns about
-# unsupported `+jmp-ext` / `+store-imm` features.
+# programs and actually emit usable artifacts for the repo's real build shape.
+#
+# Some release builds still print `+jmp-ext` / `+store-imm` target-feature
+# warnings while successfully emitting working `.so` artifacts, so the probe
+# keys off real build success + emitted output rather than warning-free stderr.
 #
 # Prints the absolute path to stdout on success; exits non-zero otherwise.
 #
@@ -34,10 +36,11 @@ is_solana_zig() {
 
 supports_repo_sbf_build() {
   local zig_bin="$1"
-  local tmp_dir linker_script stderr_file
+  local tmp_dir linker_script stderr_file out_file
   tmp_dir="$(mktemp -d)" || return 1
   linker_script="$tmp_dir/bpf.ld"
   stderr_file="$tmp_dir/stderr.txt"
+  out_file="$tmp_dir/ensure-solana-zig-probe.so"
 
   cat >"$linker_script" <<'EOF'
 PHDRS
@@ -88,16 +91,17 @@ EOF
       --global-cache-dir "${ZIG_GLOBAL_CACHE_DIR:-$HOME/.cache/zig}" \
       --name ensure-solana-zig-probe \
       -dynamic \
+      -femit-bin="$out_file" \
       --script "$linker_script"
   ) >/dev/null 2>"$stderr_file"; then
     rm -rf "$tmp_dir"
     return 1
   fi
 
-  if grep -q 'not a recognized feature for this target' "$stderr_file"; then
+  [[ -s "$out_file" ]] || {
     rm -rf "$tmp_dir"
     return 1
-  fi
+  }
 
   rm -rf "$tmp_dir"
   return 0
@@ -142,8 +146,7 @@ cat <<EOF >&2
 solana-zig fork not found.
 
 This repository's SBF build requires a solana-zig fork that passes the
-same probe shape as the real repo build. Candidates that still warn about
-unsupported '+jmp-ext' / '+store-imm' target features are rejected.
+same probe shape as the real repo build and actually emits an SBF artifact.
 
 Options:
   - Set SOLANA_ZIG_BIN=/path/to/a compatible solana-zig fork

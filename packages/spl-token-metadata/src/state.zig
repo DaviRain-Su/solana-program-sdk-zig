@@ -6,12 +6,14 @@ const id = @import("id.zig");
 
 pub const INTERFACE_NAMESPACE = id.INTERFACE_NAMESPACE;
 pub const INTERFACE_DISCRIMINATOR_LEN: usize = sol.DISCRIMINATOR_LEN;
+pub const MaybeNullPubkey = @import("maybe_null_pubkey.zig").MaybeNullPubkey;
 pub const SURFACE = "interface-only";
 
 test "state scaffold exposes canonical namespace and discriminator width" {
     try std.testing.expectEqualStrings("spl_token_metadata_interface", INTERFACE_NAMESPACE);
     try std.testing.expectEqual(sol.DISCRIMINATOR_LEN, INTERFACE_DISCRIMINATOR_LEN);
     try std.testing.expectEqual(@as(usize, 8), INTERFACE_DISCRIMINATOR_LEN);
+    try std.testing.expect(@hasDecl(@This(), "MaybeNullPubkey"));
     try std.testing.expectEqualStrings("interface-only", SURFACE);
 }
 

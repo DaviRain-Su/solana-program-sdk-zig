@@ -9,6 +9,7 @@ const std = @import("std");
 
 pub const id = @import("id.zig");
 pub const instruction = @import("instruction.zig");
+pub const MaybeNullPubkey = @import("maybe_null_pubkey.zig").MaybeNullPubkey;
 pub const state = @import("state.zig");
 
 pub const PACKAGE_NAME = id.PACKAGE_NAME;
@@ -20,6 +21,7 @@ pub const SCOPE = id.SCOPE;
 test "@import(\"spl_token_metadata\") exposes only interface scaffold declarations" {
     try std.testing.expect(@hasDecl(@This(), "id"));
     try std.testing.expect(@hasDecl(@This(), "instruction"));
+    try std.testing.expect(@hasDecl(@This(), "MaybeNullPubkey"));
     try std.testing.expect(@hasDecl(@This(), "state"));
     try std.testing.expect(@hasDecl(@This(), "PACKAGE_NAME"));
     try std.testing.expect(@hasDecl(@This(), "MODULE_NAME"));
@@ -62,6 +64,7 @@ test "source-review guards keep spl_token_metadata interface scoped" {
         root_source,
         @embedFile("id.zig"),
         @embedFile("instruction.zig"),
+        @embedFile("maybe_null_pubkey.zig"),
         @embedFile("state.zig"),
     };
     inline for (package_sources) |source| {

@@ -130,6 +130,13 @@ inline fn setReturnDataU64(value: u64) void {
     sol.cpi.setReturnData(encoded[0..]);
 }
 
+inline fn mapReturnDataProgramError(err: spl_token.return_data.Error) sol.ProgramError {
+    return switch (err) {
+        error.IncorrectProgramId => error.IncorrectProgramId,
+        error.InvalidReturnData => error.InvalidInstructionData,
+    };
+}
+
 inline fn readBatchTransferCheckedArgs(data: []const u8) sol.ProgramError!struct {
     amount_a: u64,
     amount_b: u64,
@@ -779,7 +786,10 @@ fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
 
             var return_buf: [8]u8 = undefined;
             const returned = sol.cpi.getReturnData(return_buf[0..]) orelse return error.InvalidInstructionData;
-            setReturnDataU64(try spl_token.return_data.parseGetAccountDataSizeReturn(returned));
+            const size = spl_token.return_data.parseGetAccountDataSizeReturn(returned) catch |err| {
+                return mapReturnDataProgramError(err);
+            };
+            setReturnDataU64(size);
         },
         .initialize_immutable_owner => {
             try requireAccounts(ctx, 2);
@@ -796,7 +806,10 @@ fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
 
             var return_buf: [spl_token.ui_amount.MAX_FORMATTED_UI_AMOUNT_LEN]u8 = undefined;
             const returned = sol.cpi.getReturnData(return_buf[0..]) orelse return error.InvalidInstructionData;
-            sol.cpi.setReturnData(try spl_token.return_data.parseAmountToUiAmountReturn(returned));
+            const ui_amount = spl_token.return_data.parseAmountToUiAmountReturn(returned) catch |err| {
+                return mapReturnDataProgramError(err);
+            };
+            sol.cpi.setReturnData(ui_amount);
         },
         .ui_amount_to_amount => {
             try requireAccounts(ctx, 2);
@@ -807,7 +820,10 @@ fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
 
             var return_buf: [8]u8 = undefined;
             const returned = sol.cpi.getReturnData(return_buf[0..]) orelse return error.InvalidInstructionData;
-            setReturnDataU64(try spl_token.return_data.parseUiAmountToAmountReturn(returned));
+            const amount = spl_token.return_data.parseUiAmountToAmountReturn(returned) catch |err| {
+                return mapReturnDataProgramError(err);
+            };
+            setReturnDataU64(amount);
         },
         else => return error.InvalidInstructionData,
     }

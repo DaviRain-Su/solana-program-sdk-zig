@@ -12,6 +12,11 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     const sol_mod = sol_dep.module("solana_program_sdk");
+    const spl_token_2022_dep = b.dependency("spl_token_2022", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const spl_token_2022_mod = spl_token_2022_dep.module("spl_token_2022");
 
     const spl_transfer_hook_mod = b.addModule("spl_transfer_hook", .{
         .root_source_file = b.path("src/root.zig"),
@@ -37,7 +42,21 @@ pub fn build(b: *std.Build) void {
     const consumer_tests = b.addTest(.{ .root_module = consumer_test_mod });
     const run_consumer_tests = b.addRunArtifact(consumer_tests);
 
+    const coexistence_test_mod = b.createModule(.{
+        .root_source_file = b.path("src/token_2022_coexistence_test.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "solana_program_sdk", .module = sol_mod },
+            .{ .name = "spl_transfer_hook", .module = spl_transfer_hook_mod },
+            .{ .name = "spl_token_2022", .module = spl_token_2022_mod },
+        },
+    });
+    const coexistence_tests = b.addTest(.{ .root_module = coexistence_test_mod });
+    const run_coexistence_tests = b.addRunArtifact(coexistence_tests);
+
     const test_step = b.step("test", "Run host-side unit tests");
     test_step.dependOn(&run_package_tests.step);
     test_step.dependOn(&run_consumer_tests.step);
+    test_step.dependOn(&run_coexistence_tests.step);
 }

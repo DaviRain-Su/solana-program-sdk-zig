@@ -139,6 +139,26 @@ fn build_demo_ix(accounts: Vec<AccountMeta>, data: Vec<u8>) -> Instruction {
     }
 }
 
+fn build_mint_utility_ix(mint: &Pubkey, data: Vec<u8>) -> Instruction {
+    build_demo_ix(
+        vec![
+            AccountMeta::new_readonly(spl_token_program::ID, false),
+            AccountMeta::new_readonly(*mint, false),
+        ],
+        data,
+    )
+}
+
+fn build_account_utility_ix(account: &Pubkey, data: Vec<u8>) -> Instruction {
+    build_demo_ix(
+        vec![
+            AccountMeta::new_readonly(spl_token_program::ID, false),
+            AccountMeta::new(*account, false),
+        ],
+        data,
+    )
+}
+
 fn build_legacy_ix(
     mint: &Pubkey,
     source: &Pubkey,
@@ -367,6 +387,10 @@ fn assert_accounts_unchanged(
     for key in keys {
         assert_account_unchanged(before, after, key, label);
     }
+}
+
+fn parse_return_u64(data: &[u8]) -> u64 {
+    u64::from_le_bytes(data.try_into().expect("expected 8 return-data bytes"))
 }
 
 fn authority_type_u8(authority_type: AuthorityType) -> u8 {
@@ -737,6 +761,104 @@ fn test_sync_native_updates_wrapped_sol_amount_from_lamports() {
         "syncNative should refresh token amount from underlying lamports",
     );
     assert_eq!(synced.is_native, COption::Some(NATIVE_RENT_RESERVE));
+}
+
+#[test]
+fn test_utility_and_return_data_routes() {
+    let mollusk = fresh_mollusk();
+
+    let mint_authority = Pubkey::new_unique();
+    let mint = Pubkey::new_unique();
+    let utility_account = Pubkey::new_unique();
+
+    let initial_accounts = vec![
+        (
+            spl_token_program::keyed_account().0,
+            spl_token_program::keyed_account().1,
+        ),
+        (mint, mint_account(Some(mint_authority), None)),
+        (
+            utility_account,
+            Account {
+                lamports: 10_000_000,
+                data: vec![0; TokenAccount::LEN],
+                owner: spl_token_program::ID,
+                executable: false,
+                rent_epoch: 0,
+            },
+        ),
+    ];
+
+    let size_result = run(
+        &mollusk,
+        &initial_accounts,
+        &build_mint_utility_ix(&mint, vec![32u8]),
+    );
+    assert_success("getAccountDataSize", &size_result);
+    assert_eq!(
+        parse_return_u64(&size_result.return_data),
+        TokenAccount::LEN as u64,
+        "getAccountDataSize should return classic token account length",
+    );
+    assert_accounts_unchanged(
+        &initial_accounts,
+        &size_result.resulting_accounts,
+        &[mint],
+        "getAccountDataSize",
+    );
+
+    let immutable_result = run(
+        &mollusk,
+        &initial_accounts,
+        &build_account_utility_ix(&utility_account, vec![33u8]),
+    );
+    assert_success("initializeImmutableOwner", &immutable_result);
+    assert!(
+        immutable_result.return_data.is_empty(),
+        "initializeImmutableOwner should not emit return data for classic SPL Token",
+    );
+    assert_account_unchanged(
+        &initial_accounts,
+        &immutable_result.resulting_accounts,
+        &utility_account,
+        "initializeImmutableOwner",
+    );
+
+    let mut amount_to_ui_data = vec![34u8];
+    amount_to_ui_data.extend_from_slice(&1_230_000u64.to_le_bytes());
+    let amount_to_ui_result = run(
+        &mollusk,
+        &initial_accounts,
+        &build_mint_utility_ix(&mint, amount_to_ui_data),
+    );
+    assert_success("amountToUiAmount", &amount_to_ui_result);
+    assert_eq!(amount_to_ui_result.return_data, b"1.23");
+    assert_accounts_unchanged(
+        &initial_accounts,
+        &amount_to_ui_result.resulting_accounts,
+        &[mint],
+        "amountToUiAmount",
+    );
+
+    let mut ui_to_amount_data = vec![35u8];
+    ui_to_amount_data.extend_from_slice(b"1.2300");
+    let ui_to_amount_result = run(
+        &mollusk,
+        &initial_accounts,
+        &build_mint_utility_ix(&mint, ui_to_amount_data),
+    );
+    assert_success("uiAmountToAmount", &ui_to_amount_result);
+    assert_eq!(
+        parse_return_u64(&ui_to_amount_result.return_data),
+        1_230_000,
+        "uiAmountToAmount should parse trimmed and zero-padded forms",
+    );
+    assert_accounts_unchanged(
+        &initial_accounts,
+        &ui_to_amount_result.resulting_accounts,
+        &[mint],
+        "uiAmountToAmount",
+    );
 }
 
 #[test]

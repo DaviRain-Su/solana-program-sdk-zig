@@ -37,11 +37,16 @@
 //!   tag = 29  closeAccountMultisig      data: tag
 //!   tag = 30  syncNative                data: tag
 //!   tag = 31  batchTransferChecked      data: tag + amount_a + amount_b + decimals
+//!   tag = 32  getAccountDataSize        data: tag
+//!   tag = 33  initializeImmutableOwner  data: tag
+//!   tag = 34  amountToUiAmount          data: tag + amount
+//!   tag = 35  uiAmountToAmount          data: tag + ascii ui_amount bytes
 //!
 //! Signed routes use a PDA authority derived from:
 //!   seeds = ["authority", &[bump]]
 //! where `bump` is the final payload byte.
 
+const std = @import("std");
 const sol = @import("solana_program_sdk");
 const spl_token = @import("spl_token");
 
@@ -80,6 +85,10 @@ const Op = enum(u8) {
     close_account_multisig = 29,
     sync_native = 30,
     batch_transfer_checked = 31,
+    get_account_data_size = 32,
+    initialize_immutable_owner = 33,
+    amount_to_ui_amount = 34,
+    ui_amount_to_amount = 35,
     _,
 };
 
@@ -113,6 +122,12 @@ inline fn readAmountDecimals(data: []const u8) sol.ProgramError!struct { amount:
 inline fn readTrailingBump(data: []const u8, base_len: usize) sol.ProgramError!u8 {
     try requireDataLen(data, base_len + 1);
     return data[base_len];
+}
+
+inline fn setReturnDataU64(value: u64) void {
+    var encoded: [8]u8 = undefined;
+    std.mem.writeInt(u64, encoded[0..], value, .little);
+    sol.cpi.setReturnData(encoded[0..]);
 }
 
 inline fn readBatchTransferCheckedArgs(data: []const u8) sol.ProgramError!struct {
@@ -755,6 +770,44 @@ fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
                 batch_metas[0..],
                 batch_data[0..],
             );
+        },
+        .get_account_data_size => {
+            try requireAccounts(ctx, 2);
+            const token_program = ctx.nextAccountUnchecked();
+            const mint = ctx.nextAccountUnchecked();
+            try spl_token.cpi.getAccountDataSize(token_program.toCpiInfo(), mint.toCpiInfo());
+
+            var return_buf: [8]u8 = undefined;
+            const returned = sol.cpi.getReturnData(return_buf[0..]) orelse return error.InvalidInstructionData;
+            setReturnDataU64(try spl_token.return_data.parseGetAccountDataSizeReturn(returned));
+        },
+        .initialize_immutable_owner => {
+            try requireAccounts(ctx, 2);
+            const token_program = ctx.nextAccountUnchecked();
+            const account = ctx.nextAccountUnchecked();
+            try spl_token.cpi.initializeImmutableOwner(token_program.toCpiInfo(), account.toCpiInfo());
+            sol.cpi.setReturnData(&.{});
+        },
+        .amount_to_ui_amount => {
+            try requireAccounts(ctx, 2);
+            const token_program = ctx.nextAccountUnchecked();
+            const mint = ctx.nextAccountUnchecked();
+            try spl_token.cpi.amountToUiAmount(token_program.toCpiInfo(), mint.toCpiInfo(), try readAmount(data));
+
+            var return_buf: [spl_token.ui_amount.MAX_FORMATTED_UI_AMOUNT_LEN]u8 = undefined;
+            const returned = sol.cpi.getReturnData(return_buf[0..]) orelse return error.InvalidInstructionData;
+            sol.cpi.setReturnData(try spl_token.return_data.parseAmountToUiAmountReturn(returned));
+        },
+        .ui_amount_to_amount => {
+            try requireAccounts(ctx, 2);
+            const token_program = ctx.nextAccountUnchecked();
+            const mint = ctx.nextAccountUnchecked();
+            var ix_data: [1 + spl_token.ui_amount.MAX_FORMATTED_UI_AMOUNT_LEN]u8 = undefined;
+            try spl_token.cpi.uiAmountToAmount(token_program.toCpiInfo(), mint.toCpiInfo(), data[1..], ix_data[0..]);
+
+            var return_buf: [8]u8 = undefined;
+            const returned = sol.cpi.getReturnData(return_buf[0..]) orelse return error.InvalidInstructionData;
+            setReturnDataU64(try spl_token.return_data.parseUiAmountToAmountReturn(returned));
         },
         else => return error.InvalidInstructionData,
     }

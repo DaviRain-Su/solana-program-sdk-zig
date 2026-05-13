@@ -2,14 +2,25 @@
 
 const std = @import("std");
 const sol = @import("solana_program_sdk");
+const meta = @import("meta.zig");
 
 const Pubkey = sol.Pubkey;
 const AccountMeta = sol.cpi.AccountMeta;
 const Instruction = sol.cpi.Instruction;
 const ProgramError = sol.ProgramError;
+const ExtraAccountMeta = meta.ExtraAccountMeta;
+const ExtraAccountMetaSlice = meta.ExtraAccountMetaSlice;
 
 pub const NAMESPACE = "spl-transfer-hook-interface";
 pub const EXECUTE_DISCRIMINATOR = sol.discriminator.computeWithNamespace(NAMESPACE ++ ":", "execute");
+pub const INITIALIZE_EXTRA_ACCOUNT_META_LIST_DISCRIMINATOR = sol.discriminator.computeWithNamespace(
+    NAMESPACE ++ ":",
+    "initialize-extra-account-metas",
+);
+pub const UPDATE_EXTRA_ACCOUNT_META_LIST_DISCRIMINATOR = sol.discriminator.computeWithNamespace(
+    NAMESPACE ++ ":",
+    "update-extra-account-metas",
+);
 
 pub const Spec = struct {
     accounts_len: usize,
@@ -20,34 +31,63 @@ pub const execute_spec: Spec = .{
     .accounts_len = 4,
     .data_len = 16,
 };
-
+pub const initialize_extra_account_meta_list_accounts_len: usize = 4;
+pub const update_extra_account_meta_list_accounts_len: usize = 3;
+pub const extra_account_meta_list_header_len: usize = sol.DISCRIMINATOR_LEN + @sizeOf(u32);
 pub const execute_with_extra_account_metas_prefix_len: usize = 5;
 
 pub const ExecuteMetas = [execute_spec.accounts_len]AccountMeta;
 pub const ExecuteData = [execute_spec.data_len]u8;
+pub const InitializeExtraAccountMetaListMetas = [initialize_extra_account_meta_list_accounts_len]AccountMeta;
+pub const UpdateExtraAccountMetaListMetas = [update_extra_account_meta_list_accounts_len]AccountMeta;
 
 pub const Execute = struct {
     amount: u64,
 };
 
+pub const ExtraAccountMetaList = struct {
+    extra_account_metas: ExtraAccountMetaSlice,
+};
+
 pub const TransferHookInstruction = union(enum) {
     execute: Execute,
+    initialize_extra_account_meta_list: ExtraAccountMetaList,
+    update_extra_account_meta_list: ExtraAccountMetaList,
 
     pub fn unpack(input: []const u8) ProgramError!TransferHookInstruction {
-        if (input.len != execute_spec.data_len) return ProgramError.InvalidInstructionData;
+        if (input.len < sol.DISCRIMINATOR_LEN) return ProgramError.InvalidInstructionData;
 
-        var discriminator: [sol.DISCRIMINATOR_LEN]u8 = undefined;
-        @memcpy(&discriminator, input[0..sol.DISCRIMINATOR_LEN]);
-        if (!sol.discriminator.eq(&discriminator, &EXECUTE_DISCRIMINATOR)) {
-            return ProgramError.InvalidInstructionData;
+        const discriminator = input[0..sol.DISCRIMINATOR_LEN];
+        const payload = input[sol.DISCRIMINATOR_LEN..];
+
+        if (std.mem.eql(u8, discriminator, &EXECUTE_DISCRIMINATOR)) {
+            if (input.len != execute_spec.data_len) return ProgramError.InvalidInstructionData;
+
+            const amount = sol.instruction.tryReadUnaligned(
+                u64,
+                input,
+                sol.DISCRIMINATOR_LEN,
+            ) orelse return ProgramError.InvalidInstructionData;
+            return .{ .execute = .{ .amount = amount } };
         }
 
-        const amount = sol.instruction.tryReadUnaligned(
-            u64,
-            input,
-            sol.DISCRIMINATOR_LEN,
-        ) orelse return ProgramError.InvalidInstructionData;
-        return .{ .execute = .{ .amount = amount } };
+        if (std.mem.eql(u8, discriminator, &INITIALIZE_EXTRA_ACCOUNT_META_LIST_DISCRIMINATOR)) {
+            return .{
+                .initialize_extra_account_meta_list = .{
+                    .extra_account_metas = try unpackExtraAccountMetaList(payload),
+                },
+            };
+        }
+
+        if (std.mem.eql(u8, discriminator, &UPDATE_EXTRA_ACCOUNT_META_LIST_DISCRIMINATOR)) {
+            return .{
+                .update_extra_account_meta_list = .{
+                    .extra_account_metas = try unpackExtraAccountMetaList(payload),
+                },
+            };
+        }
+
+        return ProgramError.InvalidInstructionData;
     }
 };
 
@@ -55,8 +95,17 @@ pub const ExecuteWithExtraAccountMetasError = error{
     InvalidAccountMetaSliceLength,
 };
 
+pub const ExtraAccountMetaListBuilderError = error{
+    InvalidInstructionDataSliceLength,
+    TooManyExtraAccountMetas,
+};
+
 pub inline fn executeAccountMetasLenWithExtraAccountMetas(extra_accounts_len: usize) usize {
     return execute_with_extra_account_metas_prefix_len + extra_accounts_len;
+}
+
+pub inline fn extraAccountMetaListDataLen(extra_account_metas_len: usize) usize {
+    return extra_account_meta_list_header_len + (extra_account_metas_len * meta.EXTRA_ACCOUNT_META_LEN);
 }
 
 fn encodeExecuteData(amount: u64) ExecuteData {
@@ -64,6 +113,39 @@ fn encodeExecuteData(amount: u64) ExecuteData {
     @memcpy(data[0..sol.DISCRIMINATOR_LEN], &EXECUTE_DISCRIMINATOR);
     std.mem.writeInt(u64, data[sol.DISCRIMINATOR_LEN..][0..@sizeOf(u64)], amount, .little);
     return data;
+}
+
+fn unpackExtraAccountMetaList(payload: []const u8) ProgramError!ExtraAccountMetaSlice {
+    if (payload.len < @sizeOf(u32)) return ProgramError.InvalidInstructionData;
+
+    const count = sol.instruction.tryReadUnaligned(u32, payload, 0)
+        orelse return ProgramError.InvalidInstructionData;
+    const records = payload[@sizeOf(u32)..];
+    const expected_records_len = std.math.mul(usize, @as(usize, count), meta.EXTRA_ACCOUNT_META_LEN)
+        catch return ProgramError.InvalidInstructionData;
+    if (records.len != expected_records_len) return ProgramError.InvalidInstructionData;
+
+    return ExtraAccountMetaSlice.init(records);
+}
+
+fn encodeExtraAccountMetaListData(
+    discriminator: *const [sol.DISCRIMINATOR_LEN]u8,
+    extra_account_metas: []const ExtraAccountMeta,
+    data: []u8,
+) ExtraAccountMetaListBuilderError!void {
+    if (extra_account_metas.len > std.math.maxInt(u32)) return error.TooManyExtraAccountMetas;
+
+    const expected_len = extraAccountMetaListDataLen(extra_account_metas.len);
+    if (data.len != expected_len) return error.InvalidInstructionDataSliceLength;
+
+    @memcpy(data[0..sol.DISCRIMINATOR_LEN], discriminator);
+    std.mem.writeInt(u32, data[sol.DISCRIMINATOR_LEN..][0..@sizeOf(u32)], @intCast(extra_account_metas.len), .little);
+
+    var cursor: usize = extra_account_meta_list_header_len;
+    for (extra_account_metas) |extra_account_meta| {
+        extra_account_meta.write(data[cursor..][0..meta.EXTRA_ACCOUNT_META_LEN]);
+        cursor += meta.EXTRA_ACCOUNT_META_LEN;
+    }
 }
 
 pub fn execute(
@@ -83,6 +165,51 @@ pub fn execute(
         AccountMeta.readonly(authority_pubkey),
     };
     data.* = encodeExecuteData(amount);
+    return Instruction.init(program_id, metas, data);
+}
+
+pub fn initializeExtraAccountMetaList(
+    program_id: *const Pubkey,
+    extra_account_metas_pubkey: *const Pubkey,
+    mint_pubkey: *const Pubkey,
+    authority_pubkey: *const Pubkey,
+    extra_account_metas: []const ExtraAccountMeta,
+    metas: *InitializeExtraAccountMetaListMetas,
+    data: []u8,
+) ExtraAccountMetaListBuilderError!Instruction {
+    metas.* = .{
+        AccountMeta.writable(extra_account_metas_pubkey),
+        AccountMeta.readonly(mint_pubkey),
+        AccountMeta.signer(authority_pubkey),
+        AccountMeta.readonly(&sol.system_program_id),
+    };
+    try encodeExtraAccountMetaListData(
+        &INITIALIZE_EXTRA_ACCOUNT_META_LIST_DISCRIMINATOR,
+        extra_account_metas,
+        data,
+    );
+    return Instruction.init(program_id, metas, data);
+}
+
+pub fn updateExtraAccountMetaList(
+    program_id: *const Pubkey,
+    extra_account_metas_pubkey: *const Pubkey,
+    mint_pubkey: *const Pubkey,
+    authority_pubkey: *const Pubkey,
+    extra_account_metas: []const ExtraAccountMeta,
+    metas: *UpdateExtraAccountMetaListMetas,
+    data: []u8,
+) ExtraAccountMetaListBuilderError!Instruction {
+    metas.* = .{
+        AccountMeta.writable(extra_account_metas_pubkey),
+        AccountMeta.readonly(mint_pubkey),
+        AccountMeta.signer(authority_pubkey),
+    };
+    try encodeExtraAccountMetaListData(
+        &UPDATE_EXTRA_ACCOUNT_META_LIST_DISCRIMINATOR,
+        extra_account_metas,
+        data,
+    );
     return Instruction.init(program_id, metas, data);
 }
 
@@ -125,6 +252,19 @@ fn expectMeta(
     try std.testing.expectEqual(expected_signer, actual.is_signer);
 }
 
+fn expectExtraAccountMeta(actual: ExtraAccountMeta, expected: ExtraAccountMeta) !void {
+    try std.testing.expectEqual(expected.discriminator, actual.discriminator);
+    try std.testing.expectEqualSlices(u8, &expected.address_config, &actual.address_config);
+    try std.testing.expectEqual(expected.is_signer, actual.is_signer);
+    try std.testing.expectEqual(expected.is_writable, actual.is_writable);
+}
+
+fn expectFixtureMeta(actual: AccountMeta, expected: anytype) !void {
+    try std.testing.expectEqualSlices(u8, &expected.pubkey, actual.pubkey[0..]);
+    try std.testing.expectEqual(expected.is_writable, actual.is_writable);
+    try std.testing.expectEqual(expected.is_signer, actual.is_signer);
+}
+
 test "Execute spec and discriminator are canonical" {
     try std.testing.expectEqual(@as(usize, 4), execute_spec.accounts_len);
     try std.testing.expectEqual(@as(usize, 16), execute_spec.data_len);
@@ -133,6 +273,22 @@ test "Execute spec and discriminator are canonical" {
         u8,
         &[_]u8{ 105, 37, 101, 197, 75, 251, 102, 26 },
         &EXECUTE_DISCRIMINATOR,
+    );
+}
+
+test "Initialize and update discriminators and account lengths are canonical" {
+    try std.testing.expectEqual(@as(usize, 4), initialize_extra_account_meta_list_accounts_len);
+    try std.testing.expectEqual(@as(usize, 3), update_extra_account_meta_list_accounts_len);
+    try std.testing.expectEqual(@as(usize, 12), extraAccountMetaListDataLen(0));
+    try std.testing.expectEqualSlices(
+        u8,
+        &[_]u8{ 43, 34, 13, 49, 167, 88, 235, 235 },
+        &INITIALIZE_EXTRA_ACCOUNT_META_LIST_DISCRIMINATOR,
+    );
+    try std.testing.expectEqualSlices(
+        u8,
+        &[_]u8{ 157, 105, 42, 146, 102, 85, 241, 174 },
+        &UPDATE_EXTRA_ACCOUNT_META_LIST_DISCRIMINATOR,
     );
 }
 
@@ -214,6 +370,95 @@ test "Execute parser rejects short unknown truncated and overlong payloads" {
     @memcpy(overlong[0..16], &valid);
     overlong[16] = 0xaa;
     try std.testing.expectError(sol.ProgramError.InvalidInstructionData, TransferHookInstruction.unpack(&overlong));
+}
+
+test "Initialize/update builders and parser round-trip raw extra-account-meta payloads" {
+    const program_id: Pubkey = .{0x11} ** 32;
+    const validation: Pubkey = .{0x22} ** 32;
+    const mint: Pubkey = .{0x33} ** 32;
+    const authority: Pubkey = .{0x44} ** 32;
+    const extra_a: Pubkey = .{0x55} ** 32;
+    const extra_b: Pubkey = .{0x66} ** 32;
+
+    const extra_account_metas = [_]ExtraAccountMeta{
+        ExtraAccountMeta.fixed(&extra_a, false, true),
+        ExtraAccountMeta.fixed(&extra_b, true, false),
+    };
+
+    var initialize_metas: InitializeExtraAccountMetaListMetas = undefined;
+    var initialize_data: [extraAccountMetaListDataLen(extra_account_metas.len)]u8 = undefined;
+    const initialize_ix = try initializeExtraAccountMetaList(
+        &program_id,
+        &validation,
+        &mint,
+        &authority,
+        &extra_account_metas,
+        &initialize_metas,
+        initialize_data[0..],
+    );
+
+    try std.testing.expectEqual(&program_id, initialize_ix.program_id);
+    try std.testing.expectEqual(@as(usize, 4), initialize_ix.accounts.len);
+    try expectMeta(initialize_ix.accounts[0], &validation, 1, 0);
+    try expectMeta(initialize_ix.accounts[1], &mint, 0, 0);
+    try expectMeta(initialize_ix.accounts[2], &authority, 0, 1);
+    try expectMeta(initialize_ix.accounts[3], &sol.system_program_id, 0, 0);
+
+    const initialize_parsed = try TransferHookInstruction.unpack(initialize_ix.data);
+    switch (initialize_parsed) {
+        .initialize_extra_account_meta_list => |parsed| {
+            try std.testing.expectEqual(extra_account_metas.len, parsed.extra_account_metas.len());
+            try expectExtraAccountMeta(extra_account_metas[0], try parsed.extra_account_metas.get(0));
+            try expectExtraAccountMeta(extra_account_metas[1], try parsed.extra_account_metas.get(1));
+        },
+        else => return error.TestUnexpectedResult,
+    }
+
+    var update_metas: UpdateExtraAccountMetaListMetas = undefined;
+    var update_data: [extraAccountMetaListDataLen(extra_account_metas.len)]u8 = undefined;
+    const update_ix = try updateExtraAccountMetaList(
+        &program_id,
+        &validation,
+        &mint,
+        &authority,
+        &extra_account_metas,
+        &update_metas,
+        update_data[0..],
+    );
+
+    try std.testing.expectEqual(&program_id, update_ix.program_id);
+    try std.testing.expectEqual(@as(usize, 3), update_ix.accounts.len);
+    try expectMeta(update_ix.accounts[0], &validation, 1, 0);
+    try expectMeta(update_ix.accounts[1], &mint, 0, 0);
+    try expectMeta(update_ix.accounts[2], &authority, 0, 1);
+
+    const update_parsed = try TransferHookInstruction.unpack(update_ix.data);
+    switch (update_parsed) {
+        .update_extra_account_meta_list => |parsed| {
+            try std.testing.expectEqual(extra_account_metas.len, parsed.extra_account_metas.len());
+            try expectExtraAccountMeta(extra_account_metas[0], try parsed.extra_account_metas.get(0));
+            try expectExtraAccountMeta(extra_account_metas[1], try parsed.extra_account_metas.get(1));
+        },
+        else => return error.TestUnexpectedResult,
+    }
+}
+
+test "Initialize/update parser rejects truncated and mismatched extra-account-meta payloads" {
+    const empty_init = [_]u8{ 43, 34, 13, 49, 167, 88, 235, 235, 0, 0, 0, 0 };
+    _ = try TransferHookInstruction.unpack(&empty_init);
+
+    const short_count = [_]u8{ 43, 34, 13, 49, 167, 88, 235, 235, 1, 0, 0 };
+    try std.testing.expectError(ProgramError.InvalidInstructionData, TransferHookInstruction.unpack(&short_count));
+
+    var missing_record = [_]u8{0} ** (extra_account_meta_list_header_len + meta.EXTRA_ACCOUNT_META_LEN - 1);
+    @memcpy(missing_record[0..sol.DISCRIMINATOR_LEN], &INITIALIZE_EXTRA_ACCOUNT_META_LIST_DISCRIMINATOR);
+    std.mem.writeInt(u32, missing_record[sol.DISCRIMINATOR_LEN..][0..@sizeOf(u32)], 1, .little);
+    try std.testing.expectError(ProgramError.InvalidInstructionData, TransferHookInstruction.unpack(&missing_record));
+
+    var trailing_bytes = [_]u8{0} ** (extra_account_meta_list_header_len + meta.EXTRA_ACCOUNT_META_LEN + 1);
+    @memcpy(trailing_bytes[0..sol.DISCRIMINATOR_LEN], &UPDATE_EXTRA_ACCOUNT_META_LIST_DISCRIMINATOR);
+    std.mem.writeInt(u32, trailing_bytes[sol.DISCRIMINATOR_LEN..][0..@sizeOf(u32)], 1, .little);
+    try std.testing.expectError(ProgramError.InvalidInstructionData, TransferHookInstruction.unpack(&trailing_bytes));
 }
 
 test "Execute builder emits canonical base accounts and caller-owned scratch" {
@@ -314,4 +559,86 @@ test "Execute APIs stay caller-buffer-backed and allocator-free" {
     try std.testing.expect(with_extra_info.params[7].type.? == u64);
     try std.testing.expect(with_extra_info.params[8].type.? == []AccountMeta);
     try std.testing.expect(with_extra_info.params[9].type.? == *ExecuteData);
+}
+
+test "Official Rust parity fixture matches Execute, Initialize, and Update builders" {
+    const parity_fixture = @import("parity_fixture.zig");
+    const fixture = try parity_fixture.load(std.testing.allocator);
+    defer fixture.deinit();
+
+    const input = fixture.value.inputs;
+    const program_id: Pubkey = input.program_id;
+    const source: Pubkey = input.source;
+    const mint: Pubkey = input.mint;
+    const destination: Pubkey = input.destination;
+    const authority: Pubkey = input.authority;
+    const validation: Pubkey = input.validation;
+
+    const extra_account_metas = try std.testing.allocator.alloc(ExtraAccountMeta, input.extra_account_metas.len);
+    defer std.testing.allocator.free(extra_account_metas);
+    for (input.extra_account_metas, 0..) |fixture_meta, i| {
+        const pubkey: Pubkey = fixture_meta.pubkey;
+        extra_account_metas[i] = ExtraAccountMeta.fixed(
+            &pubkey,
+            fixture_meta.is_signer != 0,
+            fixture_meta.is_writable != 0,
+        );
+    }
+
+    var execute_metas: ExecuteMetas = undefined;
+    var execute_data: ExecuteData = undefined;
+    const execute_ix = execute(
+        &program_id,
+        &source,
+        &mint,
+        &destination,
+        &authority,
+        input.amount,
+        &execute_metas,
+        &execute_data,
+    );
+    try std.testing.expectEqualSlices(u8, &fixture.value.execute.program_id, execute_ix.program_id[0..]);
+    try std.testing.expectEqualSlices(u8, fixture.value.execute.data, execute_ix.data);
+    try std.testing.expectEqual(fixture.value.execute.accounts.len, execute_ix.accounts.len);
+    for (fixture.value.execute.accounts, 0..) |expected_meta, i| {
+        try expectFixtureMeta(execute_ix.accounts[i], expected_meta);
+    }
+
+    var initialize_metas: InitializeExtraAccountMetaListMetas = undefined;
+    const initialize_data = try std.testing.allocator.alloc(u8, extraAccountMetaListDataLen(extra_account_metas.len));
+    defer std.testing.allocator.free(initialize_data);
+    const initialize_ix = try initializeExtraAccountMetaList(
+        &program_id,
+        &validation,
+        &mint,
+        &authority,
+        extra_account_metas,
+        &initialize_metas,
+        initialize_data,
+    );
+    try std.testing.expectEqualSlices(u8, &fixture.value.initialize.program_id, initialize_ix.program_id[0..]);
+    try std.testing.expectEqualSlices(u8, fixture.value.initialize.data, initialize_ix.data);
+    try std.testing.expectEqual(fixture.value.initialize.accounts.len, initialize_ix.accounts.len);
+    for (fixture.value.initialize.accounts, 0..) |expected_meta, i| {
+        try expectFixtureMeta(initialize_ix.accounts[i], expected_meta);
+    }
+
+    var update_metas: UpdateExtraAccountMetaListMetas = undefined;
+    const update_data = try std.testing.allocator.alloc(u8, extraAccountMetaListDataLen(extra_account_metas.len));
+    defer std.testing.allocator.free(update_data);
+    const update_ix = try updateExtraAccountMetaList(
+        &program_id,
+        &validation,
+        &mint,
+        &authority,
+        extra_account_metas,
+        &update_metas,
+        update_data,
+    );
+    try std.testing.expectEqualSlices(u8, &fixture.value.update.program_id, update_ix.program_id[0..]);
+    try std.testing.expectEqualSlices(u8, fixture.value.update.data, update_ix.data);
+    try std.testing.expectEqual(fixture.value.update.accounts.len, update_ix.accounts.len);
+    for (fixture.value.update.accounts, 0..) |expected_meta, i| {
+        try expectFixtureMeta(update_ix.accounts[i], expected_meta);
+    }
 }

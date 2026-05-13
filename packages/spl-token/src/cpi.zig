@@ -104,18 +104,19 @@ fn multisigPubkeysAndRuntimeAccounts(
 } {
     try validateSignerInfoCount(signer_infos);
 
-    for (fixed_accounts, 0..) |info, i| {
-        accounts_out[i] = info;
-    }
-    for (signer_infos, 0..) |info, i| {
-        pubkeys_out[i] = info.key().*;
-        accounts_out[fixed_len + i] = info;
-    }
-    accounts_out[fixed_len + signer_infos.len] = token_program;
+    const staged = try sol.cpi.stageDynamicAccountsWithPubkeys(
+        fixed_len,
+        1,
+        fixed_accounts,
+        signer_infos,
+        .{token_program},
+        pubkeys_out[0..],
+        accounts_out[0..],
+    );
 
     return .{
-        .signer_pubkeys = pubkeys_out[0..signer_infos.len],
-        .runtime_accounts = accounts_out[0 .. fixed_len + signer_infos.len + 1],
+        .signer_pubkeys = staged.dynamic_pubkeys,
+        .runtime_accounts = staged.runtime_accounts,
     };
 }
 
@@ -190,7 +191,15 @@ pub fn transferMultisig(
     amount: u64,
 ) ProgramResult {
     var signer_pubkeys_buf: [MAX_SIGNERS]Pubkey = undefined;
-    const signer_pubkeys = try signerPubkeysFromInfos(signer_infos, &signer_pubkeys_buf);
+    var accounts: [instruction.transfer_spec.accounts_len + MAX_SIGNERS + 1]CpiAccountInfo = undefined;
+    const staged = try multisigPubkeysAndRuntimeAccounts(
+        instruction.transfer_spec.accounts_len,
+        .{ source, destination, multisig_authority },
+        signer_infos,
+        token_program,
+        &signer_pubkeys_buf,
+        &accounts,
+    );
     var metas: instruction.multisigMetasArray(instruction.transfer_spec.accounts_len) = undefined;
     var data: dataArray(instruction.transfer_spec) = undefined;
     const ix = rebrand(
@@ -198,22 +207,14 @@ pub fn transferMultisig(
             source.key(),
             destination.key(),
             multisig_authority.key(),
-            signer_pubkeys,
+            staged.signer_pubkeys,
             amount,
             &metas,
             &data,
         ) catch |err| return mapMultisigInstructionError(err),
         token_program.key(),
     );
-    var accounts: [instruction.transfer_spec.accounts_len + MAX_SIGNERS + 1]CpiAccountInfo = undefined;
-    const runtime_accounts = try runtimeAccountsWithSigners(
-        instruction.transfer_spec.accounts_len,
-        .{ source, destination, multisig_authority },
-        signer_infos,
-        token_program,
-        &accounts,
-    );
-    try sol.cpi.invokeRaw(&ix, runtime_accounts);
+    try sol.cpi.invokeRaw(&ix, staged.runtime_accounts);
 }
 
 // =============================================================================
@@ -325,7 +326,15 @@ pub fn transferCheckedMultisig(
     decimals: u8,
 ) ProgramResult {
     var signer_pubkeys_buf: [MAX_SIGNERS]Pubkey = undefined;
-    const signer_pubkeys = try signerPubkeysFromInfos(signer_infos, &signer_pubkeys_buf);
+    var accounts: [instruction.transfer_checked_spec.accounts_len + MAX_SIGNERS + 1]CpiAccountInfo = undefined;
+    const staged = try multisigPubkeysAndRuntimeAccounts(
+        instruction.transfer_checked_spec.accounts_len,
+        .{ source, mint, destination, multisig_authority },
+        signer_infos,
+        token_program,
+        &signer_pubkeys_buf,
+        &accounts,
+    );
     var metas: instruction.multisigMetasArray(instruction.transfer_checked_spec.accounts_len) = undefined;
     var data: dataArray(instruction.transfer_checked_spec) = undefined;
     const ix = rebrand(
@@ -334,7 +343,7 @@ pub fn transferCheckedMultisig(
             mint.key(),
             destination.key(),
             multisig_authority.key(),
-            signer_pubkeys,
+            staged.signer_pubkeys,
             amount,
             decimals,
             &metas,
@@ -342,15 +351,7 @@ pub fn transferCheckedMultisig(
         ) catch |err| return mapMultisigInstructionError(err),
         token_program.key(),
     );
-    var accounts: [instruction.transfer_checked_spec.accounts_len + MAX_SIGNERS + 1]CpiAccountInfo = undefined;
-    const runtime_accounts = try runtimeAccountsWithSigners(
-        instruction.transfer_checked_spec.accounts_len,
-        .{ source, mint, destination, multisig_authority },
-        signer_infos,
-        token_program,
-        &accounts,
-    );
-    try sol.cpi.invokeRaw(&ix, runtime_accounts);
+    try sol.cpi.invokeRaw(&ix, staged.runtime_accounts);
 }
 
 // =============================================================================
@@ -424,7 +425,15 @@ pub fn approveMultisig(
     amount: u64,
 ) ProgramResult {
     var signer_pubkeys_buf: [MAX_SIGNERS]Pubkey = undefined;
-    const signer_pubkeys = try signerPubkeysFromInfos(signer_infos, &signer_pubkeys_buf);
+    var accounts: [instruction.approve_spec.accounts_len + MAX_SIGNERS + 1]CpiAccountInfo = undefined;
+    const staged = try multisigPubkeysAndRuntimeAccounts(
+        instruction.approve_spec.accounts_len,
+        .{ source, delegate, multisig_authority },
+        signer_infos,
+        token_program,
+        &signer_pubkeys_buf,
+        &accounts,
+    );
     var metas: instruction.multisigMetasArray(instruction.approve_spec.accounts_len) = undefined;
     var data: dataArray(instruction.approve_spec) = undefined;
     const ix = rebrand(
@@ -432,22 +441,14 @@ pub fn approveMultisig(
             source.key(),
             delegate.key(),
             multisig_authority.key(),
-            signer_pubkeys,
+            staged.signer_pubkeys,
             amount,
             &metas,
             &data,
         ) catch |err| return mapMultisigInstructionError(err),
         token_program.key(),
     );
-    var accounts: [instruction.approve_spec.accounts_len + MAX_SIGNERS + 1]CpiAccountInfo = undefined;
-    const runtime_accounts = try runtimeAccountsWithSigners(
-        instruction.approve_spec.accounts_len,
-        .{ source, delegate, multisig_authority },
-        signer_infos,
-        token_program,
-        &accounts,
-    );
-    try sol.cpi.invokeRaw(&ix, runtime_accounts);
+    try sol.cpi.invokeRaw(&ix, staged.runtime_accounts);
 }
 
 pub fn approveChecked(
@@ -555,7 +556,15 @@ pub fn approveCheckedMultisig(
     decimals: u8,
 ) ProgramResult {
     var signer_pubkeys_buf: [MAX_SIGNERS]Pubkey = undefined;
-    const signer_pubkeys = try signerPubkeysFromInfos(signer_infos, &signer_pubkeys_buf);
+    var accounts: [instruction.approve_checked_spec.accounts_len + MAX_SIGNERS + 1]CpiAccountInfo = undefined;
+    const staged = try multisigPubkeysAndRuntimeAccounts(
+        instruction.approve_checked_spec.accounts_len,
+        .{ source, mint, delegate, multisig_authority },
+        signer_infos,
+        token_program,
+        &signer_pubkeys_buf,
+        &accounts,
+    );
     var metas: instruction.multisigMetasArray(instruction.approve_checked_spec.accounts_len) = undefined;
     var data: dataArray(instruction.approve_checked_spec) = undefined;
     const ix = rebrand(
@@ -564,7 +573,7 @@ pub fn approveCheckedMultisig(
             mint.key(),
             delegate.key(),
             multisig_authority.key(),
-            signer_pubkeys,
+            staged.signer_pubkeys,
             amount,
             decimals,
             &metas,
@@ -572,15 +581,7 @@ pub fn approveCheckedMultisig(
         ) catch |err| return mapMultisigInstructionError(err),
         token_program.key(),
     );
-    var accounts: [instruction.approve_checked_spec.accounts_len + MAX_SIGNERS + 1]CpiAccountInfo = undefined;
-    const runtime_accounts = try runtimeAccountsWithSigners(
-        instruction.approve_checked_spec.accounts_len,
-        .{ source, mint, delegate, multisig_authority },
-        signer_infos,
-        token_program,
-        &accounts,
-    );
-    try sol.cpi.invokeRaw(&ix, runtime_accounts);
+    try sol.cpi.invokeRaw(&ix, staged.runtime_accounts);
 }
 
 pub fn revoke(
@@ -642,28 +643,28 @@ pub fn revokeMultisig(
     signer_infos: []const CpiAccountInfo,
 ) ProgramResult {
     var signer_pubkeys_buf: [MAX_SIGNERS]Pubkey = undefined;
-    const signer_pubkeys = try signerPubkeysFromInfos(signer_infos, &signer_pubkeys_buf);
+    var accounts: [instruction.revoke_spec.accounts_len + MAX_SIGNERS + 1]CpiAccountInfo = undefined;
+    const staged = try multisigPubkeysAndRuntimeAccounts(
+        instruction.revoke_spec.accounts_len,
+        .{ source, multisig_authority },
+        signer_infos,
+        token_program,
+        &signer_pubkeys_buf,
+        &accounts,
+    );
     var metas: instruction.multisigMetasArray(instruction.revoke_spec.accounts_len) = undefined;
     var data: dataArray(instruction.revoke_spec) = undefined;
     const ix = rebrand(
         instruction.revokeMultisig(
             source.key(),
             multisig_authority.key(),
-            signer_pubkeys,
+            staged.signer_pubkeys,
             &metas,
             &data,
         ) catch |err| return mapMultisigInstructionError(err),
         token_program.key(),
     );
-    var accounts: [instruction.revoke_spec.accounts_len + MAX_SIGNERS + 1]CpiAccountInfo = undefined;
-    const runtime_accounts = try runtimeAccountsWithSigners(
-        instruction.revoke_spec.accounts_len,
-        .{ source, multisig_authority },
-        signer_infos,
-        token_program,
-        &accounts,
-    );
-    try sol.cpi.invokeRaw(&ix, runtime_accounts);
+    try sol.cpi.invokeRaw(&ix, staged.runtime_accounts);
 }
 
 pub fn setAuthority(
@@ -757,14 +758,22 @@ pub fn setAuthorityMultisig(
     new_authority: ?*const Pubkey,
 ) ProgramResult {
     var signer_pubkeys_buf: [MAX_SIGNERS]Pubkey = undefined;
-    const signer_pubkeys = try signerPubkeysFromInfos(signer_infos, &signer_pubkeys_buf);
+    var accounts: [instruction.set_authority_spec.accounts_len + MAX_SIGNERS + 1]CpiAccountInfo = undefined;
+    const staged = try multisigPubkeysAndRuntimeAccounts(
+        instruction.set_authority_spec.accounts_len,
+        .{ target, multisig_authority },
+        signer_infos,
+        token_program,
+        &signer_pubkeys_buf,
+        &accounts,
+    );
     var metas: instruction.multisigMetasArray(instruction.set_authority_spec.accounts_len) = undefined;
     var data: dataArray(instruction.set_authority_spec) = undefined;
     const ix = rebrand(
         instruction.setAuthorityMultisig(
             target.key(),
             multisig_authority.key(),
-            signer_pubkeys,
+            staged.signer_pubkeys,
             authority_type,
             new_authority,
             &metas,
@@ -772,15 +781,7 @@ pub fn setAuthorityMultisig(
         ) catch |err| return mapMultisigInstructionError(err),
         token_program.key(),
     );
-    var accounts: [instruction.set_authority_spec.accounts_len + MAX_SIGNERS + 1]CpiAccountInfo = undefined;
-    const runtime_accounts = try runtimeAccountsWithSigners(
-        instruction.set_authority_spec.accounts_len,
-        .{ target, multisig_authority },
-        signer_infos,
-        token_program,
-        &accounts,
-    );
-    try sol.cpi.invokeRaw(&ix, runtime_accounts);
+    try sol.cpi.invokeRaw(&ix, staged.runtime_accounts);
 }
 
 pub fn freezeAccount(
@@ -867,7 +868,15 @@ pub fn freezeAccountMultisig(
     signer_infos: []const CpiAccountInfo,
 ) ProgramResult {
     var signer_pubkeys_buf: [MAX_SIGNERS]Pubkey = undefined;
-    const signer_pubkeys = try signerPubkeysFromInfos(signer_infos, &signer_pubkeys_buf);
+    var accounts: [instruction.freeze_account_spec.accounts_len + MAX_SIGNERS + 1]CpiAccountInfo = undefined;
+    const staged = try multisigPubkeysAndRuntimeAccounts(
+        instruction.freeze_account_spec.accounts_len,
+        .{ account, mint, multisig_authority },
+        signer_infos,
+        token_program,
+        &signer_pubkeys_buf,
+        &accounts,
+    );
     var metas: instruction.multisigMetasArray(instruction.freeze_account_spec.accounts_len) = undefined;
     var data: dataArray(instruction.freeze_account_spec) = undefined;
     const ix = rebrand(
@@ -875,21 +884,13 @@ pub fn freezeAccountMultisig(
             account.key(),
             mint.key(),
             multisig_authority.key(),
-            signer_pubkeys,
+            staged.signer_pubkeys,
             &metas,
             &data,
         ) catch |err| return mapMultisigInstructionError(err),
         token_program.key(),
     );
-    var accounts: [instruction.freeze_account_spec.accounts_len + MAX_SIGNERS + 1]CpiAccountInfo = undefined;
-    const runtime_accounts = try runtimeAccountsWithSigners(
-        instruction.freeze_account_spec.accounts_len,
-        .{ account, mint, multisig_authority },
-        signer_infos,
-        token_program,
-        &accounts,
-    );
-    try sol.cpi.invokeRaw(&ix, runtime_accounts);
+    try sol.cpi.invokeRaw(&ix, staged.runtime_accounts);
 }
 
 pub fn thawAccount(
@@ -958,7 +959,15 @@ pub fn thawAccountMultisig(
     signer_infos: []const CpiAccountInfo,
 ) ProgramResult {
     var signer_pubkeys_buf: [MAX_SIGNERS]Pubkey = undefined;
-    const signer_pubkeys = try signerPubkeysFromInfos(signer_infos, &signer_pubkeys_buf);
+    var accounts: [instruction.thaw_account_spec.accounts_len + MAX_SIGNERS + 1]CpiAccountInfo = undefined;
+    const staged = try multisigPubkeysAndRuntimeAccounts(
+        instruction.thaw_account_spec.accounts_len,
+        .{ account, mint, multisig_authority },
+        signer_infos,
+        token_program,
+        &signer_pubkeys_buf,
+        &accounts,
+    );
     var metas: instruction.multisigMetasArray(instruction.thaw_account_spec.accounts_len) = undefined;
     var data: dataArray(instruction.thaw_account_spec) = undefined;
     const ix = rebrand(
@@ -966,21 +975,13 @@ pub fn thawAccountMultisig(
             account.key(),
             mint.key(),
             multisig_authority.key(),
-            signer_pubkeys,
+            staged.signer_pubkeys,
             &metas,
             &data,
         ) catch |err| return mapMultisigInstructionError(err),
         token_program.key(),
     );
-    var accounts: [instruction.thaw_account_spec.accounts_len + MAX_SIGNERS + 1]CpiAccountInfo = undefined;
-    const runtime_accounts = try runtimeAccountsWithSigners(
-        instruction.thaw_account_spec.accounts_len,
-        .{ account, mint, multisig_authority },
-        signer_infos,
-        token_program,
-        &accounts,
-    );
-    try sol.cpi.invokeRaw(&ix, runtime_accounts);
+    try sol.cpi.invokeRaw(&ix, staged.runtime_accounts);
 }
 
 // =============================================================================
@@ -1358,7 +1359,15 @@ pub fn burnMultisig(
     amount: u64,
 ) ProgramResult {
     var signer_pubkeys_buf: [MAX_SIGNERS]Pubkey = undefined;
-    const signer_pubkeys = try signerPubkeysFromInfos(signer_infos, &signer_pubkeys_buf);
+    var accounts: [instruction.burn_spec.accounts_len + MAX_SIGNERS + 1]CpiAccountInfo = undefined;
+    const staged = try multisigPubkeysAndRuntimeAccounts(
+        instruction.burn_spec.accounts_len,
+        .{ source, mint, multisig_authority },
+        signer_infos,
+        token_program,
+        &signer_pubkeys_buf,
+        &accounts,
+    );
     var metas: instruction.multisigMetasArray(instruction.burn_spec.accounts_len) = undefined;
     var data: dataArray(instruction.burn_spec) = undefined;
     const ix = rebrand(
@@ -1366,22 +1375,14 @@ pub fn burnMultisig(
             source.key(),
             mint.key(),
             multisig_authority.key(),
-            signer_pubkeys,
+            staged.signer_pubkeys,
             amount,
             &metas,
             &data,
         ) catch |err| return mapMultisigInstructionError(err),
         token_program.key(),
     );
-    var accounts: [instruction.burn_spec.accounts_len + MAX_SIGNERS + 1]CpiAccountInfo = undefined;
-    const runtime_accounts = try runtimeAccountsWithSigners(
-        instruction.burn_spec.accounts_len,
-        .{ source, mint, multisig_authority },
-        signer_infos,
-        token_program,
-        &accounts,
-    );
-    try sol.cpi.invokeRaw(&ix, runtime_accounts);
+    try sol.cpi.invokeRaw(&ix, staged.runtime_accounts);
 }
 
 pub fn burnCheckedMultisig(
@@ -1394,7 +1395,15 @@ pub fn burnCheckedMultisig(
     decimals: u8,
 ) ProgramResult {
     var signer_pubkeys_buf: [MAX_SIGNERS]Pubkey = undefined;
-    const signer_pubkeys = try signerPubkeysFromInfos(signer_infos, &signer_pubkeys_buf);
+    var accounts: [instruction.burn_checked_spec.accounts_len + MAX_SIGNERS + 1]CpiAccountInfo = undefined;
+    const staged = try multisigPubkeysAndRuntimeAccounts(
+        instruction.burn_checked_spec.accounts_len,
+        .{ source, mint, multisig_authority },
+        signer_infos,
+        token_program,
+        &signer_pubkeys_buf,
+        &accounts,
+    );
     var metas: instruction.multisigMetasArray(instruction.burn_checked_spec.accounts_len) = undefined;
     var data: dataArray(instruction.burn_checked_spec) = undefined;
     const ix = rebrand(
@@ -1402,7 +1411,7 @@ pub fn burnCheckedMultisig(
             source.key(),
             mint.key(),
             multisig_authority.key(),
-            signer_pubkeys,
+            staged.signer_pubkeys,
             amount,
             decimals,
             &metas,
@@ -1410,15 +1419,7 @@ pub fn burnCheckedMultisig(
         ) catch |err| return mapMultisigInstructionError(err),
         token_program.key(),
     );
-    var accounts: [instruction.burn_checked_spec.accounts_len + MAX_SIGNERS + 1]CpiAccountInfo = undefined;
-    const runtime_accounts = try runtimeAccountsWithSigners(
-        instruction.burn_checked_spec.accounts_len,
-        .{ source, mint, multisig_authority },
-        signer_infos,
-        token_program,
-        &accounts,
-    );
-    try sol.cpi.invokeRaw(&ix, runtime_accounts);
+    try sol.cpi.invokeRaw(&ix, staged.runtime_accounts);
 }
 
 // =============================================================================
@@ -1488,7 +1489,15 @@ pub fn closeAccountMultisig(
     signer_infos: []const CpiAccountInfo,
 ) ProgramResult {
     var signer_pubkeys_buf: [MAX_SIGNERS]Pubkey = undefined;
-    const signer_pubkeys = try signerPubkeysFromInfos(signer_infos, &signer_pubkeys_buf);
+    var accounts: [instruction.close_account_spec.accounts_len + MAX_SIGNERS + 1]CpiAccountInfo = undefined;
+    const staged = try multisigPubkeysAndRuntimeAccounts(
+        instruction.close_account_spec.accounts_len,
+        .{ account, destination, multisig_authority },
+        signer_infos,
+        token_program,
+        &signer_pubkeys_buf,
+        &accounts,
+    );
     var metas: instruction.multisigMetasArray(instruction.close_account_spec.accounts_len) = undefined;
     var data: dataArray(instruction.close_account_spec) = undefined;
     const ix = rebrand(
@@ -1496,21 +1505,13 @@ pub fn closeAccountMultisig(
             account.key(),
             destination.key(),
             multisig_authority.key(),
-            signer_pubkeys,
+            staged.signer_pubkeys,
             &metas,
             &data,
         ) catch |err| return mapMultisigInstructionError(err),
         token_program.key(),
     );
-    var accounts: [instruction.close_account_spec.accounts_len + MAX_SIGNERS + 1]CpiAccountInfo = undefined;
-    const runtime_accounts = try runtimeAccountsWithSigners(
-        instruction.close_account_spec.accounts_len,
-        .{ account, destination, multisig_authority },
-        signer_infos,
-        token_program,
-        &accounts,
-    );
-    try sol.cpi.invokeRaw(&ix, runtime_accounts);
+    try sol.cpi.invokeRaw(&ix, staged.runtime_accounts);
 }
 
 // =============================================================================
@@ -1562,28 +1563,28 @@ pub fn initializeMultisig2(
     threshold: u8,
 ) ProgramResult {
     var signer_pubkeys_buf: [MAX_SIGNERS]Pubkey = undefined;
-    const signer_pubkeys = try signerPubkeysFromInfos(signer_infos, &signer_pubkeys_buf);
+    var accounts: [instruction.initialize_multisig2_spec.accounts_len + MAX_SIGNERS + 1]CpiAccountInfo = undefined;
+    const staged = try multisigPubkeysAndRuntimeAccounts(
+        instruction.initialize_multisig2_spec.accounts_len,
+        .{multisig},
+        signer_infos,
+        token_program,
+        &signer_pubkeys_buf,
+        &accounts,
+    );
     var metas: instruction.multisigMetasArray(instruction.initialize_multisig2_spec.accounts_len) = undefined;
     var data: dataArray(instruction.initialize_multisig2_spec) = undefined;
     const ix = rebrand(
         instruction.initializeMultisig2(
             multisig.key(),
-            signer_pubkeys,
+            staged.signer_pubkeys,
             threshold,
             &metas,
             &data,
         ) catch |err| return mapMultisigInstructionError(err),
         token_program.key(),
     );
-    var accounts: [instruction.initialize_multisig2_spec.accounts_len + MAX_SIGNERS + 1]CpiAccountInfo = undefined;
-    const runtime_accounts = try runtimeAccountsWithSigners(
-        instruction.initialize_multisig2_spec.accounts_len,
-        .{multisig},
-        signer_infos,
-        token_program,
-        &accounts,
-    );
-    try sol.cpi.invokeRaw(&ix, runtime_accounts);
+    try sol.cpi.invokeRaw(&ix, staged.runtime_accounts);
 }
 
 const TestAccount = extern struct {

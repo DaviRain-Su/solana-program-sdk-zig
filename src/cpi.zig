@@ -11,6 +11,7 @@ const bpf = @import("bpf.zig");
 
 const CpiAccountInfo = account.CpiAccountInfo;
 const Pubkey = pubkey.Pubkey;
+const ProgramError = program_error.ProgramError;
 const ProgramResult = program_error.ProgramResult;
 const SUCCESS = program_error.SUCCESS;
 
@@ -266,6 +267,55 @@ pub inline fn seedPack(values: anytype) [@typeInfo(@TypeOf(values)).@"struct".fi
     return out;
 }
 
+/// Stage a fixed CPI account prefix, a runtime-sized dynamic account
+/// section, and an optional trailing suffix into one contiguous runtime
+/// account slice, while also extracting the dynamic accounts' pubkeys.
+///
+/// This is useful for multisig-style wrappers whose instruction builder
+/// needs `[]const Pubkey` for the dynamic signer list, while the CPI
+/// syscall needs the corresponding `[]const CpiAccountInfo` in the same
+/// caller order.
+///
+/// The helper is policy-free: caller decides what the dynamic section
+/// means and whether zero dynamic accounts is valid.
+pub fn stageDynamicAccountsWithPubkeys(
+    comptime fixed_len: usize,
+    comptime trailing_len: usize,
+    fixed_accounts: [fixed_len]CpiAccountInfo,
+    dynamic_accounts: []const CpiAccountInfo,
+    trailing_accounts: [trailing_len]CpiAccountInfo,
+    dynamic_pubkeys_out: []Pubkey,
+    accounts_out: []CpiAccountInfo,
+) ProgramError!struct {
+    dynamic_pubkeys: []const Pubkey,
+    runtime_accounts: []const CpiAccountInfo,
+} {
+    if (dynamic_accounts.len > dynamic_pubkeys_out.len) {
+        return error.InvalidArgument;
+    }
+
+    const total_len = fixed_len + dynamic_accounts.len + trailing_len;
+    if (accounts_out.len < total_len) {
+        return error.InvalidArgument;
+    }
+
+    for (fixed_accounts, 0..) |info, i| {
+        accounts_out[i] = info;
+    }
+    for (dynamic_accounts, 0..) |info, i| {
+        dynamic_pubkeys_out[i] = info.key().*;
+        accounts_out[fixed_len + i] = info;
+    }
+    for (trailing_accounts, 0..) |info, i| {
+        accounts_out[fixed_len + dynamic_accounts.len + i] = info;
+    }
+
+    return .{
+        .dynamic_pubkeys = dynamic_pubkeys_out[0..dynamic_accounts.len],
+        .runtime_accounts = accounts_out[0..total_len],
+    };
+}
+
 comptime {
     // Catch ABI regressions at build time.
     std.debug.assert(@sizeOf(Seed) == 16);
@@ -291,7 +341,6 @@ const SolInstruction = extern struct {
 /// they match the layout of `SolSignerSeedC` / `SolSignerSeedsC` exactly.
 /// We use them directly in the syscall signature so callers can pass
 /// stack-built `Signer` arrays without a copy.
-
 extern fn sol_invoke_signed_c(
     instruction: *const SolInstruction,
     account_infos: [*]const CpiAccountInfo,
@@ -614,4 +663,76 @@ test "cpi: seedPack coerces common seed shapes" {
     try std.testing.expectEqual(@as(u64, 1), seeds[2].len);
     try std.testing.expectEqual(@as(u64, 1), seeds[3].len);
     try std.testing.expectEqual(@intFromPtr(&pk), seeds[1].addr);
+}
+
+test "cpi: stageDynamicAccountsWithPubkeys preserves order" {
+    var raw_a: account.Account = .{
+        .borrow_state = account.NOT_BORROWED,
+        .is_signer = 0,
+        .is_writable = 1,
+        .is_executable = 0,
+        ._padding = .{0} ** 4,
+        .key = .{0x11} ** 32,
+        .owner = .{0x21} ** 32,
+        .lamports = 1,
+        .data_len = 0,
+    };
+    var raw_b: account.Account = .{
+        .borrow_state = account.NOT_BORROWED,
+        .is_signer = 1,
+        .is_writable = 0,
+        .is_executable = 0,
+        ._padding = .{0} ** 4,
+        .key = .{0x12} ** 32,
+        .owner = .{0x22} ** 32,
+        .lamports = 2,
+        .data_len = 0,
+    };
+    var raw_c: account.Account = .{
+        .borrow_state = account.NOT_BORROWED,
+        .is_signer = 1,
+        .is_writable = 0,
+        .is_executable = 0,
+        ._padding = .{0} ** 4,
+        .key = .{0x13} ** 32,
+        .owner = .{0x23} ** 32,
+        .lamports = 3,
+        .data_len = 0,
+    };
+    var raw_program: account.Account = .{
+        .borrow_state = account.NOT_BORROWED,
+        .is_signer = 0,
+        .is_writable = 0,
+        .is_executable = 1,
+        ._padding = .{0} ** 4,
+        .key = .{0x14} ** 32,
+        .owner = .{0x24} ** 32,
+        .lamports = 4,
+        .data_len = 0,
+    };
+
+    const fixed = [_]CpiAccountInfo{CpiAccountInfo.fromPtr(&raw_a)};
+    const dynamic = [_]CpiAccountInfo{ CpiAccountInfo.fromPtr(&raw_b), CpiAccountInfo.fromPtr(&raw_c) };
+    const trailing = [_]CpiAccountInfo{CpiAccountInfo.fromPtr(&raw_program)};
+
+    var pubkeys: [2]Pubkey = undefined;
+    var accounts: [4]CpiAccountInfo = undefined;
+    const staged = try stageDynamicAccountsWithPubkeys(
+        fixed.len,
+        trailing.len,
+        fixed,
+        &dynamic,
+        trailing,
+        pubkeys[0..],
+        accounts[0..],
+    );
+
+    try std.testing.expectEqual(@as(usize, 2), staged.dynamic_pubkeys.len);
+    try std.testing.expectEqual(@as(usize, 4), staged.runtime_accounts.len);
+    try std.testing.expectEqualSlices(u8, raw_b.key[0..], staged.dynamic_pubkeys[0][0..]);
+    try std.testing.expectEqualSlices(u8, raw_c.key[0..], staged.dynamic_pubkeys[1][0..]);
+    try std.testing.expectEqualSlices(u8, raw_a.key[0..], staged.runtime_accounts[0].key()[0..]);
+    try std.testing.expectEqualSlices(u8, raw_b.key[0..], staged.runtime_accounts[1].key()[0..]);
+    try std.testing.expectEqualSlices(u8, raw_c.key[0..], staged.runtime_accounts[2].key()[0..]);
+    try std.testing.expectEqualSlices(u8, raw_program.key[0..], staged.runtime_accounts[3].key()[0..]);
 }

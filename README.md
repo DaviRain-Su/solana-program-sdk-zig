@@ -65,12 +65,15 @@ instructions (−17 / −22 / −83 CU respectively). See
 # Download solana-zig fork (macOS arm64)
 curl -LO https://github.com/joncinque/solana-zig-bootstrap/releases/download/solana-v1.53.0/zig-aarch64-macos-none.tar.bz2
 tar -xjf zig-aarch64-macos-none.tar.bz2
-export SOLANA_ZIG="$(pwd)/zig-aarch64-macos-none-baseline/zig"
+export SOLANA_ZIG_BIN="$(pwd)/zig-aarch64-macos-none-baseline/zig"
+
+# Or let the repository probe resolve a verified fork for you
+export SOLANA_ZIG_BIN="${SOLANA_ZIG_BIN:-$(./scripts/ensure-solana-zig.sh)}"
 
 # Run tests
-"$SOLANA_ZIG" build --build-file packages/spl-token-2022/build.zig test --summary all
-"$SOLANA_ZIG" build test --summary all
-./program-test/test.sh "$SOLANA_ZIG"
+zig build --build-file packages/spl-token-2022/build.zig test --summary all
+zig build test --summary all
+./program-test/test.sh "$SOLANA_ZIG_BIN"
 ```
 
 ## Performance
@@ -1253,8 +1256,8 @@ zig build --build-file packages/spl-token-2022/build.zig test --summary all
 # Host unit tests (any Zig 0.16)
 zig build test --summary all
 
-# Integration tests (requires solana-zig fork)
-./program-test/test.sh "$SOLANA_ZIG"
+# Integration tests (requires a verified solana-zig fork)
+./program-test/test.sh
 ```
 
 ## Branch layout

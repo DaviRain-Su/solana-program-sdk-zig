@@ -53,6 +53,7 @@ PY
 chmod +x \
   "$TARGET_DIR/scripts/bootstrap.sh" \
   "$TARGET_DIR/scripts/ensure-elf2sbpf.sh" \
+  "$TARGET_DIR/scripts/ensure-solana-zig.sh" \
   "$TARGET_DIR/scripts/new.sh" \
   "$TARGET_DIR/program-test/test.sh" \
   "$TARGET_DIR/program-test/install-build-deps.sh"

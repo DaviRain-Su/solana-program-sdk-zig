@@ -1,26 +1,30 @@
 #!/usr/bin/env bash
 #
-# Locate a solana-zig fork binary that can build this repository's SBF
-# programs without the known false-positive probe problem where `-target
-# sbf-solana -mcpu v2` succeeds but the real repo build still warns about
+# Locate a solana-zig fork binary that can build this generated project's
+# SBF program surface without the known false-positive probe problem where
+# `-target sbf-solana -mcpu v2` succeeds but the real build still warns about
 # unsupported `+jmp-ext` / `+store-imm` features.
-#
-# Prints the absolute path to stdout on success; exits non-zero otherwise.
-#
-# Search order:
-#   1. $SOLANA_ZIG_BIN env var (if set and executable)
-#   2. $ZIG env var (if it points to a compatible solana-zig fork)
-#   3. .tools/solana-zig/bin/zig under repo root
-#   4. Sibling checkout ../solana-zig-bootstrap/out-smoke/host/bin/zig
-#   5. $HOME/tools/zig-*-baseline/zig
-#   6. Sibling checkout ../solana-zig-bootstrap/out/*/zig
-#   7. $PATH lookup for `solana-zig`
-#
-# If nothing is found, prints a guidance message to stderr and exits 1.
 
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")"/.. && pwd)"
+BUILD_ZON="$ROOT_DIR/build.zig.zon"
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "python3 is required to resolve the solana_program_sdk path from build.zig.zon" >&2
+  exit 1
+fi
+
+SDK_ROOT="$({ python3 - <<'PY' "$BUILD_ZON"
+import pathlib, re, sys
+path = pathlib.Path(sys.argv[1]).resolve()
+text = path.read_text()
+match = re.search(r'\.solana_program_sdk\s*=\s*\{[^}]*\.path\s*=\s*"([^"]+)"', text, re.S)
+if not match:
+    raise SystemExit(1)
+print((path.parent / match.group(1)).resolve())
+PY
+} )"
 
 is_solana_zig() {
   local zig_bin="$1"
@@ -32,7 +36,7 @@ is_solana_zig() {
   return 0
 }
 
-supports_repo_sbf_build() {
+supports_project_sbf_build() {
   local zig_bin="$1"
   local tmp_dir linker_script stderr_file
   tmp_dir="$(mktemp -d)" || return 1
@@ -66,7 +70,6 @@ SECTIONS
 }
 EOF
 
-  # Intentionally mirror the repository's real build-lib surface closely.
   if ! (
     cd "$tmp_dir"
     "$zig_bin" build-lib \
@@ -78,11 +81,11 @@ EOF
       -target sbf-solana \
       -mcpu v2 \
       --dep solana_program_sdk \
-      -Mroot="$ROOT_DIR/examples/hello.zig" \
+      -Mroot="$ROOT_DIR/src/main.zig" \
       -OReleaseFast \
       -target sbf-solana \
       -mcpu v2 \
-      -Msolana_program_sdk="$ROOT_DIR/src/root.zig" \
+      -Msolana_program_sdk="$SDK_ROOT/src/root.zig" \
       -z notext \
       --cache-dir "$tmp_dir/cache" \
       --global-cache-dir "${ZIG_GLOBAL_CACHE_DIR:-$HOME/.cache/zig}" \
@@ -105,7 +108,7 @@ EOF
 
 try_candidate() {
   local cand="$1"
-  if is_solana_zig "$cand" && supports_repo_sbf_build "$cand"; then
+  if is_solana_zig "$cand" && supports_project_sbf_build "$cand"; then
     printf '%s\n' "$cand"
     exit 0
   fi
@@ -113,7 +116,7 @@ try_candidate() {
 
 if [[ -n "${SOLANA_ZIG_BIN:-}" ]]; then
   try_candidate "$SOLANA_ZIG_BIN"
-  echo "SOLANA_ZIG_BIN is set but is not repository-compatible: $SOLANA_ZIG_BIN" >&2
+  echo "SOLANA_ZIG_BIN is set but is not project-compatible: $SOLANA_ZIG_BIN" >&2
   exit 1
 fi
 
@@ -121,34 +124,24 @@ if [[ -n "${ZIG:-}" ]]; then
   try_candidate "$ZIG"
 fi
 
-try_candidate "$ROOT_DIR/.tools/solana-zig/bin/zig"
-try_candidate "$ROOT_DIR/../solana-zig-bootstrap/out-smoke/host/bin/zig"
+if command -v solana-zig >/dev/null 2>&1; then
+  try_candidate "$(command -v solana-zig)"
+fi
 
 for cand in "$HOME"/tools/zig-*-baseline/zig; do
   try_candidate "$cand"
 done
 
-if [[ -d "$ROOT_DIR/../solana-zig-bootstrap/out" ]]; then
-  for cand in "$ROOT_DIR/../solana-zig-bootstrap/out"/*/zig; do
-    try_candidate "$cand"
-  done
-fi
-
-if command -v solana-zig >/dev/null 2>&1; then
-  try_candidate "$(command -v solana-zig)"
-fi
-
 cat <<EOF >&2
 solana-zig fork not found.
 
-This repository's SBF build requires a solana-zig fork that passes the
-same probe shape as the real repo build. Candidates that still warn about
+This starter project's SBF build requires a solana-zig fork that passes the
+same probe shape as the real project build. Candidates that still warn about
 unsupported '+jmp-ext' / '+store-imm' target features are rejected.
 
 Options:
   - Set SOLANA_ZIG_BIN=/path/to/a compatible solana-zig fork
-  - Clone and build https://github.com/joncinque/solana-zig-bootstrap
-    (branch solana-1.52) into a sibling directory
+  - Add a compatible solana-zig binary to PATH as 'solana-zig'
   - Re-run ./scripts/ensure-solana-zig.sh after installing the fork
 EOF
 exit 1

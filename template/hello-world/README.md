@@ -1,7 +1,7 @@
 # hello-world template
 
-A minimal Solana Zig starter supporting both **solana-zig fork** (best CU)
-and **stock Zig + elf2sbpf** (fallback) build paths.
+A minimal Solana Zig starter with host-side tests plus a verified
+`solana-zig` path for building and validating SBF artifacts.
 
 ## Quick start
 
@@ -17,27 +17,26 @@ Then edit:
 
 ## Build the program
 
-### With solana-zig fork (recommended, best CU)
+### With a verified solana-zig fork (required for SBF builds)
 
 ```bash
 # Download prebuilt binary from https://github.com/joncinque/solana-zig-bootstrap/releases
 export SOLANA_ZIG_BIN=/path/to/solana-zig-bootstrap/zig
-"$SOLANA_ZIG_BIN" build -Dsolana-zig
+"$SOLANA_ZIG_BIN" build -Dbuild-program
 ```
 
-### With stock Zig (fallback)
+### Host tests only (stock Zig 0.16 is fine)
 
 ```bash
-zig build
+zig build test --summary all
 ```
 
 ## Run integration tests
 
 ```bash
-# Auto-detects solana-zig fork
+# Auto-detects a verified solana-zig fork
 ./program-test/test.sh
 
 # Or specify a Zig binary explicitly
 ./program-test/test.sh /path/to/solana-zig
-./program-test/test.sh /usr/bin/zig  # force stock Zig path
 ```

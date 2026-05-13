@@ -32,5 +32,5 @@ extension views.
 zig build --build-file packages/spl-token-2022/build.zig test --summary all
 
 # Full SBF + Mollusk regression suite
-SOLANA_ZIG="${SOLANA_ZIG:-$(scripts/ensure-solana-zig.sh)}" && ./program-test/test.sh "$SOLANA_ZIG"
+./program-test/test.sh
 ```

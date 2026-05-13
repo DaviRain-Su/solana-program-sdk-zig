@@ -65,6 +65,12 @@ const ix = spl_token.instruction.transfer(
 try spl_token.cpi.syncNative(a.token_program.toCpiInfo(), wrapped_sol.toCpiInfo());
 const uses_native_mint = spl_token.isNativeMint(&spl_token.NATIVE_MINT);
 
+// Return-data utilities:
+try spl_token.cpi.getAccountDataSize(a.token_program.toCpiInfo(), a.mint.toCpiInfo());
+var return_buf: [16]u8 = undefined;
+const returned = sol.cpi.getReturnData(return_buf[0..]) orelse return error.InvalidInstructionData;
+const account_size = try spl_token.return_data.parseGetAccountDataSizeReturn(returned);
+
 // ──────────── Zero-copy state views ────────────
 const mint = try spl_token.Mint.fromBytes(mint_account.data());
 const balance = (try spl_token.Account.fromBytes(token_account.data())).amount;
@@ -92,7 +98,8 @@ Instructions:
 - `amountToUiAmount` (23)
 - `uiAmountToAmount` (24)
   (`getAccountDataSize`, `amountToUiAmount`, and `uiAmountToAmount`
-  return their answers via `sol.cpi.getReturnData(...)` after CPI)
+  return their answers via `sol.cpi.getReturnData(...)` after CPI;
+  decode them with `spl_token.return_data.*` helpers)
 - `batch` (255)
   (p-token / Pinocchio-style concatenated child-instruction envelope;
   available as both `spl_token.instruction.batch(...)` and

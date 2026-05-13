@@ -62,14 +62,6 @@ inline fn rebrand(ix: Instruction, program_id: *const Pubkey) Instruction {
     return .{ .program_id = program_id, .accounts = ix.accounts, .data = ix.data };
 }
 
-inline fn mapMultisigInstructionError(err: instruction.MultisigInstructionError) ProgramError {
-    return switch (err) {
-        error.InvalidMultisigSignerCount,
-        error.InvalidMultisigThreshold,
-        => error.InvalidArgument,
-    };
-}
-
 inline fn mapBatchInstructionError(err: instruction.BatchInstructionError) ProgramError {
     return switch (err) {
         error.IncorrectProgramId => error.IncorrectProgramId,
@@ -84,6 +76,16 @@ inline fn mapBatchInstructionError(err: instruction.BatchInstructionError) Progr
 
 inline fn validateSignerInfoCount(signer_infos: []const CpiAccountInfo) ProgramResult {
     if (signer_infos.len < 1 or signer_infos.len > MAX_SIGNERS) {
+        return error.InvalidArgument;
+    }
+}
+
+inline fn validateSignerInfoThreshold(
+    signer_infos: []const CpiAccountInfo,
+    threshold: u8,
+) ProgramResult {
+    try validateSignerInfoCount(signer_infos);
+    if (threshold == 0 or threshold > signer_infos.len) {
         return error.InvalidArgument;
     }
 }
@@ -104,7 +106,7 @@ fn signerPubkeysFromInfos(
 fn multisigMetasAndRuntimeAccounts(
     comptime base_accounts_len: usize,
     comptime fixed_len: usize,
-    signer_meta_kind: MultisigSignerMetaKind,
+    comptime signer_meta_kind: MultisigSignerMetaKind,
     fixed_accounts: [fixed_len]CpiAccountInfo,
     signer_infos: []const CpiAccountInfo,
     token_program: CpiAccountInfo,
@@ -135,14 +137,11 @@ fn multisigMetasAndRuntimeAccounts(
 }
 
 fn stageBatchRuntimeAccounts(
-    entries: []const BatchEntry,
+    required_child_accounts: usize,
     child_runtime_accounts: []const CpiAccountInfo,
     token_program: CpiAccountInfo,
     invoke_accounts_out: []CpiAccountInfo,
 ) ProgramError![]const CpiAccountInfo {
-    const required_child_accounts = instruction.batchEntriesAccountsLen(entries) catch |err| {
-        return mapBatchInstructionError(err);
-    };
     if (child_runtime_accounts.len != required_child_accounts) return error.InvalidArgument;
     if (invoke_accounts_out.len < child_runtime_accounts.len + 1) return error.InvalidArgument;
 
@@ -1589,7 +1588,7 @@ pub fn batch(
         return mapBatchInstructionError(err);
     };
     const invoke_accounts = try stageBatchRuntimeAccounts(
-        entries,
+        ix.accounts.len,
         child_runtime_accounts,
         token_program,
         invoke_accounts_out,
@@ -1611,7 +1610,7 @@ pub fn batchSigned(
         return mapBatchInstructionError(err);
     };
     const invoke_accounts = try stageBatchRuntimeAccounts(
-        entries,
+        ix.accounts.len,
         child_runtime_accounts,
         token_program,
         invoke_accounts_out,
@@ -1633,7 +1632,7 @@ pub inline fn batchSignedSingle(
         return mapBatchInstructionError(err);
     };
     const invoke_accounts = try stageBatchRuntimeAccounts(
-        entries,
+        ix.accounts.len,
         child_runtime_accounts,
         token_program,
         invoke_accounts_out,
@@ -1824,32 +1823,30 @@ pub fn initializeMultisig(
     signer_infos: []const CpiAccountInfo,
     threshold: u8,
 ) ProgramResult {
-    try validateSignerInfoCount(signer_infos);
-    if (threshold == 0 or threshold > signer_infos.len) {
-        return error.InvalidArgument;
-    }
+    try validateSignerInfoThreshold(signer_infos, threshold);
 
-    var signer_pubkeys_buf: [MAX_SIGNERS]Pubkey = undefined;
-    const signer_pubkeys = try signerPubkeysFromInfos(signer_infos, &signer_pubkeys_buf);
     var metas: instruction.multisigMetasArray(instruction.initialize_multisig_spec.accounts_len) = undefined;
-    var data: dataArray(instruction.initialize_multisig_spec) = undefined;
-    const ix = rebrand(
-        instruction.initializeMultisig(multisig.key(), signer_pubkeys, threshold, &metas, &data) catch |err| {
-            return mapMultisigInstructionError(err);
-        },
-        token_program.key(),
-    );
+    metas[0] = AccountMeta.writable(multisig.key());
     metas[1] = AccountMeta.readonly(rent_sysvar.key());
 
-    var invoke_accounts: [instruction.initialize_multisig_spec.accounts_len + MAX_SIGNERS + 1]CpiAccountInfo = undefined;
-    const runtime_accounts = blk: {
-        invoke_accounts[0] = multisig;
-        invoke_accounts[1] = rent_sysvar;
-        for (signer_infos, 0..) |signer, i| invoke_accounts[2 + i] = signer;
-        invoke_accounts[2 + signer_infos.len] = token_program;
-        break :blk invoke_accounts[0 .. 3 + signer_infos.len];
+    var accounts: [instruction.initialize_multisig_spec.accounts_len + MAX_SIGNERS + 1]CpiAccountInfo = undefined;
+    const staged = try multisigMetasAndRuntimeAccounts(
+        instruction.initialize_multisig_spec.accounts_len,
+        instruction.initialize_multisig_spec.accounts_len,
+        .readonly,
+        .{ multisig, rent_sysvar },
+        signer_infos,
+        token_program,
+        &metas,
+        &accounts,
+    );
+
+    const data: dataArray(instruction.initialize_multisig_spec) = .{
+        @intFromEnum(instruction.TokenInstruction.initialize_multisig),
+        threshold,
     };
-    try sol.cpi.invokeRaw(&ix, runtime_accounts);
+    const ix = Instruction.fromCpiAccount(token_program, staged.instruction_accounts, &data);
+    try sol.cpi.invokeRaw(&ix, staged.runtime_accounts);
 }
 
 /// Invoke `InitializeMultisig2` via CPI.
@@ -1859,10 +1856,7 @@ pub fn initializeMultisig2(
     signer_infos: []const CpiAccountInfo,
     threshold: u8,
 ) ProgramResult {
-    try validateSignerInfoCount(signer_infos);
-    if (threshold == 0 or threshold > signer_infos.len) {
-        return error.InvalidArgument;
-    }
+    try validateSignerInfoThreshold(signer_infos, threshold);
 
     var metas: instruction.multisigMetasArray(instruction.initialize_multisig2_spec.accounts_len) = undefined;
     metas[0] = AccountMeta.writable(multisig.key());
@@ -2020,6 +2014,41 @@ test "spl-token cpi: multisig staging keeps signer metas and runtime accounts al
     try std.testing.expectEqualSlices(u8, token_program.key(), staged.runtime_accounts[5].key());
 }
 
+test "spl-token cpi: readonly multisig staging keeps non-signer metas aligned" {
+    var multisig_account = testAccount(.{0x27} ** 32, .{0x87} ** 32, false, true, false);
+    var signer_a_account = testAccount(.{0x28} ** 32, .{0x88} ** 32, false, false, false);
+    var signer_b_account = testAccount(.{0x29} ** 32, .{0x89} ** 32, false, false, false);
+    var token_program_account = testAccount(.{0x2A} ** 32, .{0x8A} ** 32, false, false, true);
+
+    const multisig = testCpiInfo(&multisig_account.raw);
+    const signer_a = testCpiInfo(&signer_a_account.raw);
+    const signer_b = testCpiInfo(&signer_b_account.raw);
+    const token_program = testCpiInfo(&token_program_account.raw);
+
+    var metas: instruction.multisigMetasArray(instruction.initialize_multisig2_spec.accounts_len) = undefined;
+    metas[0] = AccountMeta.writable(multisig.key());
+
+    var infos: [instruction.initialize_multisig2_spec.accounts_len + MAX_SIGNERS + 1]CpiAccountInfo = undefined;
+    const staged = try multisigMetasAndRuntimeAccounts(
+        instruction.initialize_multisig2_spec.accounts_len,
+        instruction.initialize_multisig2_spec.accounts_len,
+        .readonly,
+        .{multisig},
+        &.{ signer_a, signer_b },
+        token_program,
+        &metas,
+        &infos,
+    );
+
+    try std.testing.expectEqual(@as(usize, 3), staged.instruction_accounts.len);
+    try std.testing.expectEqual(@as(u8, 0), staged.instruction_accounts[1].is_signer);
+    try std.testing.expectEqual(@as(u8, 0), staged.instruction_accounts[1].is_writable);
+    try std.testing.expectEqualSlices(u8, signer_a.key(), staged.instruction_accounts[1].pubkey);
+    try std.testing.expectEqualSlices(u8, signer_b.key(), staged.instruction_accounts[2].pubkey);
+    try std.testing.expectEqual(@as(usize, 4), staged.runtime_accounts.len);
+    try std.testing.expectEqualSlices(u8, token_program.key(), staged.runtime_accounts[3].key());
+}
+
 test "spl-token cpi: batch rebrands callee and preserves flattened runtime account order" {
     var source_account = testAccount(.{0x30} ** 32, .{0x90} ** 32, false, true, false);
     var mint_account = testAccount(.{0x31} ** 32, .{0x91} ** 32, false, false, false);
@@ -2079,7 +2108,7 @@ test "spl-token cpi: batch rebrands callee and preserves flattened runtime accou
 
     var invoke_accounts_buf: [instruction.transfer_checked_spec.accounts_len * entries.len + 1]CpiAccountInfo = undefined;
     const invoke_accounts = try stageBatchRuntimeAccounts(
-        &entries,
+        ix.accounts.len,
         &.{
             source,
             mint,
@@ -2099,6 +2128,30 @@ test "spl-token cpi: batch rebrands callee and preserves flattened runtime accou
     try std.testing.expectEqualSlices(u8, source.key(), invoke_accounts[4].key());
     try std.testing.expectEqualSlices(u8, authority.key(), invoke_accounts[7].key());
     try std.testing.expectEqualSlices(u8, token_program.key(), invoke_accounts[8].key());
+}
+
+test "spl-token cpi: batch runtime staging rejects account-count mismatches" {
+    var source_account = testAccount(.{0x36} ** 32, .{0x99} ** 32, false, true, false);
+    var mint_account = testAccount(.{0x37} ** 32, .{0x9A} ** 32, false, false, false);
+    var destination_account = testAccount(.{0x38} ** 32, .{0x9B} ** 32, false, true, false);
+    var authority_account = testAccount(.{0x39} ** 32, .{0x9C} ** 32, true, false, false);
+    var token_program_account = testAccount(.{0x3A} ** 32, .{0x9D} ** 32, false, false, true);
+
+    const source = testCpiInfo(&source_account.raw);
+    const mint = testCpiInfo(&mint_account.raw);
+    const destination = testCpiInfo(&destination_account.raw);
+    const authority = testCpiInfo(&authority_account.raw);
+    const token_program = testCpiInfo(&token_program_account.raw);
+
+    var out: [5]CpiAccountInfo = undefined;
+    try std.testing.expectError(
+        error.InvalidArgument,
+        stageBatchRuntimeAccounts(4, &.{ source, mint, destination }, token_program, out[0..]),
+    );
+    try std.testing.expectError(
+        error.InvalidArgument,
+        stageBatchRuntimeAccounts(4, &.{ source, mint, destination, authority }, token_program, out[0..4]),
+    );
 }
 
 test "spl-token cpi: initializeMint rebrands callee and preserves rent sysvar ordering" {
@@ -2279,6 +2332,25 @@ test "spl-token cpi: initializeMultisig2 rebrands callee and preserves signer or
     try std.testing.expectEqualSlices(u8, multisig.key(), ix.accounts[0].pubkey);
     try std.testing.expectEqualSlices(u8, signer_a.key(), ix.accounts[1].pubkey);
     try std.testing.expectEqualSlices(u8, signer_b.key(), ix.accounts[2].pubkey);
+}
+
+test "spl-token cpi: initializeMultisig helpers reject invalid signer counts and thresholds" {
+    var token_program_account = testAccount(sol.spl_token_2022_program_id, .{0x95} ** 32, false, false, true);
+    var multisig_account = testAccount(.{0x34} ** 32, .{0x96} ** 32, false, true, false);
+    var rent_account = testAccount(sol.rent_id, .{0x97} ** 32, false, false, false);
+    var signer_account = testAccount(.{0x35} ** 32, .{0x98} ** 32, false, false, false);
+
+    const token_program = testCpiInfo(&token_program_account.raw);
+    const multisig = testCpiInfo(&multisig_account.raw);
+    const rent_sysvar = testCpiInfo(&rent_account.raw);
+    const signer = testCpiInfo(&signer_account.raw);
+
+    try std.testing.expectError(error.InvalidArgument, initializeMultisig(token_program, multisig, rent_sysvar, &.{}, 1));
+    try std.testing.expectError(error.InvalidArgument, initializeMultisig(token_program, multisig, rent_sysvar, &.{signer}, 0));
+    try std.testing.expectError(error.InvalidArgument, initializeMultisig(token_program, multisig, rent_sysvar, &.{signer}, 2));
+    try std.testing.expectError(error.InvalidArgument, initializeMultisig2(token_program, multisig, &.{}, 1));
+    try std.testing.expectError(error.InvalidArgument, initializeMultisig2(token_program, multisig, &.{signer}, 0));
+    try std.testing.expectError(error.InvalidArgument, initializeMultisig2(token_program, multisig, &.{signer}, 2));
 }
 
 test "spl-token cpi: SignedSingle wrappers compile and use host fallback" {

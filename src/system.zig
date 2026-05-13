@@ -659,6 +659,72 @@ pub fn assignWithSeed(
     try cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ account, base, system_program });
 }
 
+/// PDA-signed variant of `assignWithSeed` for derived `base` authorities.
+pub fn assignWithSeedSigned(
+    account: CpiAccountInfo,
+    base: CpiAccountInfo,
+    system_program: CpiAccountInfo,
+    seed: []const u8,
+    owner: *const Pubkey,
+    signers: []const cpi.Signer,
+) ProgramResult {
+    if (seed.len > MAX_SEED_LEN) return error.MaxSeedLengthExceeded;
+
+    var ix_data = StackIxDataWriter(variableSeedIxCapacity(
+        DISCRIMINANT_BYTES + PUBKEY_BYTES + U64_BYTES + PUBKEY_BYTES,
+    )).init();
+    ix_data.writeDiscriminant(SystemInstruction.AssignWithSeed);
+    ix_data.writePubkey(base.key());
+    ix_data.writeSeed(seed);
+    ix_data.writePubkey(owner);
+
+    const account_metas = [_]cpi.AccountMeta{
+        cpi.AccountMeta.writable(account.key()),
+        cpi.AccountMeta.signer(base.key()),
+    };
+
+    const ix = cpi.Instruction.fromCpiAccount(
+        system_program,
+        &account_metas,
+        ix_data.written(),
+    );
+
+    try cpi.invokeSignedRaw(&ix, &[_]CpiAccountInfo{ account, base, system_program }, signers);
+}
+
+/// Single-PDA fast path for `assignWithSeedSigned`.
+pub inline fn assignWithSeedSignedSingle(
+    account: CpiAccountInfo,
+    base: CpiAccountInfo,
+    system_program: CpiAccountInfo,
+    seed: []const u8,
+    owner: *const Pubkey,
+    signer_seeds: anytype,
+) ProgramResult {
+    if (seed.len > MAX_SEED_LEN) return error.MaxSeedLengthExceeded;
+
+    var ix_data = StackIxDataWriter(variableSeedIxCapacity(
+        DISCRIMINANT_BYTES + PUBKEY_BYTES + U64_BYTES + PUBKEY_BYTES,
+    )).init();
+    ix_data.writeDiscriminant(SystemInstruction.AssignWithSeed);
+    ix_data.writePubkey(base.key());
+    ix_data.writeSeed(seed);
+    ix_data.writePubkey(owner);
+
+    const account_metas = [_]cpi.AccountMeta{
+        cpi.AccountMeta.writable(account.key()),
+        cpi.AccountMeta.signer(base.key()),
+    };
+
+    const ix = cpi.Instruction.fromCpiAccount(
+        system_program,
+        &account_metas,
+        ix_data.written(),
+    );
+
+    try cpi.invokeSignedSingle(&ix, &[_]CpiAccountInfo{ account, base, system_program }, signer_seeds);
+}
+
 /// Allocate space for a derived account using `(base, seed, owner)`.
 pub fn allocateWithSeed(
     account: CpiAccountInfo,
@@ -691,6 +757,76 @@ pub fn allocateWithSeed(
     );
 
     try cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ account, base, system_program });
+}
+
+/// PDA-signed variant of `allocateWithSeed` for derived `base` authorities.
+pub fn allocateWithSeedSigned(
+    account: CpiAccountInfo,
+    base: CpiAccountInfo,
+    system_program: CpiAccountInfo,
+    seed: []const u8,
+    space: u64,
+    owner: *const Pubkey,
+    signers: []const cpi.Signer,
+) ProgramResult {
+    if (seed.len > MAX_SEED_LEN) return error.MaxSeedLengthExceeded;
+
+    var ix_data = StackIxDataWriter(variableSeedIxCapacity(
+        DISCRIMINANT_BYTES + PUBKEY_BYTES + U64_BYTES + U64_BYTES + PUBKEY_BYTES,
+    )).init();
+    ix_data.writeDiscriminant(SystemInstruction.AllocateWithSeed);
+    ix_data.writePubkey(base.key());
+    ix_data.writeSeed(seed);
+    ix_data.writeU64(space);
+    ix_data.writePubkey(owner);
+
+    const account_metas = [_]cpi.AccountMeta{
+        cpi.AccountMeta.writable(account.key()),
+        cpi.AccountMeta.signer(base.key()),
+    };
+
+    const ix = cpi.Instruction.fromCpiAccount(
+        system_program,
+        &account_metas,
+        ix_data.written(),
+    );
+
+    try cpi.invokeSignedRaw(&ix, &[_]CpiAccountInfo{ account, base, system_program }, signers);
+}
+
+/// Single-PDA fast path for `allocateWithSeedSigned`.
+pub inline fn allocateWithSeedSignedSingle(
+    account: CpiAccountInfo,
+    base: CpiAccountInfo,
+    system_program: CpiAccountInfo,
+    seed: []const u8,
+    space: u64,
+    owner: *const Pubkey,
+    signer_seeds: anytype,
+) ProgramResult {
+    if (seed.len > MAX_SEED_LEN) return error.MaxSeedLengthExceeded;
+
+    var ix_data = StackIxDataWriter(variableSeedIxCapacity(
+        DISCRIMINANT_BYTES + PUBKEY_BYTES + U64_BYTES + U64_BYTES + PUBKEY_BYTES,
+    )).init();
+    ix_data.writeDiscriminant(SystemInstruction.AllocateWithSeed);
+    ix_data.writePubkey(base.key());
+    ix_data.writeSeed(seed);
+    ix_data.writeU64(space);
+    ix_data.writePubkey(owner);
+
+    const account_metas = [_]cpi.AccountMeta{
+        cpi.AccountMeta.writable(account.key()),
+        cpi.AccountMeta.signer(base.key()),
+    };
+
+    const ix = cpi.Instruction.fromCpiAccount(
+        system_program,
+        &account_metas,
+        ix_data.written(),
+    );
+
+    try cpi.invokeSignedSingle(&ix, &[_]CpiAccountInfo{ account, base, system_program }, signer_seeds);
 }
 
 /// Transfer lamports from a derived system account.
@@ -726,6 +862,78 @@ pub fn transferWithSeed(
     );
 
     try cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ from, base, to, system_program });
+}
+
+/// PDA-signed variant of `transferWithSeed` for derived `base` authorities.
+pub fn transferWithSeedSigned(
+    from: CpiAccountInfo,
+    base: CpiAccountInfo,
+    to: CpiAccountInfo,
+    system_program: CpiAccountInfo,
+    from_seed: []const u8,
+    from_owner: *const Pubkey,
+    lamports: u64,
+    signers: []const cpi.Signer,
+) ProgramResult {
+    if (from_seed.len > MAX_SEED_LEN) return error.MaxSeedLengthExceeded;
+
+    var ix_data = StackIxDataWriter(variableSeedIxCapacity(
+        DISCRIMINANT_BYTES + U64_BYTES + U64_BYTES + PUBKEY_BYTES,
+    )).init();
+    ix_data.writeDiscriminant(SystemInstruction.TransferWithSeed);
+    ix_data.writeU64(lamports);
+    ix_data.writeSeed(from_seed);
+    ix_data.writePubkey(from_owner);
+
+    const account_metas = [_]cpi.AccountMeta{
+        cpi.AccountMeta.writable(from.key()),
+        cpi.AccountMeta.signer(base.key()),
+        cpi.AccountMeta.writable(to.key()),
+    };
+
+    const ix = cpi.Instruction.fromCpiAccount(
+        system_program,
+        &account_metas,
+        ix_data.written(),
+    );
+
+    try cpi.invokeSignedRaw(&ix, &[_]CpiAccountInfo{ from, base, to, system_program }, signers);
+}
+
+/// Single-PDA fast path for `transferWithSeedSigned`.
+pub inline fn transferWithSeedSignedSingle(
+    from: CpiAccountInfo,
+    base: CpiAccountInfo,
+    to: CpiAccountInfo,
+    system_program: CpiAccountInfo,
+    from_seed: []const u8,
+    from_owner: *const Pubkey,
+    lamports: u64,
+    signer_seeds: anytype,
+) ProgramResult {
+    if (from_seed.len > MAX_SEED_LEN) return error.MaxSeedLengthExceeded;
+
+    var ix_data = StackIxDataWriter(variableSeedIxCapacity(
+        DISCRIMINANT_BYTES + U64_BYTES + U64_BYTES + PUBKEY_BYTES,
+    )).init();
+    ix_data.writeDiscriminant(SystemInstruction.TransferWithSeed);
+    ix_data.writeU64(lamports);
+    ix_data.writeSeed(from_seed);
+    ix_data.writePubkey(from_owner);
+
+    const account_metas = [_]cpi.AccountMeta{
+        cpi.AccountMeta.writable(from.key()),
+        cpi.AccountMeta.signer(base.key()),
+        cpi.AccountMeta.writable(to.key()),
+    };
+
+    const ix = cpi.Instruction.fromCpiAccount(
+        system_program,
+        &account_metas,
+        ix_data.written(),
+    );
+
+    try cpi.invokeSignedSingle(&ix, &[_]CpiAccountInfo{ from, base, to, system_program }, signer_seeds);
 }
 
 /// Initialize a nonce account after creation.
@@ -1016,9 +1224,20 @@ test "system: seed-based helpers reject too-long seeds before CPI" {
         error.MaxSeedLengthExceeded,
         createAccountWithSeed(account, to, system_program, base.key(), &too_long, 1, 1, &owner),
     );
+    const bump_seed = [_]u8{1};
+    const signer = cpi.Signer.from(&cpi.seedPack(.{ "base", &bump_seed }));
+
     try std.testing.expectError(
         error.MaxSeedLengthExceeded,
         assignWithSeed(account, base, system_program, &too_long, &owner),
+    );
+    try std.testing.expectError(
+        error.MaxSeedLengthExceeded,
+        assignWithSeedSigned(account, base, system_program, &too_long, &owner, &.{signer}),
+    );
+    try std.testing.expectError(
+        error.MaxSeedLengthExceeded,
+        assignWithSeedSignedSingle(account, base, system_program, &too_long, &owner, .{ "base", &bump_seed }),
     );
     try std.testing.expectError(
         error.MaxSeedLengthExceeded,
@@ -1026,7 +1245,23 @@ test "system: seed-based helpers reject too-long seeds before CPI" {
     );
     try std.testing.expectError(
         error.MaxSeedLengthExceeded,
+        allocateWithSeedSigned(account, base, system_program, &too_long, 1, &owner, &.{signer}),
+    );
+    try std.testing.expectError(
+        error.MaxSeedLengthExceeded,
+        allocateWithSeedSignedSingle(account, base, system_program, &too_long, 1, &owner, .{ "base", &bump_seed }),
+    );
+    try std.testing.expectError(
+        error.MaxSeedLengthExceeded,
         transferWithSeed(account, base, to, system_program, &too_long, &owner, 1),
+    );
+    try std.testing.expectError(
+        error.MaxSeedLengthExceeded,
+        transferWithSeedSigned(account, base, to, system_program, &too_long, &owner, 1, &.{signer}),
+    );
+    try std.testing.expectError(
+        error.MaxSeedLengthExceeded,
+        transferWithSeedSignedSingle(account, base, to, system_program, &too_long, &owner, 1, .{ "base", &bump_seed }),
     );
 }
 

@@ -61,6 +61,7 @@ pub const AccountInfo = account.AccountInfo;
 pub const CpiAccountInfo = account.CpiAccountInfo;
 pub const MaybeAccount = account.MaybeAccount;
 pub const InstructionContext = entrypoint.InstructionContext;
+pub const IxDataCursor = instruction.IxDataCursor;
 pub const ProgramError = program_error.ProgramError;
 pub const ProgramResult = program_error.ProgramResult;
 pub const SUCCESS = program_error.SUCCESS;

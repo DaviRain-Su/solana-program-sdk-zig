@@ -287,6 +287,117 @@ pub fn IxDataReader(comptime Fields: type) type {
     };
 }
 
+/// Allocation-free cursor over compact instruction payloads.
+///
+/// Stores only the original instruction-data slice and the current
+/// offset. Checked reads, slices, and skips advance only on success.
+/// Segment/count helpers restore the prior offset on failure so caller
+/// code can treat them as all-or-nothing parse steps.
+pub const IxDataCursor = struct {
+    data: []const u8,
+    pos: usize,
+
+    const Self = @This();
+    pub const Error = error{InvalidInstructionData};
+
+    pub inline fn init(data: []const u8) Self {
+        return .{ .data = data, .pos = 0 };
+    }
+
+    pub inline fn offset(self: Self) usize {
+        return self.pos;
+    }
+
+    pub inline fn remaining(self: Self) usize {
+        return self.data.len - self.pos;
+    }
+
+    pub inline fn unread(self: Self) []const u8 {
+        return self.data[self.pos..];
+    }
+
+    pub inline fn read(self: *Self, comptime T: type) Error!T {
+        comptime requireLittleEndianInt(T, "IxDataCursor.read");
+
+        const size = @sizeOf(T);
+        if (self.remaining() < size) return error.InvalidInstructionData;
+
+        const out = std.mem.readInt(T, self.data[self.pos..][0..size], .little);
+        self.pos += size;
+        return out;
+    }
+
+    pub inline fn take(self: *Self, len: usize) Error![]const u8 {
+        if (self.remaining() < len) return error.InvalidInstructionData;
+
+        const start = self.pos;
+        self.pos += len;
+        return self.data[start..self.pos];
+    }
+
+    pub inline fn skip(self: *Self, len: usize) Error!void {
+        if (self.remaining() < len) return error.InvalidInstructionData;
+        self.pos += len;
+    }
+
+    pub inline fn readCount(self: *Self, comptime Count: type, max_count: Count) Error!Count {
+        comptime requirePrefixInt(Count, "IxDataCursor.readCount");
+
+        const start = self.pos;
+        errdefer self.pos = start;
+
+        const count = try self.read(Count);
+        if (count > max_count) return error.InvalidInstructionData;
+        return count;
+    }
+
+    pub inline fn takeLengthPrefixedCursor(
+        self: *Self,
+        comptime Len: type,
+        max_len: usize,
+    ) Error!Self {
+        comptime requirePrefixInt(Len, "IxDataCursor.takeLengthPrefixedCursor");
+
+        const start = self.pos;
+        errdefer self.pos = start;
+
+        const len = try self.read(Len);
+        const segment_len: usize = @intCast(len);
+        if (segment_len > max_len) return error.InvalidInstructionData;
+
+        const segment = try self.take(segment_len);
+        return Self.init(segment);
+    }
+
+    pub inline fn expectEnd(self: *const Self) Error!void {
+        if (self.remaining() != 0) return error.InvalidInstructionData;
+    }
+
+    pub inline fn finish(self: *const Self) Error!void {
+        try self.expectEnd();
+    }
+
+    fn requireLittleEndianInt(comptime T: type, comptime fn_name: []const u8) void {
+        const info = @typeInfo(T);
+        if (info != .int) {
+            @compileError(fn_name ++ " requires an integer type (got " ++ @typeName(T) ++ ")");
+        }
+    }
+
+    fn requirePrefixInt(comptime T: type, comptime fn_name: []const u8) void {
+        const info = @typeInfo(T);
+        if (info != .int) {
+            @compileError(fn_name ++ " requires an unsigned integer prefix type (got " ++ @typeName(T) ++ ")");
+        }
+        if (info.int.signedness != .unsigned) {
+            @compileError(fn_name ++ " requires an unsigned integer prefix type (got " ++ @typeName(T) ++ ")");
+        }
+        if (info.int.bits > @bitSizeOf(usize)) {
+            @compileError(fn_name ++ " prefix width exceeds usize on this target");
+        }
+    }
+};
+
 // =============================================================================
 // Tests
 // =============================================================================
@@ -421,4 +532,132 @@ test "instruction: parseTagUnchecked" {
     const Ix = enum(u8) { initialize, deposit, withdraw };
     try std.testing.expectEqual(Ix.deposit, parseTagUnchecked(Ix, &.{1}).?);
     try std.testing.expect(parseTagUnchecked(Ix, &.{}) == null);
+}
+
+test "instruction: IxDataCursor stores only slice and offset" {
+    const info = @typeInfo(IxDataCursor).@"struct";
+    try std.testing.expectEqual(@as(usize, 2), info.fields.len);
+    try std.testing.expect(info.fields[0].type == []const u8);
+    try std.testing.expect(info.fields[1].type == usize);
+    try std.testing.expectEqual(@sizeOf([]const u8) + @sizeOf(usize), @sizeOf(IxDataCursor));
+
+    const data = [_]u8{ 1, 2, 3 };
+    var cursor = IxDataCursor.init(&data);
+    try std.testing.expectEqual(@as(usize, 0), cursor.offset());
+    try std.testing.expectEqual(data.len, cursor.remaining());
+}
+
+test "instruction: IxDataCursor reads little-endian integers and advances only on success" {
+    const data = [_]u8{
+        0xff,
+        0x34, 0x12,
+        0x78, 0x56, 0x34, 0x12,
+        0xef, 0xcd, 0xab, 0x90, 0x78, 0x56, 0x34, 0x12,
+    };
+
+    var cursor = IxDataCursor.init(data[1..]);
+    try std.testing.expectEqual(@as(u16, 0x1234), try cursor.read(u16));
+    try std.testing.expectEqual(@as(usize, 2), cursor.offset());
+    try std.testing.expectEqual(@as(u32, 0x12345678), try cursor.read(u32));
+    try std.testing.expectEqual(@as(usize, 6), cursor.offset());
+    try std.testing.expectEqual(@as(u64, 0x1234567890abcdef), try cursor.read(u64));
+    try std.testing.expectEqual(@as(usize, 14), cursor.offset());
+
+    const before = cursor.offset();
+    try std.testing.expectError(error.InvalidInstructionData, cursor.read(u16));
+    try std.testing.expectEqual(before, cursor.offset());
+    try std.testing.expectEqual(@as(usize, 0), cursor.remaining());
+}
+
+test "instruction: IxDataCursor take and skip are bounded zero-copy operations" {
+    const data = [_]u8{ 0, 1, 2, 3, 4 };
+    var cursor = IxDataCursor.init(&data);
+
+    const empty = try cursor.take(0);
+    try std.testing.expectEqual(@as(usize, 0), empty.len);
+    try std.testing.expectEqual(@as(usize, 0), cursor.offset());
+    try std.testing.expectEqual(data.len, cursor.remaining());
+
+    const first = try cursor.take(2);
+    try std.testing.expectEqualSlices(u8, data[0..2], first);
+    try std.testing.expectEqual(@intFromPtr(&data[0]), @intFromPtr(first.ptr));
+    try std.testing.expectEqual(@as(usize, 2), cursor.offset());
+    try std.testing.expectEqual(@as(usize, 3), cursor.remaining());
+
+    try cursor.skip(0);
+    try std.testing.expectEqual(@as(usize, 2), cursor.offset());
+    try cursor.skip(2);
+    try std.testing.expectEqual(@as(usize, 4), cursor.offset());
+    try std.testing.expectEqual(@as(usize, 1), cursor.remaining());
+
+    const before_take = cursor.offset();
+    try std.testing.expectError(error.InvalidInstructionData, cursor.take(2));
+    try std.testing.expectEqual(before_take, cursor.offset());
+
+    const before_skip = cursor.offset();
+    try std.testing.expectError(error.InvalidInstructionData, cursor.skip(2));
+    try std.testing.expectEqual(before_skip, cursor.offset());
+
+    const last = try cursor.take(1);
+    try std.testing.expectEqualSlices(u8, data[4..5], last);
+    try std.testing.expectEqual(@as(usize, 5), cursor.offset());
+    try std.testing.expectEqual(@as(usize, 0), cursor.remaining());
+}
+
+test "instruction: IxDataCursor count and segment helpers rollback on failure" {
+    var count_cursor = IxDataCursor.init(&.{2});
+    try std.testing.expectEqual(@as(u8, 2), try count_cursor.readCount(u8, 4));
+    try std.testing.expectEqual(@as(usize, 1), count_cursor.offset());
+
+    var over_max_count = IxDataCursor.init(&.{5});
+    try std.testing.expectError(error.InvalidInstructionData, over_max_count.readCount(u8, 4));
+    try std.testing.expectEqual(@as(usize, 0), over_max_count.offset());
+
+    var short_count = IxDataCursor.init(&.{});
+    try std.testing.expectError(error.InvalidInstructionData, short_count.readCount(u16, 4));
+    try std.testing.expectEqual(@as(usize, 0), short_count.offset());
+
+    const payload = [_]u8{
+        4,
+        2,
+        0xaa, 0xbb,
+        0xcc,
+    };
+    var payload_cursor = IxDataCursor.init(&payload);
+    var outer = try payload_cursor.takeLengthPrefixedCursor(u8, 4);
+    try std.testing.expectEqual(@as(usize, 0), outer.offset());
+    try std.testing.expectEqual(@as(usize, 4), outer.remaining());
+    try std.testing.expectEqual(@as(usize, 5), payload_cursor.offset());
+    try std.testing.expectEqual(@as(usize, 0), payload_cursor.remaining());
+
+    var inner = try outer.takeLengthPrefixedCursor(u8, 2);
+    try std.testing.expectEqual(@as(usize, 0), inner.offset());
+    try std.testing.expectEqual(@as(usize, 2), inner.remaining());
+    try std.testing.expectEqualSlices(u8, &.{ 0xaa, 0xbb }, try inner.take(2));
+    try inner.expectEnd();
+
+    try std.testing.expectEqual(@as(u8, 0xcc), try outer.read(u8));
+    try outer.expectEnd();
+
+    var truncated = IxDataCursor.init(&.{ 3, 0xaa, 0xbb });
+    try std.testing.expectError(error.InvalidInstructionData, truncated.takeLengthPrefixedCursor(u8, 4));
+    try std.testing.expectEqual(@as(usize, 0), truncated.offset());
+
+    var over_max = IxDataCursor.init(&.{ 5, 0xaa, 0xbb, 0xcc, 0xdd, 0xee });
+    try std.testing.expectError(error.InvalidInstructionData, over_max.takeLengthPrefixedCursor(u8, 4));
+    try std.testing.expectEqual(@as(usize, 0), over_max.offset());
+}
+
+test "instruction: IxDataCursor expectEnd rejects trailing bytes without advancing" {
+    var exact = IxDataCursor.init(&.{ 1, 2 });
+    _ = try exact.take(2);
+    try exact.expectEnd();
+    try exact.finish();
+
+    var trailing = IxDataCursor.init(&.{ 1, 2 });
+    _ = try trailing.take(1);
+    const before = trailing.offset();
+    try std.testing.expectError(error.InvalidInstructionData, trailing.expectEnd());
+    try std.testing.expectEqual(before, trailing.offset());
+    try std.testing.expectEqual(@as(usize, 1), trailing.remaining());
 }

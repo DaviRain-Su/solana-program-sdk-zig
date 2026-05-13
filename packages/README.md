@@ -12,6 +12,8 @@ the root SDK via a path import.
 | [`spl-token-2022`](./spl-token-2022) | host + on-chain-safe parsing | ✅ v0.1 parsing-only | Token-2022 TLV + fixed-length extension parsing |
 | [`spl-ata`](./spl-ata) | dual | ✅ v0.1 | Associated Token Account address derivation + create CPI |
 | [`spl-memo`](./spl-memo) | dual | ✅ v0.1 | SPL Memo program CPI |
+| [`spl-token-metadata`](./spl-token-metadata) | on-chain/interface | 🚧 v0.1 scaffold | SPL Token Metadata interface scaffold: stable imports, interface-only roots, and raw instruction-builder boundaries |
+| [`spl-token-group`](./spl-token-group) | on-chain/interface | 🚧 v0.1 scaffold | SPL Token Group interface scaffold: stable imports, interface-only roots, and raw instruction-builder boundaries |
 | [`spl-transfer-hook`](./spl-transfer-hook) | on-chain/interface | 🚧 v0.1 interface-core | SPL Transfer Hook discriminators, validation PDA helper, raw `ExtraAccountMeta` helpers, and tested instruction builders/parsers |
 
 See [`../ROADMAP.md`](../ROADMAP.md#monorepo-分层) for the full
@@ -49,6 +51,10 @@ building) — `instruction.zig` constructs `sol.cpi.Instruction` /
 common on-chain case. `spl-token-2022` is the current parsing-only
 exception: v0.1 intentionally exports `id.zig`, `state.zig`, `tlv.zig`,
 and `extension.zig`, but no instruction-builder or CPI surface.
+Interface-only packages such as `spl-token-metadata`,
+`spl-token-group`, and `spl-transfer-hook` keep their public roots
+package-scoped and limited to raw instruction/state boundaries rather
+than full transaction orchestration.
 
 ## Adding a new package
 

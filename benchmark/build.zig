@@ -63,6 +63,7 @@ pub fn build(b: *std.Build) !void {
         .{ "benchmark_spl_token_mint_to_checked_multisig", "spl_token_mint_to_checked_multisig.zig" },
         .{ "benchmark_spl_token_transfer_checked_multisig", "spl_token_transfer_checked_multisig.zig" },
         .{ "benchmark_spl_token_approve_checked_multisig", "spl_token_approve_checked_multisig.zig" },
+        .{ "benchmark_spl_token_burn_multisig", "spl_token_burn_multisig.zig" },
     };
 
     inline for (spl_token_benchmarks) |bench| {

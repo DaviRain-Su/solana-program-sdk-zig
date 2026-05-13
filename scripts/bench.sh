@@ -74,6 +74,7 @@ BENCHES=(
     "spl_token_mint_to_checked_multisig"
     "spl_token_transfer_checked_multisig"
     "spl_token_approve_checked_multisig"
+    "spl_token_burn_multisig"
     "token_dispatch_transfer"
     "token_dispatch_burn"
     "token_dispatch_mint"

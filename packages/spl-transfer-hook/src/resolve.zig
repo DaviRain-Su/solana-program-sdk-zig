@@ -20,6 +20,7 @@ pub const EXTRA_ACCOUNT_METAS_SEED = "extra-account-metas";
 pub const tlv_entry_header_len: usize = sol.DISCRIMINATOR_LEN + @sizeOf(u32);
 pub const extra_account_meta_list_value_header_len: usize = @sizeOf(u32);
 pub const extra_account_meta_list_tlv_overhead_len: usize = tlv_entry_header_len + extra_account_meta_list_value_header_len;
+const max_indexed_extra_accounts: usize = std.math.maxInt(u8) + 1;
 
 pub fn findValidationAddress(
     mint: *const Pubkey,
@@ -104,6 +105,11 @@ pub const AccountKeyData = struct {
     data: ?[]const u8 = null,
 };
 
+const ResolvedExtraAccountMemo = struct {
+    present: [max_indexed_extra_accounts]bool = .{false} ** max_indexed_extra_accounts,
+    keys: [max_indexed_extra_accounts]Pubkey = undefined,
+};
+
 pub fn resolveExtraAccountMeta(
     extra_account_meta: *const meta.ExtraAccountMeta,
     instruction_data: []const u8,
@@ -167,45 +173,28 @@ pub fn resolveExtraAccountMetaList(
     if (out_metas.len < extra_account_metas.len()) return ProgramError.InvalidAccountData;
     if (out_keys.len < extra_account_metas.len()) return ProgramError.InvalidAccountData;
 
+    var memo = ResolvedExtraAccountMemo{};
+    for (0..extra_account_metas.len()) |i| {
+        _ = try resolveExtraAccountMetaListEntry(
+            extra_account_metas,
+            i,
+            instruction_data,
+            hook_program_id,
+            base_accounts,
+            &memo,
+        );
+    }
+
     for (0..extra_account_metas.len()) |i| {
         const extra_account_meta = try extra_account_metas.get(i);
-        try extra_account_meta.validate();
-
-        switch (extra_account_meta.discriminator) {
-            meta.ACCOUNT_META_DISCRIMINATOR => {
-                out_keys[i] = extra_account_meta.address_config;
-            },
-            meta.HOOK_PROGRAM_PDA_DISCRIMINATOR => {
-                out_keys[i] = try resolveDynamicPda(
-                    &extra_account_meta.address_config,
-                    instruction_data,
-                    hook_program_id,
-                    base_accounts,
-                    out_keys[0..i],
-                );
-            },
-            meta.PUBKEY_DATA_DISCRIMINATOR => {
-                out_keys[i] = try resolvePubkeyData(
-                    &extra_account_meta.address_config,
-                    instruction_data,
-                    base_accounts,
-                    out_keys[0..i],
-                );
-            },
-            else => |discriminator| {
-                if (discriminator < meta.EXTERNAL_PDA_DISCRIMINATOR_MIN) return ProgramError.InvalidAccountData;
-                const program_index = discriminator - meta.EXTERNAL_PDA_DISCRIMINATOR_MIN;
-                const program_id = lookupAccount(program_index, base_accounts, out_keys[0..i])
-                    orelse return ProgramError.InvalidAccountData;
-                out_keys[i] = try resolveDynamicPda(
-                    &extra_account_meta.address_config,
-                    instruction_data,
-                    program_id.key,
-                    base_accounts,
-                    out_keys[0..i],
-                );
-            },
-        }
+        out_keys[i] = try resolveExtraAccountMetaListEntry(
+            extra_account_metas,
+            i,
+            instruction_data,
+            hook_program_id,
+            base_accounts,
+            &memo,
+        );
 
         out_metas[i] = .{
             .pubkey = &out_keys[i],
@@ -253,6 +242,26 @@ pub fn validateExecuteExtraAccountInfos(
     out_metas: []AccountMeta,
     out_keys: []Pubkey,
 ) ProgramError![]const AccountMeta {
+    if (base_accounts.len < instruction.execute_with_extra_account_metas_prefix_len) {
+        return ProgramError.NotEnoughAccountKeys;
+    }
+    if (base_accounts.len > instruction.execute_with_extra_account_metas_prefix_len) {
+        return ProgramError.InvalidArgument;
+    }
+    if (!sol.pubkey.pubkeyEq(base_accounts[1].key, mint)) {
+        return ProgramError.InvalidArgument;
+    }
+    if (!sol.pubkey.pubkeyEq(base_accounts[4].key, validation_account.key())) {
+        return ProgramError.InvalidArgument;
+    }
+
+    const execute_base_accounts = [_]AccountKeyData{
+        base_accounts[0],
+        .{ .key = mint, .data = base_accounts[1].data },
+        base_accounts[2],
+        base_accounts[3],
+        .{ .key = validation_account.key(), .data = validation_account.data() },
+    };
     const extra_account_metas = try unpackExecuteExtraAccountMetaListFromAccount(
         validation_account,
         mint,
@@ -262,11 +271,79 @@ pub fn validateExecuteExtraAccountInfos(
         extra_account_metas,
         instruction_data,
         hook_program_id,
-        base_accounts,
+        execute_base_accounts[0..],
         out_metas,
         out_keys,
     );
     try validateResolvedExtraAccountInfos(resolved, extra_accounts);
+    return resolved;
+}
+
+fn resolveExtraAccountMetaListEntry(
+    extra_account_metas: meta.ExtraAccountMetaSlice,
+    extra_account_meta_index: usize,
+    instruction_data: []const u8,
+    hook_program_id: *const Pubkey,
+    base_accounts: []const AccountKeyData,
+    memo: *ResolvedExtraAccountMemo,
+) ProgramError!Pubkey {
+    if (extra_account_meta_index < memo.keys.len and memo.present[extra_account_meta_index]) {
+        return memo.keys[extra_account_meta_index];
+    }
+
+    const extra_account_meta = try extra_account_metas.get(extra_account_meta_index);
+    try extra_account_meta.validate();
+
+    const resolved = switch (extra_account_meta.discriminator) {
+        meta.ACCOUNT_META_DISCRIMINATOR => extra_account_meta.address_config,
+        meta.HOOK_PROGRAM_PDA_DISCRIMINATOR => try resolveDynamicPdaFromMetaList(
+            &extra_account_meta.address_config,
+            instruction_data,
+            hook_program_id,
+            hook_program_id,
+            extra_account_metas,
+            extra_account_meta_index,
+            base_accounts,
+            memo,
+        ),
+        meta.PUBKEY_DATA_DISCRIMINATOR => try resolvePubkeyDataFromMetaList(
+            &extra_account_meta.address_config,
+            instruction_data,
+            hook_program_id,
+            extra_account_metas,
+            extra_account_meta_index,
+            base_accounts,
+            memo,
+        ),
+        else => |discriminator| blk: {
+            if (discriminator < meta.EXTERNAL_PDA_DISCRIMINATOR_MIN) return ProgramError.InvalidAccountData;
+            const program_index = discriminator - meta.EXTERNAL_PDA_DISCRIMINATOR_MIN;
+            const program_id = try lookupAccountFromMetaList(
+                program_index,
+                extra_account_metas,
+                extra_account_meta_index,
+                instruction_data,
+                hook_program_id,
+                base_accounts,
+                memo,
+            );
+            break :blk try resolveDynamicPdaFromMetaList(
+                &extra_account_meta.address_config,
+                instruction_data,
+                program_id.key,
+                hook_program_id,
+                extra_account_metas,
+                extra_account_meta_index,
+                base_accounts,
+                memo,
+            );
+        },
+    };
+
+    if (extra_account_meta_index < memo.keys.len) {
+        memo.keys[extra_account_meta_index] = resolved;
+        memo.present[extra_account_meta_index] = true;
+    }
     return resolved;
 }
 
@@ -304,6 +381,57 @@ fn resolveDynamicPda(
     return (try sol.pda.findProgramAddress(resolved_seeds[0..resolved_seed_count], program_id)).address;
 }
 
+fn resolveDynamicPdaFromMetaList(
+    address_config: *const [32]u8,
+    instruction_data: []const u8,
+    program_id: *const Pubkey,
+    hook_program_id: *const Pubkey,
+    extra_account_metas: meta.ExtraAccountMetaSlice,
+    extra_account_meta_index: usize,
+    base_accounts: []const AccountKeyData,
+    memo: *ResolvedExtraAccountMemo,
+) ProgramError!Pubkey {
+    var resolved_seeds: [seed.max_seed_configs_per_address_config][]const u8 = undefined;
+    var resolved_seed_count: usize = 0;
+    var it = seed.iterator(address_config);
+
+    while (try it.next()) |seed_config| {
+        if (resolved_seed_count >= resolved_seeds.len) return ProgramError.InvalidAccountData;
+        resolved_seeds[resolved_seed_count] = switch (seed_config) {
+            .literal => |bytes| bytes,
+            .instruction_data => |source| try resolveInstructionDataSeed(instruction_data, source.index, source.length),
+            .account_key => |source| blk: {
+                const account = try lookupAccountFromMetaList(
+                    source.index,
+                    extra_account_metas,
+                    extra_account_meta_index,
+                    instruction_data,
+                    hook_program_id,
+                    base_accounts,
+                    memo,
+                );
+                break :blk account.key[0..];
+            },
+            .account_data => |source| blk: {
+                const account = try lookupAccountFromMetaList(
+                    source.account_index,
+                    extra_account_metas,
+                    extra_account_meta_index,
+                    instruction_data,
+                    hook_program_id,
+                    base_accounts,
+                    memo,
+                );
+                const account_data = account.data orelse return ProgramError.InvalidAccountData;
+                break :blk try resolveInstructionDataSeed(account_data, source.data_index, source.length);
+            },
+        };
+        resolved_seed_count += 1;
+    }
+
+    return (try sol.pda.findProgramAddress(resolved_seeds[0..resolved_seed_count], program_id)).address;
+}
+
 fn resolveInstructionDataSeed(bytes: []const u8, start: u8, length: u8) ProgramError![]const u8 {
     if (length > sol.pda.MAX_SEED_LEN) return ProgramError.InvalidAccountData;
     const begin: usize = start;
@@ -323,6 +451,33 @@ fn resolvePubkeyData(
         .account_data => |source| blk: {
             const account = lookupAccount(source.account_index, base_accounts, resolved_keys)
                 orelse return ProgramError.InvalidAccountData;
+            const account_data = account.data orelse return ProgramError.InvalidAccountData;
+            break :blk try resolvePubkeyBytes(account_data, source.data_index);
+        },
+    };
+}
+
+fn resolvePubkeyDataFromMetaList(
+    address_config: *const [32]u8,
+    instruction_data: []const u8,
+    hook_program_id: *const Pubkey,
+    extra_account_metas: meta.ExtraAccountMetaSlice,
+    extra_account_meta_index: usize,
+    base_accounts: []const AccountKeyData,
+    memo: *ResolvedExtraAccountMemo,
+) ProgramError!Pubkey {
+    return switch (try pubkey_data.unpackAddressConfig(address_config)) {
+        .instruction_data => |source| try resolvePubkeyBytes(instruction_data, source.index),
+        .account_data => |source| blk: {
+            const account = try lookupAccountFromMetaList(
+                source.account_index,
+                extra_account_metas,
+                extra_account_meta_index,
+                instruction_data,
+                hook_program_id,
+                base_accounts,
+                memo,
+            );
             const account_data = account.data orelse return ProgramError.InvalidAccountData;
             break :blk try resolvePubkeyBytes(account_data, source.data_index);
         },
@@ -351,6 +506,36 @@ fn lookupAccount(
     if (resolved_index >= resolved_keys.len) return null;
     return .{
         .key = &resolved_keys[resolved_index],
+        .data = null,
+    };
+}
+
+fn lookupAccountFromMetaList(
+    index: u8,
+    extra_account_metas: meta.ExtraAccountMetaSlice,
+    extra_account_meta_index: usize,
+    instruction_data: []const u8,
+    hook_program_id: *const Pubkey,
+    base_accounts: []const AccountKeyData,
+    memo: *ResolvedExtraAccountMemo,
+) ProgramError!AccountKeyData {
+    const idx: usize = index;
+    if (idx < base_accounts.len) return base_accounts[idx];
+
+    const resolved_index = idx - base_accounts.len;
+    if (resolved_index >= extra_account_meta_index) return ProgramError.InvalidAccountData;
+    if (resolved_index >= memo.keys.len) return ProgramError.InvalidAccountData;
+
+    _ = try resolveExtraAccountMetaListEntry(
+        extra_account_metas,
+        resolved_index,
+        instruction_data,
+        hook_program_id,
+        base_accounts,
+        memo,
+    );
+    return .{
+        .key = &memo.keys[resolved_index],
         .data = null,
     };
 }
@@ -1069,6 +1254,450 @@ test "account-consuming Execute validation enforces declared extra-account order
             out_keys[0..],
         ),
     );
+}
+
+test "Execute validation requires the exact fixed Execute prefix and canonical validation slot" {
+    const hook_program_id: Pubkey = .{0x5a} ** 32;
+    const mint: Pubkey = .{0x19} ** 32;
+    const source: Pubkey = .{0x11} ** 32;
+    const destination: Pubkey = .{0x33} ** 32;
+    const authority: Pubkey = .{0x44} ** 32;
+    const extra: Pubkey = .{0xa1} ** 32;
+
+    const validation = findValidationAddress(&mint, &hook_program_id);
+    const entries = [_]meta.ExtraAccountMeta{
+        meta.ExtraAccountMeta.fixed(&extra, false, false),
+    };
+
+    var meta_bytes: [entries.len * meta.EXTRA_ACCOUNT_META_LEN]u8 = undefined;
+    inline for (entries, 0..) |entry, i| {
+        entry.write(meta_bytes[i * meta.EXTRA_ACCOUNT_META_LEN ..][0..meta.EXTRA_ACCOUNT_META_LEN]);
+    }
+
+    var value: [4 + meta_bytes.len]u8 = undefined;
+    std.mem.writeInt(u32, value[0..4], entries.len, .little);
+    @memcpy(value[4..], meta_bytes[0..]);
+
+    var tlv_data: [tlv_entry_header_len + value.len]u8 = undefined;
+    writeTestTlvEntry(&instruction.EXECUTE_DISCRIMINATOR, value[0..], tlv_data[0..]);
+
+    var validation_account = TestAccount(tlv_data.len).init(.{
+        .key = validation.address,
+        .owner = hook_program_id,
+        .data = tlv_data,
+    });
+    var extra_account = TestAccount(0).init(.{
+        .key = extra,
+        .owner = .{0x01} ** 32,
+    });
+
+    const canonical_base_accounts = [_]AccountKeyData{
+        .{ .key = &source, .data = null },
+        .{ .key = &mint, .data = null },
+        .{ .key = &destination, .data = null },
+        .{ .key = &authority, .data = null },
+        .{ .key = validation_account.info().key(), .data = validation_account.info().data() },
+    };
+    const shifted_base_accounts = [_]AccountKeyData{
+        .{ .key = &mint, .data = null },
+        .{ .key = &destination, .data = null },
+        .{ .key = &authority, .data = null },
+        .{ .key = validation_account.info().key(), .data = validation_account.info().data() },
+        .{ .key = &extra, .data = null },
+    };
+    const too_many_base_accounts = [_]AccountKeyData{
+        canonical_base_accounts[0],
+        canonical_base_accounts[1],
+        canonical_base_accounts[2],
+        canonical_base_accounts[3],
+        canonical_base_accounts[4],
+        .{ .key = &extra, .data = null },
+    };
+
+    var execute_data: instruction.ExecuteData = undefined;
+    @memcpy(execute_data[0..sol.DISCRIMINATOR_LEN], &instruction.EXECUTE_DISCRIMINATOR);
+    std.mem.writeInt(u64, execute_data[sol.DISCRIMINATOR_LEN..][0..@sizeOf(u64)], 42, .little);
+
+    var out_metas: [entries.len]AccountMeta = undefined;
+    var out_keys: [entries.len]Pubkey = undefined;
+
+    const validated = try validateExecuteExtraAccountInfos(
+        validation_account.info(),
+        &mint,
+        &hook_program_id,
+        execute_data[0..],
+        canonical_base_accounts[0..],
+        &.{extra_account.info()},
+        out_metas[0..],
+        out_keys[0..],
+    );
+    try std.testing.expectEqual(@as(usize, 1), validated.len);
+    try std.testing.expectEqualSlices(u8, &extra, validated[0].pubkey[0..]);
+
+    try std.testing.expectError(
+        ProgramError.NotEnoughAccountKeys,
+        validateExecuteExtraAccountInfos(
+            validation_account.info(),
+            &mint,
+            &hook_program_id,
+            execute_data[0..],
+            canonical_base_accounts[0..4],
+            &.{extra_account.info()},
+            out_metas[0..],
+            out_keys[0..],
+        ),
+    );
+    try std.testing.expectError(
+        ProgramError.InvalidArgument,
+        validateExecuteExtraAccountInfos(
+            validation_account.info(),
+            &mint,
+            &hook_program_id,
+            execute_data[0..],
+            too_many_base_accounts[0..],
+            &.{extra_account.info()},
+            out_metas[0..],
+            out_keys[0..],
+        ),
+    );
+    try std.testing.expectError(
+        ProgramError.InvalidArgument,
+        validateExecuteExtraAccountInfos(
+            validation_account.info(),
+            &mint,
+            &hook_program_id,
+            execute_data[0..],
+            shifted_base_accounts[0..],
+            &.{extra_account.info()},
+            out_metas[0..],
+            out_keys[0..],
+        ),
+    );
+}
+
+test "remaining-account resolver rejects self, forward, and cyclic dependencies" {
+    const hook_program_id: Pubkey = .{0x62} ** 32;
+    const base_program: Pubkey = .{0x17} ** 32;
+    const previous_extra: Pubkey = .{0x83} ** 32;
+
+    const base_accounts = [_]AccountKeyData{
+        .{ .key = &base_program, .data = null },
+    };
+
+    const valid_entries = [_]meta.ExtraAccountMeta{
+        meta.ExtraAccountMeta.fixed(&previous_extra, false, false),
+        try meta.ExtraAccountMeta.hookProgramDerived(
+            &.{
+                .{ .literal = "prior" },
+                .{ .account_key = .{ .index = 1 } },
+            },
+            false,
+            false,
+        ),
+    };
+    var valid_bytes: [valid_entries.len * meta.EXTRA_ACCOUNT_META_LEN]u8 = undefined;
+    inline for (valid_entries, 0..) |entry, i| {
+        entry.write(valid_bytes[i * meta.EXTRA_ACCOUNT_META_LEN ..][0..meta.EXTRA_ACCOUNT_META_LEN]);
+    }
+    const valid_slice = try meta.ExtraAccountMetaSlice.init(valid_bytes[0..]);
+
+    var valid_out_metas: [valid_entries.len]AccountMeta = undefined;
+    var valid_out_keys: [valid_entries.len]Pubkey = undefined;
+    const valid_resolved = try resolveExtraAccountMetaList(
+        valid_slice,
+        &.{},
+        &hook_program_id,
+        base_accounts[0..],
+        valid_out_metas[0..],
+        valid_out_keys[0..],
+    );
+    const expected_prior = (try sol.pda.findProgramAddress(
+        &.{ "prior", &previous_extra },
+        &hook_program_id,
+    )).address;
+    try std.testing.expectEqual(@as(usize, 2), valid_resolved.len);
+    try std.testing.expectEqualSlices(u8, &expected_prior, valid_resolved[1].pubkey[0..]);
+
+    const self_ref_entries = [_]meta.ExtraAccountMeta{
+        try meta.ExtraAccountMeta.hookProgramDerived(
+            &.{.{ .account_key = .{ .index = 1 } }},
+            false,
+            false,
+        ),
+    };
+    var self_ref_bytes: [self_ref_entries.len * meta.EXTRA_ACCOUNT_META_LEN]u8 = undefined;
+    inline for (self_ref_entries, 0..) |entry, i| {
+        entry.write(self_ref_bytes[i * meta.EXTRA_ACCOUNT_META_LEN ..][0..meta.EXTRA_ACCOUNT_META_LEN]);
+    }
+    const self_ref_slice = try meta.ExtraAccountMetaSlice.init(self_ref_bytes[0..]);
+    var self_ref_out_metas: [self_ref_entries.len]AccountMeta = undefined;
+    var self_ref_out_keys: [self_ref_entries.len]Pubkey = undefined;
+    try std.testing.expectError(
+        ProgramError.InvalidAccountData,
+        resolveExtraAccountMetaList(
+            self_ref_slice,
+            &.{},
+            &hook_program_id,
+            base_accounts[0..],
+            self_ref_out_metas[0..],
+            self_ref_out_keys[0..],
+        ),
+    );
+
+    const forward_ref_entries = [_]meta.ExtraAccountMeta{
+        try meta.ExtraAccountMeta.hookProgramDerived(
+            &.{.{ .account_key = .{ .index = 2 } }},
+            false,
+            false,
+        ),
+        meta.ExtraAccountMeta.fixed(&previous_extra, false, false),
+    };
+    var forward_ref_bytes: [forward_ref_entries.len * meta.EXTRA_ACCOUNT_META_LEN]u8 = undefined;
+    inline for (forward_ref_entries, 0..) |entry, i| {
+        entry.write(forward_ref_bytes[i * meta.EXTRA_ACCOUNT_META_LEN ..][0..meta.EXTRA_ACCOUNT_META_LEN]);
+    }
+    const forward_ref_slice = try meta.ExtraAccountMetaSlice.init(forward_ref_bytes[0..]);
+    var forward_ref_out_metas: [forward_ref_entries.len]AccountMeta = undefined;
+    var forward_ref_out_keys: [forward_ref_entries.len]Pubkey = undefined;
+    try std.testing.expectError(
+        ProgramError.InvalidAccountData,
+        resolveExtraAccountMetaList(
+            forward_ref_slice,
+            &.{},
+            &hook_program_id,
+            base_accounts[0..],
+            forward_ref_out_metas[0..],
+            forward_ref_out_keys[0..],
+        ),
+    );
+    try std.testing.expectError(
+        ProgramError.InvalidAccountData,
+        resolveExtraAccountMetaList(
+            forward_ref_slice,
+            &.{},
+            &hook_program_id,
+            base_accounts[0..],
+            forward_ref_out_metas[0..],
+            forward_ref_out_keys[0..],
+        ),
+    );
+
+    const cyclic_entries = [_]meta.ExtraAccountMeta{
+        try meta.ExtraAccountMeta.hookProgramDerived(
+            &.{.{ .account_key = .{ .index = 2 } }},
+            false,
+            false,
+        ),
+        try meta.ExtraAccountMeta.hookProgramDerived(
+            &.{.{ .account_key = .{ .index = 1 } }},
+            false,
+            false,
+        ),
+    };
+    var cyclic_bytes: [cyclic_entries.len * meta.EXTRA_ACCOUNT_META_LEN]u8 = undefined;
+    inline for (cyclic_entries, 0..) |entry, i| {
+        entry.write(cyclic_bytes[i * meta.EXTRA_ACCOUNT_META_LEN ..][0..meta.EXTRA_ACCOUNT_META_LEN]);
+    }
+    const cyclic_slice = try meta.ExtraAccountMetaSlice.init(cyclic_bytes[0..]);
+    var cyclic_out_metas: [cyclic_entries.len]AccountMeta = undefined;
+    var cyclic_out_keys: [cyclic_entries.len]Pubkey = undefined;
+    try std.testing.expectError(
+        ProgramError.InvalidAccountData,
+        resolveExtraAccountMetaList(
+            cyclic_slice,
+            &.{},
+            &hook_program_id,
+            base_accounts[0..],
+            cyclic_out_metas[0..],
+            cyclic_out_keys[0..],
+        ),
+    );
+}
+
+test "external PDA program-source handling is explicit, bounded, and rejects forward references" {
+    const hook_program_id: Pubkey = .{0x72} ** 32;
+    const base_account: Pubkey = .{0x24} ** 32;
+    const external_program_id: Pubkey = .{0xb1} ** 32;
+    const instruction_data = [_]u8{ 0x01, 0x02, 0x03, 0x04 };
+    const seeds = [_]Seed{.{ .instruction_data = .{ .index = 1, .length = 2 } }};
+
+    const base_accounts = [_]AccountKeyData{
+        .{ .key = &base_account, .data = null },
+    };
+
+    const valid_entries = [_]meta.ExtraAccountMeta{
+        meta.ExtraAccountMeta.fixed(&external_program_id, false, false),
+        try meta.ExtraAccountMeta.externalProgramDerived(1, &seeds, false, false),
+    };
+    var valid_bytes: [valid_entries.len * meta.EXTRA_ACCOUNT_META_LEN]u8 = undefined;
+    inline for (valid_entries, 0..) |entry, i| {
+        entry.write(valid_bytes[i * meta.EXTRA_ACCOUNT_META_LEN ..][0..meta.EXTRA_ACCOUNT_META_LEN]);
+    }
+    const valid_slice = try meta.ExtraAccountMetaSlice.init(valid_bytes[0..]);
+
+    var valid_out_metas: [valid_entries.len]AccountMeta = undefined;
+    var valid_out_keys: [valid_entries.len]Pubkey = undefined;
+    const valid_resolved = try resolveExtraAccountMetaList(
+        valid_slice,
+        instruction_data[0..],
+        &hook_program_id,
+        base_accounts[0..],
+        valid_out_metas[0..],
+        valid_out_keys[0..],
+    );
+    const expected_external = (try sol.pda.findProgramAddress(
+        &.{instruction_data[1..3]},
+        &external_program_id,
+    )).address;
+    try std.testing.expectEqual(@as(usize, 2), valid_resolved.len);
+    try std.testing.expectEqualSlices(u8, &expected_external, valid_resolved[1].pubkey[0..]);
+
+    const forward_entries = [_]meta.ExtraAccountMeta{
+        try meta.ExtraAccountMeta.externalProgramDerived(2, &seeds, false, false),
+        meta.ExtraAccountMeta.fixed(&external_program_id, false, false),
+    };
+    var forward_bytes: [forward_entries.len * meta.EXTRA_ACCOUNT_META_LEN]u8 = undefined;
+    inline for (forward_entries, 0..) |entry, i| {
+        entry.write(forward_bytes[i * meta.EXTRA_ACCOUNT_META_LEN ..][0..meta.EXTRA_ACCOUNT_META_LEN]);
+    }
+    const forward_slice = try meta.ExtraAccountMetaSlice.init(forward_bytes[0..]);
+    var forward_out_metas: [forward_entries.len]AccountMeta = undefined;
+    var forward_out_keys: [forward_entries.len]Pubkey = undefined;
+    try std.testing.expectError(
+        ProgramError.InvalidAccountData,
+        resolveExtraAccountMetaList(
+            forward_slice,
+            instruction_data[0..],
+            &hook_program_id,
+            base_accounts[0..],
+            forward_out_metas[0..],
+            forward_out_keys[0..],
+        ),
+    );
+
+    const out_of_range_meta = try meta.ExtraAccountMeta.externalProgramDerived(3, &seeds, false, false);
+    var single_resolved_key: Pubkey = undefined;
+    try std.testing.expectError(
+        ProgramError.InvalidAccountData,
+        resolveExtraAccountMeta(
+            &out_of_range_meta,
+            instruction_data[0..],
+            &hook_program_id,
+            base_accounts[0..],
+            &single_resolved_key,
+        ),
+    );
+}
+
+test "remaining-account resolution failures are side-effect-free and retry-stable" {
+    const hook_program_id: Pubkey = .{0x79} ** 32;
+    const base_key: Pubkey = .{0x31} ** 32;
+    const first_extra: Pubkey = .{0xa3} ** 32;
+
+    const base_accounts = [_]AccountKeyData{
+        .{ .key = &base_key, .data = null },
+    };
+
+    const failing_entries = [_]meta.ExtraAccountMeta{
+        meta.ExtraAccountMeta.fixed(&first_extra, false, true),
+        try meta.ExtraAccountMeta.hookProgramDerived(
+            &.{
+                .{ .literal = "missing" },
+                .{ .account_key = .{ .index = 3 } },
+            },
+            false,
+            false,
+        ),
+    };
+    var failing_bytes: [failing_entries.len * meta.EXTRA_ACCOUNT_META_LEN]u8 = undefined;
+    inline for (failing_entries, 0..) |entry, i| {
+        entry.write(failing_bytes[i * meta.EXTRA_ACCOUNT_META_LEN ..][0..meta.EXTRA_ACCOUNT_META_LEN]);
+    }
+    const failing_slice = try meta.ExtraAccountMetaSlice.init(failing_bytes[0..]);
+
+    var sentinel_meta_key_a: Pubkey = .{0xc4} ** 32;
+    var sentinel_meta_key_b: Pubkey = .{0xd5} ** 32;
+    const sentinel_out_key_a: Pubkey = .{0xe6} ** 32;
+    const sentinel_out_key_b: Pubkey = .{0xf7} ** 32;
+
+    var out_metas = [_]AccountMeta{
+        .{ .pubkey = &sentinel_meta_key_a, .is_signer = 1, .is_writable = 0 },
+        .{ .pubkey = &sentinel_meta_key_b, .is_signer = 0, .is_writable = 1 },
+    };
+    var out_keys = [_]Pubkey{ sentinel_out_key_a, sentinel_out_key_b };
+
+    try std.testing.expectError(
+        ProgramError.InvalidAccountData,
+        resolveExtraAccountMetaList(
+            failing_slice,
+            &.{},
+            &hook_program_id,
+            base_accounts[0..],
+            out_metas[0..],
+            out_keys[0..],
+        ),
+    );
+    try std.testing.expectEqual(@intFromPtr(@as(*const Pubkey, @ptrCast(&sentinel_meta_key_a))), @intFromPtr(out_metas[0].pubkey));
+    try std.testing.expectEqual(@as(u8, 1), out_metas[0].is_signer);
+    try std.testing.expectEqual(@as(u8, 0), out_metas[0].is_writable);
+    try std.testing.expectEqual(@intFromPtr(@as(*const Pubkey, @ptrCast(&sentinel_meta_key_b))), @intFromPtr(out_metas[1].pubkey));
+    try std.testing.expectEqual(@as(u8, 0), out_metas[1].is_signer);
+    try std.testing.expectEqual(@as(u8, 1), out_metas[1].is_writable);
+    try std.testing.expectEqualSlices(u8, &sentinel_out_key_a, &out_keys[0]);
+    try std.testing.expectEqualSlices(u8, &sentinel_out_key_b, &out_keys[1]);
+
+    try std.testing.expectError(
+        ProgramError.InvalidAccountData,
+        resolveExtraAccountMetaList(
+            failing_slice,
+            &.{},
+            &hook_program_id,
+            base_accounts[0..],
+            out_metas[0..],
+            out_keys[0..],
+        ),
+    );
+    try std.testing.expectEqual(@intFromPtr(@as(*const Pubkey, @ptrCast(&sentinel_meta_key_a))), @intFromPtr(out_metas[0].pubkey));
+    try std.testing.expectEqual(@as(u8, 1), out_metas[0].is_signer);
+    try std.testing.expectEqual(@as(u8, 0), out_metas[0].is_writable);
+    try std.testing.expectEqual(@intFromPtr(@as(*const Pubkey, @ptrCast(&sentinel_meta_key_b))), @intFromPtr(out_metas[1].pubkey));
+    try std.testing.expectEqual(@as(u8, 0), out_metas[1].is_signer);
+    try std.testing.expectEqual(@as(u8, 1), out_metas[1].is_writable);
+    try std.testing.expectEqualSlices(u8, &sentinel_out_key_a, &out_keys[0]);
+    try std.testing.expectEqualSlices(u8, &sentinel_out_key_b, &out_keys[1]);
+
+    const success_entries = [_]meta.ExtraAccountMeta{
+        meta.ExtraAccountMeta.fixed(&first_extra, false, true),
+        try meta.ExtraAccountMeta.hookProgramDerived(
+            &.{
+                .{ .literal = "ok" },
+                .{ .account_key = .{ .index = 1 } },
+            },
+            false,
+            false,
+        ),
+    };
+    var success_bytes: [success_entries.len * meta.EXTRA_ACCOUNT_META_LEN]u8 = undefined;
+    inline for (success_entries, 0..) |entry, i| {
+        entry.write(success_bytes[i * meta.EXTRA_ACCOUNT_META_LEN ..][0..meta.EXTRA_ACCOUNT_META_LEN]);
+    }
+    const success_slice = try meta.ExtraAccountMetaSlice.init(success_bytes[0..]);
+
+    const resolved = try resolveExtraAccountMetaList(
+        success_slice,
+        &.{},
+        &hook_program_id,
+        base_accounts[0..],
+        out_metas[0..],
+        out_keys[0..],
+    );
+    const expected_second = (try sol.pda.findProgramAddress(
+        &.{ "ok", &first_extra },
+        &hook_program_id,
+    )).address;
+    try std.testing.expectEqual(@as(usize, 2), resolved.len);
+    try std.testing.expectEqualSlices(u8, &first_extra, resolved[0].pubkey[0..]);
+    try std.testing.expectEqualSlices(u8, &expected_second, resolved[1].pubkey[0..]);
 }
 
 test "official TLV account-resolution parity vectors match Zig behavior" {

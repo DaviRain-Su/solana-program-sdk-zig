@@ -38,6 +38,16 @@ const MAX_SIGNERS = instruction.MAX_SIGNERS;
 const metasArray = instruction.metasArray;
 const dataArray = instruction.dataArray;
 
+const AmountDecimalsIx = sol.instruction.comptimeInstructionData(
+    u8,
+    extern struct { amount: u64 align(1), decimals: u8 },
+);
+
+const MultisigSignerMetaKind = enum {
+    signer,
+    readonly,
+};
+
 /// Make a `cpi.Instruction` carry the caller-supplied program ID
 /// instead of the comptime classic-SPL-Token ID — necessary so the
 /// same wrappers work against Token-2022.
@@ -117,6 +127,39 @@ fn multisigPubkeysAndRuntimeAccounts(
     return .{
         .signer_pubkeys = staged.dynamic_pubkeys,
         .runtime_accounts = staged.runtime_accounts,
+    };
+}
+
+fn multisigMetasAndRuntimeAccounts(
+    comptime base_accounts_len: usize,
+    comptime fixed_len: usize,
+    signer_meta_kind: MultisigSignerMetaKind,
+    fixed_accounts: [fixed_len]CpiAccountInfo,
+    signer_infos: []const CpiAccountInfo,
+    token_program: CpiAccountInfo,
+    metas_out: *instruction.multisigMetasArray(base_accounts_len),
+    accounts_out: *[fixed_len + MAX_SIGNERS + 1]CpiAccountInfo,
+) ProgramError!struct {
+    instruction_accounts: []const AccountMeta,
+    runtime_accounts: []const CpiAccountInfo,
+} {
+    try validateSignerInfoCount(signer_infos);
+
+    for (fixed_accounts, 0..) |info, i| {
+        accounts_out[i] = info;
+    }
+    for (signer_infos, 0..) |info, i| {
+        metas_out[base_accounts_len + i] = switch (signer_meta_kind) {
+            .signer => AccountMeta.signer(info.key()),
+            .readonly => AccountMeta.readonly(info.key()),
+        };
+        accounts_out[fixed_len + i] = info;
+    }
+    accounts_out[fixed_len + signer_infos.len] = token_program;
+
+    return .{
+        .instruction_accounts = metas_out[0 .. base_accounts_len + signer_infos.len],
+        .runtime_accounts = accounts_out[0 .. fixed_len + signer_infos.len + 1],
     };
 }
 
@@ -325,32 +368,29 @@ pub fn transferCheckedMultisig(
     amount: u64,
     decimals: u8,
 ) ProgramResult {
-    var signer_pubkeys_buf: [MAX_SIGNERS]Pubkey = undefined;
+    var metas: instruction.multisigMetasArray(instruction.transfer_checked_spec.accounts_len) = undefined;
+    metas[0] = AccountMeta.writable(source.key());
+    metas[1] = AccountMeta.readonly(mint.key());
+    metas[2] = AccountMeta.writable(destination.key());
+    metas[3] = AccountMeta.readonly(multisig_authority.key());
+
     var accounts: [instruction.transfer_checked_spec.accounts_len + MAX_SIGNERS + 1]CpiAccountInfo = undefined;
-    const staged = try multisigPubkeysAndRuntimeAccounts(
+    const staged = try multisigMetasAndRuntimeAccounts(
         instruction.transfer_checked_spec.accounts_len,
+        instruction.transfer_checked_spec.accounts_len,
+        .signer,
         .{ source, mint, destination, multisig_authority },
         signer_infos,
         token_program,
-        &signer_pubkeys_buf,
+        &metas,
         &accounts,
     );
-    var metas: instruction.multisigMetasArray(instruction.transfer_checked_spec.accounts_len) = undefined;
-    var data: dataArray(instruction.transfer_checked_spec) = undefined;
-    const ix = rebrand(
-        instruction.transferCheckedMultisig(
-            source.key(),
-            mint.key(),
-            destination.key(),
-            multisig_authority.key(),
-            staged.signer_pubkeys,
-            amount,
-            decimals,
-            &metas,
-            &data,
-        ) catch |err| return mapMultisigInstructionError(err),
-        token_program.key(),
+
+    const data: dataArray(instruction.transfer_checked_spec) = AmountDecimalsIx.initWithDiscriminant(
+        @intFromEnum(instruction.TokenInstruction.transfer_checked),
+        .{ .amount = amount, .decimals = decimals },
     );
+    const ix = Instruction.fromCpiAccount(token_program, staged.instruction_accounts, &data);
     try sol.cpi.invokeRaw(&ix, staged.runtime_accounts);
 }
 
@@ -1175,31 +1215,28 @@ pub fn mintToCheckedMultisig(
     amount: u64,
     decimals: u8,
 ) ProgramResult {
-    var signer_pubkeys_buf: [MAX_SIGNERS]Pubkey = undefined;
+    var metas: instruction.multisigMetasArray(instruction.mint_to_checked_spec.accounts_len) = undefined;
+    metas[0] = AccountMeta.writable(mint.key());
+    metas[1] = AccountMeta.writable(destination.key());
+    metas[2] = AccountMeta.readonly(multisig_authority.key());
+
     var accounts: [instruction.mint_to_checked_spec.accounts_len + MAX_SIGNERS + 1]CpiAccountInfo = undefined;
-    const staged = try multisigPubkeysAndRuntimeAccounts(
+    const staged = try multisigMetasAndRuntimeAccounts(
         instruction.mint_to_checked_spec.accounts_len,
+        instruction.mint_to_checked_spec.accounts_len,
+        .signer,
         .{ mint, destination, multisig_authority },
         signer_infos,
         token_program,
-        &signer_pubkeys_buf,
+        &metas,
         &accounts,
     );
-    var metas: instruction.multisigMetasArray(instruction.mint_to_checked_spec.accounts_len) = undefined;
-    var data: dataArray(instruction.mint_to_checked_spec) = undefined;
-    const ix = rebrand(
-        instruction.mintToCheckedMultisig(
-            mint.key(),
-            destination.key(),
-            multisig_authority.key(),
-            staged.signer_pubkeys,
-            amount,
-            decimals,
-            &metas,
-            &data,
-        ) catch |err| return mapMultisigInstructionError(err),
-        token_program.key(),
+
+    const data: dataArray(instruction.mint_to_checked_spec) = AmountDecimalsIx.initWithDiscriminant(
+        @intFromEnum(instruction.TokenInstruction.mint_to_checked),
+        .{ .amount = amount, .decimals = decimals },
     );
+    const ix = Instruction.fromCpiAccount(token_program, staged.instruction_accounts, &data);
     try sol.cpi.invokeRaw(&ix, staged.runtime_accounts);
 }
 
@@ -1658,7 +1695,7 @@ test "spl-token cpi: public v0.2 wrapper decls exist" {
     }
 }
 
-test "spl-token cpi: multisig runtime accounts keep caller order and token program last" {
+test "spl-token cpi: multisig staging keeps signer metas and runtime accounts aligned" {
     var source_account = testAccount(.{0x21} ** 32, .{0x81} ** 32, false, true, false);
     var delegate_account = testAccount(.{0x22} ** 32, .{0x82} ** 32, false, false, false);
     var multisig_account = testAccount(.{0x23} ** 32, .{0x83} ** 32, false, false, false);
@@ -1673,22 +1710,37 @@ test "spl-token cpi: multisig runtime accounts keep caller order and token progr
     const signer_b = testCpiInfo(&signer_b_account.raw);
     const token_program = testCpiInfo(&token_program_account.raw);
 
+    var metas: instruction.multisigMetasArray(instruction.approve_spec.accounts_len) = undefined;
+    metas[0] = AccountMeta.writable(source.key());
+    metas[1] = AccountMeta.readonly(delegate.key());
+    metas[2] = AccountMeta.readonly(multisig.key());
+
     var infos: [instruction.approve_spec.accounts_len + MAX_SIGNERS + 1]CpiAccountInfo = undefined;
-    const runtime_accounts = try runtimeAccountsWithSigners(
+    const staged = try multisigMetasAndRuntimeAccounts(
         instruction.approve_spec.accounts_len,
+        instruction.approve_spec.accounts_len,
+        .signer,
         .{ source, delegate, multisig },
         &.{ signer_a, signer_b },
         token_program,
+        &metas,
         &infos,
     );
 
-    try std.testing.expectEqual(@as(usize, 6), runtime_accounts.len);
-    try std.testing.expectEqualSlices(u8, source.key(), runtime_accounts[0].key());
-    try std.testing.expectEqualSlices(u8, delegate.key(), runtime_accounts[1].key());
-    try std.testing.expectEqualSlices(u8, multisig.key(), runtime_accounts[2].key());
-    try std.testing.expectEqualSlices(u8, signer_a.key(), runtime_accounts[3].key());
-    try std.testing.expectEqualSlices(u8, signer_b.key(), runtime_accounts[4].key());
-    try std.testing.expectEqualSlices(u8, token_program.key(), runtime_accounts[5].key());
+    try std.testing.expectEqual(@as(usize, 5), staged.instruction_accounts.len);
+    try std.testing.expectEqual(@as(usize, 6), staged.runtime_accounts.len);
+    try std.testing.expectEqualSlices(u8, signer_a.key(), staged.instruction_accounts[3].pubkey);
+    try std.testing.expectEqual(@as(u8, 1), staged.instruction_accounts[3].is_signer);
+    try std.testing.expectEqual(@as(u8, 0), staged.instruction_accounts[3].is_writable);
+    try std.testing.expectEqualSlices(u8, signer_b.key(), staged.instruction_accounts[4].pubkey);
+    try std.testing.expectEqual(@as(u8, 1), staged.instruction_accounts[4].is_signer);
+    try std.testing.expectEqual(@as(u8, 0), staged.instruction_accounts[4].is_writable);
+    try std.testing.expectEqualSlices(u8, source.key(), staged.runtime_accounts[0].key());
+    try std.testing.expectEqualSlices(u8, delegate.key(), staged.runtime_accounts[1].key());
+    try std.testing.expectEqualSlices(u8, multisig.key(), staged.runtime_accounts[2].key());
+    try std.testing.expectEqualSlices(u8, signer_a.key(), staged.runtime_accounts[3].key());
+    try std.testing.expectEqualSlices(u8, signer_b.key(), staged.runtime_accounts[4].key());
+    try std.testing.expectEqualSlices(u8, token_program.key(), staged.runtime_accounts[5].key());
 }
 
 test "spl-token cpi: initializeMultisig2 rebrands callee and preserves signer order" {

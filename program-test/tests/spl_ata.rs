@@ -6,12 +6,10 @@
 //! `mollusk-svm-programs-token`.
 
 use {
-    mollusk_svm::{
-        program::keyed_account_for_system_program, result::ProgramResult, Mollusk,
-    },
+    mollusk_svm::{program::keyed_account_for_system_program, result::ProgramResult, Mollusk},
     mollusk_svm_programs_token::{
-        associated_token as spl_associated_token_program,
-        token as spl_token_program, token2022 as spl_token_2022_program,
+        associated_token as spl_associated_token_program, token as spl_token_program,
+        token2022 as spl_token_2022_program,
     },
     solana_account::Account,
     solana_instruction::{AccountMeta, Instruction},
@@ -19,9 +17,7 @@ use {
     solana_program_pack::Pack,
     solana_pubkey::Pubkey,
     solana_sdk_ids::{bpf_loader_upgradeable, system_program},
-    spl_token_interface::state::{
-        Account as TokenAccount, AccountState as TokenState, Mint,
-    },
+    spl_token_interface::state::{Account as TokenAccount, AccountState as TokenState, Mint},
 };
 
 mod program {
@@ -30,6 +26,7 @@ mod program {
 
 const TAG_CREATE: u8 = 0;
 const TAG_CREATE_IDEMPOTENT: u8 = 1;
+const TAG_RECOVER_NESTED: u8 = 2;
 const PAYER_LAMPORTS: u64 = 10_000_000;
 const DECIMALS: u8 = 6;
 
@@ -84,11 +81,7 @@ fn mint_data(authority: Pubkey) -> Mint {
     }
 }
 
-fn associated_token_address(
-    wallet: &Pubkey,
-    mint: &Pubkey,
-    token_program: &Pubkey,
-) -> Pubkey {
+fn associated_token_address(wallet: &Pubkey, mint: &Pubkey, token_program: &Pubkey) -> Pubkey {
     Pubkey::find_program_address(
         &[
             &wallet.to_bytes(),
@@ -113,15 +106,13 @@ fn scenario(flavor: TokenFlavor) -> (Scenario, Vec<(Pubkey, Account)>) {
     let wallet = Pubkey::new_unique();
     let mint = Pubkey::new_unique();
     let classic_associated_token = classic_associated_token_address(&wallet, &mint);
-    let token_2022_associated_token =
-        token_2022_associated_token_address(&wallet, &mint);
+    let token_2022_associated_token = token_2022_associated_token_address(&wallet, &mint);
     let associated_token = match flavor {
         TokenFlavor::Classic => classic_associated_token,
         TokenFlavor::Token2022 => token_2022_associated_token,
     };
 
-    let (system_program_pid, system_program_account) =
-        keyed_account_for_system_program();
+    let (system_program_pid, system_program_account) = keyed_account_for_system_program();
     let (associated_token_program_pid, associated_token_program_account) =
         spl_associated_token_program::keyed_account();
     let (token_program_pid, token_program_account) = match flavor {
@@ -133,9 +124,9 @@ fn scenario(flavor: TokenFlavor) -> (Scenario, Vec<(Pubkey, Account)>) {
         TokenFlavor::Classic => {
             spl_token_program::create_account_for_mint(mint_data(Pubkey::new_unique()))
         }
-        TokenFlavor::Token2022 => spl_token_2022_program::create_account_for_mint(
-            mint_data(Pubkey::new_unique()),
-        ),
+        TokenFlavor::Token2022 => {
+            spl_token_2022_program::create_account_for_mint(mint_data(Pubkey::new_unique()))
+        }
     };
 
     let accounts = vec![
@@ -183,6 +174,32 @@ fn build_ix(s: &Scenario, tag: u8) -> Instruction {
     }
 }
 
+fn build_recover_nested_ix(
+    nested_associated_token: Pubkey,
+    nested_token_mint: Pubkey,
+    destination_associated_token: Pubkey,
+    owner_associated_token: Pubkey,
+    owner_token_mint: Pubkey,
+    wallet: Pubkey,
+    token_program: Pubkey,
+    associated_token_program: Pubkey,
+) -> Instruction {
+    Instruction {
+        program_id: program::id(),
+        accounts: vec![
+            AccountMeta::new(nested_associated_token, false),
+            AccountMeta::new_readonly(nested_token_mint, false),
+            AccountMeta::new(destination_associated_token, false),
+            AccountMeta::new_readonly(owner_associated_token, false),
+            AccountMeta::new_readonly(owner_token_mint, false),
+            AccountMeta::new(wallet, true),
+            AccountMeta::new_readonly(token_program, false),
+            AccountMeta::new_readonly(associated_token_program, false),
+        ],
+        data: vec![TAG_RECOVER_NESTED],
+    }
+}
+
 fn run(
     mollusk: &Mollusk,
     accounts: &[(Pubkey, Account)],
@@ -213,6 +230,19 @@ fn assert_account_eq(actual: &Account, expected: &Account, context: &str) {
     );
 }
 
+fn token_account_data(owner: Pubkey, mint: Pubkey, amount: u64) -> TokenAccount {
+    TokenAccount {
+        mint,
+        owner,
+        amount,
+        delegate: COption::None,
+        state: TokenState::Initialized,
+        is_native: COption::None,
+        delegated_amount: 0,
+        close_authority: COption::None,
+    }
+}
+
 fn assert_initialized_token_account(
     account: &Account,
     owner_program: &Pubkey,
@@ -235,7 +265,11 @@ fn test_classic_create_initializes_real_spl_token_account() {
     let mollusk = fresh_mollusk();
     let (scenario, initial_accounts) = scenario(TokenFlavor::Classic);
 
-    let result = run(&mollusk, &initial_accounts, &build_ix(&scenario, TAG_CREATE));
+    let result = run(
+        &mollusk,
+        &initial_accounts,
+        &build_ix(&scenario, TAG_CREATE),
+    );
     assert!(
         matches!(result.program_result, ProgramResult::Success),
         "classic ATA create failed: {:?}",
@@ -269,8 +303,7 @@ fn test_classic_idempotent_create_succeeds_when_missing_and_when_present() {
         first.compute_units_consumed,
     );
 
-    let before_repeat =
-        account(&first.resulting_accounts, &scenario.associated_token).clone();
+    let before_repeat = account(&first.resulting_accounts, &scenario.associated_token).clone();
 
     let second = run(&mollusk, &first.resulting_accounts, &ix);
     assert!(
@@ -310,8 +343,7 @@ fn test_classic_non_idempotent_create_fails_when_ata_already_exists() {
         first.program_result,
     );
 
-    let before_retry =
-        account(&first.resulting_accounts, &scenario.associated_token).clone();
+    let before_retry = account(&first.resulting_accounts, &scenario.associated_token).clone();
     let second = run(&mollusk, &first.resulting_accounts, &create_ix);
     assert!(
         !matches!(second.program_result, ProgramResult::Success),
@@ -341,13 +373,19 @@ fn test_token_2022_idempotent_create_uses_token_2022_address_and_owner() {
         "token-2022 ATA create failed: {:?}",
         result.program_result,
     );
-    println!("token-2022 ATA create CU: {}", result.compute_units_consumed);
+    println!(
+        "token-2022 ATA create CU: {}",
+        result.compute_units_consumed
+    );
 
     assert_ne!(
         scenario.classic_associated_token, scenario.token_2022_associated_token,
         "classic and token-2022 ATA addresses must differ",
     );
-    assert_eq!(scenario.associated_token, scenario.token_2022_associated_token);
+    assert_eq!(
+        scenario.associated_token,
+        scenario.token_2022_associated_token
+    );
 
     let ata_account = account(&result.resulting_accounts, &scenario.associated_token);
     assert_eq!(ata_account.owner, spl_token_2022_program::ID);
@@ -356,8 +394,7 @@ fn test_token_2022_idempotent_create_uses_token_2022_address_and_owner() {
         "token-2022 ATA should include extension bytes",
     );
 
-    let unpacked =
-        TokenAccount::unpack(&ata_account.data[..TokenAccount::LEN]).unwrap();
+    let unpacked = TokenAccount::unpack(&ata_account.data[..TokenAccount::LEN]).unwrap();
     assert_eq!(unpacked.state, TokenState::Initialized);
     assert_eq!(unpacked.mint, scenario.mint);
     assert_eq!(unpacked.owner, scenario.wallet);
@@ -377,8 +414,7 @@ fn test_token_2022_idempotent_create_succeeds_when_present() {
         first.program_result,
     );
 
-    let before_repeat =
-        account(&first.resulting_accounts, &scenario.associated_token).clone();
+    let before_repeat = account(&first.resulting_accounts, &scenario.associated_token).clone();
 
     let second = run(&mollusk, &first.resulting_accounts, &ix);
     assert!(
@@ -397,6 +433,102 @@ fn test_token_2022_idempotent_create_succeeds_when_present() {
 }
 
 #[test]
+fn test_classic_recover_nested_moves_tokens_and_closes_nested_account() {
+    let mollusk = fresh_mollusk();
+
+    let wallet = Pubkey::new_unique();
+    let owner_token_mint = Pubkey::new_unique();
+    let nested_token_mint = Pubkey::new_unique();
+    let owner_associated_token = classic_associated_token_address(&wallet, &owner_token_mint);
+    let destination_associated_token =
+        classic_associated_token_address(&wallet, &nested_token_mint);
+    let nested_associated_token =
+        classic_associated_token_address(&owner_associated_token, &nested_token_mint);
+
+    let owner_mint_account =
+        spl_token_program::create_account_for_mint(mint_data(Pubkey::new_unique()));
+    let nested_mint_account =
+        spl_token_program::create_account_for_mint(mint_data(Pubkey::new_unique()));
+
+    let (_, owner_associated_token_account) =
+        spl_associated_token_program::create_account_for_associated_token_account(
+            token_account_data(wallet, owner_token_mint, 0),
+        );
+    let (_, destination_associated_token_account) =
+        spl_associated_token_program::create_account_for_associated_token_account(
+            token_account_data(wallet, nested_token_mint, 3),
+        );
+    let (_, nested_associated_token_account) =
+        spl_associated_token_program::create_account_for_associated_token_account(
+            token_account_data(owner_associated_token, nested_token_mint, 42),
+        );
+
+    let (token_program, token_program_account) = spl_token_program::keyed_account();
+    let (associated_token_program, associated_token_program_account) =
+        spl_associated_token_program::keyed_account();
+
+    let initial_accounts = vec![
+        (nested_associated_token, nested_associated_token_account),
+        (nested_token_mint, nested_mint_account),
+        (
+            destination_associated_token,
+            destination_associated_token_account,
+        ),
+        (owner_associated_token, owner_associated_token_account),
+        (owner_token_mint, owner_mint_account),
+        (wallet, empty_system_account(PAYER_LAMPORTS)),
+        (token_program, token_program_account),
+        (associated_token_program, associated_token_program_account),
+    ];
+
+    let nested_before = account(&initial_accounts, &nested_associated_token).clone();
+    let wallet_before = account(&initial_accounts, &wallet).lamports;
+
+    let result = run(
+        &mollusk,
+        &initial_accounts,
+        &build_recover_nested_ix(
+            nested_associated_token,
+            nested_token_mint,
+            destination_associated_token,
+            owner_associated_token,
+            owner_token_mint,
+            wallet,
+            token_program,
+            associated_token_program,
+        ),
+    );
+    assert!(
+        matches!(result.program_result, ProgramResult::Success),
+        "classic recover_nested failed: {:?}",
+        result.program_result,
+    );
+    println!(
+        "classic recover_nested CU: {}",
+        result.compute_units_consumed
+    );
+
+    let destination_after = TokenAccount::unpack(
+        &account(&result.resulting_accounts, &destination_associated_token).data,
+    )
+    .unwrap();
+    assert_eq!(destination_after.amount, 45);
+
+    let owner_after =
+        TokenAccount::unpack(&account(&result.resulting_accounts, &owner_associated_token).data)
+            .unwrap();
+    assert_eq!(owner_after.amount, 0);
+    assert_eq!(owner_after.owner, wallet);
+
+    let wallet_after = account(&result.resulting_accounts, &wallet).lamports;
+    assert_eq!(wallet_after, wallet_before + nested_before.lamports);
+
+    let nested_after = account(&result.resulting_accounts, &nested_associated_token);
+    assert_eq!(nested_after.lamports, 0);
+    assert_eq!(nested_after.owner, system_program::id());
+}
+
+#[test]
 fn test_real_program_rejects_token_program_and_ata_address_mismatch() {
     let mollusk = fresh_mollusk();
 
@@ -410,8 +542,11 @@ fn test_real_program_rejects_token_program_and_ata_address_mismatch() {
         initial_accounts[1] = (wrong_key, empty_system_account(0));
 
         let before = account(&initial_accounts, &scenario.associated_token).clone();
-        let result =
-            run(&mollusk, &initial_accounts, &build_ix(&scenario, TAG_CREATE));
+        let result = run(
+            &mollusk,
+            &initial_accounts,
+            &build_ix(&scenario, TAG_CREATE),
+        );
 
         assert!(
             !matches!(result.program_result, ProgramResult::Success),

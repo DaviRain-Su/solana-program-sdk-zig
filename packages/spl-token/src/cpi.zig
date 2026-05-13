@@ -1596,6 +1596,64 @@ pub fn syncNative(
 }
 
 // =============================================================================
+// Utility / return-data helpers.
+// =============================================================================
+
+pub fn getAccountDataSize(
+    token_program: CpiAccountInfo,
+    mint: CpiAccountInfo,
+) ProgramResult {
+    var metas: metasArray(instruction.get_account_data_size_spec) = undefined;
+    var data: dataArray(instruction.get_account_data_size_spec) = undefined;
+    const ix = rebrand(
+        instruction.getAccountDataSize(mint.key(), &metas, &data),
+        token_program.key(),
+    );
+    try sol.cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ mint, token_program });
+}
+
+pub fn initializeImmutableOwner(
+    token_program: CpiAccountInfo,
+    account: CpiAccountInfo,
+) ProgramResult {
+    var metas: metasArray(instruction.initialize_immutable_owner_spec) = undefined;
+    var data: dataArray(instruction.initialize_immutable_owner_spec) = undefined;
+    const ix = rebrand(
+        instruction.initializeImmutableOwner(account.key(), &metas, &data),
+        token_program.key(),
+    );
+    try sol.cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ account, token_program });
+}
+
+pub fn amountToUiAmount(
+    token_program: CpiAccountInfo,
+    mint: CpiAccountInfo,
+    amount: u64,
+) ProgramResult {
+    var metas: metasArray(instruction.amount_to_ui_amount_spec) = undefined;
+    var data: dataArray(instruction.amount_to_ui_amount_spec) = undefined;
+    const ix = rebrand(
+        instruction.amountToUiAmount(mint.key(), amount, &metas, &data),
+        token_program.key(),
+    );
+    try sol.cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ mint, token_program });
+}
+
+pub fn uiAmountToAmount(
+    token_program: CpiAccountInfo,
+    mint: CpiAccountInfo,
+    ui_amount: []const u8,
+    data: []u8,
+) ProgramResult {
+    var metas: metasArray(instruction.get_account_data_size_spec) = undefined;
+    const ix = rebrand(
+        try instruction.uiAmountToAmount(mint.key(), ui_amount, &metas, data),
+        token_program.key(),
+    );
+    try sol.cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ mint, token_program });
+}
+
+// =============================================================================
 // Initialize* — typically used at mint/account creation time.
 // =============================================================================
 
@@ -1741,6 +1799,10 @@ test "spl-token cpi: public v0.3 wrapper decls exist" {
         "batchSigned",
         "batchSignedSingle",
         "syncNative",
+        "getAccountDataSize",
+        "initializeImmutableOwner",
+        "amountToUiAmount",
+        "uiAmountToAmount",
     }) |name| {
         try std.testing.expect(@hasDecl(@This(), name));
     }
@@ -2077,6 +2139,53 @@ test "spl-token cpi: SignedSingle wrappers compile and use host fallback" {
             .{ "batch", &bump_seed },
         ),
     );
+}
+
+test "spl-token cpi: utility wrappers use host fallback" {
+    var token_program_acc: sol.account.Account = .{
+        .borrow_state = sol.account.NOT_BORROWED,
+        .is_signer = 0,
+        .is_writable = 0,
+        .is_executable = 1,
+        ._padding = .{0} ** 4,
+        .key = sol.spl_token_program_id,
+        .owner = .{0} ** 32,
+        .lamports = 0,
+        .data_len = 0,
+    };
+    var mint_acc: sol.account.Account = .{
+        .borrow_state = sol.account.NOT_BORROWED,
+        .is_signer = 0,
+        .is_writable = 0,
+        .is_executable = 0,
+        ._padding = .{0} ** 4,
+        .key = .{41} ** 32,
+        .owner = .{42} ** 32,
+        .lamports = 0,
+        .data_len = 0,
+    };
+    var account_acc: sol.account.Account = .{
+        .borrow_state = sol.account.NOT_BORROWED,
+        .is_signer = 0,
+        .is_writable = 1,
+        .is_executable = 0,
+        ._padding = .{0} ** 4,
+        .key = .{43} ** 32,
+        .owner = .{44} ** 32,
+        .lamports = 0,
+        .data_len = 0,
+    };
+
+    const token_program = testCpiInfo(&token_program_acc);
+    const mint = testCpiInfo(&mint_acc);
+    const account = testCpiInfo(&account_acc);
+    var ui_data: [16]u8 = undefined;
+
+    try std.testing.expectError(error.InvalidArgument, getAccountDataSize(token_program, mint));
+    try std.testing.expectError(error.InvalidArgument, initializeImmutableOwner(token_program, account));
+    try std.testing.expectError(error.InvalidArgument, amountToUiAmount(token_program, mint, 123));
+    try std.testing.expectError(error.InvalidArgument, uiAmountToAmount(token_program, mint, "1.23", ui_data[0..]));
+    try std.testing.expectError(error.InvalidArgument, uiAmountToAmount(token_program, mint, "way-too-long-ui-amount", ui_data[0..8]));
 }
 
 test "spl-token cpi: new signed raw wrappers use host fallback" {

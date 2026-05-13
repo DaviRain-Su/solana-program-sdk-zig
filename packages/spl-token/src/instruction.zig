@@ -52,6 +52,10 @@ pub const TokenInstruction = enum(u8) {
     initialize_account3 = 18,
     initialize_multisig2 = 19,
     initialize_mint2 = 20,
+    get_account_data_size = 21,
+    initialize_immutable_owner = 22,
+    amount_to_ui_amount = 23,
+    ui_amount_to_amount = 24,
     batch = 255,
 };
 
@@ -128,6 +132,10 @@ pub const sync_native_spec: Spec = .{ .disc = .sync_native, .accounts_len = 1, .
 pub const initialize_account3_spec: Spec = .{ .disc = .initialize_account3, .accounts_len = 2, .data_len = 1 + 32 };
 pub const initialize_multisig2_spec: Spec = .{ .disc = .initialize_multisig2, .accounts_len = 1, .data_len = 1 + 1 };
 pub const initialize_mint2_spec: Spec = .{ .disc = .initialize_mint2, .accounts_len = 1, .data_len = 1 + 1 + 32 + 4 + 32 };
+pub const get_account_data_size_spec: Spec = .{ .disc = .get_account_data_size, .accounts_len = 1, .data_len = 1 };
+pub const initialize_immutable_owner_spec: Spec = .{ .disc = .initialize_immutable_owner, .accounts_len = 1, .data_len = 1 };
+pub const amount_to_ui_amount_spec: Spec = .{ .disc = .amount_to_ui_amount, .accounts_len = 1, .data_len = 1 + 8 };
+pub const ui_amount_to_amount_prefix_len: usize = 1;
 
 /// Builder/wrapper-side helper: typed scratch-array sizes derived
 /// from a `Spec`. Using the function form means every call site
@@ -143,6 +151,10 @@ pub fn dataArray(comptime spec: Spec) type {
 
 pub fn multisigMetasArray(comptime base_accounts_len: usize) type {
     return [base_accounts_len + MAX_SIGNERS]AccountMeta;
+}
+
+pub fn uiAmountToAmountLen(ui_amount: []const u8) ?usize {
+    return std.math.add(usize, ui_amount_to_amount_prefix_len, ui_amount.len) catch null;
 }
 
 // =============================================================================
@@ -182,6 +194,9 @@ comptime {
         .{ initialize_account3_spec, 2, PUBKEY_LEN },
         .{ initialize_multisig2_spec, 1, 1 },
         .{ initialize_mint2_spec, 1, DECIMALS_LEN + PUBKEY_LEN + COPTION_PUBKEY_LEN },
+        .{ get_account_data_size_spec, 1, 0 },
+        .{ initialize_immutable_owner_spec, 1, 0 },
+        .{ amount_to_ui_amount_spec, 1, AMOUNT_LEN },
     };
 
     for (audits) |a| {
@@ -238,6 +253,7 @@ comptime {
     std.debug.assert(AmountIx.bytes == approve_spec.data_len);
     std.debug.assert(AmountIx.bytes == mint_to_spec.data_len);
     std.debug.assert(AmountIx.bytes == burn_spec.data_len);
+    std.debug.assert(AmountIx.bytes == amount_to_ui_amount_spec.data_len);
     std.debug.assert(AmountDecimalsIx.bytes == transfer_checked_spec.data_len);
     std.debug.assert(AmountDecimalsIx.bytes == approve_checked_spec.data_len);
     std.debug.assert(AmountDecimalsIx.bytes == mint_to_checked_spec.data_len);
@@ -1207,6 +1223,87 @@ pub fn initializeMint2(
     };
 }
 
+/// `GetAccountDataSize` — discriminant 21.
+///
+/// Account metas (in order):
+///   0. mint — readonly
+pub fn getAccountDataSize(
+    mint: *const Pubkey,
+    metas: *metasArray(get_account_data_size_spec),
+    data: *dataArray(get_account_data_size_spec),
+) Instruction {
+    data[0] = @intFromEnum(TokenInstruction.get_account_data_size);
+    metas[0] = AccountMeta.readonly(mint);
+    return .{
+        .program_id = &id.PROGRAM_ID,
+        .accounts = metas,
+        .data = data,
+    };
+}
+
+/// `InitializeImmutableOwner` — discriminant 22.
+///
+/// Account metas (in order):
+///   0. account — writable
+pub fn initializeImmutableOwner(
+    account: *const Pubkey,
+    metas: *metasArray(initialize_immutable_owner_spec),
+    data: *dataArray(initialize_immutable_owner_spec),
+) Instruction {
+    data[0] = @intFromEnum(TokenInstruction.initialize_immutable_owner);
+    metas[0] = AccountMeta.writable(account);
+    return .{
+        .program_id = &id.PROGRAM_ID,
+        .accounts = metas,
+        .data = data,
+    };
+}
+
+/// `AmountToUiAmount { amount }` — discriminant 23.
+///
+/// Account metas (in order):
+///   0. mint — readonly
+pub fn amountToUiAmount(
+    mint: *const Pubkey,
+    amount: u64,
+    metas: *metasArray(amount_to_ui_amount_spec),
+    data: *dataArray(amount_to_ui_amount_spec),
+) Instruction {
+    data.* = AmountIx.initWithDiscriminant(
+        @intFromEnum(TokenInstruction.amount_to_ui_amount),
+        .{ .amount = amount },
+    );
+    metas[0] = AccountMeta.readonly(mint);
+    return .{
+        .program_id = &id.PROGRAM_ID,
+        .accounts = metas,
+        .data = data,
+    };
+}
+
+/// `UiAmountToAmount { ui_amount }` — discriminant 24.
+///
+/// Account metas (in order):
+///   0. mint — readonly
+pub fn uiAmountToAmount(
+    mint: *const Pubkey,
+    ui_amount: []const u8,
+    metas: *metasArray(get_account_data_size_spec),
+    data: []u8,
+) !Instruction {
+    const data_len = uiAmountToAmountLen(ui_amount) orelse return error.InvalidArgument;
+    if (data.len < data_len) return error.InvalidArgument;
+
+    data[0] = @intFromEnum(TokenInstruction.ui_amount_to_amount);
+    @memcpy(data[1..data_len], ui_amount);
+    metas[0] = AccountMeta.readonly(mint);
+    return .{
+        .program_id = &id.PROGRAM_ID,
+        .accounts = metas,
+        .data = data[0..data_len],
+    };
+}
+
 // =============================================================================
 // Tests — byte-level fidelity vs. canonical Rust encoding.
 // =============================================================================
@@ -1261,6 +1358,10 @@ test "v0.3 authority/freeze/native specs and discriminants stay canonical" {
     try std.testing.expectEqual(@as(u8, 13), @intFromEnum(TokenInstruction.approve_checked));
     try std.testing.expectEqual(@as(u8, 17), @intFromEnum(TokenInstruction.sync_native));
     try std.testing.expectEqual(@as(u8, 19), @intFromEnum(TokenInstruction.initialize_multisig2));
+    try std.testing.expectEqual(@as(u8, 21), @intFromEnum(TokenInstruction.get_account_data_size));
+    try std.testing.expectEqual(@as(u8, 22), @intFromEnum(TokenInstruction.initialize_immutable_owner));
+    try std.testing.expectEqual(@as(u8, 23), @intFromEnum(TokenInstruction.amount_to_ui_amount));
+    try std.testing.expectEqual(@as(u8, 24), @intFromEnum(TokenInstruction.ui_amount_to_amount));
     try std.testing.expectEqual(@as(u8, 255), @intFromEnum(TokenInstruction.batch));
 
     try std.testing.expectEqual(@as(usize, 3), approve_spec.accounts_len);
@@ -1280,6 +1381,13 @@ test "v0.3 authority/freeze/native specs and discriminants stay canonical" {
     try std.testing.expectEqual(@as(usize, 1), sync_native_spec.data_len);
     try std.testing.expectEqual(@as(usize, 1), initialize_multisig2_spec.accounts_len);
     try std.testing.expectEqual(@as(usize, 2), initialize_multisig2_spec.data_len);
+    try std.testing.expectEqual(@as(usize, 1), get_account_data_size_spec.accounts_len);
+    try std.testing.expectEqual(@as(usize, 1), get_account_data_size_spec.data_len);
+    try std.testing.expectEqual(@as(usize, 1), initialize_immutable_owner_spec.accounts_len);
+    try std.testing.expectEqual(@as(usize, 1), initialize_immutable_owner_spec.data_len);
+    try std.testing.expectEqual(@as(usize, 1), amount_to_ui_amount_spec.accounts_len);
+    try std.testing.expectEqual(@as(usize, 9), amount_to_ui_amount_spec.data_len);
+    try std.testing.expectEqual(@as(usize, 1), ui_amount_to_amount_prefix_len);
 }
 
 test "AuthorityType is canonical" {
@@ -1545,6 +1653,42 @@ test "initializeAccount3: 33-byte body carries owner pubkey" {
     _ = initializeAccount3(&acct, &mint, &owner, &metas, &data);
     try std.testing.expectEqual(@as(u8, 18), data[0]);
     try std.testing.expectEqualSlices(u8, &owner, data[1..33]);
+}
+
+test "utility helpers: canonical metas and data encodings" {
+    const mint: Pubkey = .{0xAD} ** 32;
+    const account: Pubkey = .{0xBE} ** 32;
+
+    var size_metas: metasArray(get_account_data_size_spec) = undefined;
+    var size_data: dataArray(get_account_data_size_spec) = undefined;
+    const size_ix = getAccountDataSize(&mint, &size_metas, &size_data);
+    try std.testing.expectEqual(&id.PROGRAM_ID, size_ix.program_id);
+    try std.testing.expectEqual(@as(usize, 1), size_ix.accounts.len);
+    try std.testing.expectEqual(@as(usize, 1), size_ix.data.len);
+    try std.testing.expectEqual(@as(u8, 21), size_ix.data[0]);
+    try expectMeta(size_ix.accounts[0], &mint, 0, 0);
+
+    var immutable_metas: metasArray(initialize_immutable_owner_spec) = undefined;
+    var immutable_data: dataArray(initialize_immutable_owner_spec) = undefined;
+    const immutable_ix = initializeImmutableOwner(&account, &immutable_metas, &immutable_data);
+    try std.testing.expectEqual(@as(u8, 22), immutable_ix.data[0]);
+    try expectMeta(immutable_ix.accounts[0], &account, 1, 0);
+
+    var amount_metas: metasArray(amount_to_ui_amount_spec) = undefined;
+    var amount_data: dataArray(amount_to_ui_amount_spec) = undefined;
+    const amount_ix = amountToUiAmount(&mint, 1234, &amount_metas, &amount_data);
+    try std.testing.expectEqual(@as(u8, 23), amount_ix.data[0]);
+    try std.testing.expectEqual(@as(u64, 1234), std.mem.readInt(u64, amount_ix.data[1..9], .little));
+    try expectMeta(amount_ix.accounts[0], &mint, 0, 0);
+
+    var ui_metas: metasArray(get_account_data_size_spec) = undefined;
+    var ui_data: [32]u8 = undefined;
+    const ui_ix = try uiAmountToAmount(&mint, "12.34", &ui_metas, ui_data[0..]);
+    try std.testing.expectEqual(@as(u8, 24), ui_ix.data[0]);
+    try std.testing.expectEqualStrings("12.34", ui_ix.data[1..]);
+    try expectMeta(ui_ix.accounts[0], &mint, 0, 0);
+    try std.testing.expectEqual(@as(usize, 6), uiAmountToAmountLen("12.34").?);
+    try std.testing.expectError(error.InvalidArgument, uiAmountToAmount(&mint, "12.34", &ui_metas, ui_data[0..5]));
 }
 
 test "initializeMultisig2: canonical data/metas, caller scratch, and threshold bounds" {

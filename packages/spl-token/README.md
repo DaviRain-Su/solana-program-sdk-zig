@@ -1,12 +1,12 @@
 # spl-token (Zig)
 
 Status: ✅ **v0.3** — instruction builders + on-chain CPI helpers
-for the fungible-token, authority, multisig, native-SOL sync, and
-p-token-style batch surface. The classic SPL Token subset is
-validated against the real on-chain SPL Token program inside Mollusk
-(see `program-test/tests/spl_token.rs`); the batch helper is covered
-by Zig wire/staging tests because the bundled classic token fixture
-currently rejects discriminator `255`.
+for the fungible-token, authority, multisig, native-SOL sync,
+utility/return-data helpers, and p-token-style batch surface. The
+classic SPL Token subset is validated against the real on-chain SPL
+Token program inside Mollusk (see `program-test/tests/spl_token.rs`);
+the batch helper is covered by Zig wire/staging tests because the
+bundled classic token fixture currently rejects discriminator `255`.
 
 Zig client for the [SPL Token](https://github.com/solana-program/token)
 program. Dual-target:
@@ -87,6 +87,12 @@ Instructions:
 - `initializeMultisig2` (19)
   (modern "2"/"3" variants — no Rent sysvar, owner/freeze authority
   passed in instruction data)
+- `getAccountDataSize` (21)
+- `initializeImmutableOwner` (22)
+- `amountToUiAmount` (23)
+- `uiAmountToAmount` (24)
+  (`getAccountDataSize`, `amountToUiAmount`, and `uiAmountToAmount`
+  return their answers via `sol.cpi.getReturnData(...)` after CPI)
 - `batch` (255)
   (p-token / Pinocchio-style concatenated child-instruction envelope;
   available as both `spl_token.instruction.batch(...)` and
@@ -108,10 +114,10 @@ State (zero-copy `extern struct`):
 
 ## Not yet covered
 
-Legacy Rent-sysvar initializers, UI amount conversion / data-size
-helpers, and Token-2022 extension instructions. Add when there's a
-concrete consumer — these are mechanically the same patterns as above
-(single comptime instruction-data builder + CPI wrapper).
+Legacy Rent-sysvar initializers and Token-2022 extension
+instructions. Add when there's a concrete consumer — these are
+mechanically the same patterns as above (single comptime
+instruction-data builder + CPI wrapper).
 
 ## Notes
 

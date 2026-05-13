@@ -943,3 +943,32 @@ dup-aware tagged union 多花 ~63 CU）。之前的 "13 CU" 数据是隐藏 bug
 读到的 `data_len` 是账户 0 的垃圾值，三个 if 分支全部 falsy，函数静默
 return。现已通过 parse-then-dispatch + 新增的 `parseAccountsUnchecked`
 快路径修复。
+
+
+## relate repo for solana rust
+
+- [spl-token](https://github.com/solana-program/token)
+- [spl-memo](https://github.com/solana-program/memo)
+- [address lookup table](https://github.com/solana-program/address-lookup-table)
+- [config](https://github.com/solana-program/config)
+- [token-2022](https://github.com/solana-program/token-2022)
+- [rewards](https://github.com/solana-program/rewards)
+- [escrow](https://github.com/solana-program/escrow)
+- [associated-token-account](https://github.com/solana-program/associated-token-account)
+- [zk elgamal proof](https://github.com/solana-program/zk-elgamal-proof)
+- [instruction-padding](https://github.com/solana-program/instruction-padding)
+- [single-pool](https://github.com/solana-program/single-pool)
+- [token-wrap](https://github.com/solana-program/token-wrap)
+- [stake](https://github.com/solana-program/stake)
+- [transfer-hook](https://github.com/solana-program/transfer-hook)
+- [token group](https://github.com/solana-program/token-group)
+- [token-metadata](https://github.com/solana-program/token-metadata)
+- [system](https://github.com/solana-program/system)
+- [libraries](https://github.com/solana-program/libraries)
+- [loader-v3](https://github.com/solana-program/loader-v3)
+- [loader-v4](https://github.com/solana-program/loader-v4)
+- [feature-gate](https://github.com/solana-program/feature-gate)
+- [slashing](https://github.com/solana-program/slashing)
+- [create-solana-program](https://github.com/solana-program/create-solana-program)
+- [pinocchio](https://github.com/anza-xyz/pinocchio)
+- [solana rust sdk metadata](https://solana.com/zh/docs/clients/official/rust)

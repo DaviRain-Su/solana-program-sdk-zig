@@ -391,7 +391,7 @@ pub const InstructionContext = struct {
         self: *const InstructionContext,
         comptime min_len: usize,
     ) ProgramError!void {
-        if (self.remaining > 0) {
+        if (unlikely(self.remaining > 0)) {
             return program_error.fail(
                 @src(),
                 "ctx:accounts_not_consumed",
@@ -407,7 +407,7 @@ pub const InstructionContext = struct {
         comptime min_len: usize,
     ) ProgramError!void {
         const data_len: usize = @intCast(@as(*const u64, @ptrCast(@alignCast(self.buffer))).*);
-        if (data_len < min_len) {
+        if (unlikely(data_len < min_len)) {
             return error.InvalidInstructionData;
         }
     }

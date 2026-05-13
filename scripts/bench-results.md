@@ -43,9 +43,9 @@ Reproduce: `./scripts/bench.sh` from the repo root. Requires
 | `spl_token_initialize_multisig2` | 1150 |
 | `spl_token_batch_transfer_checked` | 1239 |
 | `spl_token_batch_transfer_checked_prepared` | 1209 |
-| `token_dispatch_transfer` (current path)   |   37 |
-| `token_dispatch_burn` (current path)       |   36 |
-| `token_dispatch_mint` (current path)       |   34 |
+| `token_dispatch_transfer` (current path)   |   36 |
+| `token_dispatch_burn` (current path)       |   35 |
+| `token_dispatch_mint` (current path)       |   33 |
 | `token_dispatch_parse_only_transfer`       |   31 |
 | `token_dispatch_parse_only_burn`           |   31 |
 | `token_dispatch_parse_only_mint`           |   30 |
@@ -115,10 +115,12 @@ path costs:
 
 - `parse_only` ~= unchecked baseline on transfer/burn and +2 CU on mint,
   so `parseAccountsUnchecked` itself is already near-minimal.
-- `bind_only` is a consistent +4 CU over unchecked, which points at the
+- `bind_only` is still a consistent +4 CU over unchecked, which points at the
   typed ix-data length-check/bind path as the main remaining cost.
-- The current end-to-end path adds another ~2 CU on top of `bind_only`,
-  largely from the fully safe account-consumption bookkeeping.
+- The current end-to-end path now adds only ~1 CU on top of `bind_only`
+  after adding cold-branch hints to `requireIxDataLen*`, so the explicit
+  checked account-consumption gate is no longer the dominant part of the
+  remaining dispatch tax.
 
 ## SPL Token CPI notes
 

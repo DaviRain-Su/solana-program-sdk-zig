@@ -114,6 +114,11 @@ fn print_usage(prog: &str) {
     ] {
         println!("  {}", name);
     }
+    println!();
+    println!("Typed-args benchmarks:");
+    for name in ["typed_args_bind", "typed_args_raw"] {
+        println!("  {}", name);
+    }
 }
 
 async fn run_benchmark(name: &'static str) {
@@ -179,6 +184,10 @@ async fn run_benchmark(name: &'static str) {
         "token_dispatch_unchecked_mint" => {
             run_token_dispatch("benchmark_token_dispatch_unchecked", 2, 25).await
         }
+
+        // Typed-args — realistic multi-field payload, bind vs raw reads.
+        "typed_args_bind" => run_typed_args("benchmark_typed_args_bind").await,
+        "typed_args_raw" => run_typed_args("benchmark_typed_args_raw").await,
 
         "spl_token_mint_to_checked_signed" => {
             run_spl_token_cpi_compare("benchmark_spl_token_mint_to_checked_signed").await
@@ -654,5 +663,61 @@ async fn run_token_dispatch(program_name: &'static str, tag: u32, amount: u64) {
     match banks_client.process_transaction(tx).await {
         Ok(()) => println!("token_dispatch tag={} succeeded", tag),
         Err(e) => println!("token_dispatch tag={} failed: {}", tag, e),
+    }
+}
+
+async fn run_typed_args(program_name: &'static str) {
+    let program_id = Pubkey::from_str(BENCH_PROGRAM_ID).unwrap();
+    let mut pt = ProgramTest::new(program_name, program_id, None);
+
+    let source = Pubkey::from_str("BenchPubkey11111111111111111111111111111112").unwrap();
+    let dest = Pubkey::from_str("BenchPubkey11111111111111111111111111111113").unwrap();
+
+    pt.add_account(
+        source,
+        Account {
+            lamports: 10_000_000,
+            data: vec![0],
+            owner: program_id,
+            ..Account::default()
+        },
+    );
+    pt.add_account(
+        dest,
+        Account {
+            lamports: 10_000_000,
+            data: vec![0],
+            owner: program_id,
+            ..Account::default()
+        },
+    );
+
+    let (banks_client, payer, recent_blockhash) = pt.start().await;
+
+    // Layout:
+    // [u32 tag][u64 amount][u64 fee][u64 bonus][u16 flags][u8 bump][u8 mode][u64 limit]
+    let mut data = Vec::with_capacity(40);
+    data.extend_from_slice(&0u32.to_le_bytes());
+    data.extend_from_slice(&100u64.to_le_bytes());
+    data.extend_from_slice(&7u64.to_le_bytes());
+    data.extend_from_slice(&11u64.to_le_bytes());
+    data.extend_from_slice(&1u16.to_le_bytes());
+    data.push(8u8);
+    data.push(1u8);
+    data.extend_from_slice(&256u64.to_le_bytes());
+
+    let accounts = vec![
+        AccountMeta::new(source, false),
+        AccountMeta::new(dest, false),
+    ];
+
+    let mut tx = Transaction::new_with_payer(
+        &[Instruction::new_with_bytes(program_id, &data, accounts)],
+        Some(&payer.pubkey()),
+    );
+    tx.sign(&[&payer], recent_blockhash);
+    match banks_client.process_transaction(tx).await {
+        Ok(()) => println!("typed_args {} succeeded", program_name),
+        Err(e) => println!("typed_args {} failed: {}", program_name, e),
     }
 }

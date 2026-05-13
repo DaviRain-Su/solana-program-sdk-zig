@@ -44,6 +44,8 @@ pub fn build(b: *std.Build) !void {
         .{ "benchmark_token_dispatch_unchecked", "token_dispatch_unchecked.zig" },
         .{ "benchmark_token_dispatch_parse_only", "token_dispatch_parse_only.zig" },
         .{ "benchmark_token_dispatch_bind_only", "token_dispatch_bind_only.zig" },
+        .{ "benchmark_typed_args_bind", "typed_args_bind.zig" },
+        .{ "benchmark_typed_args_raw", "typed_args_raw.zig" },
         .{ "benchmark_noop_callee", "noop_callee.zig" },
     };
 

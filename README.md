@@ -23,7 +23,7 @@ and can be depended on individually from outside the repo via
 | Package | Path | Target | Status | Purpose |
 |---|---|---|---|---|
 | **`solana_program_sdk`** | (repo root) | on-chain | ✅ released | Core SDK for writing Solana on-chain programs in Zig |
-| **`spl_token`** | `packages/spl-token` | dual (on-chain CPI + off-chain ix builder) | ✅ released (v0.2) | SPL Token client (transfer / authority / multisig / …) |
+| **`spl_token`** | `packages/spl-token` | dual (on-chain CPI + off-chain ix builder) | ✅ released (v0.3) | SPL Token client (transfer / authority / multisig / syncNative / …) |
 | **`spl_token_2022`** | `packages/spl-token-2022` | host + on-chain-safe parsing | ✅ released (v0.1 parsing-only) | Token-2022 TLV + fixed-length extension parsing |
 | **`spl_ata`** | `packages/spl-ata` | dual | ✅ released (v0.1) | Associated Token Account address derivation + create CPI |
 | **`spl_memo`** | `packages/spl-memo` | dual | ✅ released (v0.1) | SPL Memo program CPI |

@@ -48,6 +48,7 @@ pub const TokenInstruction = enum(u8) {
     approve_checked = 13,
     mint_to_checked = 14,
     burn_checked = 15,
+    sync_native = 17,
     initialize_account3 = 18,
     initialize_multisig2 = 19,
     initialize_mint2 = 20,
@@ -108,6 +109,7 @@ pub const mint_to_checked_spec: Spec = .{ .disc = .mint_to_checked, .accounts_le
 pub const burn_spec: Spec = .{ .disc = .burn, .accounts_len = 3, .data_len = 1 + 8 };
 pub const burn_checked_spec: Spec = .{ .disc = .burn_checked, .accounts_len = 3, .data_len = 1 + 8 + 1 };
 pub const close_account_spec: Spec = .{ .disc = .close_account, .accounts_len = 3, .data_len = 1 };
+pub const sync_native_spec: Spec = .{ .disc = .sync_native, .accounts_len = 1, .data_len = 1 };
 pub const initialize_account3_spec: Spec = .{ .disc = .initialize_account3, .accounts_len = 2, .data_len = 1 + 32 };
 pub const initialize_multisig2_spec: Spec = .{ .disc = .initialize_multisig2, .accounts_len = 1, .data_len = 1 + 1 };
 pub const initialize_mint2_spec: Spec = .{ .disc = .initialize_mint2, .accounts_len = 1, .data_len = 1 + 1 + 32 + 4 + 32 };
@@ -161,6 +163,7 @@ comptime {
         .{ burn_spec, 3, AMOUNT_LEN },
         .{ burn_checked_spec, 3, AMOUNT_LEN + DECIMALS_LEN },
         .{ close_account_spec, 3, 0 },
+        .{ sync_native_spec, 1, 0 },
         .{ initialize_account3_spec, 2, PUBKEY_LEN },
         .{ initialize_multisig2_spec, 1, 1 },
         .{ initialize_mint2_spec, 1, DECIMALS_LEN + PUBKEY_LEN + COPTION_PUBKEY_LEN },
@@ -968,6 +971,24 @@ pub fn closeAccountMultisig(
     };
 }
 
+/// `SyncNative` — discriminant 17.
+///
+/// Account metas (in order):
+///   0. native token account — writable
+pub fn syncNative(
+    account: *const Pubkey,
+    metas: *metasArray(sync_native_spec),
+    data: *dataArray(sync_native_spec),
+) Instruction {
+    data[0] = @intFromEnum(TokenInstruction.sync_native);
+    metas[0] = AccountMeta.writable(account);
+    return .{
+        .program_id = &id.PROGRAM_ID,
+        .accounts = metas,
+        .data = data,
+    };
+}
+
 /// `InitializeAccount3 { owner }` — discriminant 18.
 ///
 /// Account metas (in order):
@@ -1104,13 +1125,14 @@ fn signerPubkeys(comptime count: usize, start: u8) [count]Pubkey {
     return keys;
 }
 
-test "v0.2 authority/freeze specs and discriminants stay canonical" {
+test "v0.3 authority/freeze/native specs and discriminants stay canonical" {
     try std.testing.expectEqual(@as(u8, 4), @intFromEnum(TokenInstruction.approve));
     try std.testing.expectEqual(@as(u8, 5), @intFromEnum(TokenInstruction.revoke));
     try std.testing.expectEqual(@as(u8, 6), @intFromEnum(TokenInstruction.set_authority));
     try std.testing.expectEqual(@as(u8, 10), @intFromEnum(TokenInstruction.freeze_account));
     try std.testing.expectEqual(@as(u8, 11), @intFromEnum(TokenInstruction.thaw_account));
     try std.testing.expectEqual(@as(u8, 13), @intFromEnum(TokenInstruction.approve_checked));
+    try std.testing.expectEqual(@as(u8, 17), @intFromEnum(TokenInstruction.sync_native));
     try std.testing.expectEqual(@as(u8, 19), @intFromEnum(TokenInstruction.initialize_multisig2));
 
     try std.testing.expectEqual(@as(usize, 3), approve_spec.accounts_len);
@@ -1126,6 +1148,8 @@ test "v0.2 authority/freeze specs and discriminants stay canonical" {
     try std.testing.expectEqual(@as(usize, 1), thaw_account_spec.data_len);
     try std.testing.expectEqual(@as(usize, 4), approve_checked_spec.accounts_len);
     try std.testing.expectEqual(@as(usize, 10), approve_checked_spec.data_len);
+    try std.testing.expectEqual(@as(usize, 1), sync_native_spec.accounts_len);
+    try std.testing.expectEqual(@as(usize, 1), sync_native_spec.data_len);
     try std.testing.expectEqual(@as(usize, 1), initialize_multisig2_spec.accounts_len);
     try std.testing.expectEqual(@as(usize, 2), initialize_multisig2_spec.data_len);
 }
@@ -1370,6 +1394,18 @@ test "initializeMint2: Some-vs-None freeze authority encoding" {
     _ = initializeMint2(&m, 0, &auth, null, &metas, &data);
     try std.testing.expectEqual(state.COPTION_NONE, std.mem.readInt(u32, data[34..38], .little));
     for (data[38..70]) |b| try std.testing.expectEqual(@as(u8, 0), b);
+}
+
+test "syncNative: single writable account and 1-byte body" {
+    const account: Pubkey = .{0xAB} ** 32;
+    var metas: [1]AccountMeta = undefined;
+    var data: [1]u8 = undefined;
+    const ix = syncNative(&account, &metas, &data);
+    try std.testing.expectEqual(&id.PROGRAM_ID, ix.program_id);
+    try std.testing.expectEqual(@as(usize, 1), ix.accounts.len);
+    try std.testing.expectEqual(@as(usize, 1), ix.data.len);
+    try std.testing.expectEqual(@as(u8, 17), data[0]);
+    try expectMeta(ix.accounts[0], &account, 1, 0);
 }
 
 test "initializeAccount3: 33-byte body carries owner pubkey" {

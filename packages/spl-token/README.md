@@ -1,9 +1,9 @@
 # spl-token (Zig)
 
-Status: ✅ **v0.2** — instruction builders + on-chain CPI helpers
-for the fungible-token, authority, and multisig subset. Validated
-against the real on-chain SPL Token program inside Mollusk
-(see `program-test/tests/spl_token.rs`).
+Status: ✅ **v0.3** — instruction builders + on-chain CPI helpers
+for the fungible-token, authority, multisig, and native-SOL sync
+subset. Validated against the real on-chain SPL Token program inside
+Mollusk (see `program-test/tests/spl_token.rs`).
 
 Zig client for the [SPL Token](https://github.com/solana-program/token)
 program. Dual-target:
@@ -58,12 +58,16 @@ const ix = spl_token.instruction.transfer(
 );
 // `ix` is a `sol.cpi.Instruction` — serialise into a transaction.
 
+// Wrapped SOL / native mint helpers:
+try spl_token.cpi.syncNative(a.token_program.toCpiInfo(), wrapped_sol.toCpiInfo());
+const uses_native_mint = spl_token.isNativeMint(&spl_token.NATIVE_MINT);
+
 // ──────────── Zero-copy state views ────────────
 const mint = try spl_token.Mint.fromBytes(mint_account.data());
 const balance = (try spl_token.Account.fromBytes(token_account.data())).amount;
 ```
 
-## Scope (v0.2)
+## Scope (v0.3)
 
 Instructions:
 
@@ -75,6 +79,7 @@ Instructions:
 - `burn` (8) / `burnChecked` (15)
 - `closeAccount` (9)
 - `freezeAccount` (10) / `thawAccount` (11)
+- `syncNative` (17)
 - `initializeMint2` (20) / `initializeAccount3` (18)
 - `initializeMultisig2` (19)
   (modern "2"/"3" variants — no Rent sysvar, owner/freeze authority
@@ -92,13 +97,14 @@ State (zero-copy `extern struct`):
   `state` + `is_native` + `delegated_amount` + `close_authority`
 - `Multisig` — 355 bytes, `m`, `n`, `is_initialized` + up to 11 signer keys
 - `AccountState` enum (Uninitialized / Initialized / Frozen)
+- `NATIVE_MINT` constant + `isNativeMint(...)` helper for wrapped SOL flows
 
 ## Not yet covered
 
-Legacy Rent-sysvar initializers, `syncNative`, UI amount conversion /
-data-size helpers, and Token-2022 extension instructions. Add when
-there's a concrete consumer — these are mechanically the same patterns
-as above (single comptime instruction-data builder + CPI wrapper).
+Legacy Rent-sysvar initializers, UI amount conversion / data-size
+helpers, and Token-2022 extension instructions. Add when there's a
+concrete consumer — these are mechanically the same patterns as above
+(single comptime instruction-data builder + CPI wrapper).
 
 ## Notes
 

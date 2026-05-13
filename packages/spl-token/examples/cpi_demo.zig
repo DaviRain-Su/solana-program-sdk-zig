@@ -35,6 +35,7 @@
 //!   tag = 27  burnMultisig              data: tag + amount
 //!   tag = 28  burnCheckedMultisig       data: tag + amount + decimals
 //!   tag = 29  closeAccountMultisig      data: tag
+//!   tag = 30  syncNative                data: tag
 //!
 //! Signed routes use a PDA authority derived from:
 //!   seeds = ["authority", &[bump]]
@@ -76,6 +77,7 @@ const Op = enum(u8) {
     burn_multisig = 27,
     burn_checked_multisig = 28,
     close_account_multisig = 29,
+    sync_native = 30,
     _,
 };
 
@@ -667,6 +669,15 @@ fn process(ctx: *sol.entrypoint.InstructionContext) sol.ProgramResult {
                 destination.toCpiInfo(),
                 multisig_authority.toCpiInfo(),
                 signer_infos,
+            );
+        },
+        .sync_native => {
+            try requireAccounts(ctx, 2);
+            const token_program = ctx.nextAccountUnchecked();
+            const account = ctx.nextAccountUnchecked();
+            try spl_token.cpi.syncNative(
+                token_program.toCpiInfo(),
+                account.toCpiInfo(),
             );
         },
         else => return error.InvalidInstructionData,

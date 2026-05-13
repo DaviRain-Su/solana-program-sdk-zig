@@ -27,9 +27,14 @@ mod program {
     solana_pubkey::declare_id!("Zigc1Hc97L8Pebma74jDzYiyoUvdxxcj7Gxppg9VRxK");
 }
 
+const NATIVE_MINT: Pubkey = solana_pubkey::pubkey!("So11111111111111111111111111111111111111112");
+
 const DECIMALS: u8 = 6;
 const MINT_AMOUNT: u64 = 1_000;
 const TRANSFER_AMOUNT: u64 = 250;
+const NATIVE_RENT_RESERVE: u64 = 2_039_280;
+const WRAPPED_SOL_INITIAL_AMOUNT: u64 = 1_000;
+const WRAPPED_SOL_TOP_UP: u64 = 400;
 const BURN_AMOUNT: u64 = 100;
 const APPROVE_AMOUNT: u64 = 200;
 const APPROVE_SPEND_AMOUNT: u64 = 75;
@@ -109,6 +114,21 @@ fn token_account(
         delegated_amount,
         close_authority: coption(close_authority),
     })
+}
+
+fn native_token_account(owner: &Pubkey, amount: u64, reserve: u64) -> Account {
+    let mut account = spl_token_program::create_account_for_token_account(TokenAccount {
+        mint: NATIVE_MINT,
+        owner: *owner,
+        amount,
+        delegate: COption::None,
+        state: TokenState::Initialized,
+        is_native: COption::Some(reserve),
+        delegated_amount: 0,
+        close_authority: COption::None,
+    });
+    account.lamports = reserve + amount;
+    account
 }
 
 fn build_demo_ix(accounts: Vec<AccountMeta>, data: Vec<u8>) -> Instruction {
@@ -679,6 +699,44 @@ fn test_mint_transfer_burn_close_end_to_end() {
         dest_lamports > 0,
         "expected lamports forwarded to close-destination",
     );
+}
+
+#[test]
+fn test_sync_native_updates_wrapped_sol_amount_from_lamports() {
+    let mollusk = fresh_mollusk();
+
+    let owner = Pubkey::new_unique();
+    let wrapped_sol = Pubkey::new_unique();
+    let mut wrapped_account =
+        native_token_account(&owner, WRAPPED_SOL_INITIAL_AMOUNT, NATIVE_RENT_RESERVE);
+    wrapped_account.lamports += WRAPPED_SOL_TOP_UP;
+
+    let initial_accounts = vec![
+        (
+            spl_token_program::keyed_account().0,
+            spl_token_program::keyed_account().1,
+        ),
+        (wrapped_sol, wrapped_account),
+    ];
+
+    let ix = build_demo_ix(
+        vec![
+            AccountMeta::new_readonly(spl_token_program::ID, false),
+            AccountMeta::new(wrapped_sol, false),
+        ],
+        vec![30u8],
+    );
+    let result = run(&mollusk, &initial_accounts, &ix);
+    assert_success("syncNative", &result);
+    println!("syncNative CU: {}", result.compute_units_consumed);
+
+    let synced = unpack_token(&result.resulting_accounts, &wrapped_sol);
+    assert_eq!(
+        synced.amount,
+        WRAPPED_SOL_INITIAL_AMOUNT + WRAPPED_SOL_TOP_UP,
+        "syncNative should refresh token amount from underlying lamports",
+    );
+    assert_eq!(synced.is_native, COption::Some(NATIVE_RENT_RESERVE));
 }
 
 #[test]

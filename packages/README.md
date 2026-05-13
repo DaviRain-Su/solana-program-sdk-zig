@@ -8,7 +8,7 @@ the root SDK via a path import.
 
 | Package | Target | Status | Purpose |
 |---|---|---|---|
-| [`spl-token`](./spl-token) | dual (on-chain CPI + off-chain ix builder) | ✅ v0.2 | SPL Token (transfer / authority / multisig / …) |
+| [`spl-token`](./spl-token) | dual (on-chain CPI + off-chain ix builder) | ✅ v0.3 | SPL Token (transfer / authority / multisig / syncNative / …) |
 | [`spl-token-2022`](./spl-token-2022) | host + on-chain-safe parsing | ✅ v0.1 parsing-only | Token-2022 TLV + fixed-length extension parsing |
 | [`spl-ata`](./spl-ata) | dual | ✅ v0.1 | Associated Token Account address derivation + create CPI |
 | [`spl-memo`](./spl-memo) | dual | ✅ v0.1 | SPL Memo program CPI |

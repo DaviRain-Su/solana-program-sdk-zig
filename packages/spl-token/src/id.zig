@@ -29,3 +29,10 @@ pub const PROGRAM_ID: Pubkey = sol.pubkey.comptimeFromBase58(
 pub const PROGRAM_ID_2022: Pubkey = sol.pubkey.comptimeFromBase58(
     "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
 );
+
+/// Canonical wrapped-SOL / native mint address.
+///
+/// `So11111111111111111111111111111111111111112`
+pub const NATIVE_MINT: Pubkey = sol.pubkey.comptimeFromBase58(
+    "So11111111111111111111111111111111111111112",
+);

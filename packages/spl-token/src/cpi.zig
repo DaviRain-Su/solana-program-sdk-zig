@@ -1483,6 +1483,19 @@ pub fn closeAccountMultisig(
     try sol.cpi.invokeRaw(&ix, staged.runtime_accounts);
 }
 
+pub fn syncNative(
+    token_program: CpiAccountInfo,
+    account: CpiAccountInfo,
+) ProgramResult {
+    var metas: metasArray(instruction.sync_native_spec) = undefined;
+    var data: dataArray(instruction.sync_native_spec) = undefined;
+    const ix = rebrand(
+        instruction.syncNative(account.key(), &metas, &data),
+        token_program.key(),
+    );
+    try sol.cpi.invokeRaw(&ix, &[_]CpiAccountInfo{ account, token_program });
+}
+
 // =============================================================================
 // Initialize* — typically used at mint/account creation time.
 // =============================================================================
@@ -1591,7 +1604,7 @@ fn testCpiInfo(acc: *sol.account.Account) CpiAccountInfo {
     return info.toCpiInfo();
 }
 
-test "spl-token cpi: public v0.2 wrapper decls exist" {
+test "spl-token cpi: public v0.3 wrapper decls exist" {
     inline for ([_][]const u8{
         "approve",
         "approveSigned",
@@ -1625,6 +1638,7 @@ test "spl-token cpi: public v0.2 wrapper decls exist" {
         "burnMultisig",
         "burnCheckedMultisig",
         "closeAccountMultisig",
+        "syncNative",
     }) |name| {
         try std.testing.expect(@hasDecl(@This(), name));
     }
@@ -1676,6 +1690,27 @@ test "spl-token cpi: multisig staging keeps signer metas and runtime accounts al
     try std.testing.expectEqualSlices(u8, signer_a.key(), staged.runtime_accounts[3].key());
     try std.testing.expectEqualSlices(u8, signer_b.key(), staged.runtime_accounts[4].key());
     try std.testing.expectEqualSlices(u8, token_program.key(), staged.runtime_accounts[5].key());
+}
+
+test "spl-token cpi: syncNative rebrands callee and preserves single runtime account order" {
+    var wrapped_account = testAccount(.{0x30} ** 32, .{0x90} ** 32, false, true, false);
+    var token_program_account = testAccount(sol.spl_token_2022_program_id, .{0x91} ** 32, false, false, true);
+
+    const wrapped = testCpiInfo(&wrapped_account.raw);
+    const token_program = testCpiInfo(&token_program_account.raw);
+
+    var metas: metasArray(instruction.sync_native_spec) = undefined;
+    var data: dataArray(instruction.sync_native_spec) = undefined;
+    const ix = rebrand(
+        instruction.syncNative(wrapped.key(), &metas, &data),
+        token_program.key(),
+    );
+
+    try std.testing.expectEqual(token_program.key(), ix.program_id);
+    try std.testing.expectEqual(@as(usize, 1), ix.accounts.len);
+    try std.testing.expectEqual(@as(usize, 1), ix.data.len);
+    try std.testing.expectEqual(@as(u8, @intFromEnum(instruction.TokenInstruction.sync_native)), ix.data[0]);
+    try std.testing.expectEqualSlices(u8, wrapped.key(), ix.accounts[0].pubkey);
 }
 
 test "spl-token cpi: initializeMultisig2 rebrands callee and preserves signer order" {

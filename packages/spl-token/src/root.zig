@@ -40,6 +40,8 @@
 //! );
 //! ```
 
+const sol = @import("solana_program_sdk");
+
 pub const id = @import("id.zig");
 pub const state = @import("state.zig");
 pub const instruction = @import("instruction.zig");
@@ -49,6 +51,8 @@ pub const cpi = @import("cpi.zig");
 pub const PROGRAM_ID = id.PROGRAM_ID;
 /// Token-2022 program ID.
 pub const PROGRAM_ID_2022 = id.PROGRAM_ID_2022;
+/// Canonical wrapped-SOL / native mint address.
+pub const NATIVE_MINT = id.NATIVE_MINT;
 
 pub const Mint = state.Mint;
 pub const Account = state.Account;
@@ -60,6 +64,10 @@ pub const MULTISIG_LEN = state.MULTISIG_LEN;
 pub const MULTISIG_SIGNER_MAX = state.MULTISIG_SIGNER_MAX;
 
 pub const TokenInstruction = instruction.TokenInstruction;
+
+pub inline fn isNativeMint(mint: *const sol.Pubkey) bool {
+    return sol.pubkey.pubkeyEq(mint, &NATIVE_MINT);
+}
 
 test {
     @import("std").testing.refAllDecls(@This());

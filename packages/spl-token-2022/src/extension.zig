@@ -1,4 +1,4 @@
-//! Token-2022 fixed-length extension metadata and read-only mint views.
+//! Token-2022 fixed-length extension metadata and read-only views.
 
 const std = @import("std");
 const state = @import("state.zig");
@@ -6,6 +6,7 @@ const tlv = @import("tlv.zig");
 
 pub const Error = tlv.Error || error{
     InvalidExtensionLength,
+    UnsupportedExtension,
 };
 
 pub const ExtensionType = enum(u16) {
@@ -201,6 +202,80 @@ pub const PausableView = extern struct {
     }
 };
 
+pub const TransferFeeAmountView = extern struct {
+    withheld_amount: u64 align(1),
+
+    pub const TYPE = ExtensionType.transfer_fee_amount;
+    pub const PAYLOAD_LEN: usize = 8;
+
+    pub fn fromBytes(bytes: []const u8) Error!*align(1) const TransferFeeAmountView {
+        return castPayload(TransferFeeAmountView, bytes, PAYLOAD_LEN);
+    }
+};
+
+pub const ImmutableOwnerView = struct {
+    pub const TYPE = ExtensionType.immutable_owner;
+    pub const PAYLOAD_LEN: usize = 0;
+
+    pub fn fromBytes(bytes: []const u8) Error!ImmutableOwnerView {
+        if (bytes.len != 0) return error.InvalidExtensionLength;
+        return .{};
+    }
+};
+
+pub const MemoTransferView = extern struct {
+    require_incoming_transfer_memos: u8,
+
+    pub const TYPE = ExtensionType.memo_transfer;
+    pub const PAYLOAD_LEN: usize = 1;
+
+    pub fn fromBytes(bytes: []const u8) Error!*align(1) const MemoTransferView {
+        return castPayload(MemoTransferView, bytes, PAYLOAD_LEN);
+    }
+};
+
+pub const CpiGuardView = extern struct {
+    lock_cpi: u8,
+
+    pub const TYPE = ExtensionType.cpi_guard;
+    pub const PAYLOAD_LEN: usize = 1;
+
+    pub fn fromBytes(bytes: []const u8) Error!*align(1) const CpiGuardView {
+        return castPayload(CpiGuardView, bytes, PAYLOAD_LEN);
+    }
+};
+
+pub const NonTransferableAccountView = struct {
+    pub const TYPE = ExtensionType.non_transferable_account;
+    pub const PAYLOAD_LEN: usize = 0;
+
+    pub fn fromBytes(bytes: []const u8) Error!NonTransferableAccountView {
+        if (bytes.len != 0) return error.InvalidExtensionLength;
+        return .{};
+    }
+};
+
+pub const TransferHookAccountView = extern struct {
+    transferring: u8,
+
+    pub const TYPE = ExtensionType.transfer_hook_account;
+    pub const PAYLOAD_LEN: usize = 1;
+
+    pub fn fromBytes(bytes: []const u8) Error!*align(1) const TransferHookAccountView {
+        return castPayload(TransferHookAccountView, bytes, PAYLOAD_LEN);
+    }
+};
+
+pub const PausableAccountView = struct {
+    pub const TYPE = ExtensionType.pausable_account;
+    pub const PAYLOAD_LEN: usize = 0;
+
+    pub fn fromBytes(bytes: []const u8) Error!PausableAccountView {
+        if (bytes.len != 0) return error.InvalidExtensionLength;
+        return .{};
+    }
+};
+
 pub const MINT_FIXED_LEN_SUPPORT = [_]SupportRow{
     .{
         .name = "TransferFeeConfig",
@@ -320,62 +395,186 @@ pub const MINT_FIXED_LEN_SUPPORT = [_]SupportRow{
     },
 };
 
+pub const ACCOUNT_FIXED_LEN_SUPPORT = [_]SupportRow{
+    .{
+        .name = "TransferFeeAmount",
+        .account_type = .account,
+        .extension_type = .transfer_fee_amount,
+        .payload_len = TransferFeeAmountView.PAYLOAD_LEN,
+        .exposed_fields = &.{"withheld_amount"},
+    },
+    .{
+        .name = "ImmutableOwner",
+        .account_type = .account,
+        .extension_type = .immutable_owner,
+        .payload_len = ImmutableOwnerView.PAYLOAD_LEN,
+        .exposed_fields = &.{},
+    },
+    .{
+        .name = "MemoTransfer",
+        .account_type = .account,
+        .extension_type = .memo_transfer,
+        .payload_len = MemoTransferView.PAYLOAD_LEN,
+        .exposed_fields = &.{"require_incoming_transfer_memos"},
+    },
+    .{
+        .name = "CpiGuard",
+        .account_type = .account,
+        .extension_type = .cpi_guard,
+        .payload_len = CpiGuardView.PAYLOAD_LEN,
+        .exposed_fields = &.{"lock_cpi"},
+    },
+    .{
+        .name = "NonTransferableAccount",
+        .account_type = .account,
+        .extension_type = .non_transferable_account,
+        .payload_len = NonTransferableAccountView.PAYLOAD_LEN,
+        .exposed_fields = &.{},
+    },
+    .{
+        .name = "TransferHookAccount",
+        .account_type = .account,
+        .extension_type = .transfer_hook_account,
+        .payload_len = TransferHookAccountView.PAYLOAD_LEN,
+        .exposed_fields = &.{"transferring"},
+    },
+    .{
+        .name = "PausableAccount",
+        .account_type = .account,
+        .extension_type = .pausable_account,
+        .payload_len = PausableAccountView.PAYLOAD_LEN,
+        .exposed_fields = &.{},
+    },
+};
+
+pub const KNOWN_UNSUPPORTED_FIXED_VIEW_TYPES = [_]ExtensionType{
+    .confidential_transfer_mint,
+    .confidential_transfer_account,
+    .confidential_transfer_fee_config,
+    .confidential_transfer_fee_amount,
+    .token_metadata,
+    .token_group,
+    .token_group_member,
+    .confidential_mint_burn,
+    .permissioned_burn,
+};
+
 fn castPayload(comptime T: type, bytes: []const u8, expected_len: usize) Error!*align(1) const T {
     if (bytes.len != expected_len) return error.InvalidExtensionLength;
     return @ptrCast(bytes.ptr);
 }
 
-fn findMintPayload(bytes: []const u8, extension_type: ExtensionType) Error![]const u8 {
-    const record = try tlv.findMintExtension(bytes, @intFromEnum(extension_type));
+fn findSupportRow(rows: []const SupportRow, extension_type: ExtensionType) ?SupportRow {
+    for (rows) |row| {
+        if (row.extension_type == extension_type) return row;
+    }
+    return null;
+}
+
+fn requireMintSupport(extension_type: ExtensionType) Error!SupportRow {
+    if (findSupportRow(MINT_FIXED_LEN_SUPPORT[0..], extension_type)) |row| return row;
+    if (findSupportRow(ACCOUNT_FIXED_LEN_SUPPORT[0..], extension_type) != null) {
+        return error.WrongAccountType;
+    }
+    return error.UnsupportedExtension;
+}
+
+fn requireAccountSupport(extension_type: ExtensionType) Error!SupportRow {
+    if (findSupportRow(ACCOUNT_FIXED_LEN_SUPPORT[0..], extension_type)) |row| return row;
+    if (findSupportRow(MINT_FIXED_LEN_SUPPORT[0..], extension_type) != null) {
+        return error.WrongAccountType;
+    }
+    return error.UnsupportedExtension;
+}
+
+pub fn getMintViewPayload(mint_bytes: []const u8, extension_type: ExtensionType) Error![]const u8 {
+    const row = try requireMintSupport(extension_type);
+    const record = try tlv.findMintExtension(mint_bytes, @intFromEnum(extension_type));
+    if (record.value.len != row.payload_len) return error.InvalidExtensionLength;
+    return record.value;
+}
+
+pub fn getAccountViewPayload(account_bytes: []const u8, extension_type: ExtensionType) Error![]const u8 {
+    const row = try requireAccountSupport(extension_type);
+    const record = try tlv.findAccountExtension(account_bytes, @intFromEnum(extension_type));
+    if (record.value.len != row.payload_len) return error.InvalidExtensionLength;
     return record.value;
 }
 
 pub fn getTransferFeeConfig(mint_bytes: []const u8) Error!*align(1) const TransferFeeConfigView {
-    return TransferFeeConfigView.fromBytes(try findMintPayload(mint_bytes, .transfer_fee_config));
+    return TransferFeeConfigView.fromBytes(try getMintViewPayload(mint_bytes, .transfer_fee_config));
 }
 
 pub fn getMintCloseAuthority(mint_bytes: []const u8) Error!*align(1) const MintCloseAuthorityView {
-    return MintCloseAuthorityView.fromBytes(try findMintPayload(mint_bytes, .mint_close_authority));
+    return MintCloseAuthorityView.fromBytes(try getMintViewPayload(mint_bytes, .mint_close_authority));
 }
 
 pub fn getDefaultAccountState(mint_bytes: []const u8) Error!*align(1) const DefaultAccountStateView {
-    return DefaultAccountStateView.fromBytes(try findMintPayload(mint_bytes, .default_account_state));
+    return DefaultAccountStateView.fromBytes(try getMintViewPayload(mint_bytes, .default_account_state));
 }
 
 pub fn getNonTransferable(mint_bytes: []const u8) Error!NonTransferableView {
-    return NonTransferableView.fromBytes(try findMintPayload(mint_bytes, .non_transferable));
+    return NonTransferableView.fromBytes(try getMintViewPayload(mint_bytes, .non_transferable));
 }
 
 pub fn getInterestBearingConfig(mint_bytes: []const u8) Error!*align(1) const InterestBearingConfigView {
-    return InterestBearingConfigView.fromBytes(try findMintPayload(mint_bytes, .interest_bearing_config));
+    return InterestBearingConfigView.fromBytes(try getMintViewPayload(mint_bytes, .interest_bearing_config));
 }
 
 pub fn getPermanentDelegate(mint_bytes: []const u8) Error!*align(1) const PermanentDelegateView {
-    return PermanentDelegateView.fromBytes(try findMintPayload(mint_bytes, .permanent_delegate));
+    return PermanentDelegateView.fromBytes(try getMintViewPayload(mint_bytes, .permanent_delegate));
 }
 
 pub fn getTransferHook(mint_bytes: []const u8) Error!*align(1) const TransferHookView {
-    return TransferHookView.fromBytes(try findMintPayload(mint_bytes, .transfer_hook));
+    return TransferHookView.fromBytes(try getMintViewPayload(mint_bytes, .transfer_hook));
 }
 
 pub fn getMetadataPointer(mint_bytes: []const u8) Error!*align(1) const MetadataPointerView {
-    return MetadataPointerView.fromBytes(try findMintPayload(mint_bytes, .metadata_pointer));
+    return MetadataPointerView.fromBytes(try getMintViewPayload(mint_bytes, .metadata_pointer));
 }
 
 pub fn getGroupPointer(mint_bytes: []const u8) Error!*align(1) const GroupPointerView {
-    return GroupPointerView.fromBytes(try findMintPayload(mint_bytes, .group_pointer));
+    return GroupPointerView.fromBytes(try getMintViewPayload(mint_bytes, .group_pointer));
 }
 
 pub fn getGroupMemberPointer(mint_bytes: []const u8) Error!*align(1) const GroupMemberPointerView {
-    return GroupMemberPointerView.fromBytes(try findMintPayload(mint_bytes, .group_member_pointer));
+    return GroupMemberPointerView.fromBytes(try getMintViewPayload(mint_bytes, .group_member_pointer));
 }
 
 pub fn getScaledUiAmount(mint_bytes: []const u8) Error!*align(1) const ScaledUiAmountView {
-    return ScaledUiAmountView.fromBytes(try findMintPayload(mint_bytes, .scaled_ui_amount));
+    return ScaledUiAmountView.fromBytes(try getMintViewPayload(mint_bytes, .scaled_ui_amount));
 }
 
 pub fn getPausable(mint_bytes: []const u8) Error!*align(1) const PausableView {
-    return PausableView.fromBytes(try findMintPayload(mint_bytes, .pausable));
+    return PausableView.fromBytes(try getMintViewPayload(mint_bytes, .pausable));
+}
+
+pub fn getTransferFeeAmount(account_bytes: []const u8) Error!*align(1) const TransferFeeAmountView {
+    return TransferFeeAmountView.fromBytes(try getAccountViewPayload(account_bytes, .transfer_fee_amount));
+}
+
+pub fn getImmutableOwner(account_bytes: []const u8) Error!ImmutableOwnerView {
+    return ImmutableOwnerView.fromBytes(try getAccountViewPayload(account_bytes, .immutable_owner));
+}
+
+pub fn getMemoTransfer(account_bytes: []const u8) Error!*align(1) const MemoTransferView {
+    return MemoTransferView.fromBytes(try getAccountViewPayload(account_bytes, .memo_transfer));
+}
+
+pub fn getCpiGuard(account_bytes: []const u8) Error!*align(1) const CpiGuardView {
+    return CpiGuardView.fromBytes(try getAccountViewPayload(account_bytes, .cpi_guard));
+}
+
+pub fn getNonTransferableAccount(account_bytes: []const u8) Error!NonTransferableAccountView {
+    return NonTransferableAccountView.fromBytes(try getAccountViewPayload(account_bytes, .non_transferable_account));
+}
+
+pub fn getTransferHookAccount(account_bytes: []const u8) Error!*align(1) const TransferHookAccountView {
+    return TransferHookAccountView.fromBytes(try getAccountViewPayload(account_bytes, .transfer_hook_account));
+}
+
+pub fn getPausableAccount(account_bytes: []const u8) Error!PausableAccountView {
+    return PausableAccountView.fromBytes(try getAccountViewPayload(account_bytes, .pausable_account));
 }
 
 fn fillSequence(bytes: []u8, start: u8) void {
@@ -776,6 +975,272 @@ test "mint helpers look up canonical TLV records and return typed read-only view
     try std.testing.expectEqualSlices(u8, metadata_payload[0..], std.mem.asBytes(metadata));
 
     _ = try getNonTransferable(mint[0..off]);
+}
+
+fn makeExtensionCapableAccount() [512]u8 {
+    var buf = [_]u8{0} ** 512;
+    @memset(buf[0..tlv.ACCOUNT_BASE_LEN], 0xA5);
+    buf[tlv.ACCOUNT_TYPE_OFFSET] = @intFromEnum(state.AccountType.account);
+    return buf;
+}
+
+fn expectSupportRowForKind(
+    actual: SupportRow,
+    expected_account_type: state.AccountType,
+    expected_name: []const u8,
+    expected_type: ExtensionType,
+    expected_len: usize,
+    expected_fields: []const []const u8,
+) !void {
+    try std.testing.expectEqual(expected_account_type, actual.account_type);
+    try std.testing.expectEqualStrings(expected_name, actual.name);
+    try std.testing.expectEqual(expected_type, actual.extension_type);
+    try std.testing.expectEqual(expected_len, actual.payload_len);
+    try std.testing.expectEqual(expected_fields.len, actual.exposed_fields.len);
+    for (expected_fields, actual.exposed_fields) |expected, got| {
+        try std.testing.expectEqualStrings(expected, got);
+    }
+}
+
+test "account support table rows lock canonical type ids, payload lengths, and raw field names" {
+    try std.testing.expectEqual(@as(usize, 7), ACCOUNT_FIXED_LEN_SUPPORT.len);
+
+    try expectSupportRowForKind(
+        ACCOUNT_FIXED_LEN_SUPPORT[0],
+        .account,
+        "TransferFeeAmount",
+        .transfer_fee_amount,
+        8,
+        &.{"withheld_amount"},
+    );
+    try expectSupportRowForKind(
+        ACCOUNT_FIXED_LEN_SUPPORT[1],
+        .account,
+        "ImmutableOwner",
+        .immutable_owner,
+        0,
+        &.{},
+    );
+    try expectSupportRowForKind(
+        ACCOUNT_FIXED_LEN_SUPPORT[2],
+        .account,
+        "MemoTransfer",
+        .memo_transfer,
+        1,
+        &.{"require_incoming_transfer_memos"},
+    );
+    try expectSupportRowForKind(
+        ACCOUNT_FIXED_LEN_SUPPORT[3],
+        .account,
+        "CpiGuard",
+        .cpi_guard,
+        1,
+        &.{"lock_cpi"},
+    );
+    try expectSupportRowForKind(
+        ACCOUNT_FIXED_LEN_SUPPORT[4],
+        .account,
+        "NonTransferableAccount",
+        .non_transferable_account,
+        0,
+        &.{},
+    );
+    try expectSupportRowForKind(
+        ACCOUNT_FIXED_LEN_SUPPORT[5],
+        .account,
+        "TransferHookAccount",
+        .transfer_hook_account,
+        1,
+        &.{"transferring"},
+    );
+    try expectSupportRowForKind(
+        ACCOUNT_FIXED_LEN_SUPPORT[6],
+        .account,
+        "PausableAccount",
+        .pausable_account,
+        0,
+        &.{},
+    );
+}
+
+test "account view payload lengths match canonical serialized sizes" {
+    try std.testing.expectEqual(@as(usize, 8), TransferFeeAmountView.PAYLOAD_LEN);
+    try std.testing.expectEqual(@as(usize, 8), @sizeOf(TransferFeeAmountView));
+    try std.testing.expectEqual(@as(usize, 0), ImmutableOwnerView.PAYLOAD_LEN);
+    try std.testing.expectEqual(@as(usize, 1), MemoTransferView.PAYLOAD_LEN);
+    try std.testing.expectEqual(@as(usize, 1), @sizeOf(MemoTransferView));
+    try std.testing.expectEqual(@as(usize, 1), CpiGuardView.PAYLOAD_LEN);
+    try std.testing.expectEqual(@as(usize, 1), @sizeOf(CpiGuardView));
+    try std.testing.expectEqual(@as(usize, 0), NonTransferableAccountView.PAYLOAD_LEN);
+    try std.testing.expectEqual(@as(usize, 1), TransferHookAccountView.PAYLOAD_LEN);
+    try std.testing.expectEqual(@as(usize, 1), @sizeOf(TransferHookAccountView));
+    try std.testing.expectEqual(@as(usize, 0), PausableAccountView.PAYLOAD_LEN);
+}
+
+test "TransferFeeAmount account view exposes withheld amount" {
+    var payload = [_]u8{0} ** TransferFeeAmountView.PAYLOAD_LEN;
+    writeIntLe(u64, payload[0..8], 0x8877665544332211);
+
+    const view = try expectParsedView(TransferFeeAmountView, &payload);
+    try std.testing.expectEqual(@as(u64, 0x8877665544332211), view.withheld_amount);
+    try expectWrongLengths(TransferFeeAmountView);
+}
+
+test "ImmutableOwner account marker accepts only empty payload" {
+    const empty = [_]u8{};
+    _ = try ImmutableOwnerView.fromBytes(empty[0..]);
+
+    const wrong = [_]u8{1};
+    try std.testing.expectError(error.InvalidExtensionLength, ImmutableOwnerView.fromBytes(wrong[0..]));
+}
+
+test "MemoTransfer account view exposes required memo flag" {
+    inline for ([_]u8{ 0, 1, 0xFE }) |flag| {
+        const payload = [_]u8{flag};
+        const view = try expectParsedView(MemoTransferView, &payload);
+        try std.testing.expectEqual(flag, view.require_incoming_transfer_memos);
+    }
+    try expectWrongLengths(MemoTransferView);
+}
+
+test "CpiGuard account view exposes CPI guard flag" {
+    inline for ([_]u8{ 0, 1, 0x7F }) |flag| {
+        const payload = [_]u8{flag};
+        const view = try expectParsedView(CpiGuardView, &payload);
+        try std.testing.expectEqual(flag, view.lock_cpi);
+    }
+    try expectWrongLengths(CpiGuardView);
+}
+
+test "NonTransferableAccount marker accepts only empty payload" {
+    const empty = [_]u8{};
+    _ = try NonTransferableAccountView.fromBytes(empty[0..]);
+
+    const wrong = [_]u8{1};
+    try std.testing.expectError(error.InvalidExtensionLength, NonTransferableAccountView.fromBytes(wrong[0..]));
+}
+
+test "TransferHookAccount account view exposes transferring flag" {
+    inline for ([_]u8{ 0, 1, 0xA5 }) |flag| {
+        const payload = [_]u8{flag};
+        const view = try expectParsedView(TransferHookAccountView, &payload);
+        try std.testing.expectEqual(flag, view.transferring);
+    }
+    try expectWrongLengths(TransferHookAccountView);
+}
+
+test "PausableAccount marker accepts only empty payload" {
+    const empty = [_]u8{};
+    _ = try PausableAccountView.fromBytes(empty[0..]);
+
+    const wrong = [_]u8{1};
+    try std.testing.expectError(error.InvalidExtensionLength, PausableAccountView.fromBytes(wrong[0..]));
+}
+
+test "account helpers look up canonical TLV records and return typed read-only views" {
+    var account = makeExtensionCapableAccount();
+    var fee_payload = [_]u8{0} ** TransferFeeAmountView.PAYLOAD_LEN;
+    writeIntLe(u64, fee_payload[0..8], 0x0102030405060708);
+    const immutable_payload = [_]u8{};
+    const memo_payload = [_]u8{1};
+    const hook_payload = [_]u8{0xCC};
+
+    var off: usize = tlv.TLV_START_OFFSET;
+    off += writeRecord(account[off .. off + 4 + fee_payload.len], .transfer_fee_amount, &fee_payload);
+    off += writeRecord(account[off .. off + 4 + immutable_payload.len], .immutable_owner, immutable_payload[0..]);
+    off += writeRecord(account[off .. off + 4 + memo_payload.len], .memo_transfer, memo_payload[0..]);
+    off += writeRecord(account[off .. off + 4 + hook_payload.len], .transfer_hook_account, hook_payload[0..]);
+
+    const fee = try getTransferFeeAmount(account[0..off]);
+    try std.testing.expectEqualSlices(u8, fee_payload[0..], std.mem.asBytes(fee));
+
+    _ = try getImmutableOwner(account[0..off]);
+
+    const memo = try getMemoTransfer(account[0..off]);
+    try std.testing.expectEqual(@as(u8, 1), memo.require_incoming_transfer_memos);
+
+    const hook = try getTransferHookAccount(account[0..off]);
+    try std.testing.expectEqual(@as(u8, 0xCC), hook.transferring);
+}
+
+test "wrong-kind helper calls return deterministic mismatch results" {
+    var mint = makeExtensionCapableMint();
+    const memo_payload = [_]u8{1};
+    var mint_off: usize = tlv.TLV_START_OFFSET;
+    mint_off += writeRecord(mint[mint_off .. mint_off + 4 + memo_payload.len], .memo_transfer, memo_payload[0..]);
+
+    try std.testing.expectError(
+        error.WrongAccountType,
+        getMintViewPayload(mint[0..mint_off], .transfer_fee_amount),
+    );
+    try std.testing.expectError(
+        error.WrongAccountType,
+        getAccountViewPayload(mint[0..mint_off], .memo_transfer),
+    );
+
+    var account = [_]u8{0} ** 512;
+    account[tlv.ACCOUNT_TYPE_OFFSET] = @intFromEnum(state.AccountType.account);
+    var fee_payload = [_]u8{0} ** TransferFeeConfigView.PAYLOAD_LEN;
+    fillSequence(fee_payload[0..], 9);
+    var account_off: usize = tlv.TLV_START_OFFSET;
+    account_off += writeRecord(account[account_off .. account_off + 4 + fee_payload.len], .transfer_fee_config, &fee_payload);
+
+    try std.testing.expectError(
+        error.WrongAccountType,
+        getAccountViewPayload(account[0..account_off], .transfer_fee_config),
+    );
+    try std.testing.expectError(
+        error.WrongAccountType,
+        getMintViewPayload(account[0..account_off], .transfer_fee_config),
+    );
+}
+
+test "unsupported known out-of-scope extensions stay unparsed while scanner skipping still works" {
+    try std.testing.expect(!@hasDecl(@This(), "ConfidentialTransferMintView"));
+    try std.testing.expect(!@hasDecl(@This(), "ConfidentialTransferAccountView"));
+    try std.testing.expect(!@hasDecl(@This(), "ConfidentialTransferFeeConfigView"));
+    try std.testing.expect(!@hasDecl(@This(), "ConfidentialTransferFeeAmountView"));
+    try std.testing.expect(!@hasDecl(@This(), "ConfidentialMintBurnView"));
+    try std.testing.expect(!@hasDecl(@This(), "TokenMetadataView"));
+    try std.testing.expect(!@hasDecl(@This(), "TokenGroupView"));
+    try std.testing.expect(!@hasDecl(@This(), "TokenGroupMemberView"));
+
+    var mint = makeExtensionCapableMint();
+    var mint_off: usize = tlv.TLV_START_OFFSET;
+    inline for (KNOWN_UNSUPPORTED_FIXED_VIEW_TYPES, 0..) |extension_type, i| {
+        const payload = [_]u8{@as(u8, @intCast(i))};
+        mint_off += writeRecord(mint[mint_off .. mint_off + 4 + payload.len], extension_type, payload[0..]);
+    }
+    var hook_payload = [_]u8{0} ** TransferHookView.PAYLOAD_LEN;
+    fillSequence(hook_payload[0..], 171);
+    mint_off += writeRecord(mint[mint_off .. mint_off + 4 + hook_payload.len], .transfer_hook, &hook_payload);
+
+    const mint_view = try getTransferHook(mint[0..mint_off]);
+    try std.testing.expectEqualSlices(u8, hook_payload[0..], std.mem.asBytes(mint_view));
+    inline for (KNOWN_UNSUPPORTED_FIXED_VIEW_TYPES) |extension_type| {
+        try std.testing.expectError(
+            error.UnsupportedExtension,
+            getMintViewPayload(mint[0..mint_off], extension_type),
+        );
+    }
+
+    var account = makeExtensionCapableAccount();
+    var account_off: usize = tlv.TLV_START_OFFSET;
+    inline for (KNOWN_UNSUPPORTED_FIXED_VIEW_TYPES, 0..) |extension_type, i| {
+        const payload = [_]u8{@as(u8, @intCast(0xF0 + i))};
+        account_off += writeRecord(account[account_off .. account_off + 4 + payload.len], extension_type, payload[0..]);
+    }
+    const memo_payload = [_]u8{1};
+    account_off += writeRecord(account[account_off .. account_off + 4 + memo_payload.len], .memo_transfer, memo_payload[0..]);
+
+    const memo_view = try getMemoTransfer(account[0..account_off]);
+    try std.testing.expectEqual(@as(u8, 1), memo_view.require_incoming_transfer_memos);
+    inline for (KNOWN_UNSUPPORTED_FIXED_VIEW_TYPES) |extension_type| {
+        try std.testing.expectError(
+            error.UnsupportedExtension,
+            getAccountViewPayload(account[0..account_off], extension_type),
+        );
+    }
 }
 
 test {

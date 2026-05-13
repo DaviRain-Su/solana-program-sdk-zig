@@ -841,17 +841,22 @@ length, which is the basis of the resize-budget check.
 
 ### `sol.crypto` — all crypto syscalls in one place
 
-Everything hash / curve / signature lives under `sol.crypto`:
+Everything hash / curve / signature / precompile-instruction tooling now
+lives under `src/crypto/` and is surfaced through `sol.crypto`:
 
-| Sub-module | Syscalls |
-|------------|----------|
+| Sub-module | Syscalls / surface |
+|------------|--------------------|
 | `sol.crypto.hash` | `sol_sha256`, `sol_keccak256`, `sol_blake3` |
 | `sol.crypto.secp256k1_recover` | `sol_secp256k1_recover` |
 | `sol.crypto.alt_bn128` | `sol_alt_bn128_group_op` (G1 add/sub/mul, pairing) |
 | `sol.crypto.poseidon` | `sol_poseidon` |
+| `sol.crypto.big_mod_exp` | `sol_big_mod_exp` |
+| `sol.crypto.instructions.ed25519` | native ed25519 verify-instruction builder/parser |
+| `sol.crypto.instructions.secp256k1` | native secp256k1 verify-instruction builder/parser |
 
-Each is also re-exported flat (`sol.sha256`, `sol.alt_bn128.…`) so
-existing call sites keep working — use whichever spelling reads better.
+The legacy flat exports (`sol.sha256`, `sol.alt_bn128.…`,
+`sol.ed25519_instruction`, `sol.secp256k1_instruction`) remain for
+backwards compatibility.
 
 ```zig
 // SHA-256 / Keccak-256 / Blake3 — one-shot hash, host & on-chain.
@@ -975,7 +980,7 @@ layout. Binary-searches by epoch in `O(log n)`.
 
 ### Hash newtype + on-host fallback
 
-`src/hash.zig` (re-exported via `sol.crypto.hash` and flat as
+`src/crypto/hash.zig` (re-exported via `sol.crypto.hash` and flat as
 `sol.sha256` etc.) gives the three hash syscalls a uniform API that
 works on both host (via `std.crypto.hash`) and on-chain (via the
 syscalls):

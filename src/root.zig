@@ -18,8 +18,6 @@ pub const system = @import("system.zig");
 pub const sysvar = @import("sysvar.zig");
 pub const sysvar_instructions = @import("sysvar_instructions.zig");
 pub const pda = @import("pda.zig");
-pub const ed25519_instruction = @import("ed25519_instruction.zig");
-pub const secp256k1_instruction = @import("secp256k1_instruction.zig");
 
 // Anchor-style foundations (typed accounts, discriminators, error codes, events)
 pub const discriminator = @import("discriminator.zig");
@@ -38,18 +36,18 @@ pub const slot_hashes = @import("slot_hashes.zig");
 pub const stake_history = @import("stake_history.zig");
 pub const stake = @import("stake.zig");
 pub const compute_budget = @import("compute_budget.zig");
-pub const big_mod_exp = @import("big_mod_exp.zig");
 pub const bpf = @import("bpf.zig");
 
-// Cryptographic primitives — aggregated namespace covering all
-// hash / curve / signature syscalls. Sub-modules are also re-exported
-// flat below for backwards compatibility (so existing `sol.sha256(...)`
-// / `sol.alt_bn128.pairingBE(...)` call sites keep working).
-pub const crypto = @import("crypto.zig");
-pub const hash = @import("hash.zig");
-pub const secp256k1_recover = @import("secp256k1_recover.zig");
-pub const alt_bn128 = @import("alt_bn128.zig");
-pub const poseidon = @import("poseidon.zig");
+// Cryptographic primitives — now physically grouped under `src/crypto/`.
+// Flat aliases stay exported for backwards compatibility.
+pub const crypto = @import("crypto/root.zig");
+pub const hash = crypto.hash;
+pub const secp256k1_recover = crypto.secp256k1_recover;
+pub const alt_bn128 = crypto.alt_bn128;
+pub const poseidon = crypto.poseidon;
+pub const big_mod_exp = crypto.big_mod_exp;
+pub const ed25519_instruction = crypto.ed25519_instruction;
+pub const secp256k1_instruction = crypto.secp256k1_instruction;
 
 // Panic handler namespace
 /// Usage in your program: `pub const panic = solana_program_sdk.panic.Panic;`

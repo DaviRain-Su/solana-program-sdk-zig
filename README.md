@@ -76,6 +76,28 @@ zig build test --summary all
 ./program-test/test.sh "$SOLANA_ZIG_BIN"
 ```
 
+## Core Router Foundation v0.1
+
+The core SDK now includes the mock-only router foundation validated in
+this mission:
+
+- `sol.IxDataCursor` for allocation-free checked decoding of compact
+  variable-length instruction payloads.
+- `sol.AccountCursor` and `sol.AccountWindow` for dynamic remaining-account
+  windows, duplicate-policy handling, and canonical signer / writable /
+  executable / owner / key validation.
+- Caller-buffer-backed CPI staging plus instruction-data staging, exact
+  compute guards, and router-grade math helpers for `mulDiv`, fees, and
+  min-out / slippage checks.
+- A mock SBF router surface (`example_mock_router`) with Rust/Mollusk
+  program-test coverage for 2-hop and split-route flows, malformed payloads,
+  duplicate-policy behavior, math/slippage failures, and compute-guard
+  failures.
+
+This is Core and mock validation infrastructure only: no real DEX adapters,
+quote engine, off-chain router/searcher, RPC client, keypair, or tx-builder
+package is included here.
+
 ## Performance
 
 Benchmarked via [solana-program-rosetta](https://github.com/nickfrosty/solana-program-rosetta).

@@ -457,6 +457,17 @@ opt-in and composable with the raw `[*]u8` entrypoint:
   `createRentExemptComptimeRaw(...)`, and
   `createRentExemptComptimeSingle(...)`.
 
+- **`system` helper families** — the System Program surface is grouped
+  into plain creation (`createAccount*`), rent-aware creation
+  (`createRentExempt*`), core signer-required ops
+  (`transfer` / `assign` / `allocate` plus signed variants), seeded
+  helpers (`*WithSeed`), and durable nonce helpers
+  (`createNonceAccount*`, `advanceNonceAccount*`,
+  `withdrawNonceAccount*`, `authorizeNonceAccount*`,
+  `upgradeNonceAccount`). The implementation now lives under
+  `src/system/{create,core,rent_helpers,seeded,nonce}.zig` while the
+  public API stays flattened as `sol.system.*`.
+
 - **`pda.verifyPda(key, seeds, bump, program_id)`** — Anchor's
   `seeds = [...], bump = state.bump` equivalent. Asserts that a
   passed-in account key matches the canonical PDA for the given seeds.
@@ -758,6 +769,32 @@ The ergonomic `signer_seeds: &.{&.{...}}` form (slice-of-slice-of-slice)
 still works on `sol.system.createRentExempt` for the common case where
 you don't care about ~80 CU; the LLVM optimizer folds most of the
 staging copy away anyway when the seed count is comptime-known.
+
+### System Program helper map
+
+The `sol.system` surface is intentionally broad but regular:
+
+- **Plain create** — `createAccount`, `createAccountSigned`,
+  `createAccountSignedRaw`, `createAccountSignedSingle`
+- **Rent-aware create** — `createRentExempt`,
+  `createRentExemptComptime`, `createRentExemptComptimeRaw`,
+  `createRentExemptComptimeSingle`, `createRentExemptRaw`
+- **Core ops** — `transfer`, `assign`, `allocate`, each with
+  `Signed` / `SignedSingle` variants
+- **Seeded ops** — `createAccountWithSeed`, `assignWithSeed`,
+  `allocateWithSeed`, `transferWithSeed`, each with signed variants
+- **Nonce ops** — `initializeNonceAccount`, `createNonceAccount`,
+  `createNonceAccountWithSeed`, `advanceNonceAccount`,
+  `withdrawNonceAccount`, `authorizeNonceAccount`,
+  `upgradeNonceAccount`, plus the new PDA-signed nonce families:
+  `createNonceAccountSigned*`, `createNonceAccountWithSeedSigned*`,
+  `advanceNonceAccountSigned*`, `withdrawNonceAccountSigned*`, and
+  `authorizeNonceAccountSigned*`
+
+Rule of thumb: use the plain helper first, move to `...Single` when
+one PDA signer is all you need, and use the raw signer forms when the
+caller already owns `cpi.Signer` scratch or wants to avoid higher-level
+seed staging.
 
 ### Sysvar instructions introspection — read other ix in the same tx
 

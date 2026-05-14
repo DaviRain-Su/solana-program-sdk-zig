@@ -2,6 +2,17 @@
 //!
 //! High-level Zig API for common System Program operations.
 //!
+//! Physical layout:
+//! - `shared.zig` — wire-format constants, payloads, and local helpers
+//! - `create.zig` — plain account-creation helpers
+//! - `core.zig` — signer-required core ops (`transfer` / `assign` / `allocate`)
+//! - `rent_helpers.zig` — rent-aware / comptime-rent convenience helpers
+//! - `seeded.zig` — `*WithSeed` instruction families
+//! - `nonce.zig` — durable nonce creation and maintenance helpers
+//!
+//! The public API stays flattened as `sol.system.*` even though the
+//! implementation now lives under `src/system/`.
+//!
 //! ⚠️ WARNING (Zig 0.16 BPF): Always use stack copies for Program IDs.
 //! Module-scope const arrays may be placed at invalid low addresses.
 
@@ -23,15 +34,18 @@ const rent_helpers_mod = @import("rent_helpers.zig");
 const seeded_mod = @import("seeded.zig");
 const nonce_mod = @import("nonce.zig");
 
+/// System instruction discriminants and stable program constants.
 pub const SystemInstruction = shared.SystemInstruction;
 pub const SYSTEM_PROGRAM_ID = shared.SYSTEM_PROGRAM_ID;
 pub const NONCE_STATE_SIZE = shared.NONCE_STATE_SIZE;
 
+/// Plain account-creation helpers.
 pub const createAccount = create_mod.createAccount;
 pub const createAccountSigned = create_mod.createAccountSigned;
 pub const createAccountSignedRaw = create_mod.createAccountSignedRaw;
 pub const createAccountSignedSingle = create_mod.createAccountSignedSingle;
 
+/// Core signer-required System instructions.
 pub const transfer = core_mod.transfer;
 pub const transferSigned = core_mod.transferSigned;
 pub const transferSignedSingle = core_mod.transferSignedSingle;
@@ -42,6 +56,7 @@ pub const allocate = core_mod.allocate;
 pub const allocateSigned = core_mod.allocateSigned;
 pub const allocateSignedSingle = core_mod.allocateSignedSingle;
 
+/// Rent-aware account-creation convenience helpers.
 pub const CreateRentExemptArgs = rent_helpers_mod.CreateRentExemptArgs;
 pub const createRentExempt = rent_helpers_mod.createRentExempt;
 pub const createRentExemptComptime = rent_helpers_mod.createRentExemptComptime;
@@ -49,6 +64,7 @@ pub const createRentExemptComptimeRaw = rent_helpers_mod.createRentExemptComptim
 pub const createRentExemptComptimeSingle = rent_helpers_mod.createRentExemptComptimeSingle;
 pub const createRentExemptRaw = rent_helpers_mod.createRentExemptRaw;
 
+/// Seed-derived account helpers (`*WithSeed`).
 pub const createAccountWithSeed = seeded_mod.createAccountWithSeed;
 pub const createAccountWithSeedSigned = seeded_mod.createAccountWithSeedSigned;
 pub const createAccountWithSeedSignedSingle = seeded_mod.createAccountWithSeedSignedSingle;
@@ -62,6 +78,7 @@ pub const transferWithSeed = seeded_mod.transferWithSeed;
 pub const transferWithSeedSigned = seeded_mod.transferWithSeedSigned;
 pub const transferWithSeedSignedSingle = seeded_mod.transferWithSeedSignedSingle;
 
+/// Durable nonce helpers, including PDA-signed authority variants.
 pub const initializeNonceAccount = nonce_mod.initializeNonceAccount;
 pub const createNonceAccount = nonce_mod.createNonceAccount;
 pub const createNonceAccountSigned = nonce_mod.createNonceAccountSigned;

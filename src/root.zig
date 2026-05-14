@@ -38,7 +38,7 @@ pub const typed_account = @import("typed_account/root.zig");
 
 // Developer-facing utilities and supporting runtime helpers.
 pub const log = @import("log.zig");
-pub const allocator = @import("allocator.zig");
+pub const allocator = @import("allocator/root.zig");
 pub const hint = @import("hint.zig");
 pub const memory = @import("memory.zig");
 pub const stack = @import("stack.zig");

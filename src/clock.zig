@@ -1,9 +1,10 @@
 const bpf = @import("bpf.zig");
 const log = @import("log/root.zig");
-const PublicKey = @import("pubkey/root.zig").Pubkey;
+const pubkey = @import("pubkey/root.zig");
+const sysvar = @import("sysvar/root.zig");
 
 pub const Clock = extern struct {
-    pub const id = PublicKey.comptimeFromBase58("SysvarC1ock11111111111111111111111111111111");
+    pub const id = pubkey.comptimeFromBase58("SysvarC1ock11111111111111111111111111111111");
 
     /// The current network/bank slot
     slot: u64,
@@ -36,3 +37,7 @@ pub const Clock = extern struct {
         return clock;
     }
 };
+
+test "clock: id matches sysvar root export" {
+    try @import("std").testing.expectEqual(sysvar.CLOCK_ID, Clock.id);
+}

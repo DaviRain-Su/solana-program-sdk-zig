@@ -1,9 +1,10 @@
 const bpf = @import("bpf.zig");
 const log = @import("log/root.zig");
-const PublicKey = @import("pubkey/root.zig").Pubkey;
+const pubkey = @import("pubkey/root.zig");
+const sysvar = @import("sysvar/root.zig");
 
 pub const Rent = struct {
-    pub const id = PublicKey.comptimeFromBase58("SysvarRent111111111111111111111111111111111");
+    pub const id = pubkey.comptimeFromBase58("SysvarRent111111111111111111111111111111111");
 
     /// Default rental rate in lamports/byte-year based on:
     /// - 10^9 lamports per SOL
@@ -87,3 +88,7 @@ pub const Rent = struct {
         return rent;
     }
 };
+
+test "rent: id matches sysvar root export" {
+    try @import("std").testing.expectEqual(sysvar.RENT_ID, Rent.id);
+}

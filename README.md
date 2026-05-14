@@ -344,7 +344,11 @@ take a comptime slice and short-circuit on the first match — a
 accepts a `.key` expectation for asserting well-known sysvars,
 system programs, or pre-derived PDAs in a single declarative spec.
 
-### Typed account-data view
+### Typed account-data access
+
+Use raw `dataAs(T)` / `dataAsConst(T)` when the account layout itself is the
+contract and you have already proven the type. Reach for `TypedAccount(T)` when
+you want discriminator-aware binding and a more structured state API.
 
 For programs that manage account layouts directly (not through
 `TypedAccount`):
@@ -366,7 +370,10 @@ when you want discriminator validation; use `dataAs(T)` when the
 caller has already proven the layout (e.g. for raw SPL Token account
 parsing where the type IS the layout).
 
-### Sysvar syscall wrappers
+### Sysvar access
+
+`sol.sysvar` supports both syscall-backed reads and account-backed reads,
+depending on what the runtime exposes for that sysvar family.
 
 Reading sysvars via syscall is **~250-300 CU** and removes the need
 for the client to list the sysvar account in the instruction's
@@ -387,7 +394,11 @@ use the account-based path:
 const slot_hashes = try sol.sysvar.getSysvar(sol.sysvar.SlotHash, sysvar_account);
 ```
 
-### Custom error codes with `ErrorCode` + `lazyEntrypointTyped`
+### Typed custom error codes
+
+Use `ErrorCode(...)` together with `lazyEntrypointTyped(...)` or
+`programEntrypointTyped(...)` when you want stable custom wire codes without
+introducing globals or giving up `try` ergonomics.
 
 Solana programs report errors via a `u32` "Custom" code, but Zig
 error sets can't carry payloads (every variant is a globally-interned
@@ -778,7 +789,7 @@ still works on `sol.system.createRentExempt` for the common case where
 you don't care about ~80 CU; the LLVM optimizer folds most of the
 staging copy away anyway when the seed count is comptime-known.
 
-### System Program helper map
+### System Program helper families
 
 The `sol.system` surface is intentionally broad but regular:
 
@@ -804,7 +815,7 @@ one PDA signer is all you need, and use the raw signer forms when the
 caller already owns `cpi.Signer` scratch or wants to avoid higher-level
 seed staging.
 
-### Sysvar instructions introspection — read other ix in the same tx
+### Instructions sysvar introspection
 
 The Solana **instructions sysvar** (`Sysvar1nstructions11…`) exposes
 the entire transaction's serialized instructions. The
@@ -1243,19 +1254,22 @@ performance.
 
 ### Core SDK usage index
 
+Use this as the quick navigation layer: pick the namespace or helper family
+first, then jump to the worked section that shows the intended usage shape.
+
 | Namespace / family | Start here | Main section(s) |
 |---|---|---|
-| `sol.entrypoint.*` | Pick an entrypoint wrapper and parse strategy | [Entrypoints](#entrypoints), [With `ProgramResult` (error union)](#with-programresult-error-union), [With raw `u64` (maximum performance)](#with-raw-u64-maximum-performance), [Declarative account parsing](#declarative-account-parsing) |
-| `sol.account.*` / `sol.AccountInfo` | Read account keys / owners / data and apply one-off checks | [AccountInfo accessors](#accountinfo-accessors), [Single-account expectations](#single-account-expectations), [Typed account-data view](#typed-account-data-view) |
-| `sol.cpi.*` | Build instructions, signer seeds, and runtime account slices for CPI | [CPI calls](#cpi-calls), [System Program helper map](#system-program-helper-map) |
-| `sol.system.*` | Use prebuilt System Program wrappers instead of hand-rolling ix buffers | [Declarative account parsing](#declarative-account-parsing), [System Program helper map](#system-program-helper-map) |
-| `sol.sysvar.*` | Read runtime sysvars via syscall or passed account | [Sysvar syscall wrappers](#sysvar-syscall-wrappers) |
-| `sol.sysvar_instructions.*` | Introspect sibling instructions in the same transaction | [Sysvar instructions introspection — read other ix in the same tx](#sysvar-instructions-introspection--read-other-ix-in-the-same-tx) |
-| `sol.TypedAccount(...)` / `sol.typed_account.*` | Bind discriminator-aware typed state zero-copy | [Typed account-data view](#typed-account-data-view), [Anchor-style foundations (no framework required)](#anchor-style-foundations-no-framework-required) |
+| `sol.entrypoint.*` | Pick an entrypoint wrapper and parse strategy | [Entrypoints](#entrypoints), [Entrypoint style: `ProgramResult`](#entrypoint-style-programresult), [Entrypoint style: raw `u64`](#entrypoint-style-raw-u64), [Declarative account parsing](#declarative-account-parsing) |
+| `sol.account.*` / `sol.AccountInfo` | Read account keys / owners / data and apply one-off checks | [Account access and accessors](#account-access-and-accessors), [Single-account expectations](#single-account-expectations), [Typed account-data access](#typed-account-data-access) |
+| `sol.cpi.*` | Build instructions, signer seeds, and runtime account slices for CPI | [CPI construction and calls](#cpi-construction-and-calls), [System Program helper families](#system-program-helper-families) |
+| `sol.system.*` | Use prebuilt System Program wrappers instead of hand-rolling ix buffers | [Declarative account parsing](#declarative-account-parsing), [System Program helper families](#system-program-helper-families) |
+| `sol.sysvar.*` | Read runtime sysvars via syscall or passed account | [Sysvar access](#sysvar-access) |
+| `sol.sysvar_instructions.*` | Introspect sibling instructions in the same transaction | [Instructions sysvar introspection](#instructions-sysvar-introspection) |
+| `sol.TypedAccount(...)` / `sol.typed_account.*` | Bind discriminator-aware typed state zero-copy | [Typed account-data access](#typed-account-data-access), [Anchor-style foundations (no framework required)](#anchor-style-foundations-no-framework-required) |
 | `sol.pda.*` / `sol.verifyPda*` | Prefer stored-bump or comptime PDA paths when possible | [Compile-time PDA derivation](#compile-time-pda-derivation), [Anchor-style foundations (no framework required)](#anchor-style-foundations-no-framework-required) |
-| `sol.ErrorCode(...)` / `lazyEntrypointTyped` | Return stable custom program codes without globals | [Custom error codes with `ErrorCode` + `lazyEntrypointTyped`](#custom-error-codes-with-errorcode--lazyentrypointtyped) |
+| `sol.ErrorCode(...)` / `lazyEntrypointTyped` | Return stable custom program codes without globals | [Typed custom error codes](#typed-custom-error-codes) |
 
-### With `ProgramResult` (error union)
+### Entrypoint style: `ProgramResult`
 
 ```zig
 const sol = @import("solana_program_sdk");
@@ -1278,7 +1292,7 @@ export fn entrypoint(input: [*]u8) u64 {
 }
 ```
 
-### With raw `u64` (maximum performance)
+### Entrypoint style: raw `u64`
 
 Skips the error union entirely. Return `0` for success, non-zero for error.
 
@@ -1308,7 +1322,11 @@ export fn entrypoint(input: [*]u8) u64 {
 }
 ```
 
-### AccountInfo accessors
+### Account access and accessors
+
+`AccountInfo` is the base zero-copy view returned by the entrypoint and
+account-parsing helpers. Use it directly when you want ad-hoc key / owner /
+data checks before layering on expectations, typed views, or CPI.
 
 ```zig
 const account = ctx.nextAccountUnchecked();
@@ -1322,7 +1340,11 @@ _ = account.isWritable();    // bool
 account.raw.lamports += 100; // direct field access
 ```
 
-### CPI calls
+### CPI construction and calls
+
+`sol.cpi` exposes the low-level invoke building blocks. Start with
+`AccountInfo.toCpiInfo()`, `AccountMeta`, and `Instruction`, then move to
+higher-level wrappers like `sol.system.*` when a program-specific helper exists.
 
 Convert `AccountInfo` to `CpiAccountInfo` for CPI:
 

@@ -57,7 +57,7 @@ pub const pda = @import("pda/root.zig");
 pub const clock = @import("clock.zig");
 pub const rent = @import("rent.zig");
 pub const slot_hashes = @import("slot_hashes.zig");
-pub const stake_history = @import("stake_history.zig");
+pub const stake_history = @import("stake_history/root.zig");
 pub const stake = @import("stake.zig");
 
 // Cryptographic primitives — now physically grouped under `src/crypto/`.

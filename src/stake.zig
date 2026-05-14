@@ -6,7 +6,7 @@
 //! vote-account's contribution to consensus.
 //!
 //! The historical / per-epoch data lives in the `StakeHistory` sysvar
-//! (see `src/stake_history.zig`); this module is for the
+//! (see `src/stake_history/root.zig`); this module is for the
 //! "right now, this epoch" view that the syscall makes free for
 //! programs to read.
 //!

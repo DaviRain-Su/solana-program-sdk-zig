@@ -553,7 +553,7 @@ return sol.fail(@src(), "vault:wrong_authority", error.IncorrectAuthority);
 // Program log: vault.zig:142 vault:wrong_authority
 
 return sol.failFmt(@src(), "ix:bad_tag", "got={d}", .{tag}, error.InvalidInstructionData);
-// Program log: entrypoint.zig:84 ix:bad_tag got=7
+// Program log: context.zig:84 ix:bad_tag got=7
 ```
 
 > **Why `@src()` is passed explicitly.** Rust macros expand at the

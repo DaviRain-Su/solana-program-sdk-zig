@@ -5,7 +5,7 @@ pub const pubkey = @import("pubkey.zig");
 pub const account = @import("account/root.zig");
 pub const account_cursor = @import("account_cursor.zig");
 pub const program_error = @import("program_error.zig");
-pub const entrypoint = @import("entrypoint.zig");
+pub const entrypoint = @import("entrypoint/root.zig");
 
 // Infrastructure
 pub const log = @import("log.zig");

@@ -263,7 +263,7 @@ pub inline fn fail(
 /// ```zig
 /// return sol.failFmt(@src(), "ix:bad_tag", "got={d}", .{tag},
 ///                    error.InvalidInstructionData);
-/// // log: "entrypoint.zig:42 ix:bad_tag got=7"
+/// // log: "context.zig:42 ix:bad_tag got=7"
 /// ```
 pub inline fn failFmt(
     comptime src: std.builtin.SourceLocation,

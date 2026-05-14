@@ -22,6 +22,13 @@
 //! Cost: equivalent to hand-written `@ptrCast(@alignCast(data.ptr))`
 //! plus (when applicable) one 64-bit compare against an immediate for
 //! the discriminator check. No allocation, no copy.
+//!
+//! Physical layout:
+//! - `shared.zig` — common imports, discriminator constants, account aliases
+//! - `typed.zig` — `TypedAccount(T)` implementation
+//!
+//! The public API stays flattened as `sol.typed_account.*` and
+//! `sol.TypedAccount(...)`.
 
 const std = @import("std");
 const shared = @import("shared.zig");
@@ -30,6 +37,7 @@ const discriminator = shared.discriminator;
 const AccountInfo = shared.AccountInfo;
 const DISCRIMINATOR_LEN = shared.DISCRIMINATOR_LEN;
 
+/// Zero-copy typed account binder family.
 pub const TypedAccount = @import("typed.zig").TypedAccount;
 
 // =============================================================================

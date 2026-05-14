@@ -1,5 +1,14 @@
 //! Account memory views and helpers.
 //!
+//! This module is the bridge between the runtime's serialized account
+//! layout and the SDK's higher-level helpers:
+//!
+//! - `Account` is the raw in-memory shape emitted by the loader.
+//! - `AccountInfo` is the 8-byte pointer wrapper used by parse, typed-account,
+//!   and CPI code.
+//! - `MaybeAccount` preserves duplicate-slot information for safe parsers.
+//! - `CpiAccountInfo` is the invoke-layer C-ABI view used by `sol.cpi.*`.
+//!
 //! Physical layout:
 //! - `shared.zig` — raw runtime account layout + shared constants
 //! - `info.zig` — `AccountInfo` accessors, expectations, resize, close
@@ -17,6 +26,7 @@ const info_mod = @import("info.zig");
 const maybe_mod = @import("maybe_account.zig");
 const cpi_mod = @import("cpi_info.zig");
 
+/// Raw runtime layout constants and helpers shared with parsing / CPI staging.
 pub const NON_DUP_MARKER = shared.NON_DUP_MARKER;
 pub const MAX_PERMITTED_DATA_INCREASE = shared.MAX_PERMITTED_DATA_INCREASE;
 pub const MAX_TX_ACCOUNTS = shared.MAX_TX_ACCOUNTS;
@@ -25,6 +35,7 @@ pub const NOT_BORROWED = shared.NOT_BORROWED;
 pub const Account = shared.Account;
 pub const alignPointer = shared.alignPointer;
 
+/// High-level account views layered on top of the raw runtime layout.
 pub const AccountInfo = info_mod.AccountInfo;
 pub const MaybeAccount = maybe_mod.MaybeAccount;
 pub const CpiAccountInfo = cpi_mod.CpiAccountInfo;

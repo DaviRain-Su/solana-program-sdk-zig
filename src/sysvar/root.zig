@@ -50,7 +50,7 @@ pub const getSysvarRef = access_mod.getSysvarRef;
 pub const getSysvar = access_mod.getSysvar;
 pub const getSysvarBytes = syscall_access_mod.getSysvarBytes;
 
-/// Additional typed sysvar layouts.
+/// Typed syscall-backed layouts beyond Clock / Rent.
 pub const EpochSchedule = typed_mod.EpochSchedule;
 pub const LastRestartSlot = typed_mod.LastRestartSlot;
 pub const EpochRewards = typed_mod.EpochRewards;

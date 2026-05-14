@@ -38,6 +38,16 @@
 //! Cost: O(K + D) byte reads per `loadInstructionAt` (no syscall —
 //! just walks the buffer). For programs that already need the sysvar
 //! account in their input, the marginal cost is just the parsing.
+//!
+//! Physical layout:
+//! - `shared.zig` — common imports, sysvar ID, endian helpers
+//! - `model.zig` — zero-copy introspected instruction / meta views
+//! - `parser.zig` — checked readers and relative lookup helpers
+//!
+//! The public API stays flattened as `sol.sysvar_instructions.*`, plus
+//! the root aliases `sol.loadCurrentIndexChecked(...)`,
+//! `sol.loadInstructionAtChecked(...)`, `sol.getInstructionRelative(...)`,
+//! and `sol.IntrospectedInstruction`.
 
 const std = @import("std");
 const shared = @import("shared.zig");
@@ -48,10 +58,15 @@ const model_mod = @import("model.zig");
 const parser_mod = @import("parser.zig");
 const deserialize = parser_mod.deserialize;
 
+/// Canonical sysvar program ID.
 pub const ID = shared.ID;
+
+/// Zero-copy introspection model types.
 pub const IntrospectedInstruction = model_mod.IntrospectedInstruction;
 pub const IntrospectedAccountMeta = model_mod.IntrospectedAccountMeta;
 pub const AccountIterator = model_mod.AccountIterator;
+
+/// Checked parser entrypoints over the instructions-sysvar payload.
 pub const loadCurrentIndexChecked = parser_mod.loadCurrentIndexChecked;
 pub const loadInstructionAtChecked = parser_mod.loadInstructionAtChecked;
 pub const getInstructionRelative = parser_mod.getInstructionRelative;

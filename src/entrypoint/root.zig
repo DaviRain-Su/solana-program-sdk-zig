@@ -1,9 +1,24 @@
-//! Solana program entrypoint — InstructionContext (Pinocchio-style)
+//! Solana program entrypoint — `InstructionContext` (Pinocchio-style)
 //!
-//! Single entrypoint design: on-demand account parsing via InstructionContext.
-//! Accounts returned as `AccountInfo` (8-byte pointer wrapper).
+//! This module owns the runtime input parser and the SDK's entrypoint-wrapper
+//! family:
 //!
-//! Matches Pinocchio `lazy_program_entrypoint!` exactly.
+//! - `InstructionContext` walks the loader-provided input buffer lazily.
+//! - `parseAccounts*` / `parseAccountsWith*` provide named account binding.
+//! - `readIx*` / `bindIxData*` provide zero-copy instruction-data access.
+//! - `lazyEntrypoint*` / `programEntrypoint*` wrap a user handler as the
+//!   exported `entrypoint` symbol.
+//!
+//! Accounts are returned as `AccountInfo` (an 8-byte pointer wrapper), so the
+//! happy path stays zero-copy and allocation-free.
+//!
+//! Physical layout:
+//! - `shared.zig` — common imports, heap constants, branch-hint helpers
+//! - `context.zig` — `InstructionContext`, parse helpers, typed ix-data binding
+//! - `entry.zig` — exported entrypoint wrapper families
+//!
+//! The public API stays flattened as `sol.entrypoint.*`, plus the root alias
+//! `sol.InstructionContext`.
 
 const std = @import("std");
 const shared = @import("shared.zig");
@@ -25,14 +40,19 @@ const MAX_PERMITTED_DATA_INCREASE = shared.MAX_PERMITTED_DATA_INCREASE;
 const context_mod = @import("context.zig");
 const entry_mod = @import("entry.zig");
 
+/// Loader heap constants re-exported for custom allocators / diagnostics.
 pub const HEAP_START_ADDRESS = shared.HEAP_START_ADDRESS;
 pub const HEAP_LENGTH = shared.HEAP_LENGTH;
+
+/// Lazy account / instruction-data parser surface.
 pub const InstructionContext = context_mod.InstructionContext;
 pub const AccountExpectation = context_mod.AccountExpectation;
 pub const ParsedAccountsWith = context_mod.ParsedAccountsWith;
 pub const ParsedAccounts = context_mod.ParsedAccounts;
 pub const unlikely = shared.unlikely;
 pub const likely = shared.likely;
+
+/// Entrypoint wrapper families.
 pub const lazyEntrypoint = entry_mod.lazyEntrypoint;
 pub const programEntrypoint = entry_mod.programEntrypoint;
 pub const lazyEntrypointRaw = entry_mod.lazyEntrypointRaw;

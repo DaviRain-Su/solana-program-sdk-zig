@@ -468,6 +468,14 @@ opt-in and composable with the raw `[*]u8` entrypoint:
   `src/system/{create,core,rent_helpers,seeded,nonce}.zig` while the
   public API stays flattened as `sol.system.*`.
 
+- **Foundational module roots** — after the directory splits, the core
+  SDK's foundational families now live under
+  `src/{account,cpi,entrypoint,sysvar,sysvar_instructions,typed_account}/`.
+  Each `root.zig` acts as the public re-export and documentation hub,
+  while the user-facing API still stays flat at `sol.account.*`,
+  `sol.cpi.*`, `sol.entrypoint.*`, `sol.sysvar.*`,
+  `sol.sysvar_instructions.*`, and `sol.TypedAccount(...)`.
+
 - **`pda.verifyPda(key, seeds, bump, program_id)`** — Anchor's
   `seeds = [...], bump = state.bump` equivalent. Asserts that a
   passed-in account key matches the canonical PDA for the given seeds.

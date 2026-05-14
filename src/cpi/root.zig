@@ -1,7 +1,17 @@
 //! Cross-Program Invocation (CPI)
 //!
-//! Provides zero-overhead CPI wrappers.
-//! CpiAccountInfo layout matches Solana C ABI, so no conversion is needed.
+//! This module owns the low-level invoke surface used by the higher-level
+//! program wrappers (`sol.system.*`, `spl_token.cpi.*`, etc.):
+//!
+//! - `AccountMeta` / `Instruction` describe the callee-visible instruction.
+//! - `Seed` / `Signer` model PDA signer proofs in the exact syscall layout.
+//! - `CpiAccountStaging` and `stageDynamicAccountsWithPubkeys(...)` let
+//!   callers build account-meta / runtime-account arrays in caller-owned scratch.
+//! - `invoke*` helpers forward to the runtime with the minimal amount of
+//!   marshaling the syscall ABI requires.
+//!
+//! `CpiAccountInfo` already matches the Solana C ABI, so the hot path stays
+//! pointer-based: no allocation, no heap-backed conversion layer.
 //!
 //! Physical layout:
 //! - `shared.zig` — common imports / aliases
@@ -21,13 +31,20 @@ const CpiAccountInfo = shared.CpiAccountInfo;
 const invoke_mod = @import("invoke.zig");
 const return_mod = @import("return_data.zig");
 
+/// Instruction-description types used for CPI call construction.
 pub const AccountMeta = @import("instruction.zig").AccountMeta;
 pub const Instruction = @import("instruction.zig").Instruction;
+
+/// PDA signer seed primitives in syscall-ready layout.
 pub const Seed = @import("seeds.zig").Seed;
 pub const Signer = @import("seeds.zig").Signer;
 pub const seedPack = @import("seeds.zig").seedPack;
+
+/// Caller-buffer-backed account staging helpers.
 pub const stageDynamicAccountsWithPubkeys = @import("staging.zig").stageDynamicAccountsWithPubkeys;
 pub const CpiAccountStaging = @import("staging.zig").CpiAccountStaging;
+
+/// Runtime invoke limits and syscall-backed entrypoints.
 pub const MAX_CPI_SIGNERS = invoke_mod.MAX_CPI_SIGNERS;
 pub const MAX_CPI_SEEDS_PER_SIGNER = invoke_mod.MAX_CPI_SEEDS_PER_SIGNER;
 pub const invoke = invoke_mod.invoke;
@@ -35,6 +52,8 @@ pub const invokeRaw = invoke_mod.invokeRaw;
 pub const invokeSigned = invoke_mod.invokeSigned;
 pub const invokeSignedRaw = invoke_mod.invokeSignedRaw;
 pub const invokeSignedSingle = invoke_mod.invokeSignedSingle;
+
+/// CPI return-data helpers.
 pub const setReturnData = return_mod.setReturnData;
 pub const getReturnData = return_mod.getReturnData;
 

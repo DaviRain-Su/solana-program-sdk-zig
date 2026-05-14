@@ -4,6 +4,7 @@
 const std = @import("std");
 const sol = @import("solana_program_sdk");
 const id = @import("id.zig");
+const parity_fixture = @import("parity_fixture.zig");
 
 pub const INTERFACE_NAMESPACE = id.INTERFACE_NAMESPACE;
 pub const INTERFACE_DISCRIMINATOR_LEN: usize = sol.DISCRIMINATOR_LEN;
@@ -625,6 +626,58 @@ test "TokenMetadata v0_1 keeps mutation and emit slice helpers absent" {
     try std.testing.expect(!@hasDecl(TokenMetadata, "remove"));
     try std.testing.expect(!@hasDecl(@This(), "emitSlice"));
     try std.testing.expect(!@hasDecl(@This(), "extractEmitState"));
+}
+
+fn parityExpectedMetadata(
+    case: parity_fixture.StateCase,
+    additional_metadata_out: []AdditionalMetadata,
+) TokenMetadata {
+    for (case.additional_metadata, 0..) |entry, i| {
+        additional_metadata_out[i] = .{
+            .key = entry.key,
+            .value = entry.value,
+        };
+    }
+
+    return .{
+        .update_authority = MaybeNullPubkey.fromBytes(case.update_authority[0..]) catch unreachable,
+        .mint = case.mint,
+        .name = case.name,
+        .symbol = case.symbol,
+        .uri = case.uri,
+        .additional_metadata = additional_metadata_out[0..case.additional_metadata.len],
+    };
+}
+
+test "official Rust parity fixture matches TokenMetadata state bytes" {
+    const loaded = try parity_fixture.load(std.testing.allocator);
+    defer loaded.deinit();
+
+    for (loaded.value.states) |case| {
+        const original = try std.testing.allocator.dupe(u8, case.data);
+        defer std.testing.allocator.free(original);
+
+        const parsed_storage = try std.testing.allocator.alloc(AdditionalMetadata, case.additional_metadata.len);
+        defer std.testing.allocator.free(parsed_storage);
+        const expected_storage = try std.testing.allocator.alloc(AdditionalMetadata, case.additional_metadata.len);
+        defer std.testing.allocator.free(expected_storage);
+
+        const expected = parityExpectedMetadata(case, expected_storage);
+        const parsed = try TokenMetadata.parse(case.data, parsed_storage);
+        try expectTokenMetadataEqual(parsed, expected);
+        try std.testing.expectEqualSlices(u8, original, case.data);
+
+        const body_bytes = case.data[INTERFACE_DISCRIMINATOR_LEN..];
+        const parsed_body_storage = try std.testing.allocator.alloc(AdditionalMetadata, case.additional_metadata.len);
+        defer std.testing.allocator.free(parsed_body_storage);
+        const parsed_body = try TokenMetadata.parseBody(body_bytes, parsed_body_storage);
+        try expectTokenMetadataEqual(parsed_body, expected);
+        try std.testing.expectEqualSlices(u8, original[INTERFACE_DISCRIMINATOR_LEN..], body_bytes);
+
+        const encoded = try std.testing.allocator.alloc(u8, case.data.len);
+        defer std.testing.allocator.free(encoded);
+        try std.testing.expectEqualSlices(u8, case.data, try expected.write(encoded));
+    }
 }
 
 test {

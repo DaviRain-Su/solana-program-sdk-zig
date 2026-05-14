@@ -5,6 +5,7 @@ const sol = @import("solana_program_sdk");
 const id = @import("id.zig");
 const metadata_state = @import("state.zig");
 const MaybeNullPubkey = @import("maybe_null_pubkey.zig").MaybeNullPubkey;
+const parity_fixture = @import("parity_fixture.zig");
 
 pub const Pubkey = sol.Pubkey;
 pub const AccountMeta = sol.cpi.AccountMeta;
@@ -998,6 +999,162 @@ test "metadata instruction round-trips are byte-stable across all variants" {
         defer std.testing.allocator.free(bytes);
         const encoded = try case.pack(bytes);
         try expectInstructionRoundTrip(encoded);
+    }
+}
+
+fn fixturePubkey(bytes: [32]u8) Pubkey {
+    return bytes;
+}
+
+fn fixtureField(input: parity_fixture.FieldInput) Field {
+    return switch (input.tag) {
+        @intFromEnum(metadata_state.FieldTag.name) => .{ .name = {} },
+        @intFromEnum(metadata_state.FieldTag.symbol) => .{ .symbol = {} },
+        @intFromEnum(metadata_state.FieldTag.uri) => .{ .uri = {} },
+        @intFromEnum(metadata_state.FieldTag.key) => .{ .key = input.key },
+        else => unreachable,
+    };
+}
+
+fn fixtureMaybeNullPubkey(bytes: [32]u8) MaybeNullPubkey {
+    return MaybeNullPubkey.fromBytes(bytes[0..]) catch unreachable;
+}
+
+fn expectInstructionFixture(
+    actual: Instruction,
+    expected: parity_fixture.InstructionFixture,
+) !void {
+    try std.testing.expectEqualSlices(u8, expected.program_id[0..], actual.program_id[0..]);
+    try std.testing.expectEqual(expected.accounts.len, actual.accounts.len);
+    try std.testing.expectEqualSlices(u8, expected.data, actual.data);
+
+    for (expected.accounts, actual.accounts) |expected_meta, actual_meta| {
+        try std.testing.expectEqualSlices(u8, expected_meta.pubkey[0..], actual_meta.pubkey[0..]);
+        try std.testing.expectEqual(expected_meta.is_signer, actual_meta.is_signer);
+        try std.testing.expectEqual(expected_meta.is_writable, actual_meta.is_writable);
+    }
+}
+
+test "official Rust parity fixture matches metadata field encodings" {
+    const loaded = try parity_fixture.load(std.testing.allocator);
+    defer loaded.deinit();
+
+    for (loaded.value.fields) |case| {
+        const expected = fixtureField(case.input);
+        const bytes = try std.testing.allocator.alloc(u8, case.data.len);
+        defer std.testing.allocator.free(bytes);
+
+        try std.testing.expectEqualSlices(u8, case.data, try expected.pack(bytes));
+        const parsed = try Field.parse(case.data);
+        try std.testing.expectEqual(case.data.len, parsed.consumed);
+        try expectField(parsed.field, expected);
+    }
+}
+
+test "official Rust parity fixture matches metadata instruction builders" {
+    const loaded = try parity_fixture.load(std.testing.allocator);
+    defer loaded.deinit();
+
+    for (loaded.value.initialize) |case| {
+        var metas: InitializeMetas = undefined;
+        const data = try std.testing.allocator.alloc(u8, case.instruction.data.len);
+        defer std.testing.allocator.free(data);
+
+        const metadata = fixturePubkey(case.instruction.accounts[0].pubkey);
+        const update_authority = fixturePubkey(case.instruction.accounts[1].pubkey);
+        const mint = fixturePubkey(case.instruction.accounts[2].pubkey);
+        const mint_authority = fixturePubkey(case.instruction.accounts[3].pubkey);
+        const program_id = fixturePubkey(case.instruction.program_id);
+
+        const ix = try initialize(
+            &program_id,
+            &metadata,
+            &update_authority,
+            &mint,
+            &mint_authority,
+            case.name,
+            case.symbol,
+            case.uri,
+            &metas,
+            data,
+        );
+        try expectInstructionFixture(ix, case.instruction);
+    }
+
+    for (loaded.value.update_field) |case| {
+        var metas: UpdateFieldMetas = undefined;
+        const data = try std.testing.allocator.alloc(u8, case.instruction.data.len);
+        defer std.testing.allocator.free(data);
+
+        const metadata = fixturePubkey(case.instruction.accounts[0].pubkey);
+        const update_authority = fixturePubkey(case.instruction.accounts[1].pubkey);
+        const program_id = fixturePubkey(case.instruction.program_id);
+
+        const ix = try updateField(
+            &program_id,
+            &metadata,
+            &update_authority,
+            fixtureField(case.field),
+            case.value,
+            &metas,
+            data,
+        );
+        try expectInstructionFixture(ix, case.instruction);
+    }
+
+    for (loaded.value.remove_key) |case| {
+        var metas: RemoveKeyMetas = undefined;
+        const data = try std.testing.allocator.alloc(u8, case.instruction.data.len);
+        defer std.testing.allocator.free(data);
+
+        const metadata = fixturePubkey(case.instruction.accounts[0].pubkey);
+        const update_authority = fixturePubkey(case.instruction.accounts[1].pubkey);
+        const program_id = fixturePubkey(case.instruction.program_id);
+
+        const ix = try removeKey(
+            &program_id,
+            &metadata,
+            &update_authority,
+            case.key,
+            case.idempotent != 0,
+            &metas,
+            data,
+        );
+        try expectInstructionFixture(ix, case.instruction);
+    }
+
+    for (loaded.value.update_authority) |case| {
+        var metas: UpdateAuthorityMetas = undefined;
+        const data = try std.testing.allocator.alloc(u8, case.instruction.data.len);
+        defer std.testing.allocator.free(data);
+
+        const metadata = fixturePubkey(case.instruction.accounts[0].pubkey);
+        const current_authority = fixturePubkey(case.instruction.accounts[1].pubkey);
+        const program_id = fixturePubkey(case.instruction.program_id);
+
+        const ix = try updateAuthority(
+            &program_id,
+            &metadata,
+            &current_authority,
+            fixtureMaybeNullPubkey(case.new_authority),
+            &metas,
+            data,
+        );
+        try expectInstructionFixture(ix, case.instruction);
+    }
+
+    for (loaded.value.emit) |case| {
+        var metas: EmitMetas = undefined;
+        const data = try std.testing.allocator.alloc(u8, case.instruction.data.len);
+        defer std.testing.allocator.free(data);
+
+        const metadata = fixturePubkey(case.instruction.accounts[0].pubkey);
+        const program_id = fixturePubkey(case.instruction.program_id);
+        const start: ?u64 = if (case.start_is_some != 0) case.start else null;
+        const end: ?u64 = if (case.end_is_some != 0) case.end else null;
+
+        const ix = try emit(&program_id, &metadata, start, end, &metas, data);
+        try expectInstructionFixture(ix, case.instruction);
     }
 }
 

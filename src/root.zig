@@ -15,7 +15,7 @@ pub const memory = @import("memory.zig");
 
 // CPI and program wrappers
 pub const cpi = @import("cpi.zig");
-pub const system = @import("system.zig");
+pub const system = @import("system/root.zig");
 pub const sysvar = @import("sysvar.zig");
 pub const sysvar_instructions = @import("sysvar_instructions.zig");
 pub const pda = @import("pda.zig");

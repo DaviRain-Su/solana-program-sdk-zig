@@ -519,7 +519,7 @@ pub const AccountInfo = struct {
         self.writeDataLen(0);
 
         // 4. Reassign to system program.
-        const SYSTEM_PROGRAM_ID = @import("system.zig").SYSTEM_PROGRAM_ID;
+        const SYSTEM_PROGRAM_ID = @import("system/root.zig").SYSTEM_PROGRAM_ID;
         self.raw.owner = SYSTEM_PROGRAM_ID;
     }
 
@@ -1015,7 +1015,7 @@ test "account: close drains lamports, zeroes data, reassigns to system" {
     try std.testing.expectEqual(@as(u64, 1_000 + 5_000_000), dst.lamports());
     try std.testing.expectEqual(@as(usize, 0), src.dataLen());
     // Owner should now be the system program (all zeros).
-    const system_id = @import("system.zig").SYSTEM_PROGRAM_ID;
+    const system_id = @import("system/root.zig").SYSTEM_PROGRAM_ID;
     try std.testing.expect(pubkey.pubkeyEq(src.owner(), &system_id));
     // The bytes that used to hold data should now be zeroed (we
     // zeroed positions 0..32 inside the data buffer).

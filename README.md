@@ -1267,10 +1267,10 @@ const metas = [_]sol.cpi.AccountMeta{
 ```
 
 All four are `inline fn` — same BPF as the struct literal. The SDK's
-own `system.zig` uses these throughout.
+own `system` module uses these throughout.
 
 `Instruction` also has a one-call constructor, used by every helper
-in `system.zig`:
+in the `system` module:
 
 ```zig
 const ix = sol.cpi.Instruction.init(program.key(), &metas, &ix_data);

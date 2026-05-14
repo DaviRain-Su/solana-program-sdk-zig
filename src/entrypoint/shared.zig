@@ -5,6 +5,7 @@ pub const account_cursor = @import("../account_cursor/root.zig");
 pub const pubkey = @import("../pubkey/root.zig");
 pub const program_error = @import("../program_error/root.zig");
 pub const error_code = @import("../error_code/root.zig");
+pub const hint_mod = @import("../hint.zig");
 pub const instruction_mod = @import("../instruction/root.zig");
 
 pub const Account = account.Account;
@@ -20,19 +21,5 @@ pub const HEAP_START_ADDRESS = allocator.HEAP_START_ADDRESS;
 pub const HEAP_LENGTH = allocator.HEAP_LENGTH;
 pub const MAX_PERMITTED_DATA_INCREASE: usize = account.MAX_PERMITTED_DATA_INCREASE;
 pub const alignPointer = account.alignPointer;
-
-pub inline fn unlikely(b: bool) bool {
-    if (b) {
-        @branchHint(.cold);
-        return true;
-    }
-    return false;
-}
-
-pub inline fn likely(b: bool) bool {
-    if (!b) {
-        @branchHint(.cold);
-        return false;
-    }
-    return true;
-}
+pub const unlikely = hint_mod.unlikely;
+pub const likely = hint_mod.likely;

@@ -12,12 +12,9 @@
 //! }
 //! ```
 
-/// Cold path hint - marks a code path as unlikely to execute.
-/// The compiler may optimize layout to favor other paths.
+/// Cold path hint - marks the current branch as unlikely to execute.
 pub inline fn coldPath() void {
-    // In Zig, we use an empty asm block with "cold" constraint
-    // or rely on compiler optimization. For now, this is a no-op
-    // that documents intent.
+    @branchHint(.cold);
 }
 
 /// Returns the given bool with a hint that `true` is the likely case.
@@ -25,8 +22,11 @@ pub inline fn coldPath() void {
 /// Use this for branches where the true case is expected to execute
 /// most of the time (e.g., success checks, valid input).
 pub inline fn likely(b: bool) bool {
-    if (b) return true;
-    return false;
+    if (!b) {
+        @branchHint(.cold);
+        return false;
+    }
+    return true;
 }
 
 /// Returns the given bool with a hint that `false` is the likely case.

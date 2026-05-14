@@ -1,7 +1,7 @@
 const std = @import("std");
 
 pub const pubkey = @import("../pubkey.zig");
-pub const account_mod = @import("../account.zig");
+pub const account_mod = @import("../account/root.zig");
 pub const cpi = @import("../cpi.zig");
 pub const program_error = @import("../program_error.zig");
 pub const instruction = @import("../instruction.zig");

@@ -17,7 +17,7 @@
 
 const std = @import("std");
 const pubkey = @import("pubkey.zig");
-const account_mod = @import("account.zig");
+const account_mod = @import("account/root.zig");
 const program_error = @import("program_error.zig");
 const clock_mod = @import("clock.zig");
 const rent_mod = @import("rent.zig");

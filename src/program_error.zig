@@ -209,7 +209,7 @@ const log = @import("log.zig");
 ///
 /// `@src()` returns the full path Zig was compiled with (often the
 /// absolute path on disk, ~80+ bytes). For on-chain logs we only want
-/// `"account.zig"` not `"/Users/.../solana-program-sdk-zig/src/account.zig"`.
+/// `"info.zig"` not `"/Users/.../solana-program-sdk-zig/src/account/info.zig"`.
 /// All work is done in comptime — the result is a comptime `[]const u8`
 /// that gets inlined into the final log string.
 inline fn basename(comptime path: []const u8) []const u8 {
@@ -239,7 +239,7 @@ inline fn srcPrefix(comptime src: std.builtin.SourceLocation) []const u8 {
 ///
 /// ```zig
 /// return sol.fail(@src(), "vault:wrong_authority", error.IncorrectAuthority);
-/// // log: "account.zig:251 vault:wrong_authority"
+/// // log: "info.zig:251 vault:wrong_authority"
 /// ```
 ///
 /// The entire `"<file>:<line> <tag>"` string is computed at

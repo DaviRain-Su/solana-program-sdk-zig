@@ -6,7 +6,7 @@
 //! Matches Pinocchio `lazy_program_entrypoint!` exactly.
 
 const std = @import("std");
-const account = @import("account.zig");
+const account = @import("account/root.zig");
 const account_cursor = @import("account_cursor.zig");
 const pubkey = @import("pubkey.zig");
 const program_error = @import("program_error.zig");

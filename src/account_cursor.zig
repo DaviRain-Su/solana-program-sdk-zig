@@ -1,4 +1,4 @@
-const account = @import("account.zig");
+const account = @import("account/root.zig");
 const program_error = @import("program_error.zig");
 
 const Account = account.Account;

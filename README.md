@@ -597,7 +597,7 @@ failed transaction, instead of just `Custom program error: 0x...`.
 pattern is used inside every constraint helper this SDK exposes
 (`parseAccountsWith`'s expectations, `expectSigner`, `getSysvarBytes`,
 the CPI builders, sysvar-instructions index checks, …) — when one
-of them fails you see `account.zig:251 expect:owner_mismatch` /
+of them fails you see `info.zig:251 expect:owner_mismatch` /
 `sysvar.zig:125 sysvar:offset_out_of_range` / etc. in the logs.
 
 ### End-to-end vault program (CU vs. Pinocchio vs. Anchor)
@@ -714,7 +714,7 @@ came from three measurable, named optimizations:
    "harmless" byte of padding on each side) takes ~1 CU per account.
    Three accounts × 3 CU saved × 3 lower-bound rounding = ~25-27 CU.
    Pinocchio's `init_from_account_view` already used this trick — we
-   ported it. See `src/account.zig:fromPtr`.
+   ported it. See `src/account/cpi_info.zig`'s `fromPtr`.
 
 That brings `vault.initialize` and `vault.deposit` within 2 CU of
 Pinocchio (effectively tied; `deposit` is actually 21 CU *faster*),

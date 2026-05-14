@@ -2,7 +2,7 @@ const std = @import("std");
 
 // Core types
 pub const pubkey = @import("pubkey.zig");
-pub const account = @import("account.zig");
+pub const account = @import("account/root.zig");
 pub const account_cursor = @import("account_cursor.zig");
 pub const program_error = @import("program_error.zig");
 pub const entrypoint = @import("entrypoint.zig");

@@ -4,7 +4,7 @@
 //! CpiAccountInfo layout matches Solana C ABI, so no conversion is needed.
 
 const std = @import("std");
-const account = @import("account.zig");
+const account = @import("account/root.zig");
 const pubkey = @import("pubkey.zig");
 const program_error = @import("program_error.zig");
 const bpf = @import("bpf.zig");
@@ -679,7 +679,7 @@ pub fn getReturnData(buffer: []u8) ?struct { Pubkey, []const u8 } {
 // =============================================================================
 //
 // AccountMeta layout is asserted at comptime above.
-// CpiAccountInfo size is asserted at comptime in account.zig.
+// CpiAccountInfo size is asserted at comptime in the account module.
 
 test "cpi: AccountMeta.init sets bytes correctly" {
     const key: Pubkey = .{0} ** 32;

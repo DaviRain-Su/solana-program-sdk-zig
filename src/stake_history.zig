@@ -25,7 +25,7 @@
 //! and the runtime truncates to `MAX_ENTRIES = 512`.
 
 const std = @import("std");
-const account_mod = @import("account.zig");
+const account_mod = @import("account/root.zig");
 const program_error = @import("program_error.zig");
 const sysvar = @import("sysvar.zig");
 const pubkey = @import("pubkey.zig");

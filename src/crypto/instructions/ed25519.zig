@@ -16,7 +16,7 @@ const pubkey = @import("../../pubkey.zig");
 const cpi = @import("../../cpi.zig");
 const instruction_mod = @import("../../instruction.zig");
 const sysvar_instructions = @import("../../sysvar_instructions.zig");
-const account_mod = @import("../../account.zig");
+const account_mod = @import("../../account/root.zig");
 
 const Pubkey = pubkey.Pubkey;
 const Instruction = cpi.Instruction;

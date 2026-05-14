@@ -24,7 +24,7 @@
 //! the discriminator check. No allocation, no copy.
 
 const std = @import("std");
-const account_mod = @import("account.zig");
+const account_mod = @import("account/root.zig");
 const discriminator = @import("discriminator.zig");
 const program_error = @import("program_error.zig");
 

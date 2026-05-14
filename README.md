@@ -481,11 +481,11 @@ opt-in and composable with the raw `[*]u8` entrypoint:
 
 - **Foundational module roots** — after the directory splits, the core
   SDK's foundational families now live under
-  `src/{account,cpi,entrypoint,instruction,sysvar,sysvar_instructions,typed_account}/`.
+  `src/{account,cpi,entrypoint,instruction,pda,sysvar,sysvar_instructions,typed_account}/`.
   Each `root.zig` acts as the public re-export and documentation hub,
   while the user-facing API still stays flat at `sol.account.*`,
-  `sol.cpi.*`, `sol.entrypoint.*`, `sol.instruction.*`, `sol.sysvar.*`,
-  `sol.sysvar_instructions.*`, and `sol.TypedAccount(...)`.
+  `sol.cpi.*`, `sol.entrypoint.*`, `sol.instruction.*`, `sol.pda.*`,
+  `sol.sysvar.*`, `sol.sysvar_instructions.*`, and `sol.TypedAccount(...)`.
 
 - **`pda.verifyPda(key, seeds, bump, program_id)`** — Anchor's
   `seeds = [...], bump = state.bump` equivalent. Asserts that a
@@ -1217,6 +1217,7 @@ core families under stable namespaces and short aliases.
 | `sol.cpi.*` | `src/cpi/root.zig` | CPI instruction/meta types, signer seeds, staging helpers, invoke wrappers |
 | `sol.entrypoint.*` | `src/entrypoint/root.zig` | `InstructionContext`, account parsing, ix-data binding, entrypoint wrappers |
 | `sol.instruction.*` | `src/instruction/root.zig` | Instruction-data builders, unaligned reads, typed ix-data readers, cursor/staging helpers |
+| `sol.pda.*` | `src/pda/root.zig` | Runtime/comptime PDA derivation plus stored-bump and canonical verification helpers |
 | `sol.system.*` | `src/system/root.zig` | System Program CPI helper families |
 | `sol.sysvar.*` | `src/sysvar/root.zig` | Sysvar syscall/account accessors and typed sysvar layouts |
 | `sol.sysvar_instructions.*` | `src/sysvar_instructions/root.zig` | Instructions-sysvar transaction introspection |

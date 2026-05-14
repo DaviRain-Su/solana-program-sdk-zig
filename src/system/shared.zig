@@ -5,7 +5,7 @@ pub const account_mod = @import("../account/root.zig");
 pub const cpi = @import("../cpi/root.zig");
 pub const program_error = @import("../program_error.zig");
 pub const instruction = @import("../instruction/root.zig");
-pub const pda = @import("../pda.zig");
+pub const pda = @import("../pda/root.zig");
 
 pub const Pubkey = pubkey.Pubkey;
 pub const CpiAccountInfo = account_mod.CpiAccountInfo;

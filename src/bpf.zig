@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const pubkey_mod = @import("pubkey.zig");
-const pda_mod = @import("pda.zig");
+const pda_mod = @import("pda/root.zig");
 
 const PublicKey = pubkey_mod.Pubkey;
 

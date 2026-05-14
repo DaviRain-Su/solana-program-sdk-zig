@@ -7,6 +7,7 @@
 //! - `sol.cpi.*` → `src/cpi/`
 //! - `sol.entrypoint.*` → `src/entrypoint/`
 //! - `sol.instruction.*` → `src/instruction/`
+//! - `sol.pda.*` → `src/pda/`
 //! - `sol.system.*` → `src/system/`
 //! - `sol.sysvar.*` → `src/sysvar/`
 //! - `sol.sysvar_instructions.*` → `src/sysvar_instructions/`
@@ -46,7 +47,7 @@ pub const discriminator = @import("discriminator.zig");
 pub const error_code = @import("error_code.zig");
 pub const event = @import("event.zig");
 pub const require_mod = @import("require.zig");
-pub const pda = @import("pda.zig");
+pub const pda = @import("pda/root.zig");
 
 // Additional protocol / sysvar data layouts and syscall wrappers.
 pub const clock = @import("clock.zig");

@@ -1,0 +1,20 @@
+.{
+    .name = .solana_address_lookup_table,
+    .version = "0.1.0",
+    .fingerprint = 0x4b1ee3bcc77f4732,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .solana_program_sdk = .{
+            .path = "../..",
+        },
+        .solana_tx = .{
+            .path = "../solana-tx",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "README.md",
+    },
+}

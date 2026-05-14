@@ -1,0 +1,29 @@
+.{
+    .name = .solana_transaction_builder,
+    .version = "0.1.0",
+    .fingerprint = 0xc573bad402784d5,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .solana_tx = .{
+            .path = "../solana-tx",
+        },
+        .solana_keypair = .{
+            .path = "../solana-keypair",
+        },
+        .solana_system = .{
+            .path = "../solana-system",
+        },
+        .solana_compute_budget = .{
+            .path = "../solana-compute-budget",
+        },
+        .solana_address_lookup_table = .{
+            .path = "../solana-address-lookup-table",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "README.md",
+    },
+}

@@ -1,0 +1,17 @@
+.{
+    .fingerprint = 0x7ea7d6fc1818426b,
+    .name = .solana_tx,
+    .version = "0.1.0",
+    .minimum_zig_version = "0.16.0",
+
+    .dependencies = .{
+        .solana_program_sdk = .{ .path = "../.." },
+    },
+
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "README.md",
+    },
+}

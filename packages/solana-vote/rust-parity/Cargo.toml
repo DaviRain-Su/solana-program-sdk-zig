@@ -1,0 +1,10 @@
+[package]
+name = "solana-vote-rust-parity"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dev-dependencies]
+solana-instruction = "2.3.0"
+solana-pubkey = "2.2.1"
+solana-vote-interface = { version = "=2.2.6", features = ["bincode"] }

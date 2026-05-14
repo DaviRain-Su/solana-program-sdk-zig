@@ -49,12 +49,25 @@ const ix = spl_ata.instruction.createIdempotent(
     &token_program_id,
     &scratch,
 );
+
+// Low-CU path when the ATA address is already known:
+const ix_fast = spl_ata.instruction.createIdempotentForAddress(
+    &payer_pubkey,
+    &ata_pubkey,
+    &wallet_pubkey,
+    &mint_pubkey,
+    &sol.system_program_id,
+    &token_program_id,
+    &scratch,
+);
 ```
 
 ## Implemented scope
 
 - ATA PDA derivation for both classic SPL Token and Token-2022.
-- `create` / `createIdempotent` / `recoverNested` instruction builders.
+- `create` / `createIdempotent` / `recoverNested` instruction builders, plus
+  `*ForAddress` variants that accept precomputed ATA addresses.
 - On-chain CPI wrappers for ATA creation and nested-account recovery.
 - PDA-signed ATA CPI helpers via `*Signed` and `*SignedSingle` variants.
 - Real Mollusk integration coverage via `program-test/tests/spl_ata.rs`.
+- Rust parity fixtures against `spl-associated-token-account-interface = 2.0.0`.

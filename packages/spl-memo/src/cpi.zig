@@ -26,7 +26,8 @@ fn buildMemoInstruction(
     if (signers.len > max_signers) return error.InvalidArgument;
 
     for (signers, 0..) |s, i| pubkey_buf[i] = s.key();
-    return instruction.memo(message, pubkey_buf[0..signers.len], meta_buf[0..signers.len]);
+    return instruction.memoChecked(message, pubkey_buf[0..signers.len], meta_buf[0..signers.len]) catch
+        return error.InvalidArgument;
 }
 
 fn stageRuntimeAccounts(

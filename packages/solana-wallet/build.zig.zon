@@ -1,0 +1,17 @@
+.{
+    .name = .solana_wallet,
+    .version = "0.1.0",
+    .fingerprint = 0xa6b09ef14438bb9d,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .solana_keypair = .{
+            .path = "../solana-keypair",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "README.md",
+    },
+}

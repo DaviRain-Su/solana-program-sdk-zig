@@ -38,6 +38,9 @@ var metas: [1]sol.cpi.AccountMeta = undefined;
 const ix = spl_memo.instruction.memo("audit:withdraw", &.{&authority_pubkey}, &metas);
 // `ix` is a `sol.cpi.Instruction` — serialise into a transaction.
 
+// Runtime-safe variant when signer count is dynamic:
+const ix_checked = try spl_memo.instruction.memoChecked("audit:withdraw", &.{&authority_pubkey}, &metas);
+
 // Or no-signer convenience:
 const ix2 = spl_memo.instruction.memoNoSigners("hello off-chain");
 ```
@@ -45,12 +48,14 @@ const ix2 = spl_memo.instruction.memoNoSigners("hello off-chain");
 ## Scope
 
 - `instruction.memo(message, signers, account_metas)` — full builder, caller-provided scratch
+- `instruction.memoChecked(message, signers, account_metas)` — checked scratch-length variant
 - `instruction.memoNoSigners(message)` — convenience for the empty-signer case
 - `cpi.memo(message, memo_program, signers)` — on-chain wrapper, stack-allocates scratch
 - `cpi.memoSigned(message, memo_program, signers, pda_signers)` — PDA-signed CPI variant
 - `cpi.memoSignedSingle(message, memo_program, signers, signer_seeds)` — single-PDA fast path
 - `cpi.memoNoSigners(message, memo_program)` — on-chain convenience
 - Constants: `PROGRAM_ID` (v2 modern), `PROGRAM_ID_V1` (legacy)
+- Rust parity fixtures against `spl-memo = 6.0.0`
 
 ## Notes
 

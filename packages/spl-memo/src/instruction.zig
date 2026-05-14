@@ -27,6 +27,10 @@ const Pubkey = sol.Pubkey;
 const AccountMeta = sol.cpi.AccountMeta;
 const Instruction = sol.cpi.Instruction;
 
+pub const Error = error{
+    AccountMetaBufferTooSmall,
+};
+
 /// Build a memo instruction.
 ///
 /// `message` is the UTF-8 string to log. The SPL Memo program does not
@@ -63,6 +67,18 @@ pub fn memo(
     };
 }
 
+/// Checked variant of `memo` for callers with dynamically sized signer
+/// lists. Returns `AccountMetaBufferTooSmall` instead of relying on a
+/// debug-only assertion when the caller-provided scratch is too short.
+pub fn memoChecked(
+    message: []const u8,
+    signers: []const *const Pubkey,
+    account_metas: []AccountMeta,
+) Error!Instruction {
+    if (account_metas.len < signers.len) return error.AccountMetaBufferTooSmall;
+    return memo(message, signers, account_metas[0..signers.len]);
+}
+
 /// Convenience: no-signer memo. Returns an `Instruction` with an
 /// empty accounts slice — the SPL Memo program will simply log the
 /// message without enforcing any signatures.
@@ -94,4 +110,23 @@ test "memo wires signers into AccountMeta.signer entries" {
     try std.testing.expectEqual(@as(u8, 1), ix.accounts[1].is_signer);
     try std.testing.expectEqualSlices(u8, &a, ix.accounts[0].pubkey);
     try std.testing.expectEqualSlices(u8, &b, ix.accounts[1].pubkey);
+}
+
+test "memoChecked rejects undersized account meta scratch" {
+    const a: Pubkey = .{1} ** 32;
+    const b: Pubkey = .{2} ** 32;
+    var metas: [1]AccountMeta = undefined;
+    try std.testing.expectError(
+        error.AccountMetaBufferTooSmall,
+        memoChecked("note", &.{ &a, &b }, &metas),
+    );
+}
+
+test "memoChecked accepts oversized scratch and slices output accounts" {
+    const a: Pubkey = .{1} ** 32;
+    var metas: [3]AccountMeta = undefined;
+    const ix = try memoChecked("note", &.{&a}, &metas);
+    try std.testing.expectEqual(@as(usize, 1), ix.accounts.len);
+    try std.testing.expectEqual(@intFromPtr(&metas[0]), @intFromPtr(ix.accounts.ptr));
+    try std.testing.expectEqualStrings("note", ix.data);
 }

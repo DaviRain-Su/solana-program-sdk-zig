@@ -91,22 +91,16 @@ comptime {
 fn buildInstruction(
     comptime spec: Spec,
     payer: *const Pubkey,
+    associated_token_account: *const Pubkey,
     wallet: *const Pubkey,
     mint: *const Pubkey,
     system_program: *const Pubkey,
     token_program: *const Pubkey,
     scratch: *Scratch(spec),
 ) Instruction {
-    const associated_token_address = derivation.findAddress(
-        wallet,
-        mint,
-        token_program,
-    );
-
-    scratch.associated_token_account = associated_token_address.address;
     scratch.data = .{@intFromEnum(spec.disc)};
     scratch.metas[0] = AccountMeta.signerWritable(payer);
-    scratch.metas[1] = AccountMeta.writable(&scratch.associated_token_account);
+    scratch.metas[1] = AccountMeta.writable(associated_token_account);
     scratch.metas[2] = AccountMeta.readonly(wallet);
     scratch.metas[3] = AccountMeta.readonly(mint);
     scratch.metas[4] = AccountMeta.readonly(system_program);
@@ -122,9 +116,35 @@ pub fn create(
     token_program: *const Pubkey,
     scratch: *Scratch(create_spec),
 ) Instruction {
+    scratch.associated_token_account = derivation.findAddress(
+        wallet,
+        mint,
+        token_program,
+    ).address;
+    return createForAddress(
+        payer,
+        &scratch.associated_token_account,
+        wallet,
+        mint,
+        system_program,
+        token_program,
+        scratch,
+    );
+}
+
+pub fn createForAddress(
+    payer: *const Pubkey,
+    associated_token_account: *const Pubkey,
+    wallet: *const Pubkey,
+    mint: *const Pubkey,
+    system_program: *const Pubkey,
+    token_program: *const Pubkey,
+    scratch: *Scratch(create_spec),
+) Instruction {
     return buildInstruction(
         create_spec,
         payer,
+        associated_token_account,
         wallet,
         mint,
         system_program,
@@ -141,9 +161,35 @@ pub fn createIdempotent(
     token_program: *const Pubkey,
     scratch: *Scratch(create_idempotent_spec),
 ) Instruction {
+    scratch.associated_token_account = derivation.findAddress(
+        wallet,
+        mint,
+        token_program,
+    ).address;
+    return createIdempotentForAddress(
+        payer,
+        &scratch.associated_token_account,
+        wallet,
+        mint,
+        system_program,
+        token_program,
+        scratch,
+    );
+}
+
+pub fn createIdempotentForAddress(
+    payer: *const Pubkey,
+    associated_token_account: *const Pubkey,
+    wallet: *const Pubkey,
+    mint: *const Pubkey,
+    system_program: *const Pubkey,
+    token_program: *const Pubkey,
+    scratch: *Scratch(create_idempotent_spec),
+) Instruction {
     return buildInstruction(
         create_idempotent_spec,
         payer,
+        associated_token_account,
         wallet,
         mint,
         system_program,
@@ -174,12 +220,33 @@ pub fn recoverNested(
         nested_token_mint,
         token_program,
     ).address;
+    return recoverNestedForAddresses(
+        wallet,
+        owner_token_mint,
+        nested_token_mint,
+        &scratch.owner_associated_token_account,
+        &scratch.destination_associated_token_account,
+        &scratch.nested_associated_token_account,
+        token_program,
+        scratch,
+    );
+}
 
+pub fn recoverNestedForAddresses(
+    wallet: *const Pubkey,
+    owner_token_mint: *const Pubkey,
+    nested_token_mint: *const Pubkey,
+    owner_associated_token_account: *const Pubkey,
+    destination_associated_token_account: *const Pubkey,
+    nested_associated_token_account: *const Pubkey,
+    token_program: *const Pubkey,
+    scratch: *Scratch(recover_nested_spec),
+) Instruction {
     scratch.data = .{@intFromEnum(recover_nested_spec.disc)};
-    scratch.metas[0] = AccountMeta.writable(&scratch.nested_associated_token_account);
+    scratch.metas[0] = AccountMeta.writable(nested_associated_token_account);
     scratch.metas[1] = AccountMeta.readonly(nested_token_mint);
-    scratch.metas[2] = AccountMeta.writable(&scratch.destination_associated_token_account);
-    scratch.metas[3] = AccountMeta.readonly(&scratch.owner_associated_token_account);
+    scratch.metas[2] = AccountMeta.writable(destination_associated_token_account);
+    scratch.metas[3] = AccountMeta.readonly(owner_associated_token_account);
     scratch.metas[4] = AccountMeta.readonly(owner_token_mint);
     scratch.metas[5] = AccountMeta.signerWritable(wallet);
     scratch.metas[6] = AccountMeta.readonly(token_program);
@@ -303,6 +370,41 @@ test "createIdempotent emits create metas with [1] discriminator" {
     }
 }
 
+test "precomputed address builders avoid PDA derivation scratch dependency" {
+    const payer: Pubkey = .{0x41} ** 32;
+    const wallet: Pubkey = .{0x42} ** 32;
+    const mint: Pubkey = .{0x43} ** 32;
+    const associated_token_account: Pubkey = .{0x44} ** 32;
+    const system_program: Pubkey = sol.system_program_id;
+    const token_program: Pubkey = sol.spl_token_program_id;
+    var create_scratch: Scratch(create_spec) = undefined;
+    var idempotent_scratch: Scratch(create_idempotent_spec) = undefined;
+
+    const create_ix = createForAddress(
+        &payer,
+        &associated_token_account,
+        &wallet,
+        &mint,
+        &system_program,
+        &token_program,
+        &create_scratch,
+    );
+    const idempotent_ix = createIdempotentForAddress(
+        &payer,
+        &associated_token_account,
+        &wallet,
+        &mint,
+        &system_program,
+        &token_program,
+        &idempotent_scratch,
+    );
+
+    try expectMeta(create_ix.accounts[1], &associated_token_account, 1, 0);
+    try std.testing.expectEqual(@as(u8, 0), create_ix.data[0]);
+    try expectMeta(idempotent_ix.accounts[1], &associated_token_account, 1, 0);
+    try std.testing.expectEqual(@as(u8, 1), idempotent_ix.data[0]);
+}
+
 test "recoverNested derives canonical nested, owner, and destination ATA metas" {
     const wallet: Pubkey = .{0x71} ** 32;
     const owner_token_mint: Pubkey = .{0x72} ** 32;
@@ -348,6 +450,34 @@ test "recoverNested derives canonical nested, owner, and destination ATA metas" 
     try expectMeta(ix.accounts[4], &owner_token_mint, 0, 0);
     try expectMeta(ix.accounts[5], &wallet, 1, 1);
     try expectMeta(ix.accounts[6], &token_program, 0, 0);
+}
+
+test "recoverNestedForAddresses uses caller-provided ATA addresses" {
+    const wallet: Pubkey = .{0x81} ** 32;
+    const owner_token_mint: Pubkey = .{0x82} ** 32;
+    const nested_token_mint: Pubkey = .{0x83} ** 32;
+    const owner_associated: Pubkey = .{0x84} ** 32;
+    const destination_associated: Pubkey = .{0x85} ** 32;
+    const nested_associated: Pubkey = .{0x86} ** 32;
+    const token_program: Pubkey = sol.spl_token_program_id;
+    var scratch: Scratch(recover_nested_spec) = undefined;
+
+    const ix = recoverNestedForAddresses(
+        &wallet,
+        &owner_token_mint,
+        &nested_token_mint,
+        &owner_associated,
+        &destination_associated,
+        &nested_associated,
+        &token_program,
+        &scratch,
+    );
+
+    try std.testing.expectEqual(@as(u8, 2), ix.data[0]);
+    try expectMeta(ix.accounts[0], &nested_associated, 1, 0);
+    try expectMeta(ix.accounts[2], &destination_associated, 1, 0);
+    try expectMeta(ix.accounts[3], &owner_associated, 0, 0);
+    try expectMeta(ix.accounts[5], &wallet, 1, 1);
 }
 
 test "builders preserve caller-owned scratch buffers" {

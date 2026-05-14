@@ -1,0 +1,20 @@
+.{
+    .name = .spl_governance,
+    .version = "0.1.0",
+    .fingerprint = 0xea3c8f861d766e2c,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .solana_program_sdk = .{
+            .path = "../..",
+        },
+        .solana_codec = .{
+            .path = "../solana-codec",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "README.md",
+    },
+}

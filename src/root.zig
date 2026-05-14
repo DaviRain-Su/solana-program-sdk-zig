@@ -1,43 +1,58 @@
+//! Top-level `solana_program_sdk` namespace.
+//!
+//! This file is the import hub that keeps the public API flat even though many
+//! core families now live under directory-backed `root.zig` modules:
+//!
+//! - `sol.account.*` → `src/account/`
+//! - `sol.cpi.*` → `src/cpi/`
+//! - `sol.entrypoint.*` → `src/entrypoint/`
+//! - `sol.system.*` → `src/system/`
+//! - `sol.sysvar.*` → `src/sysvar/`
+//! - `sol.sysvar_instructions.*` → `src/sysvar_instructions/`
+//! - `sol.typed_account.*` / `sol.TypedAccount(...)` → `src/typed_account/`
+//!
+//! The rest of this file groups those module namespaces, then re-exports the
+//! short Pinocchio-style aliases (`sol.AccountInfo`, `sol.ProgramResult`,
+//! `sol.verifyPda`, ... ) used in examples and downstream programs.
+
 const std = @import("std");
 
-// Core types
+// Foundational runtime-facing modules.
 pub const pubkey = @import("pubkey.zig");
 pub const account = @import("account/root.zig");
 pub const account_cursor = @import("account_cursor.zig");
 pub const program_error = @import("program_error.zig");
 pub const entrypoint = @import("entrypoint/root.zig");
-
-// Infrastructure
-pub const log = @import("log.zig");
-pub const allocator = @import("allocator.zig");
-pub const hint = @import("hint.zig");
-pub const memory = @import("memory.zig");
-
-// CPI and program wrappers
+pub const instruction = @import("instruction.zig");
 pub const cpi = @import("cpi/root.zig");
 pub const system = @import("system/root.zig");
 pub const sysvar = @import("sysvar/root.zig");
 pub const sysvar_instructions = @import("sysvar_instructions/root.zig");
-pub const pda = @import("pda.zig");
-
-// Anchor-style foundations (typed accounts, discriminators, error codes, events)
-pub const discriminator = @import("discriminator.zig");
 pub const typed_account = @import("typed_account/root.zig");
+
+// Developer-facing utilities and supporting runtime helpers.
+pub const log = @import("log.zig");
+pub const allocator = @import("allocator.zig");
+pub const hint = @import("hint.zig");
+pub const memory = @import("memory.zig");
+pub const stack = @import("stack.zig");
+pub const math = @import("math.zig");
+pub const compute_budget = @import("compute_budget.zig");
+pub const bpf = @import("bpf.zig");
+
+// Constraint / framework-style building blocks.
+pub const discriminator = @import("discriminator.zig");
 pub const error_code = @import("error_code.zig");
 pub const event = @import("event.zig");
 pub const require_mod = @import("require.zig");
+pub const pda = @import("pda.zig");
 
-// Existing modules
-pub const instruction = @import("instruction.zig");
-pub const stack = @import("stack.zig");
-pub const math = @import("math.zig");
+// Additional protocol / sysvar data layouts and syscall wrappers.
 pub const clock = @import("clock.zig");
 pub const rent = @import("rent.zig");
 pub const slot_hashes = @import("slot_hashes.zig");
 pub const stake_history = @import("stake_history.zig");
 pub const stake = @import("stake.zig");
-pub const compute_budget = @import("compute_budget.zig");
-pub const bpf = @import("bpf.zig");
 
 // Cryptographic primitives — now physically grouped under `src/crypto/`.
 // Flat aliases stay exported for backwards compatibility.
@@ -54,7 +69,7 @@ pub const secp256k1_instruction = crypto.secp256k1_instruction;
 /// Usage in your program: `pub const panic = solana_program_sdk.panic.Panic;`
 pub const panic = @import("panic.zig");
 
-// Type aliases (Pinocchio naming convention)
+// Short type aliases (Pinocchio-style naming convention).
 pub const Pubkey = pubkey.Pubkey;
 pub const PUBKEY_BYTES = pubkey.PUBKEY_BYTES;
 pub const Account = account.Account;
@@ -84,7 +99,7 @@ pub const requireNeq = require_mod.requireNeq;
 pub const requireKeysEq = require_mod.requireKeysEq;
 pub const requireKeysNeq = require_mod.requireKeysNeq;
 
-// Anchor-style aliases — short names for the most common usage.
+// High-frequency convenience aliases used directly in handlers.
 pub const TypedAccount = typed_account.TypedAccount;
 pub const ErrorCode = error_code.ErrorCode;
 pub const discriminatorFor = discriminator.forAccount;
@@ -102,7 +117,7 @@ pub const loadInstructionAtChecked = sysvar_instructions.loadInstructionAtChecke
 pub const getInstructionRelative = sysvar_instructions.getInstructionRelative;
 pub const IntrospectedInstruction = sysvar_instructions.IntrospectedInstruction;
 
-// Compute / runtime introspection
+// Runtime-introspection and syscall-backed convenience aliases.
 pub const remainingComputeUnits = compute_budget.remaining;
 pub const getEpochStake = stake.getEpochStake;
 pub const getSysvar = sysvar.getSysvar;

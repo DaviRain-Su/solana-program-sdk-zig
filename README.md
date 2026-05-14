@@ -1194,6 +1194,25 @@ BPF_OUT_DIR=$(pwd)/zig-out/lib cargo run --release -- vault_deposit
 
 ## Architecture
 
+The top-level `@import("solana_program_sdk")` surface stays intentionally
+flat. `src/root.zig` is the import hub that re-exports the reorganized
+core families under stable namespaces and short aliases.
+
+### Foundational module guide
+
+| Namespace | Physical root | Role |
+|---|---|---|
+| `sol.account.*` | `src/account/root.zig` | Raw runtime account layout plus `AccountInfo` / `MaybeAccount` / `CpiAccountInfo` views |
+| `sol.cpi.*` | `src/cpi/root.zig` | CPI instruction/meta types, signer seeds, staging helpers, invoke wrappers |
+| `sol.entrypoint.*` | `src/entrypoint/root.zig` | `InstructionContext`, account parsing, ix-data binding, entrypoint wrappers |
+| `sol.system.*` | `src/system/root.zig` | System Program CPI helper families |
+| `sol.sysvar.*` | `src/sysvar/root.zig` | Sysvar syscall/account accessors and typed sysvar layouts |
+| `sol.sysvar_instructions.*` | `src/sysvar_instructions/root.zig` | Instructions-sysvar transaction introspection |
+| `sol.typed_account.*` / `sol.TypedAccount(...)` | `src/typed_account/root.zig` | Zero-copy discriminator-aware typed account binding |
+
+Each directory's `root.zig` is the public documentation / re-export hub,
+while the user-facing API remains flat at the namespace shown above.
+
 ### Core types
 
 | Type | Size | Purpose |

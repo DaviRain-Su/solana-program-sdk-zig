@@ -6,6 +6,7 @@
 //! - `sol.account.*` → `src/account/`
 //! - `sol.cpi.*` → `src/cpi/`
 //! - `sol.entrypoint.*` → `src/entrypoint/`
+//! - `sol.program_error.*` → `src/program_error/`
 //! - `sol.instruction.*` → `src/instruction/`
 //! - `sol.pda.*` → `src/pda/`
 //! - `sol.system.*` → `src/system/`
@@ -23,7 +24,7 @@ const std = @import("std");
 pub const pubkey = @import("pubkey.zig");
 pub const account = @import("account/root.zig");
 pub const account_cursor = @import("account_cursor.zig");
-pub const program_error = @import("program_error.zig");
+pub const program_error = @import("program_error/root.zig");
 pub const entrypoint = @import("entrypoint/root.zig");
 pub const instruction = @import("instruction/root.zig");
 pub const cpi = @import("cpi/root.zig");

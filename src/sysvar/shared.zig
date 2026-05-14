@@ -1,6 +1,6 @@
 pub const pubkey = @import("../pubkey.zig");
 pub const account_mod = @import("../account/root.zig");
-pub const program_error = @import("../program_error.zig");
+pub const program_error = @import("../program_error/root.zig");
 pub const clock_mod = @import("../clock.zig");
 pub const rent_mod = @import("../rent.zig");
 pub const bpf = @import("../bpf.zig");

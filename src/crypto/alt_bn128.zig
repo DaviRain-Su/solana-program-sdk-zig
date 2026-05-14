@@ -38,7 +38,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const program_error = @import("../program_error.zig");
+const program_error = @import("../program_error/root.zig");
 
 const ProgramError = program_error.ProgramError;
 

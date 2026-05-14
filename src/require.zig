@@ -40,7 +40,7 @@
 //! line that looks like `vault.zig:142 vault:wrong_authority`.
 
 const std = @import("std");
-const program_error = @import("program_error.zig");
+const program_error = @import("program_error/root.zig");
 const pubkey_mod = @import("pubkey.zig");
 
 const ProgramError = program_error.ProgramError;

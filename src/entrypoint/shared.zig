@@ -2,7 +2,7 @@ pub const std = @import("std");
 pub const account = @import("../account/root.zig");
 pub const account_cursor = @import("../account_cursor.zig");
 pub const pubkey = @import("../pubkey.zig");
-pub const program_error = @import("../program_error.zig");
+pub const program_error = @import("../program_error/root.zig");
 pub const error_code = @import("../error_code.zig");
 pub const instruction_mod = @import("../instruction/root.zig");
 

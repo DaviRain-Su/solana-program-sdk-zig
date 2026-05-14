@@ -1,5 +1,5 @@
 const account = @import("account/root.zig");
-const program_error = @import("program_error.zig");
+const program_error = @import("program_error/root.zig");
 
 const Account = account.Account;
 const AccountInfo = account.AccountInfo;

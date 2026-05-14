@@ -22,7 +22,7 @@
 //! - `add(a, b)` — returns `ProgramError!T`. Composes with `try`.
 
 const std = @import("std");
-const program_error = @import("program_error.zig");
+const program_error = @import("program_error/root.zig");
 
 const ProgramError = program_error.ProgramError;
 

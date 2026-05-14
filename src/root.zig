@@ -48,7 +48,7 @@ pub const bpf = @import("bpf.zig");
 
 // Constraint / framework-style building blocks.
 pub const discriminator = @import("discriminator.zig");
-pub const error_code = @import("error_code.zig");
+pub const error_code = @import("error_code/root.zig");
 pub const event = @import("event.zig");
 pub const require_mod = @import("require.zig");
 pub const pda = @import("pda/root.zig");

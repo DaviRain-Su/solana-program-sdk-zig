@@ -1,5 +1,5 @@
 const std = @import("std");
-pub const log = @import("../log.zig");
+pub const log = @import("../log/root.zig");
 pub const discriminator = @import("../discriminator.zig");
 pub const bpf = @import("../bpf.zig");
 pub const stdlib = std;

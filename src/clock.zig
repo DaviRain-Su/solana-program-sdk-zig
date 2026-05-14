@@ -1,5 +1,5 @@
 const bpf = @import("bpf.zig");
-const log = @import("log.zig");
+const log = @import("log/root.zig");
 const PublicKey = @import("pubkey/root.zig").Pubkey;
 
 pub const Clock = extern struct {

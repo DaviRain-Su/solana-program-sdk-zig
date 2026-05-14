@@ -1,7 +1,7 @@
 const std = @import("std");
 const core = @import("core.zig");
 const ProgramError = core.ProgramError;
-const log = @import("../log.zig");
+const log = @import("../log/root.zig");
 
 // =============================================================================
 // Diagnostic helpers — emit a runtime log right before failing.

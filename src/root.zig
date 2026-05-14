@@ -37,7 +37,7 @@ pub const sysvar_instructions = @import("sysvar_instructions/root.zig");
 pub const typed_account = @import("typed_account/root.zig");
 
 // Developer-facing utilities and supporting runtime helpers.
-pub const log = @import("log.zig");
+pub const log = @import("log/root.zig");
 pub const allocator = @import("allocator/root.zig");
 pub const hint = @import("hint.zig");
 pub const memory = @import("memory/root.zig");

@@ -4,7 +4,7 @@ pub const program_error = @import("../program_error/root.zig");
 pub const clock_mod = @import("../clock.zig");
 pub const rent_mod = @import("../rent.zig");
 pub const bpf = @import("../bpf.zig");
-pub const log = @import("../log.zig");
+pub const log = @import("../log/root.zig");
 
 pub const Pubkey = pubkey.Pubkey;
 pub const AccountInfo = account_mod.AccountInfo;

@@ -17,7 +17,7 @@ pub const memory = @import("memory.zig");
 pub const cpi = @import("cpi.zig");
 pub const system = @import("system/root.zig");
 pub const sysvar = @import("sysvar/root.zig");
-pub const sysvar_instructions = @import("sysvar_instructions.zig");
+pub const sysvar_instructions = @import("sysvar_instructions/root.zig");
 pub const pda = @import("pda.zig");
 
 // Anchor-style foundations (typed accounts, discriminators, error codes, events)

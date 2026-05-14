@@ -6,6 +6,8 @@
 
     .dependencies = .{
         .solana_program_sdk = .{ .path = "../.." },
+        .spl_token_metadata = .{ .path = "../spl-token-metadata" },
+        .spl_token_group = .{ .path = "../spl-token-group" },
     },
 
     .paths = .{

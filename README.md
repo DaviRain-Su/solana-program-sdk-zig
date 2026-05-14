@@ -481,11 +481,12 @@ opt-in and composable with the raw `[*]u8` entrypoint:
 
 - **Foundational module roots** — after the directory splits, the core
   SDK's foundational families now live under
-  `src/{account,cpi,entrypoint,instruction,math,pda,program_error,pubkey,sysvar,sysvar_instructions,typed_account}/`.
+  `src/{account,account_cursor,cpi,entrypoint,instruction,math,pda,program_error,pubkey,sysvar,sysvar_instructions,typed_account}/`.
   Each `root.zig` acts as the public re-export and documentation hub,
   while the user-facing API still stays flat at `sol.account.*`,
-  `sol.cpi.*`, `sol.entrypoint.*`, `sol.instruction.*`, `sol.math.*`,
-  `sol.pda.*`, `sol.program_error.*`, `sol.pubkey.*`, `sol.sysvar.*`,
+  `sol.account_cursor.*`, `sol.cpi.*`, `sol.entrypoint.*`,
+  `sol.instruction.*`, `sol.math.*`, `sol.pda.*`,
+  `sol.program_error.*`, `sol.pubkey.*`, `sol.sysvar.*`,
   `sol.sysvar_instructions.*`, and `sol.TypedAccount(...)`.
 
 - **`pda.verifyPda(key, seeds, bump, program_id)`** — Anchor's
@@ -1215,6 +1216,7 @@ core families under stable namespaces and short aliases.
 | Namespace | Physical root | Role |
 |---|---|---|
 | `sol.account.*` | `src/account/root.zig` | Raw runtime account layout plus `AccountInfo` / `MaybeAccount` / `CpiAccountInfo` views |
+| `sol.account_cursor.*` | `src/account_cursor/root.zig` | Remaining-account cursor/window helpers with explicit duplicate-policy handling |
 | `sol.pubkey.*` | `src/pubkey/root.zig` | Pubkey constants/types, Base58 encode/decode, equality, curve validation, formatting |
 | `sol.cpi.*` | `src/cpi/root.zig` | CPI instruction/meta types, signer seeds, staging helpers, invoke wrappers |
 | `sol.entrypoint.*` | `src/entrypoint/root.zig` | `InstructionContext`, account parsing, ix-data binding, entrypoint wrappers |
@@ -1270,6 +1272,7 @@ first, then jump to the worked section that shows the intended usage shape.
 | `sol.math.*` | Use checked arithmetic and router-grade fee / slippage helpers | [Checked arithmetic for u64 (and friends)](#checked-arithmetic-for-u64-and-friends) |
 | `sol.pubkey.*` / `sol.Pubkey` | Compare, encode, and validate public keys | [Compile-time PDA derivation](#compile-time-pda-derivation), [Anchor-style foundations (no framework required)](#anchor-style-foundations-no-framework-required) |
 | `sol.account.*` / `sol.AccountInfo` | Read account keys / owners / data and apply one-off checks | [Account access and accessors](#account-access-and-accessors), [Single-account expectations](#single-account-expectations), [Typed account-data access](#typed-account-data-access) |
+| `sol.account_cursor.*` / `sol.AccountCursor` | Walk dynamic remaining accounts with explicit duplicate policies | [Declarative account parsing](#declarative-account-parsing), [Core Router Foundation v0.1](#core-router-foundation-v01) |
 | `sol.cpi.*` | Build instructions, signer seeds, and runtime account slices for CPI | [CPI construction and calls](#cpi-construction-and-calls), [System Program helper families](#system-program-helper-families) |
 | `sol.system.*` | Use prebuilt System Program wrappers instead of hand-rolling ix buffers | [Declarative account parsing](#declarative-account-parsing), [System Program helper families](#system-program-helper-families) |
 | `sol.sysvar.*` | Read runtime sysvars via syscall or passed account | [Sysvar access](#sysvar-access) |

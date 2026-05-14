@@ -4,6 +4,7 @@
 //! core families now live under directory-backed `root.zig` modules:
 //!
 //! - `sol.account.*` → `src/account/`
+//! - `sol.account_cursor.*` → `src/account_cursor/`
 //! - `sol.pubkey.*` → `src/pubkey/`
 //! - `sol.cpi.*` → `src/cpi/`
 //! - `sol.entrypoint.*` → `src/entrypoint/`
@@ -25,7 +26,7 @@ const std = @import("std");
 // Foundational runtime-facing modules.
 pub const pubkey = @import("pubkey/root.zig");
 pub const account = @import("account/root.zig");
-pub const account_cursor = @import("account_cursor.zig");
+pub const account_cursor = @import("account_cursor/root.zig");
 pub const program_error = @import("program_error/root.zig");
 pub const entrypoint = @import("entrypoint/root.zig");
 pub const instruction = @import("instruction/root.zig");
@@ -193,6 +194,10 @@ const EmbeddedSource = struct {
 };
 
 const execution_source_files = [_]EmbeddedSource{
+    .{ .path = "src/account_cursor/root.zig", .text = @embedFile("account_cursor/root.zig") },
+    .{ .path = "src/account_cursor/shared.zig", .text = @embedFile("account_cursor/shared.zig") },
+    .{ .path = "src/account_cursor/window.zig", .text = @embedFile("account_cursor/window.zig") },
+    .{ .path = "src/account_cursor/cursor.zig", .text = @embedFile("account_cursor/cursor.zig") },
     .{ .path = "src/pubkey/root.zig", .text = @embedFile("pubkey/root.zig") },
     .{ .path = "src/pubkey/shared.zig", .text = @embedFile("pubkey/shared.zig") },
     .{ .path = "src/pubkey/base58.zig", .text = @embedFile("pubkey/base58.zig") },

@@ -1,70 +1,15 @@
-const account = @import("account/root.zig");
-const program_error = @import("program_error/root.zig");
+const shared = @import("shared.zig");
+const window_mod = @import("window.zig");
 
-const Account = account.Account;
-const AccountInfo = account.AccountInfo;
-const MAX_PERMITTED_DATA_INCREASE = account.MAX_PERMITTED_DATA_INCREASE;
-const MAX_TX_ACCOUNTS = account.MAX_TX_ACCOUNTS;
-const NON_DUP_MARKER = account.NON_DUP_MARKER;
-const ProgramError = program_error.ProgramError;
-
-inline fn alignPointer(ptr: usize) usize {
-    return (ptr + 7) & ~@as(usize, 7);
-}
-
-pub const DuplicatePolicy = enum {
-    allow,
-    reject,
-    assume_unique,
-};
-
-pub const AccountWindow = struct {
-    accounts: []const AccountInfo,
-
-    const Self = @This();
-
-    pub const Iterator = struct {
-        accounts: []const AccountInfo,
-        index: usize = 0,
-
-        pub inline fn next(self: *Iterator) ?AccountInfo {
-            if (self.index >= self.accounts.len) return null;
-            defer self.index += 1;
-            return self.accounts[self.index];
-        }
-    };
-
-    pub inline fn len(self: Self) usize {
-        return self.accounts.len;
-    }
-
-    pub inline fn isEmpty(self: Self) bool {
-        return self.accounts.len == 0;
-    }
-
-    pub inline fn slice(self: Self) []const AccountInfo {
-        return self.accounts;
-    }
-
-    pub inline fn get(self: Self, index: usize) ?AccountInfo {
-        if (index >= self.accounts.len) return null;
-        return self.accounts[index];
-    }
-
-    pub inline fn at(self: Self, index: usize) AccountInfo {
-        return self.accounts[index];
-    }
-
-    pub inline fn iterator(self: Self) Iterator {
-        return .{ .accounts = self.accounts };
-    }
-
-    pub inline fn expectEach(self: Self, comptime spec: anytype) ProgramError!void {
-        for (self.accounts) |acc| {
-            try acc.expect(spec);
-        }
-    }
-};
+const Account = shared.Account;
+const AccountInfo = shared.AccountInfo;
+const MAX_PERMITTED_DATA_INCREASE = shared.MAX_PERMITTED_DATA_INCREASE;
+const MAX_TX_ACCOUNTS = shared.MAX_TX_ACCOUNTS;
+const NON_DUP_MARKER = shared.NON_DUP_MARKER;
+const ProgramError = shared.ProgramError;
+const alignPointer = shared.alignPointer;
+const AccountWindow = window_mod.AccountWindow;
+const DuplicatePolicy = window_mod.DuplicatePolicy;
 
 pub const AccountCursor = struct {
     buffer: [*]u8,

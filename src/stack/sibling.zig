@@ -73,6 +73,10 @@ pub const ProcessedSibling = struct {
 /// Pass buffers at least `meta.data_len` / `meta.accounts_len` long
 /// (use `siblingMeta(index)` first to learn the sizes). Returns `null`
 /// if no sibling exists at `index`.
+///
+/// If the runtime reports lengths larger than the caller-provided
+/// buffers, the returned slices are clamped to the copied prefix
+/// instead of slicing past local buffer bounds.
 pub fn getProcessedSiblingInstruction(
     index: u64,
     data_buf: []u8,
@@ -96,9 +100,17 @@ pub fn getProcessedSiblingInstruction(
     if (present != 1) return null;
     return .{
         .program_id = pid,
-        .data = data_buf[0..@intCast(meta.data_len)],
-        .accounts = accounts_buf[0..@intCast(meta.accounts_len)],
+        .data = data_buf[0..copiedSiblingSliceLen(data_buf.len, meta.data_len)],
+        .accounts = accounts_buf[0..copiedSiblingSliceLen(accounts_buf.len, meta.accounts_len)],
     };
+}
+
+fn copiedSiblingSliceLen(buffer_len: usize, reported_len: u64) usize {
+    const capped: usize = if (reported_len > std.math.maxInt(usize))
+        std.math.maxInt(usize)
+    else
+        @intCast(reported_len);
+    return @min(buffer_len, capped);
 }
 
 /// Convenience: probe → allocate → fetch. Useful when the sibling sizes
@@ -116,4 +128,11 @@ pub fn getProcessedSiblingInstructionAlloc(
     );
     errdefer allocator.free(accts_buf);
     return getProcessedSiblingInstruction(index, data_buf, accts_buf);
+}
+
+test "sibling: copied slice lengths clamp to caller buffers" {
+    try std.testing.expectEqual(@as(usize, 0), copiedSiblingSliceLen(0, 0));
+    try std.testing.expectEqual(@as(usize, 2), copiedSiblingSliceLen(4, 2));
+    try std.testing.expectEqual(@as(usize, 4), copiedSiblingSliceLen(4, 4));
+    try std.testing.expectEqual(@as(usize, 4), copiedSiblingSliceLen(4, 9));
 }

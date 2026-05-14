@@ -171,9 +171,9 @@ pub const ed25519_program_id = pubkey.comptimeFromBase58("Ed25519SigVerify111111
 pub const secp256k1_program_id = pubkey.comptimeFromBase58("KeccakSecp256k11111111111111111111111111111");
 
 // BPF Loader variants
-pub const bpf_loader_id = pubkey.comptimeFromBase58("BPFLoader1111111111111111111111111111111111");
-pub const bpf_loader_deprecated_id = pubkey.comptimeFromBase58("BPFLoader1111111111111111111111111111111111");
-pub const bpf_loader_upgradeable_id = pubkey.comptimeFromBase58("BPFLoaderUpgradeab1e11111111111111111111111");
+pub const bpf_loader_id = bpf.bpf_loader_program_id;
+pub const bpf_loader_deprecated_id = bpf.bpf_loader_deprecated_program_id;
+pub const bpf_loader_upgradeable_id = bpf.bpf_upgradeable_loader_program_id;
 
 // SPL Token / Token-2022 / Associated Token Account
 //
@@ -341,14 +341,20 @@ fn expectRepoFileOmitsTerms(file_path: []const u8, banned_terms: []const []const
     try expectTextOmitsTerms(file_path, text, banned_terms);
 }
 
-test "SPL Token family program ids are canonical and non-conflicting" {
+test "well-known program ids are canonical and non-conflicting" {
     var classic_out: [44]u8 = undefined;
     var token_2022_out: [44]u8 = undefined;
     var ata_out: [44]u8 = undefined;
+    var bpf_loader_out: [44]u8 = undefined;
+    var bpf_loader_deprecated_out: [44]u8 = undefined;
+    var bpf_loader_upgradeable_out: [44]u8 = undefined;
 
     const classic_len = pubkey.encodeBase58(&spl_token_program_id, &classic_out);
     const token_2022_len = pubkey.encodeBase58(&spl_token_2022_program_id, &token_2022_out);
     const ata_len = pubkey.encodeBase58(&spl_associated_token_account_id, &ata_out);
+    const bpf_loader_len = pubkey.encodeBase58(&bpf_loader_id, &bpf_loader_out);
+    const bpf_loader_deprecated_len = pubkey.encodeBase58(&bpf_loader_deprecated_id, &bpf_loader_deprecated_out);
+    const bpf_loader_upgradeable_len = pubkey.encodeBase58(&bpf_loader_upgradeable_id, &bpf_loader_upgradeable_out);
 
     try std.testing.expectEqualStrings(
         "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
@@ -362,9 +368,27 @@ test "SPL Token family program ids are canonical and non-conflicting" {
         "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
         ata_out[0..ata_len],
     );
+    try std.testing.expectEqualStrings(
+        "BPFLoader2111111111111111111111111111111111",
+        bpf_loader_out[0..bpf_loader_len],
+    );
+    try std.testing.expectEqualStrings(
+        "BPFLoader1111111111111111111111111111111111",
+        bpf_loader_deprecated_out[0..bpf_loader_deprecated_len],
+    );
+    try std.testing.expectEqualStrings(
+        "BPFLoaderUpgradeab1e11111111111111111111111",
+        bpf_loader_upgradeable_out[0..bpf_loader_upgradeable_len],
+    );
     try std.testing.expect(!pubkey.pubkeyEq(&spl_token_program_id, &spl_token_2022_program_id));
     try std.testing.expect(!pubkey.pubkeyEq(&spl_token_program_id, &spl_associated_token_account_id));
     try std.testing.expect(!pubkey.pubkeyEq(&spl_token_2022_program_id, &spl_associated_token_account_id));
+    try std.testing.expect(!pubkey.pubkeyEq(&bpf_loader_id, &bpf_loader_deprecated_id));
+    try std.testing.expect(!pubkey.pubkeyEq(&bpf_loader_id, &bpf_loader_upgradeable_id));
+    try std.testing.expect(!pubkey.pubkeyEq(&bpf_loader_deprecated_id, &bpf_loader_upgradeable_id));
+    try std.testing.expect(pubkey.pubkeyEq(&bpf_loader_id, &bpf.bpf_loader_program_id));
+    try std.testing.expect(pubkey.pubkeyEq(&bpf_loader_deprecated_id, &bpf.bpf_loader_deprecated_program_id));
+    try std.testing.expect(pubkey.pubkeyEq(&bpf_loader_upgradeable_id, &bpf.bpf_upgradeable_loader_program_id));
 }
 
 test "execution primitive root exports stay wired to core modules" {

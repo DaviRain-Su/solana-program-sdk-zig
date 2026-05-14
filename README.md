@@ -598,7 +598,7 @@ pattern is used inside every constraint helper this SDK exposes
 (`parseAccountsWith`'s expectations, `expectSigner`, `getSysvarBytes`,
 the CPI builders, sysvar-instructions index checks, …) — when one
 of them fails you see `info.zig:251 expect:owner_mismatch` /
-`sysvar.zig:125 sysvar:offset_out_of_range` / etc. in the logs.
+`syscall_access.zig:... sysvar:offset_out_of_range` / etc. in the logs.
 
 ### End-to-end vault program (CU vs. Pinocchio vs. Anchor)
 

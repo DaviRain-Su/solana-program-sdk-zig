@@ -2,6 +2,7 @@ const shared = @import("shared.zig");
 const raw = @import("raw.zig");
 
 const std = shared.stdlib;
+const hostPrint = shared.hostPrint;
 const bpf = shared.bpf;
 const log = raw.log;
 
@@ -20,7 +21,7 @@ pub const default_print_buffer_size: usize = 256;
 /// use `printBuffered` for larger messages.
 pub fn print(comptime format: []const u8, args: anytype) void {
     if (!bpf.is_bpf_program) {
-        return std.debug.print("[solana] " ++ format ++ "\n", args);
+        return hostPrint(format, args);
     }
 
     if (args.len == 0) {
@@ -36,7 +37,7 @@ pub fn print(comptime format: []const u8, args: anytype) void {
 /// rather pay the stack cost explicitly.
 pub fn printBuffered(buffer: []u8, comptime format: []const u8, args: anytype) void {
     if (!bpf.is_bpf_program) {
-        return std.debug.print("[solana] " ++ format ++ "\n", args);
+        return hostPrint(format, args);
     }
 
     const message = std.fmt.bufPrint(buffer, format, args) catch buffer;

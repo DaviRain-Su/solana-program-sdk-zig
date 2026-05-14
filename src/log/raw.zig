@@ -1,6 +1,6 @@
 const shared = @import("shared.zig");
 
-const std = shared.stdlib;
+const hostPrint = shared.hostPrint;
 const bpf = shared.bpf;
 
 extern fn sol_log_(ptr: [*]const u8, len: u64) callconv(.c) void;
@@ -14,7 +14,7 @@ pub inline fn log(message: []const u8) void {
     if (bpf.is_bpf_program) {
         sol_log_(message.ptr, message.len);
     } else {
-        std.debug.print("[solana] {s}\n", .{message});
+        hostPrint("{s}", .{message});
     }
 }
 
@@ -29,7 +29,7 @@ pub inline fn log64(
     if (bpf.is_bpf_program) {
         sol_log_64_(arg1, arg2, arg3, arg4, arg5);
     } else {
-        std.debug.print("[solana] {d} {d} {d} {d} {d}\n", .{ arg1, arg2, arg3, arg4, arg5 });
+        hostPrint("{d} {d} {d} {d} {d}", .{ arg1, arg2, arg3, arg4, arg5 });
     }
 }
 
@@ -38,7 +38,7 @@ pub inline fn logComputeUnits() void {
     if (bpf.is_bpf_program) {
         sol_log_compute_units_();
     } else {
-        std.debug.print("[solana] Compute units not available\n", .{});
+        hostPrint("Compute units not available", .{});
     }
 }
 
@@ -47,7 +47,7 @@ pub inline fn logData(data: []const []const u8) void {
     if (bpf.is_bpf_program) {
         sol_log_data(data.ptr, data.len);
     } else {
-        std.debug.print("[solana] data: {any}\n", .{data});
+        hostPrint("data: {any}", .{data});
     }
 }
 

@@ -30,9 +30,12 @@ pub const Clock = extern struct {
             };
             const result = Syscall.sol_get_clock_sysvar(&clock);
             if (result != 0) {
-                log.print("failed to get clock sysvar: error code {}", .{result});
+                log.print("failed to get clock sysvar: error code {d}", .{result});
                 return error.Unexpected;
             }
+        } else {
+            log.log("cannot get clock data in non-bpf context");
+            return error.Unexpected;
         }
         return clock;
     }
@@ -40,4 +43,8 @@ pub const Clock = extern struct {
 
 test "clock: id matches sysvar root export" {
     try @import("std").testing.expectEqual(sysvar.CLOCK_ID, Clock.id);
+}
+
+test "clock: host get returns Unexpected" {
+    try @import("std").testing.expectError(error.Unexpected, Clock.get());
 }

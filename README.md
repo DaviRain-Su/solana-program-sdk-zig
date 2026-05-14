@@ -1241,6 +1241,20 @@ performance.
 
 ## Usage
 
+### Core SDK usage index
+
+| Namespace / family | Start here | Main section(s) |
+|---|---|---|
+| `sol.entrypoint.*` | Pick an entrypoint wrapper and parse strategy | [Entrypoints](#entrypoints), [With `ProgramResult` (error union)](#with-programresult-error-union), [With raw `u64` (maximum performance)](#with-raw-u64-maximum-performance), [Declarative account parsing](#declarative-account-parsing) |
+| `sol.account.*` / `sol.AccountInfo` | Read account keys / owners / data and apply one-off checks | [AccountInfo accessors](#accountinfo-accessors), [Single-account expectations](#single-account-expectations), [Typed account-data view](#typed-account-data-view) |
+| `sol.cpi.*` | Build instructions, signer seeds, and runtime account slices for CPI | [CPI calls](#cpi-calls), [System Program helper map](#system-program-helper-map) |
+| `sol.system.*` | Use prebuilt System Program wrappers instead of hand-rolling ix buffers | [Declarative account parsing](#declarative-account-parsing), [System Program helper map](#system-program-helper-map) |
+| `sol.sysvar.*` | Read runtime sysvars via syscall or passed account | [Sysvar syscall wrappers](#sysvar-syscall-wrappers) |
+| `sol.sysvar_instructions.*` | Introspect sibling instructions in the same transaction | [Sysvar instructions introspection — read other ix in the same tx](#sysvar-instructions-introspection--read-other-ix-in-the-same-tx) |
+| `sol.TypedAccount(...)` / `sol.typed_account.*` | Bind discriminator-aware typed state zero-copy | [Typed account-data view](#typed-account-data-view), [Anchor-style foundations (no framework required)](#anchor-style-foundations-no-framework-required) |
+| `sol.pda.*` / `sol.verifyPda*` | Prefer stored-bump or comptime PDA paths when possible | [Compile-time PDA derivation](#compile-time-pda-derivation), [Anchor-style foundations (no framework required)](#anchor-style-foundations-no-framework-required) |
+| `sol.ErrorCode(...)` / `lazyEntrypointTyped` | Return stable custom program codes without globals | [Custom error codes with `ErrorCode` + `lazyEntrypointTyped`](#custom-error-codes-with-errorcode--lazyentrypointtyped) |
+
 ### With `ProgramResult` (error union)
 
 ```zig

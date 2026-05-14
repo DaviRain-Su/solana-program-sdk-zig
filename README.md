@@ -480,14 +480,17 @@ opt-in and composable with the raw `[*]u8` entrypoint:
   public API stays flattened as `sol.system.*`.
 
 - **Foundational module roots** — after the directory splits, the core
-  SDK's foundational families now live under
-  `src/{account,account_cursor,cpi,entrypoint,instruction,math,pda,program_error,pubkey,sysvar,sysvar_instructions,typed_account}/`.
+  SDK's directory-backed families now live under
+  `src/{account,account_cursor,allocator,cpi,entrypoint,error_code,event,instruction,log,math,memory,pda,program_error,pubkey,require,stack,stake_history,sysvar,sysvar_instructions,typed_account}/`.
   Each `root.zig` acts as the public re-export and documentation hub,
   while the user-facing API still stays flat at `sol.account.*`,
-  `sol.account_cursor.*`, `sol.cpi.*`, `sol.entrypoint.*`,
-  `sol.instruction.*`, `sol.math.*`, `sol.pda.*`,
-  `sol.program_error.*`, `sol.pubkey.*`, `sol.sysvar.*`,
-  `sol.sysvar_instructions.*`, and `sol.TypedAccount(...)`.
+  `sol.account_cursor.*`, `sol.allocator.*`, `sol.cpi.*`,
+  `sol.entrypoint.*`, `sol.error_code.*`, `sol.event.*`,
+  `sol.instruction.*`, `sol.log.*`, `sol.math.*`, `sol.memory.*`,
+  `sol.pda.*`, `sol.program_error.*`, `sol.pubkey.*`,
+  `sol.require_mod.*`, `sol.stack.*`, `sol.stake_history.*`,
+  `sol.sysvar.*`, `sol.sysvar_instructions.*`, and
+  `sol.TypedAccount(...)`.
 
 - **`pda.verifyPda(key, seeds, bump, program_id)`** — Anchor's
   `seeds = [...], bump = state.bump` equivalent. Asserts that a
@@ -949,6 +952,33 @@ serious onchain protocols — Squads, Jito-style tip distribution,
 limit-order protections, anything that needs to verify "what else is
 happening in this transaction?".
 
+### Logging, events, memory, and fixed-buffer allocation
+
+The low-level utility families now all live under dedicated namespaces:
+
+```zig
+// Fixed-buffer allocation for variable-size scratch on BPF.
+var scratch: [1024]u8 align(8) = undefined;
+var bump = sol.BumpAllocator.init(&scratch);
+const tmp = bump.allocDirect(64, 8) orelse return error.InvalidArgument;
+
+// Formatted / raw logging.
+sol.log.log("router:begin");
+sol.log.print("remaining_cu={d}", .{sol.remainingComputeUnits()});
+
+// Structured event logging.
+sol.emit(MyEvent{ .amount = 42 });
+
+// Zero-copy byte casts when alignment/length are already known.
+const header = sol.memory.fromBytes(Header, bytes[0..@sizeOf(Header)]);
+```
+
+Use `sol.log.*` for syscalls and formatted logs, `sol.event.*` /
+`sol.emit` for discriminator-prefixed event payloads, `sol.memory.*`
+for BPF-aware memcpy/memset/byte-cast helpers, and `sol.allocator.*`
+when a fixed caller-owned scratch buffer is preferable to ad hoc stack
+layout.
+
 ### Account-data resize + close
 
 `AccountInfo` now ships the two account-lifecycle operations that
@@ -1217,13 +1247,21 @@ core families under stable namespaces and short aliases.
 |---|---|---|
 | `sol.account.*` | `src/account/root.zig` | Raw runtime account layout plus `AccountInfo` / `MaybeAccount` / `CpiAccountInfo` views |
 | `sol.account_cursor.*` | `src/account_cursor/root.zig` | Remaining-account cursor/window helpers with explicit duplicate-policy handling |
-| `sol.pubkey.*` | `src/pubkey/root.zig` | Pubkey constants/types, Base58 encode/decode, equality, curve validation, formatting |
+| `sol.allocator.*` | `src/allocator/root.zig` | Fixed-buffer bump allocation plus legacy global allocator helpers |
 | `sol.cpi.*` | `src/cpi/root.zig` | CPI instruction/meta types, signer seeds, staging helpers, invoke wrappers |
 | `sol.entrypoint.*` | `src/entrypoint/root.zig` | `InstructionContext`, account parsing, ix-data binding, entrypoint wrappers |
+| `sol.error_code.*` | `src/error_code/root.zig` | Typed custom-error codes layered over `ProgramError` wire semantics |
+| `sol.event.*` | `src/event/root.zig` | Structured event discriminators and `emit(...)` logging helpers |
 | `sol.instruction.*` | `src/instruction/root.zig` | Instruction-data builders, unaligned reads, typed ix-data readers, cursor/staging helpers |
+| `sol.log.*` | `src/log/root.zig` | Raw/runtime logging syscalls plus formatted logging helpers |
 | `sol.math.*` | `src/math/root.zig` | Checked arithmetic plus router-grade fee / slippage / mulDiv helpers |
+| `sol.memory.*` | `src/memory/root.zig` | Syscall-backed memory ops plus zero-copy byte-view helpers |
 | `sol.pda.*` | `src/pda/root.zig` | Runtime/comptime PDA derivation plus stored-bump and canonical verification helpers |
 | `sol.program_error.*` | `src/program_error/root.zig` | Program error set, wire-code conversion, and failure-path diagnostic helpers |
+| `sol.pubkey.*` | `src/pubkey/root.zig` | Pubkey constants/types, Base58 encode/decode, equality, curve validation, formatting |
+| `sol.require_mod.*` | `src/require/root.zig` | Anchor-style assert/log/return helpers, including pubkey-specialized checks |
+| `sol.stack.*` | `src/stack/root.zig` | Call-stack depth and processed-sibling instruction introspection |
+| `sol.stake_history.*` | `src/stake_history/root.zig` | Zero-copy stake-history sysvar parsing and epoch lookup helpers |
 | `sol.system.*` | `src/system/root.zig` | System Program CPI helper families |
 | `sol.sysvar.*` | `src/sysvar/root.zig` | Sysvar syscall/account accessors and typed sysvar layouts |
 | `sol.sysvar_instructions.*` | `src/sysvar_instructions/root.zig` | Instructions-sysvar transaction introspection |
@@ -1273,14 +1311,20 @@ first, then jump to the worked section that shows the intended usage shape.
 | `sol.pubkey.*` / `sol.Pubkey` | Compare, encode, and validate public keys | [Compile-time PDA derivation](#compile-time-pda-derivation), [Anchor-style foundations (no framework required)](#anchor-style-foundations-no-framework-required) |
 | `sol.account.*` / `sol.AccountInfo` | Read account keys / owners / data and apply one-off checks | [Account access and accessors](#account-access-and-accessors), [Single-account expectations](#single-account-expectations), [Typed account-data access](#typed-account-data-access) |
 | `sol.account_cursor.*` / `sol.AccountCursor` | Walk dynamic remaining accounts with explicit duplicate policies | [Declarative account parsing](#declarative-account-parsing), [Core Router Foundation v0.1](#core-router-foundation-v01) |
-| `sol.stack.*` / `sol.getStackHeight` | Inspect invoke depth and processed sibling instructions | [Call-stack introspection — top-level vs CPI guards](#call-stack-introspection--top-level-vs-cpi-guards) |
+| `sol.allocator.*` / `sol.BumpAllocator` | Allocate from fixed caller-owned buffers without a general heap | [Logging, events, memory, and fixed-buffer allocation](#logging-events-memory-and-fixed-buffer-allocation) |
 | `sol.cpi.*` | Build instructions, signer seeds, and runtime account slices for CPI | [CPI construction and calls](#cpi-construction-and-calls), [System Program helper families](#system-program-helper-families) |
+| `sol.ErrorCode(...)` / `lazyEntrypointTyped` | Return stable custom program codes without globals | [Typed custom error codes](#typed-custom-error-codes) |
+| `sol.event.*` / `sol.emit` | Emit structured discriminator-prefixed events | [Logging, events, memory, and fixed-buffer allocation](#logging-events-memory-and-fixed-buffer-allocation) |
+| `sol.log.*` | Log raw messages, formatted strings, structured data, and CU probes | [Logging, events, memory, and fixed-buffer allocation](#logging-events-memory-and-fixed-buffer-allocation) |
+| `sol.memory.*` | Use syscall-backed memcpy/memset/memcmp and zero-copy byte casts | [Logging, events, memory, and fixed-buffer allocation](#logging-events-memory-and-fixed-buffer-allocation), [Typed account-data access](#typed-account-data-access) |
+| `sol.pda.*` / `sol.verifyPda*` | Prefer stored-bump or comptime PDA paths when possible | [Compile-time PDA derivation](#compile-time-pda-derivation), [Anchor-style foundations (no framework required)](#anchor-style-foundations-no-framework-required) |
+| `sol.require*` / `sol.require_mod.*` | Fail with tagged diagnostics instead of silent raw error returns | [Diagnostic helpers — `sol.fail`, `sol.require*`, Anchor parity](#diagnostic-helpers--solfail-solrequire-anchor-parity) |
+| `sol.stack.*` / `sol.getStackHeight` | Inspect invoke depth and processed sibling instructions | [Call-stack introspection — top-level vs CPI guards](#call-stack-introspection--top-level-vs-cpi-guards) |
+| `sol.stake_history.*` / `sol.StakeHistory` | Parse the passed-in StakeHistory sysvar zero-copy and query epochs | [StakeHistory sysvar](#stakehistory-sysvar), [Sysvar access](#sysvar-access) |
 | `sol.system.*` | Use prebuilt System Program wrappers instead of hand-rolling ix buffers | [Declarative account parsing](#declarative-account-parsing), [System Program helper families](#system-program-helper-families) |
 | `sol.sysvar.*` | Read runtime sysvars via syscall or passed account | [Sysvar access](#sysvar-access) |
 | `sol.sysvar_instructions.*` | Introspect sibling instructions in the same transaction | [Instructions sysvar introspection](#instructions-sysvar-introspection) |
 | `sol.TypedAccount(...)` / `sol.typed_account.*` | Bind discriminator-aware typed state zero-copy | [Typed account-data access](#typed-account-data-access), [Anchor-style foundations (no framework required)](#anchor-style-foundations-no-framework-required) |
-| `sol.pda.*` / `sol.verifyPda*` | Prefer stored-bump or comptime PDA paths when possible | [Compile-time PDA derivation](#compile-time-pda-derivation), [Anchor-style foundations (no framework required)](#anchor-style-foundations-no-framework-required) |
-| `sol.ErrorCode(...)` / `lazyEntrypointTyped` | Return stable custom program codes without globals | [Typed custom error codes](#typed-custom-error-codes) |
 
 ### Entrypoint style: `ProgramResult`
 

@@ -1,4 +1,5 @@
 pub const std = @import("std");
+pub const allocator = @import("../allocator/root.zig");
 pub const account = @import("../account/root.zig");
 pub const account_cursor = @import("../account_cursor/root.zig");
 pub const pubkey = @import("../pubkey/root.zig");
@@ -15,13 +16,10 @@ pub const ProgramResult = program_error.ProgramResult;
 pub const ProgramError = program_error.ProgramError;
 pub const SUCCESS = program_error.SUCCESS;
 
-pub const HEAP_START_ADDRESS: u64 = 0x300000000;
-pub const HEAP_LENGTH: usize = 32 * 1024;
+pub const HEAP_START_ADDRESS = allocator.HEAP_START_ADDRESS;
+pub const HEAP_LENGTH = allocator.HEAP_LENGTH;
 pub const MAX_PERMITTED_DATA_INCREASE: usize = account.MAX_PERMITTED_DATA_INCREASE;
-
-pub inline fn alignPointer(ptr: usize) usize {
-    return (ptr + 7) & ~@as(usize, 7);
-}
+pub const alignPointer = account.alignPointer;
 
 pub inline fn unlikely(b: bool) bool {
     if (b) {

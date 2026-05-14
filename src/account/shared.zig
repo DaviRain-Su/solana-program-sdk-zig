@@ -21,6 +21,11 @@ pub const BPF_ALIGN_OF_U128: usize = 8;
 /// Not borrowed state (all bits set)
 pub const NOT_BORROWED: u8 = 0xFF;
 
+/// Align a serialized runtime pointer to the next 8-byte boundary.
+pub inline fn alignPointer(ptr: usize) usize {
+    return (ptr + 7) & ~@as(usize, 7);
+}
+
 /// Direct mapping of Solana runtime account memory layout.
 /// Data follows immediately in memory after this struct.
 pub const Account = extern struct {

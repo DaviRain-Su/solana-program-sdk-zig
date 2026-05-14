@@ -5,17 +5,25 @@
 //!
 //! - `sol.account.*` → `src/account/`
 //! - `sol.account_cursor.*` → `src/account_cursor/`
+//! - `sol.allocator.*` → `src/allocator/`
 //! - `sol.pubkey.*` → `src/pubkey/`
 //! - `sol.cpi.*` → `src/cpi/`
 //! - `sol.entrypoint.*` → `src/entrypoint/`
 //! - `sol.program_error.*` → `src/program_error/`
 //! - `sol.instruction.*` → `src/instruction/`
+//! - `sol.log.*` → `src/log/`
 //! - `sol.math.*` → `src/math/`
+//! - `sol.memory.*` → `src/memory/`
 //! - `sol.pda.*` → `src/pda/`
 //! - `sol.system.*` → `src/system/`
 //! - `sol.sysvar.*` → `src/sysvar/`
 //! - `sol.sysvar_instructions.*` → `src/sysvar_instructions/`
 //! - `sol.typed_account.*` / `sol.TypedAccount(...)` → `src/typed_account/`
+//! - `sol.event.*` → `src/event/`
+//! - `sol.error_code.*` → `src/error_code/`
+//! - `sol.require_mod.*` → `src/require/`
+//! - `sol.stack.*` → `src/stack/`
+//! - `sol.stake_history.*` → `src/stake_history/`
 //!
 //! The rest of this file groups those module namespaces, then re-exports the
 //! short Pinocchio-style aliases (`sol.AccountInfo`, `sol.ProgramResult`,
@@ -85,6 +93,9 @@ pub const AccountCursor = account_cursor.AccountCursor;
 pub const AccountWindow = account_cursor.AccountWindow;
 pub const DuplicatePolicy = account_cursor.DuplicatePolicy;
 pub const MaybeAccount = account.MaybeAccount;
+pub const BumpAllocator = allocator.BumpAllocator;
+pub const StakeHistory = stake_history.StakeHistory;
+pub const StakeHistoryEntry = stake_history.Entry;
 pub const InstructionContext = entrypoint.InstructionContext;
 pub const IxDataCursor = instruction.IxDataCursor;
 pub const IxDataStaging = instruction.IxDataStaging;
@@ -357,6 +368,9 @@ test "SPL Token family program ids are canonical and non-conflicting" {
 }
 
 test "execution primitive root exports stay wired to core modules" {
+    try std.testing.expect(BumpAllocator == allocator.BumpAllocator);
+    try std.testing.expect(StakeHistory == stake_history.StakeHistory);
+    try std.testing.expect(StakeHistoryEntry == stake_history.Entry);
     try std.testing.expect(IxDataStaging == instruction.IxDataStaging);
     try std.testing.expect(CpiAccountStaging == cpi.CpiAccountStaging);
     try std.testing.expect(@TypeOf(remainingComputeUnits) == @TypeOf(compute_budget.remaining));

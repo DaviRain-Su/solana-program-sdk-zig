@@ -50,7 +50,7 @@ pub const bpf = @import("bpf.zig");
 pub const discriminator = @import("discriminator.zig");
 pub const error_code = @import("error_code/root.zig");
 pub const event = @import("event/root.zig");
-pub const require_mod = @import("require.zig");
+pub const require_mod = @import("require/root.zig");
 pub const pda = @import("pda/root.zig");
 
 // Additional protocol / sysvar data layouts and syscall wrappers.
@@ -96,7 +96,7 @@ pub const customError = program_error.customError;
 
 // Diagnostic helpers — log a tag before failing so deployed programs
 // can pinpoint which constraint blew up without changing the wire
-// return code. See `src/require.zig` for the full `require_*!` family.
+// return code. See `src/require/root.zig` for the full `require_*!` family.
 pub const fail = program_error.fail;
 pub const failFmt = program_error.failFmt;
 pub const require = require_mod.require;

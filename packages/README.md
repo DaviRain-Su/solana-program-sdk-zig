@@ -12,8 +12,8 @@ the root SDK via a path import.
 | [`spl-token-2022`](./spl-token-2022) | host + on-chain-safe parsing | ✅ v0.1 parsing-only | Token-2022 TLV + fixed-length extension parsing |
 | [`spl-ata`](./spl-ata) | dual | ✅ v0.1 | Associated Token Account address derivation + create CPI |
 | [`spl-memo`](./spl-memo) | dual | ✅ v0.1 | SPL Memo program CPI |
-| [`spl-token-metadata`](./spl-token-metadata) | on-chain/interface | 🚧 v0.1 scaffold | SPL Token Metadata interface scaffold: stable imports, interface-only roots, and raw instruction-builder boundaries |
-| [`spl-token-group`](./spl-token-group) | on-chain/interface | 🚧 v0.1 scaffold | SPL Token Group interface scaffold: stable imports, interface-only roots, and raw instruction-builder boundaries |
+| [`spl-token-metadata`](./spl-token-metadata) | on-chain/interface | 🚧 v0.1 interface | SPL Token Metadata interface: discriminators, raw instruction builders/parsers, bounded TokenMetadata state, and pinned Rust parity fixtures |
+| [`spl-token-group`](./spl-token-group) | on-chain/interface | 🚧 v0.1 interface | SPL Token Group interface: discriminators, raw instruction builders/parsers, fixed-layout group/member state, and pinned Rust parity fixtures |
 | [`spl-transfer-hook`](./spl-transfer-hook) | on-chain/interface | 🚧 v0.1 interface-core | SPL Transfer Hook discriminators, validation PDA helper, raw `ExtraAccountMeta` helpers, and tested instruction builders/parsers |
 
 See [`../ROADMAP.md`](../ROADMAP.md#monorepo-分层) for the full

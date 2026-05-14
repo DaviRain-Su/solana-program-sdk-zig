@@ -27,8 +27,8 @@ and can be depended on individually from outside the repo via
 | **`spl_token_2022`** | `packages/spl-token-2022` | host + on-chain-safe parsing | ✅ released (v0.1 parsing-only) | Token-2022 TLV + fixed-length extension parsing |
 | **`spl_ata`** | `packages/spl-ata` | dual | ✅ released (v0.1) | Associated Token Account address derivation + create CPI |
 | **`spl_memo`** | `packages/spl-memo` | dual | ✅ released (v0.1) | SPL Memo program CPI |
-| **`spl_token_metadata`** | `packages/spl-token-metadata` | on-chain/interface | 🚧 v0.1 scaffold | SPL Token Metadata interface scaffold: stable imports, interface-only roots, and raw instruction-builder boundaries |
-| **`spl_token_group`** | `packages/spl-token-group` | on-chain/interface | 🚧 v0.1 scaffold | SPL Token Group interface scaffold: stable imports, interface-only roots, and raw instruction-builder boundaries |
+| **`spl_token_metadata`** | `packages/spl-token-metadata` | on-chain/interface | 🚧 v0.1 interface | SPL Token Metadata interface: discriminators, raw instruction builders/parsers, bounded TokenMetadata state, and pinned Rust parity fixtures |
+| **`spl_token_group`** | `packages/spl-token-group` | on-chain/interface | 🚧 v0.1 interface | SPL Token Group interface: discriminators, raw instruction builders/parsers, fixed-layout group/member state, and pinned Rust parity fixtures |
 | **`spl_transfer_hook`** | `packages/spl-transfer-hook` | on-chain/interface | 🚧 v0.1 interface-core | SPL Transfer Hook instruction interface: canonical discriminators, validation PDA helper, raw `ExtraAccountMeta` helpers, and tested builders/parsers |
 | *(future)* `solana_client` | `packages/solana-client` | off-chain | 🔮 idea | RPC client for off-chain code |
 | *(future)* `solana_tx` | `packages/solana-tx` | off-chain | 🔮 idea | Off-chain transaction construction + signing |

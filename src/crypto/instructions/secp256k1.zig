@@ -12,7 +12,7 @@
 //! final transaction position when being built.
 
 const std = @import("std");
-const pubkey = @import("../../pubkey.zig");
+const pubkey = @import("../../pubkey/root.zig");
 const cpi = @import("../../cpi/root.zig");
 const hash = @import("../hash.zig");
 const instruction_mod = @import("../../instruction/root.zig");

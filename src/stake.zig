@@ -18,7 +18,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const pubkey = @import("pubkey.zig");
+const pubkey = @import("pubkey/root.zig");
 
 const Pubkey = pubkey.Pubkey;
 

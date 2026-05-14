@@ -154,14 +154,14 @@ pub fn TypedAccount(comptime T: type) type {
                         " has no field named `" ++ field_name ++ "`");
                 }
                 const FieldT = @TypeOf(@field(@as(T, undefined), field_name));
-                if (FieldT != @import("../pubkey.zig").Pubkey) {
+                if (FieldT != @import("../pubkey/root.zig").Pubkey) {
                     @compileError("requireHasOne: field `" ++ field_name ++
                         "` of " ++ @typeName(T) ++
                         " must be a Pubkey, got " ++ @typeName(FieldT));
                 }
             }
             const stored = &@field(self.read().*, field_name);
-            const pk = @import("../pubkey.zig");
+            const pk = @import("../pubkey/root.zig");
             if (!pk.pubkeyEq(stored, expected.key())) return err;
         }
 

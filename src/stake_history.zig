@@ -28,7 +28,7 @@ const std = @import("std");
 const account_mod = @import("account/root.zig");
 const program_error = @import("program_error/root.zig");
 const sysvar = @import("sysvar/root.zig");
-const pubkey = @import("pubkey.zig");
+const pubkey = @import("pubkey/root.zig");
 
 const AccountInfo = account_mod.AccountInfo;
 const ProgramError = program_error.ProgramError;

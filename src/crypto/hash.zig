@@ -15,7 +15,7 @@
 const std = @import("std");
 const bpf = @import("../bpf.zig");
 const log = @import("../log.zig");
-const pubkey = @import("../pubkey.zig");
+const pubkey = @import("../pubkey/root.zig");
 const program_error = @import("../program_error/root.zig");
 
 const ProgramError = program_error.ProgramError;

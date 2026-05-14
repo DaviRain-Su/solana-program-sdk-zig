@@ -41,7 +41,7 @@
 
 const std = @import("std");
 const program_error = @import("program_error/root.zig");
-const pubkey_mod = @import("pubkey.zig");
+const pubkey_mod = @import("pubkey/root.zig");
 
 const ProgramError = program_error.ProgramError;
 const Pubkey = pubkey_mod.Pubkey;

@@ -12,7 +12,7 @@
 //! inspect them on-chain via `sysvar_instructions`.
 
 const std = @import("std");
-const pubkey = @import("../../pubkey.zig");
+const pubkey = @import("../../pubkey/root.zig");
 const cpi = @import("../../cpi/root.zig");
 const instruction_mod = @import("../../instruction/root.zig");
 const sysvar_instructions = @import("../../sysvar_instructions/root.zig");

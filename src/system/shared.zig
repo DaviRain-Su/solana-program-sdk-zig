@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub const pubkey = @import("../pubkey.zig");
+pub const pubkey = @import("../pubkey/root.zig");
 pub const account_mod = @import("../account/root.zig");
 pub const cpi = @import("../cpi/root.zig");
 pub const program_error = @import("../program_error/root.zig");

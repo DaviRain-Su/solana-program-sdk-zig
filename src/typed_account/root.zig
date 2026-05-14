@@ -44,7 +44,7 @@ pub const TypedAccount = @import("typed.zig").TypedAccount;
 // Tests
 // =============================================================================
 
-const pubkey_mod = @import("../pubkey.zig");
+const pubkey_mod = @import("../pubkey/root.zig");
 const Pubkey = pubkey_mod.Pubkey;
 const Account = account_mod.Account;
 const NOT_BORROWED = account_mod.NOT_BORROWED;

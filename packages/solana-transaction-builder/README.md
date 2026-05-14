@@ -13,7 +13,8 @@ transactions.
 Remote lookup-table fetching stays in `solana_client.fetchAddressLookupTable`;
 this package only accepts parsed `LookupTableCandidate` values.
 It also provides small multi-instruction helpers for common transaction
-preludes such as Compute Budget instructions plus a System transfer.
+preludes such as Compute Budget instructions plus System or SPL Token
+transfers.
 
 ## Scope
 
@@ -28,6 +29,9 @@ preludes such as Compute Budget instructions plus a System transfer.
 - Durable nonce account create + initialize instruction-pair assembly
 - Compute Budget prelude assembly
 - Compute Budget + System transfer assembly
+- Compute Budget + SPL Token transfer / transferChecked assembly
+- idempotent Associated Token Account create + SPL Token transfer /
+  transferChecked assembly
 
 It does not fetch blockhashes, talk to RPC directly, or own wallet/key-storage
 policy.

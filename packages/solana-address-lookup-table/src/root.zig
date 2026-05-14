@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const sol = @import("solana_program_sdk");
+const codec = @import("solana_codec");
 const tx = @import("solana_tx");
 
 pub const Pubkey = sol.Pubkey;
@@ -231,7 +232,7 @@ pub fn writeExtendLookupTableData(
 ) Error![]const u8 {
     if (new_addresses.len > LOOKUP_TABLE_MAX_ADDRESSES) return error.TooManyAddresses;
     writeDiscriminant(.extend_lookup_table, out[0..4]);
-    std.mem.writeInt(u64, out[4..12], new_addresses.len, .little);
+    _ = codec.writeBincodeLen(out[4..12], new_addresses.len) catch unreachable;
     var cursor: usize = 12;
     for (new_addresses) |*address| {
         @memcpy(out[cursor..][0..sol.PUBKEY_BYTES], address);

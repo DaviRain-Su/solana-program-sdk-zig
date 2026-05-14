@@ -7,6 +7,9 @@
         .solana_program_sdk = .{
             .path = "../..",
         },
+        .solana_codec = .{
+            .path = "../solana-codec",
+        },
     },
     .paths = .{
         "build.zig",

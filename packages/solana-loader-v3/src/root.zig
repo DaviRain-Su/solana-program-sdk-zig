@@ -41,6 +41,8 @@ pub const Error = error{
     InvalidStateTag,
     InvalidOptionTag,
     InputTooShort,
+    InvalidWriteChunkSize,
+    ProgramTooLarge,
 };
 
 pub const StateTag = enum(u32) {
@@ -113,6 +115,16 @@ pub const DeployInstructions = struct {
         return self.instructions[0..];
     }
 };
+
+pub fn writeChunkCount(program_bytes_len: usize, chunk_size: usize) Error!usize {
+    if (chunk_size == 0) return error.InvalidWriteChunkSize;
+    return (program_bytes_len + chunk_size - 1) / chunk_size;
+}
+
+pub fn writeProgramChunksDataLen(program_bytes_len: usize, chunk_size: usize) Error!usize {
+    const count = try writeChunkCount(program_bytes_len, chunk_size);
+    return count * WRITE_DATA_OVERHEAD + program_bytes_len;
+}
 
 pub fn sizeOfBuffer(program_len: usize) usize {
     return BUFFER_METADATA_SIZE +| program_len;
@@ -210,6 +222,43 @@ pub fn write(
     metas[0] = AccountMeta.writable(buffer_address);
     metas[1] = AccountMeta.signer(authority_address);
     return .{ .program_id = &PROGRAM_ID, .accounts = metas, .data = data[0 .. WRITE_DATA_OVERHEAD + bytes.len] };
+}
+
+pub fn writeProgramChunks(
+    buffer_address: *const Pubkey,
+    authority_address: *const Pubkey,
+    program_bytes: []const u8,
+    chunk_size: usize,
+    metas_out: [][2]AccountMeta,
+    data_out: []u8,
+    instructions_out: []Instruction,
+) Error![]const Instruction {
+    const chunk_count = try writeChunkCount(program_bytes.len, chunk_size);
+    if (metas_out.len < chunk_count) return error.InvalidAccountMetaCount;
+    if (instructions_out.len < chunk_count) return error.BufferTooSmall;
+    if (data_out.len < (try writeProgramChunksDataLen(program_bytes.len, chunk_size))) return error.BufferTooSmall;
+
+    var data_cursor: usize = 0;
+    var offset: usize = 0;
+    var chunk_index: usize = 0;
+    while (chunk_index < chunk_count) : (chunk_index += 1) {
+        if (offset > std.math.maxInt(u32)) return error.ProgramTooLarge;
+        const end = @min(offset + chunk_size, program_bytes.len);
+        const chunk = program_bytes[offset..end];
+        const data_len = WRITE_DATA_OVERHEAD + chunk.len;
+        instructions_out[chunk_index] = try write(
+            buffer_address,
+            authority_address,
+            @intCast(offset),
+            chunk,
+            &metas_out[chunk_index],
+            data_out[data_cursor .. data_cursor + data_len],
+        );
+        data_cursor += data_len;
+        offset = end;
+    }
+
+    return instructions_out[0..chunk_count];
 }
 
 pub fn deployWithMaxDataLen(
@@ -530,6 +579,43 @@ test "instruction data layouts match official bincode tags" {
     try std.testing.expectEqual(@as(u32, 7), std.mem.readInt(u32, write_ix.data[4..8], .little));
     try std.testing.expectEqual(@as(u64, 3), std.mem.readInt(u64, write_ix.data[8..16], .little));
     try std.testing.expectEqualSlices(u8, &.{ 1, 2, 3 }, write_ix.data[16..19]);
+}
+
+test "writeProgramChunks splits program bytes into loader write instructions" {
+    const buffer: Pubkey = .{1} ** 32;
+    const authority: Pubkey = .{2} ** 32;
+    const program_bytes = [_]u8{ 10, 11, 12, 13, 14, 15, 16 };
+
+    try std.testing.expectEqual(@as(usize, 3), try writeChunkCount(program_bytes.len, 3));
+    try std.testing.expectEqual(@as(usize, 55), try writeProgramChunksDataLen(program_bytes.len, 3));
+
+    var metas: [3][2]AccountMeta = undefined;
+    var data: [55]u8 = undefined;
+    var instructions: [3]Instruction = undefined;
+    const chunks = try writeProgramChunks(&buffer, &authority, &program_bytes, 3, &metas, &data, &instructions);
+
+    try std.testing.expectEqual(@as(usize, 3), chunks.len);
+    try std.testing.expectEqual(@as(u32, 1), std.mem.readInt(u32, chunks[0].data[0..4], .little));
+    try std.testing.expectEqual(@as(u32, 0), std.mem.readInt(u32, chunks[0].data[4..8], .little));
+    try std.testing.expectEqual(@as(u64, 3), std.mem.readInt(u64, chunks[0].data[8..16], .little));
+    try std.testing.expectEqualSlices(u8, program_bytes[0..3], chunks[0].data[16..19]);
+    try std.testing.expectEqualSlices(u8, &buffer, chunks[0].accounts[0].pubkey);
+    try std.testing.expectEqual(@as(u8, 1), chunks[0].accounts[0].is_writable);
+    try std.testing.expectEqualSlices(u8, &authority, chunks[0].accounts[1].pubkey);
+    try std.testing.expectEqual(@as(u8, 1), chunks[0].accounts[1].is_signer);
+
+    try std.testing.expectEqual(@as(u32, 3), std.mem.readInt(u32, chunks[1].data[4..8], .little));
+    try std.testing.expectEqualSlices(u8, program_bytes[3..6], chunks[1].data[16..19]);
+    try std.testing.expectEqual(@as(u32, 6), std.mem.readInt(u32, chunks[2].data[4..8], .little));
+    try std.testing.expectEqual(@as(u64, 1), std.mem.readInt(u64, chunks[2].data[8..16], .little));
+    try std.testing.expectEqualSlices(u8, program_bytes[6..7], chunks[2].data[16..17]);
+
+    try std.testing.expectError(error.InvalidWriteChunkSize, writeChunkCount(program_bytes.len, 0));
+    var short_instructions: [2]Instruction = undefined;
+    try std.testing.expectError(
+        error.BufferTooSmall,
+        writeProgramChunks(&buffer, &authority, &program_bytes, 3, &metas, &data, &short_instructions),
+    );
 }
 
 test "deploy and management builders match official account shape" {

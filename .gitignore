@@ -12,3 +12,4 @@ zig-pkg/
 thoughts
 
 target
+.zig-cache-global

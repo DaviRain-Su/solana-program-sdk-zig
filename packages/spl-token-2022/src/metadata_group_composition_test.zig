@@ -92,7 +92,7 @@ fn expectMetadataEqual(actual: TokenMetadata, expected: TokenMetadata) !void {
     }
 }
 
-test "metadata and group packages compose with spl_token_2022 without forbidden surface expansion" {
+test "metadata and group packages compose with spl_token_2022 without forbidden off-chain expansion" {
     try std.testing.expectEqual(@as(u16, 18), @intFromEnum(spl_token_2022.ExtensionType.metadata_pointer));
     try std.testing.expectEqual(@as(u16, 19), @intFromEnum(spl_token_2022.ExtensionType.token_metadata));
     try std.testing.expectEqual(@as(u16, 20), @intFromEnum(spl_token_2022.ExtensionType.group_pointer));
@@ -105,8 +105,12 @@ test "metadata and group packages compose with spl_token_2022 without forbidden 
     try std.testing.expect(@hasDecl(spl_token_metadata, "state"));
     try std.testing.expect(@hasDecl(spl_token_group, "state"));
 
-    try std.testing.expect(!@hasDecl(spl_token_2022, "instruction"));
+    try std.testing.expect(@hasDecl(spl_token_2022, "instruction"));
+    try std.testing.expect(@hasDecl(spl_token_2022.instruction, "transferChecked"));
     try std.testing.expect(!@hasDecl(spl_token_2022, "transaction"));
+    try std.testing.expect(!@hasDecl(spl_token_2022, "cpi"));
+    try std.testing.expect(!@hasDecl(spl_token_2022, "rpc"));
+    try std.testing.expect(!@hasDecl(spl_token_2022, "keypair"));
     try std.testing.expect(!@hasDecl(spl_token_metadata, "PROGRAM_ID"));
     try std.testing.expect(!@hasDecl(spl_token_metadata, "transaction"));
     try std.testing.expect(!@hasDecl(spl_token_group, "PROGRAM_ID"));

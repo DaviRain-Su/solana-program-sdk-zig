@@ -10,6 +10,10 @@ SPL packages and off-chain builders can share one tested implementation.
 
 - Solana shortvec length encoding and decoding
 - Borsh primitive/string/byte-vector helpers
+- Bincode string helpers with `u64` little-endian length prefixes
+- Bincode primitive, length, and `Option<u64>` / `Option<i64>` /
+  `Option<Pubkey>` helpers
+- Solana serde-varint `u64` writer used by compact vote-state payloads
 - Bincode-style `COption<Pubkey>` and `COption<u64>` helpers
 
 It does not attempt to be a full reflection-based serializer. Callers

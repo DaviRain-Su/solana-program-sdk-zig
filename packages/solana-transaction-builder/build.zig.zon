@@ -16,6 +16,12 @@
         .solana_compute_budget = .{
             .path = "../solana-compute-budget",
         },
+        .spl_token = .{
+            .path = "../spl-token",
+        },
+        .spl_ata = .{
+            .path = "../spl-ata",
+        },
         .solana_address_lookup_table = .{
             .path = "../solana-address-lookup-table",
         },

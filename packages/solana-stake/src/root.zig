@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const sol = @import("solana_program_sdk");
+const codec = @import("solana_codec");
 
 pub const Pubkey = sol.Pubkey;
 pub const AccountMeta = sol.cpi.AccountMeta;
@@ -15,7 +16,7 @@ pub const CONFIG_ID: Pubkey = sol.pubkey.comptimeFromBase58("StakeConfig11111111
 pub const STAKE_STATE_SIZE: u64 = 200;
 pub const MAX_SEED_LEN: usize = sol.pda.MAX_SEED_LEN;
 
-pub const Error = error{
+pub const Error = codec.Error || error{
     BufferTooSmall,
     SeedTooLong,
 };
@@ -423,7 +424,7 @@ fn writeAuthorizeWithSeedData(
     @memcpy(data[4..36], new_authorized);
     std.mem.writeInt(u32, data[36..40], @intFromEnum(stake_authorize), .little);
     var cursor: usize = 40;
-    cursor += try writeBincodeString(data[cursor..], authority_seed);
+    cursor += try codec.writeBincodeString(data[cursor..], authority_seed);
     @memcpy(data[cursor .. cursor + 32], authority_owner);
     return cursor + 32;
 }
@@ -439,7 +440,7 @@ fn writeAuthorizeCheckedWithSeedData(
     writeDiscriminant(.authorize_checked_with_seed, data[0..4]);
     std.mem.writeInt(u32, data[4..8], @intFromEnum(stake_authorize), .little);
     var cursor: usize = 8;
-    cursor += try writeBincodeString(data[cursor..], authority_seed);
+    cursor += try codec.writeBincodeString(data[cursor..], authority_seed);
     @memcpy(data[cursor .. cursor + 32], authority_owner);
     return cursor + 32;
 }
@@ -448,9 +449,12 @@ fn writeSetLockupData(tag: StakeInstruction, lockup: LockupArgs, data: []u8) Err
     if (data.len < 4) return error.BufferTooSmall;
     writeDiscriminant(tag, data[0..4]);
     var cursor: usize = 4;
-    cursor += try writeOptionI64(data[cursor..], lockup.unix_timestamp);
-    cursor += try writeOptionU64(data[cursor..], lockup.epoch);
-    cursor += try writeOptionPubkey(data[cursor..], lockup.custodian);
+    cursor += try codec.writeBincodeOptionI64(data[cursor..], lockup.unix_timestamp);
+    cursor += try codec.writeBincodeOptionU64(data[cursor..], lockup.epoch);
+    cursor += try codec.writeBincodeOptionPubkey(
+        data[cursor..],
+        if (lockup.custodian) |*custodian| custodian else null,
+    );
     return cursor;
 }
 
@@ -458,52 +462,9 @@ fn writeSetLockupCheckedData(lockup: LockupCheckedArgs, data: []u8) Error!usize 
     if (data.len < 4) return error.BufferTooSmall;
     writeDiscriminant(.set_lockup_checked, data[0..4]);
     var cursor: usize = 4;
-    cursor += try writeOptionI64(data[cursor..], lockup.unix_timestamp);
-    cursor += try writeOptionU64(data[cursor..], lockup.epoch);
+    cursor += try codec.writeBincodeOptionI64(data[cursor..], lockup.unix_timestamp);
+    cursor += try codec.writeBincodeOptionU64(data[cursor..], lockup.epoch);
     return cursor;
-}
-
-fn writeBincodeString(data: []u8, value: []const u8) Error!usize {
-    if (data.len < 8 + value.len) return error.BufferTooSmall;
-    std.mem.writeInt(u64, data[0..8], @intCast(value.len), .little);
-    @memcpy(data[8 .. 8 + value.len], value);
-    return 8 + value.len;
-}
-
-fn writeOptionI64(data: []u8, value: ?i64) Error!usize {
-    if (data.len < 1) return error.BufferTooSmall;
-    if (value) |inner| {
-        if (data.len < 9) return error.BufferTooSmall;
-        data[0] = 1;
-        std.mem.writeInt(i64, data[1..9], inner, .little);
-        return 9;
-    }
-    data[0] = 0;
-    return 1;
-}
-
-fn writeOptionU64(data: []u8, value: ?u64) Error!usize {
-    if (data.len < 1) return error.BufferTooSmall;
-    if (value) |inner| {
-        if (data.len < 9) return error.BufferTooSmall;
-        data[0] = 1;
-        std.mem.writeInt(u64, data[1..9], inner, .little);
-        return 9;
-    }
-    data[0] = 0;
-    return 1;
-}
-
-fn writeOptionPubkey(data: []u8, value: ?Pubkey) Error!usize {
-    if (data.len < 1) return error.BufferTooSmall;
-    if (value) |inner| {
-        if (data.len < 33) return error.BufferTooSmall;
-        data[0] = 1;
-        @memcpy(data[1..33], &inner);
-        return 33;
-    }
-    data[0] = 0;
-    return 1;
 }
 
 fn writeU64(tag: StakeInstruction, value: u64, data: *U64Data) void {

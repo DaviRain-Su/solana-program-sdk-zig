@@ -15,6 +15,13 @@ host-side transaction tooling or on-chain CPI wrappers.
 - UpdateValidatorIdentity
 - UpdateCommission
 - Withdraw
+- Raw runtime vote / vote-switch builders for caller-serialized payloads
+- Typed `Vote` / vote-switch payload encoders and builders
+- Typed `VoteStateUpdate` encoders and builders for normal and compact update
+  instructions
+- Typed compact `TowerSync` encoders and builders
 
-Runtime vote submission, vote-state updates, and tower sync builders are
-intentionally left out of v0.1.
+All runtime payload encoders are caller-buffer and allocation-free. The compact
+vote-state and tower-sync encoders follow the upstream `solana-vote-interface`
+serde layout: root slot, shortvec lockout offsets, bank hash, optional
+timestamp, and tower block id where applicable.

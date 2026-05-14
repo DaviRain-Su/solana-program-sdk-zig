@@ -11,6 +11,7 @@ pub const Seed = keypair.Seed;
 pub const Signature = keypair.Signature;
 pub const BIP39_SEED_BYTES: usize = 64;
 pub const BIP39_PBKDF2_ROUNDS: u32 = 2048;
+pub const BIP39_ENGLISH_WORD_COUNT: usize = 2048;
 pub const BIP39_MAX_WORDS: usize = 24;
 pub const BIP39_MAX_ENTROPY_BYTES: usize = 32;
 pub const KEYSTORE_KEY_BYTES: usize = 32;
@@ -49,6 +50,7 @@ const HmacSha512 = std.crypto.auth.hmac.sha2.HmacSha512;
 const HmacSha256 = std.crypto.auth.hmac.sha2.HmacSha256;
 const Aes256Gcm = std.crypto.aead.aes_gcm.Aes256Gcm;
 const XChaCha20Poly1305 = std.crypto.aead.chacha_poly.XChaCha20Poly1305;
+const bip39_english_words = @embedFile("bip39_english.txt");
 
 pub const Bip39Seed = [BIP39_SEED_BYTES]u8;
 pub const HardenedIndex = u31;
@@ -64,6 +66,39 @@ pub const WordlistResolver = struct {
         return index;
     }
 };
+
+pub fn englishWordlistResolver() WordlistResolver {
+    const Holder = struct {
+        var context: u8 = 0;
+    };
+    return .{
+        .context = &Holder.context,
+        .indexFn = EnglishBip39Wordlist.indexOf,
+    };
+}
+
+pub fn bip39EnglishWordCount() usize {
+    var count: usize = 0;
+    var it = std.mem.splitScalar(u8, bip39_english_words, '\n');
+    while (it.next()) |line| {
+        if (trimTrailingCr(line).len != 0) count += 1;
+    }
+    return count;
+}
+
+pub fn bip39EnglishWordAt(index: u16) Error![]const u8 {
+    if (index >= BIP39_ENGLISH_WORD_COUNT) return error.InvalidMnemonicWord;
+
+    var current: u16 = 0;
+    var it = std.mem.splitScalar(u8, bip39_english_words, '\n');
+    while (it.next()) |line| {
+        const word = trimTrailingCr(line);
+        if (word.len == 0) continue;
+        if (current == index) return word;
+        current += 1;
+    }
+    return error.InvalidMnemonicWord;
+}
 
 pub const DerivationPath = struct {
     components: []const HardenedIndex,
@@ -698,6 +733,28 @@ fn resolveMnemonicWords(
     return count;
 }
 
+const EnglishBip39Wordlist = struct {
+    fn indexOf(context: *anyopaque, word: []const u8) Error!u16 {
+        _ = context;
+        var index: u16 = 0;
+        var it = std.mem.splitScalar(u8, bip39_english_words, '\n');
+        while (it.next()) |line| {
+            const candidate = trimTrailingCr(line);
+            if (candidate.len == 0) continue;
+            if (std.mem.eql(u8, candidate, word)) return index;
+            index += 1;
+        }
+        return error.InvalidMnemonicWord;
+    }
+};
+
+fn trimTrailingCr(line: []const u8) []const u8 {
+    if (line.len != 0 and line[line.len - 1] == '\r') {
+        return line[0 .. line.len - 1];
+    }
+    return line;
+}
+
 fn readMnemonicBit(indexes: []const u16, bit_index: usize) bool {
     const word_index = bit_index / 11;
     const bit_in_word = bit_index % 11;
@@ -845,6 +902,30 @@ test "mnemonicToEntropy validates BIP39 checksum with caller wordlist" {
     try validateMnemonicChecksum(mnemonic, testBip39WordlistResolver());
     try std.testing.expectEqual(@as(usize, 16), try mnemonicWordCountToEntropyBytes(12));
     try std.testing.expectEqual(@as(usize, 32), try mnemonicWordCountToEntropyBytes(24));
+}
+
+test "bundled English BIP39 wordlist exposes canonical order" {
+    try std.testing.expectEqual(@as(usize, BIP39_ENGLISH_WORD_COUNT), bip39EnglishWordCount());
+    try std.testing.expectEqualStrings("abandon", try bip39EnglishWordAt(0));
+    try std.testing.expectEqualStrings("about", try bip39EnglishWordAt(3));
+    try std.testing.expectEqualStrings("zoo", try bip39EnglishWordAt(2047));
+    try std.testing.expectError(error.InvalidMnemonicWord, bip39EnglishWordAt(2048));
+
+    const resolver = englishWordlistResolver();
+    try std.testing.expectEqual(@as(u16, 0), try resolver.indexOf("abandon"));
+    try std.testing.expectEqual(@as(u16, 3), try resolver.indexOf("about"));
+    try std.testing.expectEqual(@as(u16, 2047), try resolver.indexOf("zoo"));
+    try std.testing.expectError(error.InvalidMnemonicWord, resolver.indexOf("notaword"));
+}
+
+test "mnemonicToEntropy validates BIP39 checksum with bundled English wordlist" {
+    const mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+    var entropy: [BIP39_MAX_ENTROPY_BYTES]u8 = undefined;
+    const result = try mnemonicToEntropy(mnemonic, englishWordlistResolver(), &entropy);
+
+    try std.testing.expectEqual(@as(usize, 16), result.len);
+    try std.testing.expectEqualSlices(u8, &([_]u8{0} ** 16), result);
+    try validateMnemonicChecksum(mnemonic, englishWordlistResolver());
 }
 
 test "mnemonicToEntropy rejects checksum and unknown words" {

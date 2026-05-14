@@ -1,12 +1,18 @@
+use solana_hash::Hash;
 use solana_instruction::AccountMeta;
 use solana_pubkey::Pubkey;
 use solana_vote_interface::{
     instruction as vote_instruction,
-    state::{VoteAuthorize, VoteInit},
+    state::{Lockout, TowerSync, Vote, VoteAuthorize, VoteInit, VoteStateUpdate},
 };
+use std::collections::VecDeque;
 
 fn key(byte: u8) -> Pubkey {
     Pubkey::from([byte; 32])
+}
+
+fn hash(byte: u8) -> Hash {
+    Hash::new_from_array([byte; 32])
 }
 
 fn assert_meta(meta: &AccountMeta, pubkey: Pubkey, is_signer: bool, is_writable: bool) {
@@ -136,4 +142,95 @@ fn official_account_management_builders_match_zig_layout() {
     );
     assert_meta(&withdraw.accounts[1], to, false, true);
     assert_meta(&withdraw.accounts[2], withdrawer, true, false);
+}
+
+#[test]
+fn official_runtime_vote_builders_match_zig_typed_payload_layout() {
+    let vote_account = key(1);
+    let voter = key(2);
+    let vote = Vote {
+        slots: vec![10, 11],
+        hash: hash(9),
+        timestamp: Some(-5),
+    };
+    let proof_hash = hash(7);
+
+    let ix = vote_instruction::vote(&vote_account, &voter, vote.clone());
+    assert_eq!(ix.data.len(), 69);
+    assert_eq!(&ix.data[0..4], &[2, 0, 0, 0]);
+    assert_eq!(u64::from_le_bytes(ix.data[4..12].try_into().unwrap()), 2);
+    assert_eq!(u64::from_le_bytes(ix.data[12..20].try_into().unwrap()), 10);
+    assert_eq!(u64::from_le_bytes(ix.data[20..28].try_into().unwrap()), 11);
+    assert_eq!(&ix.data[28..60], &[9; 32]);
+    assert_eq!(ix.data[60], 1);
+    assert_eq!(i64::from_le_bytes(ix.data[61..69].try_into().unwrap()), -5);
+    assert!(!ix.accounts[1].is_signer);
+    assert!(!ix.accounts[2].is_signer);
+
+    let switch = vote_instruction::vote_switch(&vote_account, &voter, vote, proof_hash);
+    assert_eq!(&switch.data[0..4], &[6, 0, 0, 0]);
+    assert_eq!(&switch.data[69..101], &[7; 32]);
+}
+
+#[test]
+fn official_vote_state_and_tower_builders_match_zig_typed_payload_layout() {
+    let vote_account = key(1);
+    let voter = key(2);
+    let proof_hash = hash(7);
+    let lockouts = VecDeque::from(vec![
+        Lockout::new_with_confirmation_count(100, 3),
+        Lockout::new_with_confirmation_count(105, 4),
+    ]);
+    let update = VoteStateUpdate::new(lockouts.clone(), Some(90), hash(8));
+
+    let ix = vote_instruction::update_vote_state(&vote_account, &voter, update.clone());
+    assert_eq!(ix.data.len(), 78);
+    assert_eq!(&ix.data[0..4], &[8, 0, 0, 0]);
+    assert_eq!(u64::from_le_bytes(ix.data[4..12].try_into().unwrap()), 2);
+    assert_eq!(u64::from_le_bytes(ix.data[12..20].try_into().unwrap()), 100);
+    assert_eq!(u32::from_le_bytes(ix.data[20..24].try_into().unwrap()), 3);
+    assert_eq!(u64::from_le_bytes(ix.data[24..32].try_into().unwrap()), 105);
+    assert_eq!(u32::from_le_bytes(ix.data[32..36].try_into().unwrap()), 4);
+    assert_eq!(ix.data[36], 1);
+    assert_eq!(u64::from_le_bytes(ix.data[37..45].try_into().unwrap()), 90);
+    assert_eq!(&ix.data[45..77], &[8; 32]);
+    assert_eq!(ix.data[77], 0);
+
+    let switch = vote_instruction::update_vote_state_switch(
+        &vote_account,
+        &voter,
+        update.clone(),
+        proof_hash,
+    );
+    assert_eq!(&switch.data[0..4], &[9, 0, 0, 0]);
+    assert_eq!(&switch.data[78..110], &[7; 32]);
+
+    let compact = vote_instruction::compact_update_vote_state(&vote_account, &voter, update);
+    assert_eq!(compact.data.len(), 50);
+    assert_eq!(&compact.data[0..4], &[12, 0, 0, 0]);
+    assert_eq!(
+        u64::from_le_bytes(compact.data[4..12].try_into().unwrap()),
+        90
+    );
+    assert_eq!(&compact.data[12..17], &[2, 10, 3, 5, 4]);
+    assert_eq!(&compact.data[17..49], &[8; 32]);
+    assert_eq!(compact.data[49], 0);
+
+    let tower = TowerSync::new(lockouts, None, hash(8), hash(6));
+    let tower_ix = vote_instruction::tower_sync(&vote_account, &voter, tower.clone());
+    assert_eq!(tower_ix.data.len(), 82);
+    assert_eq!(&tower_ix.data[0..4], &[14, 0, 0, 0]);
+    assert_eq!(
+        u64::from_le_bytes(tower_ix.data[4..12].try_into().unwrap()),
+        u64::MAX
+    );
+    assert_eq!(&tower_ix.data[12..17], &[2, 100, 3, 5, 4]);
+    assert_eq!(&tower_ix.data[17..49], &[8; 32]);
+    assert_eq!(tower_ix.data[49], 0);
+    assert_eq!(&tower_ix.data[50..82], &[6; 32]);
+
+    let tower_switch =
+        vote_instruction::tower_sync_switch(&vote_account, &voter, tower, proof_hash);
+    assert_eq!(&tower_switch.data[0..4], &[15, 0, 0, 0]);
+    assert_eq!(&tower_switch.data[82..114], &[7; 32]);
 }

@@ -29,6 +29,7 @@
 
 const std = @import("std");
 const sol = @import("solana_program_sdk");
+const codec = @import("solana_codec");
 const id = @import("id.zig");
 const state = @import("state.zig");
 
@@ -407,6 +408,10 @@ comptime {
     std.debug.assert(InitAccount3Ix.bytes == initialize_account3_spec.data_len);
 }
 
+fn writeInstructionCOptionPubkey(out: []u8, value: ?*const Pubkey) void {
+    _ = codec.writeCOptionPubkey(out, value) catch unreachable;
+}
+
 inline fn validateMultisigSignerCount(signer_pubkeys: []const Pubkey) MultisigInstructionError!void {
     if (signer_pubkeys.len < 1 or signer_pubkeys.len > MAX_SIGNERS) {
         return error.InvalidMultisigSignerCount;
@@ -588,15 +593,10 @@ pub fn initializeMint(
     metas: *metasArray(initialize_mint_spec),
     data: *dataArray(initialize_mint_spec),
 ) Instruction {
-    data.* = InitMintIx.initWithDiscriminant(
-        @intFromEnum(TokenInstruction.initialize_mint),
-        .{
-            .decimals = decimals,
-            .mint_authority = mint_authority.*,
-            .freeze_authority_tag = if (freeze_authority != null) state.COPTION_SOME else state.COPTION_NONE,
-            .freeze_authority = if (freeze_authority) |fa| fa.* else .{0} ** 32,
-        },
-    );
+    data[0] = @intFromEnum(TokenInstruction.initialize_mint);
+    data[1] = decimals;
+    @memcpy(data[2..34], mint_authority);
+    writeInstructionCOptionPubkey(data[34..70], freeze_authority);
     metas[0] = AccountMeta.writable(mint);
     metas[1] = AccountMeta.readonly(&sol.rent_id);
     return .{
@@ -1477,13 +1477,7 @@ pub fn initializeMint2(
     data[0] = @intFromEnum(TokenInstruction.initialize_mint2);
     data[1] = decimals;
     @memcpy(data[2..34], mint_authority);
-    if (freeze_authority) |fa| {
-        std.mem.writeInt(u32, data[34..38], state.COPTION_SOME, .little);
-        @memcpy(data[38..70], fa);
-    } else {
-        std.mem.writeInt(u32, data[34..38], state.COPTION_NONE, .little);
-        @memset(data[38..70], 0);
-    }
+    writeInstructionCOptionPubkey(data[34..70], freeze_authority);
     metas[0] = AccountMeta.writable(mint);
     return .{
         .program_id = &id.PROGRAM_ID,

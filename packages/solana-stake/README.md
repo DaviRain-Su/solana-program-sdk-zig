@@ -4,8 +4,9 @@ Stake Program instruction builders.
 
 This package exposes caller-buffer builders for common Stake Program
 instructions. It uses the root `solana_program_sdk` core types and
-returns `sol.cpi.Instruction` values that can be used by host-side
-transaction tooling or on-chain CPI wrappers.
+shared `solana_codec` bincode primitives for seeded authority and
+lockup payloads, returning `sol.cpi.Instruction` values that can be
+used by host-side transaction tooling or on-chain CPI wrappers.
 
 ## Scope
 

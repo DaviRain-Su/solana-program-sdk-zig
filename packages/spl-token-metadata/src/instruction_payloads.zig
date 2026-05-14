@@ -2,8 +2,8 @@
 
 const std = @import("std");
 const sol = @import("solana_program_sdk");
+const codec = @import("solana_codec");
 const id = @import("id.zig");
-const borsh_string = @import("borsh_string.zig");
 const metadata_state = @import("state.zig");
 const MaybeNullPubkey = @import("maybe_null_pubkey.zig").MaybeNullPubkey;
 
@@ -320,9 +320,10 @@ const Cursor = struct {
     }
 
     fn readBorshString(self: *Cursor) ProgramError![]const u8 {
-        const len_bytes = try self.readExact(@sizeOf(u32));
-        const len = std.mem.readInt(u32, len_bytes[0..@sizeOf(u32)], .little);
-        return try self.readExact(@as(usize, len));
+        const parsed = codec.readBorshString(self.input[self.index..]) catch return ProgramError.InvalidInstructionData;
+        self.index = std.math.add(usize, self.index, parsed.len) catch
+            return ProgramError.InvalidInstructionData;
+        return parsed.value;
     }
 
     fn readField(self: *Cursor) ProgramError!Field {
@@ -338,17 +339,28 @@ const Cursor = struct {
 };
 
 fn checkedAddLen(base: usize, extra: usize) BuildError!usize {
-    return borsh_string.checkedAddLen(base, extra);
+    return std.math.add(usize, base, extra) catch error.LengthOverflow;
 }
 
 fn borshStringLen(value: []const u8) BuildError!usize {
-    return borsh_string.borshStringLenUnbounded(value);
+    return codec.borshStringLen(value) catch |err| switch (err) {
+        error.LengthOverflow => error.LengthOverflow,
+        error.BufferTooSmall,
+        error.InputTooShort,
+        error.NonCanonicalShortVec,
+        error.InvalidCOptionTag,
+        => unreachable,
+    };
 }
 
 fn writeBorshString(out: []u8, value: []const u8) BuildError!usize {
-    return borsh_string.writeBorshStringCore(out, value) catch |err| switch (err) {
+    return codec.writeBorshString(out, value) catch |err| switch (err) {
         error.LengthOverflow => return error.LengthOverflow,
-        error.OutputTooSmall => return error.InvalidInstructionDataSliceLength,
+        error.BufferTooSmall => return error.InvalidInstructionDataSliceLength,
+        error.InputTooShort,
+        error.NonCanonicalShortVec,
+        error.InvalidCOptionTag,
+        => unreachable,
     };
 }
 

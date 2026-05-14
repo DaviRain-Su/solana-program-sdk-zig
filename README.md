@@ -26,7 +26,7 @@ and can be depended on individually from outside the repo via
 |---|---|---|---|---|
 | **`solana_program_sdk`** | (repo root) | on-chain | ✅ released | Core SDK for writing Solana on-chain programs in Zig |
 | **`spl_token`** | `packages/spl-token` | dual (on-chain CPI + off-chain ix builder) | ✅ released (v0.3) | SPL Token client (transfer / authority / multisig / syncNative / batch / …) |
-| **`spl_token_2022`** | `packages/spl-token-2022` | host + on-chain-safe parsing | ✅ released (v0.1 parsing-only) | Token-2022 TLV + fixed-length extension parsing |
+| **`spl_token_2022`** | `packages/spl-token-2022` | host + on-chain-safe interface | ✅ released (v0.1 interface-core) | Token-2022 TLV + fixed-length extension parsing, base mint/account/authority + reallocate + withdrawExcessLamports + Transfer Fee / MintCloseAuthority / DefaultAccountState / MemoTransfer / NonTransferable / CpiGuard / InterestBearingMint / PermanentDelegate / Pausable / pointer / TransferHook / ScaledUiAmount instruction builders, and Rust parity fixtures |
 | **`spl_ata`** | `packages/spl-ata` | dual | ✅ released (v0.1) | Associated Token Account derivation, precomputed-address ix builders, create CPI, and Rust parity fixtures |
 | **`spl_memo`** | `packages/spl-memo` | dual | ✅ released (v0.1) | SPL Memo instruction builders, checked scratch variant, CPI helpers, and Rust parity fixtures |
 | **`spl_token_metadata`** | `packages/spl-token-metadata` | on-chain/interface | 🚧 v0.1 interface | SPL Token Metadata interface: discriminators, raw instruction builders/parsers, bounded TokenMetadata state, and pinned Rust parity fixtures |
@@ -37,20 +37,20 @@ and can be depended on individually from outside the repo via
 | **`spl_stake_pool`** | `packages/spl-stake-pool` | on-chain/interface | 🚧 v0.1 interface-core | SPL Stake Pool PDA helpers, validator-list parsing, common deposit/withdraw/update builders, and Rust parity fixtures |
 | **`spl_governance`** | `packages/spl-governance` | on-chain/interface | 🚧 v0.1 interface-core | SPL Governance PDA helpers, account-type/header parsing, realm/config/admin, token deposit/delegate, proposal/signatory/vote, and proposal transaction builders, with Rust parity fixtures |
 | **`solana_address_lookup_table`** | `packages/solana-address-lookup-table` | off-chain/shared | 🚧 v0.1 ALT helpers | Address Lookup Table account parsing, index resolution, v0 lookup records, management instruction builders, and Rust parity fixtures |
-| **`solana_codec`** | `packages/solana-codec` | shared | 🚧 v0.1 codec primitives | Allocation-free shortvec, Borsh primitive/string/bytes, and bincode `COption` helpers |
+| **`solana_codec`** | `packages/solana-codec` | shared | 🚧 v0.1 codec primitives | Allocation-free shortvec, Borsh primitive/string/bytes, bincode string/options, and bincode `COption` helpers |
 | **`solana_config`** | `packages/solana-config` | dual instruction builder | 🚧 v0.1 config store helpers | Config Program raw ConfigKeys encoding, store instruction builders, and ConfigState views |
 | **`solana_compute_budget`** | `packages/solana-compute-budget` | dual instruction builder | 🚧 v0.1 instruction builders | Compute Budget instruction builders for heap frame, CU limit, CU price, and loaded account data size |
 | **`solana_feature_gate`** | `packages/solana-feature-gate` | shared helpers | 🚧 v0.1 feature helpers | Feature account encode/decode and activation instruction sequence |
-| **`solana_loader_v3`** | `packages/solana-loader-v3` | dual instruction builder | 🚧 v0.1 loader helpers | Upgradeable BPF Loader v3 state layout, deploy/upgrade/authority/extend instruction builders, and Rust parity fixtures |
+| **`solana_loader_v3`** | `packages/solana-loader-v3` | dual instruction builder | 🚧 v0.1 loader helpers | Upgradeable BPF Loader v3 state layout, chunked program writes, deploy/upgrade/authority/extend instruction builders, and Rust parity fixtures |
 | **`solana_loader_v4`** | `packages/solana-loader-v4` | dual instruction builder | 🚧 v0.1 loader helpers | Loader v4 state layout, write/copy/deploy/retract/authority/finalize instruction builders, and Rust parity fixtures |
 | **`solana_system`** | `packages/solana-system` | dual instruction builder | 🚧 v0.1 instruction builders | System Program createAccount, transfer, assign, and allocate instruction builders |
 | **`solana_stake`** | `packages/solana-stake` | dual instruction builder | 🚧 v0.1 instruction builders | Stake Program initialize, authorize including seeded variants, lockup mutation, delegate, split, withdraw, deactivate, merge, minimum delegation, and move builders |
-| **`solana_vote`** | `packages/solana-vote` | dual instruction builder | 🚧 v0.1 instruction builders | Vote Program initialize, authorize including seeded variants, update validator identity, update commission, and withdraw builders |
+| **`solana_vote`** | `packages/solana-vote` | dual instruction builder | 🚧 v0.1 instruction builders | Vote Program initialize, authorize including seeded variants, update validator identity, update commission, withdraw, and raw runtime vote/update/tower builders |
 | **`solana_tx`** | `packages/solana-tx` | off-chain | 🚧 v0.1 transaction foundation | Legacy transaction message compilation plus legacy/v0 message and transaction serialization |
-| **`solana_transaction_builder`** | `packages/solana-transaction-builder` | off-chain | 🚧 v0.1 transaction assembly | Compile/sign/serialize legacy/v0 transactions, ALT selection, durable nonce pairs, and compute-budget transfer prelude helpers |
+| **`solana_transaction_builder`** | `packages/solana-transaction-builder` | off-chain | 🚧 v0.1 transaction assembly | Compile/sign/serialize legacy/v0 transactions, ALT selection, durable nonce pairs, compute-budget System/SPL Token transfer preludes, and ATA+token transfer helpers |
 | **`solana_keypair`** | `packages/solana-keypair` | off-chain | 🚧 v0.1 signing foundation | Ed25519 keypair recovery from seeds, public-key export, and detached message signing |
-| **`solana_client`** | `packages/solana-client` | off-chain | 🚧 v0.1 RPC client core | Caller-buffer JSON-RPC/account-info builders/parsers, ALT fetch helper, std HTTP transport adapter, typed WebSocket subscription surface, endpoint/retry/commitment policy, and typed RPC error normalization |
-| **`solana_wallet`** | `packages/solana-wallet` | off-chain | 🚧 v0.1 wallet core | Solana CLI keypair JSON, BIP39 seed derivation/checksum validation, Solana derivation paths, wallet adapter boundary, and AEAD encrypted-keystore helpers |
+| **`solana_client`** | `packages/solana-client` | off-chain | 🚧 v0.1 RPC client core | Caller-buffer JSON-RPC/account-info builders/parsers, ALT fetch helper, std HTTP transport adapter, caller-owned stream WebSocket adapter, endpoint/retry/commitment/deadline policy, and typed RPC error normalization |
+| **`solana_wallet`** | `packages/solana-wallet` | off-chain | 🚧 v0.1 wallet core | Solana CLI keypair JSON, bundled BIP39 English wordlist, seed derivation/checksum validation, Solana derivation paths, wallet adapter boundary, and AEAD encrypted-keystore helpers |
 
 ### Naming convention
 
@@ -61,8 +61,10 @@ and can be depended on individually from outside the repo via
    program surfaces**. Client packages such as `spl_token`,
    `spl_ata`, and `spl_memo` are dual-target (`instruction.zig` for
    raw instruction bytes plus optional `cpi.zig` wrappers), while
-   parsing-only packages such as `spl_token_2022` expose read-only
-   state / TLV views without instruction-builder or CPI APIs in v0.1.
+   interface-core packages such as `spl_token_2022` expose read-only
+   state / TLV views plus base, Transfer Fee, DefaultAccountState,
+   MemoTransfer, CpiGuard, Pausable, and pointer extension instruction builders
+   without CPI APIs in v0.1.
    Interface-focused packages such as `spl_transfer_hook`,
    `spl_token_metadata`, `spl_token_group`, and
    `spl_elgamal_registry` keep the public surface
@@ -74,8 +76,8 @@ and can be depended on individually from outside the repo via
    instructions.
 4. `solana_codec` is the shared byte-codec layer for both host-side and
    on-chain-safe packages. It centralizes shortvec, Borsh primitives,
-   and SPL bincode `COption` layouts without becoming a reflection-based
-   serializer.
+   bincode strings/options, and SPL bincode `COption` layouts without
+   becoming a reflection-based serializer.
 5. `solana_config`, `solana_compute_budget`, `solana_feature_gate`,
    `solana_loader_v3`, `solana_loader_v4`, `solana_system`,
    `solana_stake`, and
@@ -84,23 +86,25 @@ and can be depended on individually from outside the repo via
 6. Other `solana_*` packages are **strictly off-chain** — RPC clients,
    key management, host-side transaction tooling. The first such
    packages intentionally stay below wallet orchestration:
-   `solana_tx` provides legacy and v0 transaction byte serialization,
+   `solana_tx` provides legacy and v0 transaction byte serialization over
+   shared `solana_codec` shortvec primitives,
    `solana_transaction_builder` composes legacy transaction compile /
    sign / serialize flows, v0 compile / ALT selection / sign /
    serialize flows for supplied lookup-table accounts, durable nonce
-   create+initialize instruction pairs, and compute-budget transfer
-   prelude helpers,
+   create+initialize instruction pairs, compute-budget System/SPL Token
+   transfer prelude helpers, and idempotent ATA create + token transfer helpers,
    `solana_keypair` provides detached Ed25519 signing, and
    `solana_client` provides JSON-RPC request/response codecs including
    base64 `getAccountInfo`, account-data decode helpers, and remote ALT
    fetch/parse helpers, plus a caller-owned transport boundary, concrete
    `std.http.Client` POST adapter, typed WebSocket subscription request /
-   notification helpers, endpoint, retry, default commitment, and typed RPC
-   error policy.
-   `solana_wallet` provides Solana CLI keypair JSON handling, BIP39
-   seed derivation with caller-supplied wordlist checksum validation,
-   Solana hardened derivation paths, a wallet-adapter boundary, and
-   AEAD encrypted-keystore payload / envelope parse-write helpers.
+   notification helpers, endpoint, retry, default commitment, deadline, and
+   typed RPC error policy, plus a caller-owned stream WebSocket adapter that performs
+   HTTP Upgrade validation and masked text-frame JSON-RPC exchange.
+   `solana_wallet` provides Solana CLI keypair JSON handling, a bundled
+   BIP39 English wordlist plus caller-supplied wordlist validation, seed
+   derivation, Solana hardened derivation paths, a wallet-adapter boundary,
+   and AEAD encrypted-keystore payload / envelope parse-write helpers.
 
 This mirrors the Rust ecosystem's distinction between
 `solana-program` (on-chain), `solana-sdk` (off-chain), and the

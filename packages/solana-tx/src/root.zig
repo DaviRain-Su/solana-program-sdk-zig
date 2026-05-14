@@ -6,6 +6,7 @@
 
 const std = @import("std");
 const sol = @import("solana_program_sdk");
+const codec = @import("solana_codec");
 
 pub const Pubkey = sol.Pubkey;
 pub const AccountMeta = sol.cpi.AccountMeta;
@@ -18,7 +19,7 @@ pub const VERSIONED_MESSAGE_PREFIX: u8 = 0x80;
 pub const V0_MESSAGE_VERSION: u8 = 0;
 pub const Signature = [SIGNATURE_BYTES]u8;
 
-pub const Error = error{
+pub const Error = codec.Error || error{
     TooManyAccountKeys,
     TooManyInstructionAccounts,
     AccountKeyBufferTooSmall,
@@ -146,22 +147,22 @@ pub fn compileLegacyMessage(
     };
 }
 
-pub fn serializedLegacyMessageLen(message: LegacyMessage) usize {
+pub fn serializedLegacyMessageLen(message: LegacyMessage) Error!usize {
     var len: usize = @sizeOf(MessageHeader);
-    len += shortVecLen(message.account_keys.len);
+    len += try shortVecLen(message.account_keys.len);
     len += message.account_keys.len * @sizeOf(Pubkey);
     len += HASH_BYTES;
-    len += shortVecLen(message.instructions.len);
+    len += try shortVecLen(message.instructions.len);
     for (message.instructions) |ix| {
         len += 1;
-        len += shortVecLen(ix.accounts.len) + ix.accounts.len;
-        len += shortVecLen(ix.data.len) + ix.data.len;
+        len += (try shortVecLen(ix.accounts.len)) + ix.accounts.len;
+        len += (try shortVecLen(ix.data.len)) + ix.data.len;
     }
     return len;
 }
 
 pub fn serializeLegacyMessage(message: LegacyMessage, out: []u8) Error![]u8 {
-    const needed = serializedLegacyMessageLen(message);
+    const needed = try serializedLegacyMessageLen(message);
     if (out.len < needed) return error.OutputTooSmall;
 
     var pos: usize = 0;
@@ -170,7 +171,7 @@ pub fn serializeLegacyMessage(message: LegacyMessage, out: []u8) Error![]u8 {
     out[pos + 2] = message.header.num_readonly_unsigned_accounts;
     pos += @sizeOf(MessageHeader);
 
-    pos += writeShortVec(message.account_keys.len, out[pos..]);
+    pos += try writeShortVec(message.account_keys.len, out[pos..]);
     for (message.account_keys) |key| {
         @memcpy(out[pos..][0..PUBKEY_BYTES], &key);
         pos += PUBKEY_BYTES;
@@ -179,16 +180,16 @@ pub fn serializeLegacyMessage(message: LegacyMessage, out: []u8) Error![]u8 {
     @memcpy(out[pos..][0..HASH_BYTES], message.recent_blockhash);
     pos += HASH_BYTES;
 
-    pos += writeShortVec(message.instructions.len, out[pos..]);
+    pos += try writeShortVec(message.instructions.len, out[pos..]);
     for (message.instructions) |ix| {
         out[pos] = ix.program_id_index;
         pos += 1;
 
-        pos += writeShortVec(ix.accounts.len, out[pos..]);
+        pos += try writeShortVec(ix.accounts.len, out[pos..]);
         @memcpy(out[pos..][0..ix.accounts.len], ix.accounts);
         pos += ix.accounts.len;
 
-        pos += writeShortVec(ix.data.len, out[pos..]);
+        pos += try writeShortVec(ix.data.len, out[pos..]);
         @memcpy(out[pos..][0..ix.data.len], ix.data);
         pos += ix.data.len;
     }
@@ -196,10 +197,10 @@ pub fn serializeLegacyMessage(message: LegacyMessage, out: []u8) Error![]u8 {
     return out[0..pos];
 }
 
-pub fn serializedLegacyTransactionLen(signatures: []const Signature, message: LegacyMessage) usize {
-    return shortVecLen(signatures.len) +
+pub fn serializedLegacyTransactionLen(signatures: []const Signature, message: LegacyMessage) Error!usize {
+    return (try shortVecLen(signatures.len)) +
         signatures.len * SIGNATURE_BYTES +
-        serializedLegacyMessageLen(message);
+        (try serializedLegacyMessageLen(message));
 }
 
 pub fn serializeLegacyTransaction(
@@ -211,11 +212,11 @@ pub fn serializeLegacyTransaction(
         return error.SignatureCountMismatch;
     }
 
-    const needed = serializedLegacyTransactionLen(signatures, message);
+    const needed = try serializedLegacyTransactionLen(signatures, message);
     if (out.len < needed) return error.OutputTooSmall;
 
     var pos: usize = 0;
-    pos += writeShortVec(signatures.len, out[pos..]);
+    pos += try writeShortVec(signatures.len, out[pos..]);
     for (signatures) |signature| {
         @memcpy(out[pos..][0..SIGNATURE_BYTES], &signature);
         pos += SIGNATURE_BYTES;
@@ -226,25 +227,25 @@ pub fn serializeLegacyTransaction(
     return out[0..pos];
 }
 
-pub fn serializedV0MessageLen(message: V0Message) usize {
+pub fn serializedV0MessageLen(message: V0Message) Error!usize {
     var len: usize = 1;
-    len += serializedLegacyMessageLen(.{
+    len += try serializedLegacyMessageLen(.{
         .header = message.header,
         .account_keys = message.account_keys,
         .recent_blockhash = message.recent_blockhash,
         .instructions = message.instructions,
     });
-    len += shortVecLen(message.address_table_lookups.len);
+    len += try shortVecLen(message.address_table_lookups.len);
     for (message.address_table_lookups) |lookup| {
         len += PUBKEY_BYTES;
-        len += shortVecLen(lookup.writable_indexes.len) + lookup.writable_indexes.len;
-        len += shortVecLen(lookup.readonly_indexes.len) + lookup.readonly_indexes.len;
+        len += (try shortVecLen(lookup.writable_indexes.len)) + lookup.writable_indexes.len;
+        len += (try shortVecLen(lookup.readonly_indexes.len)) + lookup.readonly_indexes.len;
     }
     return len;
 }
 
 pub fn serializeV0Message(message: V0Message, out: []u8) Error![]u8 {
-    const needed = serializedV0MessageLen(message);
+    const needed = try serializedV0MessageLen(message);
     if (out.len < needed) return error.OutputTooSmall;
 
     var pos: usize = 0;
@@ -259,16 +260,16 @@ pub fn serializeV0Message(message: V0Message, out: []u8) Error![]u8 {
     }, out[pos..]);
     pos += legacy_body.len;
 
-    pos += writeShortVec(message.address_table_lookups.len, out[pos..]);
+    pos += try writeShortVec(message.address_table_lookups.len, out[pos..]);
     for (message.address_table_lookups) |lookup| {
         @memcpy(out[pos..][0..PUBKEY_BYTES], lookup.account_key);
         pos += PUBKEY_BYTES;
 
-        pos += writeShortVec(lookup.writable_indexes.len, out[pos..]);
+        pos += try writeShortVec(lookup.writable_indexes.len, out[pos..]);
         @memcpy(out[pos..][0..lookup.writable_indexes.len], lookup.writable_indexes);
         pos += lookup.writable_indexes.len;
 
-        pos += writeShortVec(lookup.readonly_indexes.len, out[pos..]);
+        pos += try writeShortVec(lookup.readonly_indexes.len, out[pos..]);
         @memcpy(out[pos..][0..lookup.readonly_indexes.len], lookup.readonly_indexes);
         pos += lookup.readonly_indexes.len;
     }
@@ -276,10 +277,10 @@ pub fn serializeV0Message(message: V0Message, out: []u8) Error![]u8 {
     return out[0..pos];
 }
 
-pub fn serializedV0TransactionLen(signatures: []const Signature, message: V0Message) usize {
-    return shortVecLen(signatures.len) +
+pub fn serializedV0TransactionLen(signatures: []const Signature, message: V0Message) Error!usize {
+    return (try shortVecLen(signatures.len)) +
         signatures.len * SIGNATURE_BYTES +
-        serializedV0MessageLen(message);
+        (try serializedV0MessageLen(message));
 }
 
 pub fn serializeV0Transaction(
@@ -291,11 +292,11 @@ pub fn serializeV0Transaction(
         return error.SignatureCountMismatch;
     }
 
-    const needed = serializedV0TransactionLen(signatures, message);
+    const needed = try serializedV0TransactionLen(signatures, message);
     if (out.len < needed) return error.OutputTooSmall;
 
     var pos: usize = 0;
-    pos += writeShortVec(signatures.len, out[pos..]);
+    pos += try writeShortVec(signatures.len, out[pos..]);
     for (signatures) |signature| {
         @memcpy(out[pos..][0..SIGNATURE_BYTES], &signature);
         pos += SIGNATURE_BYTES;
@@ -306,26 +307,12 @@ pub fn serializeV0Transaction(
     return out[0..pos];
 }
 
-pub fn shortVecLen(value: usize) usize {
-    var n = value;
-    var len: usize = 1;
-    while (n >= 0x80) : (len += 1) {
-        n >>= 7;
-    }
-    return len;
+pub fn shortVecLen(value: usize) Error!usize {
+    return codec.shortVecLen(value);
 }
 
-pub fn writeShortVec(value: usize, out: []u8) usize {
-    var n = value;
-    var pos: usize = 0;
-    while (true) {
-        var byte: u8 = @intCast(n & 0x7f);
-        n >>= 7;
-        if (n != 0) byte |= 0x80;
-        out[pos] = byte;
-        pos += 1;
-        if (n == 0) return pos;
-    }
+pub fn writeShortVec(value: usize, out: []u8) Error!usize {
+    return codec.writeShortVec(value, out);
 }
 
 const PUBKEY_BYTES = sol.PUBKEY_BYTES;
@@ -413,17 +400,18 @@ fn findKey(keys: []const Pubkey, target: *const Pubkey) ?u8 {
 test "shortvec encodes Solana compact-u16 style lengths" {
     var buf: [4]u8 = undefined;
 
-    try std.testing.expectEqual(@as(usize, 1), writeShortVec(0, &buf));
+    try std.testing.expectEqual(@as(usize, 1), try writeShortVec(0, &buf));
     try std.testing.expectEqual(@as(u8, 0), buf[0]);
 
-    try std.testing.expectEqual(@as(usize, 1), writeShortVec(127, &buf));
+    try std.testing.expectEqual(@as(usize, 1), try writeShortVec(127, &buf));
     try std.testing.expectEqual(@as(u8, 127), buf[0]);
 
-    try std.testing.expectEqual(@as(usize, 2), writeShortVec(128, &buf));
+    try std.testing.expectEqual(@as(usize, 2), try writeShortVec(128, &buf));
     try std.testing.expectEqualSlices(u8, &.{ 0x80, 0x01 }, buf[0..2]);
 
-    try std.testing.expectEqual(@as(usize, 2), shortVecLen(16_383));
-    try std.testing.expectEqual(@as(usize, 3), shortVecLen(16_384));
+    try std.testing.expectEqual(@as(usize, 2), try shortVecLen(16_383));
+    try std.testing.expectEqual(@as(usize, 3), try shortVecLen(16_384));
+    try std.testing.expectError(error.LengthOverflow, writeShortVec(65_536, &buf));
 }
 
 test "compileLegacyMessage orders payer signers writable accounts and programs canonically" {
@@ -490,7 +478,7 @@ test "serializeLegacyMessage emits canonical legacy message bytes" {
     var out: [128]u8 = undefined;
     const bytes = try serializeLegacyMessage(message, &out);
 
-    try std.testing.expectEqual(@as(usize, serializedLegacyMessageLen(message)), bytes.len);
+    try std.testing.expectEqual(try serializedLegacyMessageLen(message), bytes.len);
     try std.testing.expectEqualSlices(u8, &.{ 1, 0, 1, 2 }, bytes[0..4]);
     try std.testing.expectEqualSlices(u8, &payer, bytes[4..36]);
     try std.testing.expectEqualSlices(u8, &memo_program, bytes[36..68]);
@@ -520,7 +508,7 @@ test "serializeLegacyTransaction prefixes signatures before message bytes" {
     var out: [192]u8 = undefined;
     const bytes = try serializeLegacyTransaction(&.{signature}, message, &out);
 
-    try std.testing.expectEqual(@as(usize, serializedLegacyTransactionLen(&.{signature}, message)), bytes.len);
+    try std.testing.expectEqual(try serializedLegacyTransactionLen(&.{signature}, message), bytes.len);
     try std.testing.expectEqual(@as(u8, 1), bytes[0]);
     try std.testing.expectEqualSlices(u8, &signature, bytes[1..65]);
     try std.testing.expectEqualSlices(u8, &.{ 1, 0, 1 }, bytes[65..68]);
@@ -584,11 +572,11 @@ test "serializeV0Message appends address table lookups after the message body" {
 
     var out: [192]u8 = undefined;
     const bytes = try serializeV0Message(message, &out);
-    try std.testing.expectEqual(@as(usize, serializedV0MessageLen(message)), bytes.len);
+    try std.testing.expectEqual(try serializedV0MessageLen(message), bytes.len);
     try std.testing.expectEqual(@as(u8, 0x80), bytes[0]);
     try std.testing.expectEqualSlices(u8, &.{ 1, 0, 1, 2 }, bytes[1..5]);
 
-    const lookup_start = serializedLegacyMessageLen(legacy) + 1;
+    const lookup_start = (try serializedLegacyMessageLen(legacy)) + 1;
     try std.testing.expectEqual(@as(u8, 1), bytes[lookup_start]);
     try std.testing.expectEqualSlices(u8, &table, bytes[lookup_start + 1 .. lookup_start + 33]);
     try std.testing.expectEqualSlices(u8, &.{ 2, 2, 5, 1, 7 }, bytes[lookup_start + 33 ..]);
@@ -623,7 +611,7 @@ test "serializeV0Transaction prefixes signatures before versioned message bytes"
     var out: [192]u8 = undefined;
     const bytes = try serializeV0Transaction(&.{signature}, message, &out);
 
-    try std.testing.expectEqual(@as(usize, serializedV0TransactionLen(&.{signature}, message)), bytes.len);
+    try std.testing.expectEqual(try serializedV0TransactionLen(&.{signature}, message), bytes.len);
     try std.testing.expectEqual(@as(u8, 1), bytes[0]);
     try std.testing.expectEqualSlices(u8, &signature, bytes[1..65]);
     try std.testing.expectEqual(@as(u8, 0x80), bytes[65]);

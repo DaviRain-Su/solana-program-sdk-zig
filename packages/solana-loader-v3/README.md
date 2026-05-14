@@ -13,6 +13,8 @@ Covered surface:
   and `ProgramData`.
 - Instruction builders for buffer initialization, write, deploy, upgrade,
   authority changes, close, extend, checked extend, and migration to loader v4.
+- Chunked program write planning via `writeProgramChunks` for caller-owned
+  instruction, account-meta, and data buffers.
 - Composite `createBuffer` and `deployWithMaxProgramLen` helpers that pair the
   System Program account creation with the loader instruction.
 

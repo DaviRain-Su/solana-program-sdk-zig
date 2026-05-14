@@ -12,12 +12,19 @@ pub fn build(b: *std.Build) void {
     });
     const sol_mod = sol_dep.module("solana_program_sdk");
 
+    const codec_dep = b.dependency("solana_codec", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const codec_mod = codec_dep.module("solana_codec");
+
     const vote_mod = b.addModule("solana_vote", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{
             .{ .name = "solana_program_sdk", .module = sol_mod },
+            .{ .name = "solana_codec", .module = codec_mod },
         },
     });
 

@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const sol = @import("solana_program_sdk");
+const codec = @import("solana_codec");
 const meta = @import("meta.zig");
 
 const Pubkey = sol.Pubkey;
@@ -118,11 +119,9 @@ fn encodeExecuteData(amount: u64) ExecuteData {
 fn unpackExtraAccountMetaList(payload: []const u8) ProgramError!ExtraAccountMetaSlice {
     if (payload.len < @sizeOf(u32)) return ProgramError.InvalidInstructionData;
 
-    const count = sol.instruction.tryReadUnaligned(u32, payload, 0)
-        orelse return ProgramError.InvalidInstructionData;
+    const count = (codec.readBorshU32(payload) catch return ProgramError.InvalidInstructionData).value;
     const records = payload[@sizeOf(u32)..];
-    const expected_records_len = std.math.mul(usize, @as(usize, count), meta.EXTRA_ACCOUNT_META_LEN)
-        catch return ProgramError.InvalidInstructionData;
+    const expected_records_len = std.math.mul(usize, @as(usize, count), meta.EXTRA_ACCOUNT_META_LEN) catch return ProgramError.InvalidInstructionData;
     if (records.len != expected_records_len) return ProgramError.InvalidInstructionData;
 
     return ExtraAccountMetaSlice.init(records);
@@ -139,7 +138,7 @@ fn encodeExtraAccountMetaListData(
     if (data.len != expected_len) return error.InvalidInstructionDataSliceLength;
 
     @memcpy(data[0..sol.DISCRIMINATOR_LEN], discriminator);
-    std.mem.writeInt(u32, data[sol.DISCRIMINATOR_LEN..][0..@sizeOf(u32)], @intCast(extra_account_metas.len), .little);
+    _ = codec.writeBorshU32(data[sol.DISCRIMINATOR_LEN..], @intCast(extra_account_metas.len)) catch unreachable;
 
     var cursor: usize = extra_account_meta_list_header_len;
     for (extra_account_metas) |extra_account_meta| {

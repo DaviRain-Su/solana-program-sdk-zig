@@ -34,6 +34,29 @@ pub const TransportError = error{
     UnsupportedProtocol,
 };
 
+pub const WebSocketMaskKeyProvider = struct {
+    context: *anyopaque,
+    nextFn: *const fn (context: *anyopaque) [4]u8,
+
+    pub fn next(self: WebSocketMaskKeyProvider) [4]u8 {
+        return self.nextFn(self.context);
+    }
+};
+
+pub const WebSocketStream = struct {
+    context: *anyopaque,
+    readFn: *const fn (context: *anyopaque, out: []u8) TransportError!usize,
+    writeFn: *const fn (context: *anyopaque, bytes: []const u8) TransportError!void,
+
+    pub fn read(self: WebSocketStream, out: []u8) TransportError!usize {
+        return self.readFn(self.context, out);
+    }
+
+    pub fn write(self: WebSocketStream, bytes: []const u8) TransportError!void {
+        return self.writeFn(self.context, bytes);
+    }
+};
+
 pub const Commitment = enum {
     processed,
     confirmed,
@@ -225,11 +248,54 @@ pub const StdHttpTransport = struct {
     }
 };
 
+pub const WebSocketTransport = struct {
+    stream: WebSocketStream,
+    mask_key_provider: WebSocketMaskKeyProvider,
+    sec_websocket_key: []const u8,
+    handshake_scratch: []u8,
+    frame_scratch: []u8,
+
+    pub fn transport(self: *WebSocketTransport) Transport {
+        return .{
+            .context = self,
+            .sendFn = send,
+        };
+    }
+
+    fn send(
+        context: *anyopaque,
+        request: TransportRequest,
+        response_out: []u8,
+    ) TransportError![]const u8 {
+        const self: *WebSocketTransport = @ptrCast(@alignCast(context));
+        if (request.kind != .websocket_json_rpc) return error.UnsupportedProtocol;
+        if (!isWebsocketUrl(request.endpoint_url)) return error.UnsupportedProtocol;
+
+        const parts = try parseWebSocketUrl(request.endpoint_url);
+        try writeWebSocketHandshake(
+            self.stream,
+            parts,
+            self.sec_websocket_key,
+            self.handshake_scratch,
+        );
+        try writeWebSocketTextFrame(
+            self.stream,
+            request.body,
+            self.mask_key_provider.next(),
+            self.frame_scratch,
+        );
+        return readWebSocketTextFrame(self.stream, response_out);
+    }
+};
+
 pub const ClientConfig = struct {
     default_commitment: Commitment = .finalized,
     request_timeout_ms: u32 = 10_000,
     subscription_timeout_ms: u32 = 30_000,
     retry_policy: RetryPolicy = .{},
+    /// Optional caller-owned clock used to enforce request deadlines across
+    /// retry attempts. When unset, transports still receive `timeout_ms`.
+    deadline_io: ?std.Io = null,
 
     pub fn timeoutMs(self: ClientConfig, kind: TransportKind) u32 {
         return switch (kind) {
@@ -250,13 +316,13 @@ pub const Client = struct {
         response_out: []u8,
     ) (Error || TransportError)![]const u8 {
         try self.endpoint.validate();
-        return sendWithRetry(self.transport, .{
+        return sendWithRetryWithDeadline(self.transport, .{
             .kind = .http_json_rpc,
             .method = .post,
             .endpoint_url = self.endpoint.url,
             .body = body,
             .timeout_ms = self.config.request_timeout_ms,
-        }, response_out, self.config.retry_policy);
+        }, response_out, self.config.retry_policy, self.config.deadline_io);
     }
 
     pub fn websocketRequest(
@@ -267,13 +333,13 @@ pub const Client = struct {
     ) (Error || TransportError)![]const u8 {
         try self.endpoint.validate();
         const websocket_url = try writeWebsocketUrl(self.endpoint, websocket_url_out);
-        return sendWithRetry(self.transport, .{
+        return sendWithRetryWithDeadline(self.transport, .{
             .kind = .websocket_json_rpc,
             .method = .post,
             .endpoint_url = websocket_url,
             .body = body,
             .timeout_ms = self.config.timeoutMs(.websocket_json_rpc),
-        }, response_out, self.config.retry_policy);
+        }, response_out, self.config.retry_policy, self.config.deadline_io);
     }
 
     pub fn getLatestBlockhash(
@@ -848,15 +914,220 @@ pub fn sendWithRetry(
     response_out: []u8,
     policy: RetryPolicy,
 ) TransportError![]const u8 {
+    return sendWithRetryWithDeadline(transport, request, response_out, policy, null);
+}
+
+pub fn sendWithRetryWithDeadline(
+    transport: Transport,
+    request: TransportRequest,
+    response_out: []u8,
+    policy: RetryPolicy,
+    deadline_io: ?std.Io,
+) TransportError![]const u8 {
     const max_attempts = policy.attempts();
+    const deadline_ns = if (deadline_io) |io| try requestDeadlineNs(io, request.timeout_ms) else null;
     var attempt: u8 = 0;
     while (attempt < max_attempts) : (attempt += 1) {
-        return transport.send(request, response_out) catch |err| {
+        var attempt_request = request;
+        if (deadline_io) |io| {
+            attempt_request.timeout_ms = try remainingTimeoutMs(io, deadline_ns.?);
+        }
+        const response = transport.send(attempt_request, response_out) catch |err| {
             if (attempt + 1 >= max_attempts or !policy.shouldRetryTransport(err)) return err;
             continue;
         };
+        if (deadline_io) |io| try ensureBeforeDeadline(io, deadline_ns.?);
+        return response;
     }
     unreachable;
+}
+
+fn requestDeadlineNs(io: std.Io, timeout_ms: u32) TransportError!i96 {
+    if (timeout_ms == 0) return error.Timeout;
+    const now_ns = std.Io.Clock.awake.now(io).nanoseconds;
+    return now_ns + @as(i96, timeout_ms) * std.time.ns_per_ms;
+}
+
+fn ensureBeforeDeadline(io: std.Io, deadline_ns: i96) TransportError!void {
+    if (std.Io.Clock.awake.now(io).nanoseconds >= deadline_ns) return error.Timeout;
+}
+
+fn remainingTimeoutMs(io: std.Io, deadline_ns: i96) TransportError!u32 {
+    const now_ns = std.Io.Clock.awake.now(io).nanoseconds;
+    if (now_ns >= deadline_ns) return error.Timeout;
+    const remaining_ns = deadline_ns - now_ns;
+    const ms = @divTrunc(remaining_ns + std.time.ns_per_ms - 1, std.time.ns_per_ms);
+    return std.math.cast(u32, ms) orelse std.math.maxInt(u32);
+}
+
+const WebSocketUrlParts = struct {
+    host: []const u8,
+    path: []const u8,
+};
+
+fn parseWebSocketUrl(url: []const u8) TransportError!WebSocketUrlParts {
+    const after_scheme = if (std.mem.startsWith(u8, url, "ws://"))
+        url["ws://".len..]
+    else if (std.mem.startsWith(u8, url, "wss://"))
+        url["wss://".len..]
+    else
+        return error.UnsupportedProtocol;
+
+    if (after_scheme.len == 0) return error.UnsupportedProtocol;
+    const slash_index = std.mem.indexOfScalar(u8, after_scheme, '/') orelse after_scheme.len;
+    if (slash_index == 0) return error.UnsupportedProtocol;
+    return .{
+        .host = after_scheme[0..slash_index],
+        .path = if (slash_index == after_scheme.len) "/" else after_scheme[slash_index..],
+    };
+}
+
+fn writeWebSocketHandshake(
+    stream: WebSocketStream,
+    parts: WebSocketUrlParts,
+    sec_websocket_key: []const u8,
+    response_scratch: []u8,
+) TransportError!void {
+    var request_buf: [512]u8 = undefined;
+    const request = std.fmt.bufPrint(
+        &request_buf,
+        "GET {s} HTTP/1.1\r\nHost: {s}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {s}\r\nSec-WebSocket-Version: 13\r\n\r\n",
+        .{ parts.path, parts.host, sec_websocket_key },
+    ) catch return error.ResponseTooLarge;
+    try stream.write(request);
+
+    const response = try readHttpHeaders(stream, response_scratch);
+    if (!std.mem.startsWith(u8, response, "HTTP/1.1 101 ") and
+        !std.mem.startsWith(u8, response, "HTTP/1.0 101 "))
+    {
+        return error.InvalidResponse;
+    }
+    if (std.mem.indexOf(u8, response, "\r\nUpgrade: websocket\r\n") == null and
+        std.mem.indexOf(u8, response, "\r\nupgrade: websocket\r\n") == null)
+    {
+        return error.InvalidResponse;
+    }
+
+    var expected_accept_buf: [28]u8 = undefined;
+    const expected_accept = websocketAcceptKey(sec_websocket_key, &expected_accept_buf);
+    var header_buf: [96]u8 = undefined;
+    var lower_header_buf: [96]u8 = undefined;
+    const accept_header = std.fmt.bufPrint(
+        &header_buf,
+        "\r\nSec-WebSocket-Accept: {s}\r\n",
+        .{expected_accept},
+    ) catch unreachable;
+    const accept_header_lower = std.fmt.bufPrint(
+        &lower_header_buf,
+        "\r\nsec-websocket-accept: {s}\r\n",
+        .{expected_accept},
+    ) catch unreachable;
+    if (std.mem.indexOf(u8, response, accept_header) == null and
+        std.mem.indexOf(u8, response, accept_header_lower) == null)
+    {
+        return error.InvalidResponse;
+    }
+}
+
+fn readHttpHeaders(stream: WebSocketStream, out: []u8) TransportError![]const u8 {
+    var len: usize = 0;
+    while (true) {
+        if (len >= out.len) return error.ResponseTooLarge;
+        const read_len = try stream.read(out[len .. len + 1]);
+        if (read_len == 0) return error.ConnectionFailed;
+        len += read_len;
+        if (len >= 4 and std.mem.eql(u8, out[len - 4 .. len], "\r\n\r\n")) {
+            return out[0..len];
+        }
+    }
+}
+
+fn websocketAcceptKey(sec_websocket_key: []const u8, out: *[28]u8) []const u8 {
+    const websocket_guid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+    var sha1 = std.crypto.hash.Sha1.init(.{});
+    sha1.update(sec_websocket_key);
+    sha1.update(websocket_guid);
+    var digest: [std.crypto.hash.Sha1.digest_length]u8 = undefined;
+    sha1.final(&digest);
+    return std.base64.standard.Encoder.encode(out, &digest);
+}
+
+fn writeWebSocketTextFrame(
+    stream: WebSocketStream,
+    payload: []const u8,
+    mask_key: [4]u8,
+    frame_scratch: []u8,
+) TransportError!void {
+    if (frame_scratch.len < payload.len) return error.ResponseTooLarge;
+
+    var header: [14]u8 = undefined;
+    var header_len: usize = 0;
+    header[0] = 0x81;
+    header_len = 1;
+    if (payload.len <= 125) {
+        header[header_len] = 0x80 | @as(u8, @intCast(payload.len));
+        header_len += 1;
+    } else if (payload.len <= std.math.maxInt(u16)) {
+        header[header_len] = 0x80 | 126;
+        header_len += 1;
+        std.mem.writeInt(u16, header[header_len..][0..2], @intCast(payload.len), .big);
+        header_len += 2;
+    } else {
+        header[header_len] = 0x80 | 127;
+        header_len += 1;
+        std.mem.writeInt(u64, header[header_len..][0..8], @intCast(payload.len), .big);
+        header_len += 8;
+    }
+    @memcpy(header[header_len..][0..4], &mask_key);
+    header_len += 4;
+
+    for (payload, 0..) |byte, i| {
+        frame_scratch[i] = byte ^ mask_key[i % 4];
+    }
+    try stream.write(header[0..header_len]);
+    try stream.write(frame_scratch[0..payload.len]);
+}
+
+fn readWebSocketTextFrame(stream: WebSocketStream, response_out: []u8) TransportError![]const u8 {
+    var header: [2]u8 = undefined;
+    try readExact(stream, &header);
+    const fin = (header[0] & 0x80) != 0;
+    const opcode = header[0] & 0x0f;
+    if (!fin or opcode != 0x1) return error.InvalidResponse;
+
+    const masked = (header[1] & 0x80) != 0;
+    var payload_len: u64 = header[1] & 0x7f;
+    if (payload_len == 126) {
+        var ext: [2]u8 = undefined;
+        try readExact(stream, &ext);
+        payload_len = std.mem.readInt(u16, &ext, .big);
+    } else if (payload_len == 127) {
+        var ext: [8]u8 = undefined;
+        try readExact(stream, &ext);
+        payload_len = std.mem.readInt(u64, &ext, .big);
+    }
+    if (payload_len > response_out.len) return error.ResponseTooLarge;
+
+    var mask_key: [4]u8 = undefined;
+    if (masked) try readExact(stream, &mask_key);
+
+    const payload = response_out[0..@intCast(payload_len)];
+    try readExact(stream, payload);
+    if (masked) {
+        for (payload, 0..) |*byte, i| {
+            byte.* ^= mask_key[i % 4];
+        }
+    }
+    return payload;
+}
+
+fn readExact(stream: WebSocketStream, out: []u8) TransportError!void {
+    var cursor: usize = 0;
+    while (cursor < out.len) {
+        const read_len = try stream.read(out[cursor..]);
+        if (read_len == 0) return error.ConnectionFailed;
+        cursor += read_len;
+    }
 }
 
 fn parseResponse(
@@ -1288,8 +1559,11 @@ test "endpoint pool validates and derives websocket urls" {
 const FakeTransport = struct {
     calls: u8 = 0,
     fail_first: bool = false,
+    sleep_ms_on_first_failure: u32 = 0,
+    deadline_io: ?std.Io = null,
     expected_body: []const u8,
     response: []const u8,
+    seen_timeouts_ms: [4]u32 = @splat(0),
 
     fn transport(self: *FakeTransport) Transport {
         return .{ .context = self, .sendFn = send };
@@ -1298,11 +1572,20 @@ const FakeTransport = struct {
     fn send(context: *anyopaque, request: TransportRequest, response_out: []u8) TransportError![]const u8 {
         const self: *FakeTransport = @ptrCast(@alignCast(context));
         self.calls += 1;
+        if (self.calls <= self.seen_timeouts_ms.len) self.seen_timeouts_ms[self.calls - 1] = request.timeout_ms;
         if (request.kind != .http_json_rpc) return error.InvalidResponse;
         if (request.method != .post) return error.InvalidResponse;
         if (!std.mem.eql(u8, "https://rpc.example", request.endpoint_url)) return error.InvalidResponse;
         if (!std.mem.eql(u8, self.expected_body, request.body)) return error.InvalidResponse;
-        if (self.fail_first and self.calls == 1) return error.Timeout;
+        if (self.fail_first and self.calls == 1) {
+            if (self.sleep_ms_on_first_failure > 0 and self.deadline_io != null) {
+                std.Io.Timeout.sleep(.{ .duration = .{
+                    .clock = .awake,
+                    .raw = .fromMilliseconds(self.sleep_ms_on_first_failure),
+                } }, self.deadline_io.?) catch return error.Timeout;
+            }
+            return error.Timeout;
+        }
         if (response_out.len < self.response.len) return error.ResponseTooLarge;
         @memcpy(response_out[0..self.response.len], self.response);
         return response_out[0..self.response.len];
@@ -1333,6 +1616,50 @@ const FakeWebSocketTransport = struct {
     }
 };
 
+const FixedMaskKeyProvider = struct {
+    key: [4]u8,
+
+    fn provider(self: *FixedMaskKeyProvider) WebSocketMaskKeyProvider {
+        return .{ .context = self, .nextFn = next };
+    }
+
+    fn next(context: *anyopaque) [4]u8 {
+        const self: *FixedMaskKeyProvider = @ptrCast(@alignCast(context));
+        return self.key;
+    }
+};
+
+const FakeWebSocketStream = struct {
+    read_bytes: []const u8,
+    read_pos: usize = 0,
+    writes: [2048]u8 = undefined,
+    write_len: usize = 0,
+
+    fn stream(self: *FakeWebSocketStream) WebSocketStream {
+        return .{
+            .context = self,
+            .readFn = read,
+            .writeFn = write,
+        };
+    }
+
+    fn read(context: *anyopaque, out: []u8) TransportError!usize {
+        const self: *FakeWebSocketStream = @ptrCast(@alignCast(context));
+        if (self.read_pos >= self.read_bytes.len) return 0;
+        const len = @min(out.len, self.read_bytes.len - self.read_pos);
+        @memcpy(out[0..len], self.read_bytes[self.read_pos..][0..len]);
+        self.read_pos += len;
+        return len;
+    }
+
+    fn write(context: *anyopaque, bytes: []const u8) TransportError!void {
+        const self: *FakeWebSocketStream = @ptrCast(@alignCast(context));
+        if (self.write_len + bytes.len > self.writes.len) return error.ResponseTooLarge;
+        @memcpy(self.writes[self.write_len..][0..bytes.len], bytes);
+        self.write_len += bytes.len;
+    }
+};
+
 test "client sends through transport and retries retryable failures" {
     const expected_body =
         "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"getBalance\",\"params\":[\"11111111111111111111111111111111\",{\"commitment\":\"confirmed\"}]}";
@@ -1358,6 +1685,156 @@ test "client sends through transport and retries retryable failures" {
     );
     try std.testing.expectEqual(@as(u8, 2), fake.calls);
     try std.testing.expectEqualStrings(response_json, response);
+}
+
+test "client deadline rejects expired requests before transport use" {
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+
+    const expected_body =
+        "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"getBalance\",\"params\":[\"11111111111111111111111111111111\",{\"commitment\":\"confirmed\"}]}";
+    var fake = FakeTransport{
+        .expected_body = expected_body,
+        .response = "{}",
+    };
+    const client: Client = .{
+        .endpoint = .{ .url = "https://rpc.example", .default_commitment = .confirmed },
+        .transport = fake.transport(),
+        .config = .{
+            .request_timeout_ms = 0,
+            .deadline_io = threaded.io(),
+        },
+    };
+    var request_buf: [160]u8 = undefined;
+    var response_buf: [16]u8 = undefined;
+    try std.testing.expectError(error.Timeout, client.getBalance(
+        7,
+        "11111111111111111111111111111111",
+        &request_buf,
+        &response_buf,
+    ));
+    try std.testing.expectEqual(@as(u8, 0), fake.calls);
+}
+
+test "client deadline clamps retry attempt timeout and stops after budget expires" {
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+
+    const expected_body =
+        "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"getBalance\",\"params\":[\"11111111111111111111111111111111\",{\"commitment\":\"confirmed\"}]}";
+    const response_json =
+        "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"slot\":1},\"value\":2},\"id\":7}";
+
+    var fake_retry = FakeTransport{
+        .fail_first = true,
+        .sleep_ms_on_first_failure = 5,
+        .deadline_io = threaded.io(),
+        .expected_body = expected_body,
+        .response = response_json,
+    };
+    const retry_client: Client = .{
+        .endpoint = .{ .url = "https://rpc.example", .default_commitment = .confirmed },
+        .transport = fake_retry.transport(),
+        .config = .{
+            .request_timeout_ms = 50,
+            .retry_policy = .{ .max_attempts = 2 },
+            .deadline_io = threaded.io(),
+        },
+    };
+    var request_buf: [160]u8 = undefined;
+    var response_buf: [160]u8 = undefined;
+    _ = try retry_client.getBalance(
+        7,
+        "11111111111111111111111111111111",
+        &request_buf,
+        &response_buf,
+    );
+    try std.testing.expectEqual(@as(u8, 2), fake_retry.calls);
+    try std.testing.expect(fake_retry.seen_timeouts_ms[0] <= 50);
+    try std.testing.expect(fake_retry.seen_timeouts_ms[1] < fake_retry.seen_timeouts_ms[0]);
+
+    var fake_expired = FakeTransport{
+        .fail_first = true,
+        .sleep_ms_on_first_failure = 10,
+        .deadline_io = threaded.io(),
+        .expected_body = expected_body,
+        .response = response_json,
+    };
+    const expired_client: Client = .{
+        .endpoint = .{ .url = "https://rpc.example", .default_commitment = .confirmed },
+        .transport = fake_expired.transport(),
+        .config = .{
+            .request_timeout_ms = 5,
+            .retry_policy = .{ .max_attempts = 2 },
+            .deadline_io = threaded.io(),
+        },
+    };
+    try std.testing.expectError(error.Timeout, expired_client.getBalance(
+        7,
+        "11111111111111111111111111111111",
+        &request_buf,
+        &response_buf,
+    ));
+    try std.testing.expectEqual(@as(u8, 1), fake_expired.calls);
+}
+
+test "websocket transport performs handshake writes masked request and reads text response" {
+    const request_body =
+        "{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"slotSubscribe\"}";
+    const response_json =
+        "{\"jsonrpc\":\"2.0\",\"result\":42,\"id\":10}";
+    const handshake_response =
+        "HTTP/1.1 101 Switching Protocols\r\n" ++
+        "Upgrade: websocket\r\n" ++
+        "Connection: Upgrade\r\n" ++
+        "Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n" ++
+        "\r\n";
+
+    var read_buf: [512]u8 = undefined;
+    var read_len: usize = 0;
+    @memcpy(read_buf[read_len..][0..handshake_response.len], handshake_response);
+    read_len += handshake_response.len;
+    read_buf[read_len] = 0x81;
+    read_len += 1;
+    read_buf[read_len] = @intCast(response_json.len);
+    read_len += 1;
+    @memcpy(read_buf[read_len..][0..response_json.len], response_json);
+    read_len += response_json.len;
+
+    var fake_stream: FakeWebSocketStream = .{ .read_bytes = read_buf[0..read_len] };
+    var mask_provider: FixedMaskKeyProvider = .{ .key = .{ 1, 2, 3, 4 } };
+    var handshake_scratch: [512]u8 = undefined;
+    var frame_scratch: [256]u8 = undefined;
+    var ws_transport: WebSocketTransport = .{
+        .stream = fake_stream.stream(),
+        .mask_key_provider = mask_provider.provider(),
+        .sec_websocket_key = "dGhlIHNhbXBsZSBub25jZQ==",
+        .handshake_scratch = &handshake_scratch,
+        .frame_scratch = &frame_scratch,
+    };
+
+    var response_buf: [128]u8 = undefined;
+    const response = try ws_transport.transport().send(.{
+        .kind = .websocket_json_rpc,
+        .method = .post,
+        .endpoint_url = "wss://rpc.example/solana",
+        .body = request_body,
+        .timeout_ms = 30_000,
+    }, &response_buf);
+    try std.testing.expectEqualStrings(response_json, response);
+
+    const written = fake_stream.writes[0..fake_stream.write_len];
+    try std.testing.expect(std.mem.indexOf(u8, written, "GET /solana HTTP/1.1\r\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, written, "Host: rpc.example\r\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, written, "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n") != null);
+
+    const frame_start = (std.mem.indexOf(u8, written, "\r\n\r\n") orelse return error.InvalidResponse) + 4;
+    try std.testing.expectEqual(@as(u8, 0x81), written[frame_start]);
+    try std.testing.expectEqual(@as(u8, 0x80 | @as(u8, @intCast(request_body.len))), written[frame_start + 1]);
+    try std.testing.expectEqualSlices(u8, &mask_provider.key, written[frame_start + 2 .. frame_start + 6]);
+    for (request_body, 0..) |byte, i| {
+        try std.testing.expectEqual(byte ^ mask_provider.key[i % 4], written[frame_start + 6 + i]);
+    }
 }
 
 test "client sends websocket subscription requests through websocket transport" {
@@ -1426,6 +1903,7 @@ test "public surface guards" {
     try std.testing.expectEqualStrings("base64+zstd", AccountEncoding.base64_zstd.jsonName());
     try std.testing.expectEqual(@as(usize, sol.PUBKEY_BYTES), @sizeOf(Pubkey));
     try std.testing.expect(@hasDecl(@This(), "StdHttpTransport"));
+    try std.testing.expect(@hasDecl(@This(), "WebSocketTransport"));
     try std.testing.expect(@hasDecl(@This(), "buildGetAccountInfoRequest"));
     try std.testing.expect(@hasDecl(@This(), "parseGetAccountInfoResponse"));
     try std.testing.expect(@hasDecl(@This(), "decodeAccountInfoBase64Data"));

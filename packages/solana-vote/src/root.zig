@@ -2,19 +2,26 @@
 
 const std = @import("std");
 const sol = @import("solana_program_sdk");
+const codec = @import("solana_codec");
 
 pub const Pubkey = sol.Pubkey;
+pub const Hash = [32]u8;
+pub const Slot = u64;
+pub const UnixTimestamp = i64;
 pub const AccountMeta = sol.cpi.AccountMeta;
 pub const Instruction = sol.cpi.Instruction;
 
 pub const PROGRAM_ID: Pubkey = sol.pubkey.comptimeFromBase58("Vote111111111111111111111111111111111111111");
 pub const CLOCK_ID: Pubkey = sol.pubkey.comptimeFromBase58("SysvarC1ock11111111111111111111111111111111");
+pub const SLOT_HASHES_ID: Pubkey = sol.slot_hashes_id;
 pub const RENT_ID: Pubkey = sol.rent_id;
 pub const MAX_SEED_LEN: usize = sol.pda.MAX_SEED_LEN;
 
-pub const Error = error{
+pub const Error = codec.Error || error{
     BufferTooSmall,
     SeedTooLong,
+    InvalidVoteLockout,
+    ConfirmationCountTooLarge,
 };
 
 pub const VoteAuthorize = enum(u32) {
@@ -27,6 +34,32 @@ pub const VoteInit = struct {
     authorized_voter: Pubkey,
     authorized_withdrawer: Pubkey,
     commission: u8,
+};
+
+pub const Vote = struct {
+    slots: []const Slot,
+    hash: Hash,
+    timestamp: ?UnixTimestamp = null,
+};
+
+pub const Lockout = struct {
+    slot: Slot,
+    confirmation_count: u32,
+};
+
+pub const VoteStateUpdate = struct {
+    lockouts: []const Lockout,
+    root: ?Slot = null,
+    hash: Hash,
+    timestamp: ?UnixTimestamp = null,
+};
+
+pub const TowerSync = struct {
+    lockouts: []const Lockout,
+    root: ?Slot = null,
+    hash: Hash,
+    timestamp: ?UnixTimestamp = null,
+    block_id: Hash,
 };
 
 pub const VoteInstruction = enum(u32) {
@@ -201,12 +234,232 @@ pub fn withdraw(
     return instruction(metas[0..], data);
 }
 
+pub fn voteRaw(
+    vote_account: *const Pubkey,
+    authorized_voter: *const Pubkey,
+    vote_payload: []const u8,
+    metas: *[4]AccountMeta,
+    data: []u8,
+) Error!Instruction {
+    const written = try writePayloadData(.vote, vote_payload, data);
+    setVoteSubmitMetas(vote_account, authorized_voter, metas);
+    return instruction(metas[0..], data[0..written]);
+}
+
+pub fn vote(
+    vote_account: *const Pubkey,
+    authorized_voter: *const Pubkey,
+    vote_payload: Vote,
+    metas: *[4]AccountMeta,
+    data: []u8,
+) Error!Instruction {
+    const written = try writeVoteInstructionData(.vote, vote_payload, data);
+    setVoteSubmitMetas(vote_account, authorized_voter, metas);
+    return instruction(metas[0..], data[0..written]);
+}
+
+pub fn voteSwitch(
+    vote_account: *const Pubkey,
+    authorized_voter: *const Pubkey,
+    vote_payload: Vote,
+    proof_hash: *const Hash,
+    metas: *[4]AccountMeta,
+    data: []u8,
+) Error!Instruction {
+    const written = try writeVoteInstructionWithHashData(.vote_switch, vote_payload, proof_hash, data);
+    setVoteSubmitMetas(vote_account, authorized_voter, metas);
+    return instruction(metas[0..], data[0..written]);
+}
+
+pub fn voteSwitchRaw(
+    vote_account: *const Pubkey,
+    authorized_voter: *const Pubkey,
+    vote_payload: []const u8,
+    proof_hash: *const Hash,
+    metas: *[4]AccountMeta,
+    data: []u8,
+) Error!Instruction {
+    const written = try writePayloadWithHashData(.vote_switch, vote_payload, proof_hash, data);
+    setVoteSubmitMetas(vote_account, authorized_voter, metas);
+    return instruction(metas[0..], data[0..written]);
+}
+
+pub fn updateVoteStateRaw(
+    vote_account: *const Pubkey,
+    authorized_voter: *const Pubkey,
+    vote_state_update_payload: []const u8,
+    metas: *[2]AccountMeta,
+    data: []u8,
+) Error!Instruction {
+    const written = try writePayloadData(.update_vote_state, vote_state_update_payload, data);
+    setVoteStateUpdateMetas(vote_account, authorized_voter, metas);
+    return instruction(metas[0..], data[0..written]);
+}
+
+pub fn updateVoteState(
+    vote_account: *const Pubkey,
+    authorized_voter: *const Pubkey,
+    vote_state_update: VoteStateUpdate,
+    metas: *[2]AccountMeta,
+    data: []u8,
+) Error!Instruction {
+    const written = try writeVoteStateUpdateInstructionData(.update_vote_state, vote_state_update, data);
+    setVoteStateUpdateMetas(vote_account, authorized_voter, metas);
+    return instruction(metas[0..], data[0..written]);
+}
+
+pub fn updateVoteStateSwitch(
+    vote_account: *const Pubkey,
+    authorized_voter: *const Pubkey,
+    vote_state_update: VoteStateUpdate,
+    proof_hash: *const Hash,
+    metas: *[2]AccountMeta,
+    data: []u8,
+) Error!Instruction {
+    const written = try writeVoteStateUpdateInstructionWithHashData(.update_vote_state_switch, vote_state_update, proof_hash, data);
+    setVoteStateUpdateMetas(vote_account, authorized_voter, metas);
+    return instruction(metas[0..], data[0..written]);
+}
+
+pub fn updateVoteStateSwitchRaw(
+    vote_account: *const Pubkey,
+    authorized_voter: *const Pubkey,
+    vote_state_update_payload: []const u8,
+    proof_hash: *const Hash,
+    metas: *[2]AccountMeta,
+    data: []u8,
+) Error!Instruction {
+    const written = try writePayloadWithHashData(.update_vote_state_switch, vote_state_update_payload, proof_hash, data);
+    setVoteStateUpdateMetas(vote_account, authorized_voter, metas);
+    return instruction(metas[0..], data[0..written]);
+}
+
+pub fn compactUpdateVoteStateRaw(
+    vote_account: *const Pubkey,
+    authorized_voter: *const Pubkey,
+    compact_vote_state_update_payload: []const u8,
+    metas: *[2]AccountMeta,
+    data: []u8,
+) Error!Instruction {
+    const written = try writePayloadData(.compact_update_vote_state, compact_vote_state_update_payload, data);
+    setVoteStateUpdateMetas(vote_account, authorized_voter, metas);
+    return instruction(metas[0..], data[0..written]);
+}
+
+pub fn compactUpdateVoteState(
+    vote_account: *const Pubkey,
+    authorized_voter: *const Pubkey,
+    vote_state_update: VoteStateUpdate,
+    metas: *[2]AccountMeta,
+    data: []u8,
+) Error!Instruction {
+    const written = try writeCompactVoteStateUpdateInstructionData(.compact_update_vote_state, vote_state_update, data);
+    setVoteStateUpdateMetas(vote_account, authorized_voter, metas);
+    return instruction(metas[0..], data[0..written]);
+}
+
+pub fn compactUpdateVoteStateSwitch(
+    vote_account: *const Pubkey,
+    authorized_voter: *const Pubkey,
+    vote_state_update: VoteStateUpdate,
+    proof_hash: *const Hash,
+    metas: *[2]AccountMeta,
+    data: []u8,
+) Error!Instruction {
+    const written = try writeCompactVoteStateUpdateInstructionWithHashData(.compact_update_vote_state_switch, vote_state_update, proof_hash, data);
+    setVoteStateUpdateMetas(vote_account, authorized_voter, metas);
+    return instruction(metas[0..], data[0..written]);
+}
+
+pub fn compactUpdateVoteStateSwitchRaw(
+    vote_account: *const Pubkey,
+    authorized_voter: *const Pubkey,
+    compact_vote_state_update_payload: []const u8,
+    proof_hash: *const Hash,
+    metas: *[2]AccountMeta,
+    data: []u8,
+) Error!Instruction {
+    const written = try writePayloadWithHashData(.compact_update_vote_state_switch, compact_vote_state_update_payload, proof_hash, data);
+    setVoteStateUpdateMetas(vote_account, authorized_voter, metas);
+    return instruction(metas[0..], data[0..written]);
+}
+
+pub fn towerSyncRaw(
+    vote_account: *const Pubkey,
+    authorized_voter: *const Pubkey,
+    tower_sync_payload: []const u8,
+    metas: *[2]AccountMeta,
+    data: []u8,
+) Error!Instruction {
+    const written = try writePayloadData(.tower_sync, tower_sync_payload, data);
+    setVoteStateUpdateMetas(vote_account, authorized_voter, metas);
+    return instruction(metas[0..], data[0..written]);
+}
+
+pub fn towerSync(
+    vote_account: *const Pubkey,
+    authorized_voter: *const Pubkey,
+    tower_sync: TowerSync,
+    metas: *[2]AccountMeta,
+    data: []u8,
+) Error!Instruction {
+    const written = try writeTowerSyncInstructionData(.tower_sync, tower_sync, data);
+    setVoteStateUpdateMetas(vote_account, authorized_voter, metas);
+    return instruction(metas[0..], data[0..written]);
+}
+
+pub fn towerSyncSwitch(
+    vote_account: *const Pubkey,
+    authorized_voter: *const Pubkey,
+    tower_sync: TowerSync,
+    proof_hash: *const Hash,
+    metas: *[2]AccountMeta,
+    data: []u8,
+) Error!Instruction {
+    const written = try writeTowerSyncInstructionWithHashData(.tower_sync_switch, tower_sync, proof_hash, data);
+    setVoteStateUpdateMetas(vote_account, authorized_voter, metas);
+    return instruction(metas[0..], data[0..written]);
+}
+
+pub fn towerSyncSwitchRaw(
+    vote_account: *const Pubkey,
+    authorized_voter: *const Pubkey,
+    tower_sync_payload: []const u8,
+    proof_hash: *const Hash,
+    metas: *[2]AccountMeta,
+    data: []u8,
+) Error!Instruction {
+    const written = try writePayloadWithHashData(.tower_sync_switch, tower_sync_payload, proof_hash, data);
+    setVoteStateUpdateMetas(vote_account, authorized_voter, metas);
+    return instruction(metas[0..], data[0..written]);
+}
+
 fn instruction(accounts: []const AccountMeta, data: []const u8) Instruction {
     return .{
         .program_id = &PROGRAM_ID,
         .accounts = accounts,
         .data = data,
     };
+}
+
+fn setVoteSubmitMetas(
+    vote_account: *const Pubkey,
+    authorized_voter: *const Pubkey,
+    metas: *[4]AccountMeta,
+) void {
+    metas[0] = AccountMeta.writable(vote_account);
+    metas[1] = AccountMeta.readonly(&SLOT_HASHES_ID);
+    metas[2] = AccountMeta.readonly(&CLOCK_ID);
+    metas[3] = AccountMeta.signer(authorized_voter);
+}
+
+fn setVoteStateUpdateMetas(
+    vote_account: *const Pubkey,
+    authorized_voter: *const Pubkey,
+    metas: *[2]AccountMeta,
+) void {
+    metas[0] = AccountMeta.writable(vote_account);
+    metas[1] = AccountMeta.signer(authorized_voter);
 }
 
 fn writeInitializeAccountData(vote_init: VoteInit, data: *InitializeAccountData) void {
@@ -245,7 +498,7 @@ fn writeAuthorizeWithSeedData(
     std.mem.writeInt(u32, data[4..8], @intFromEnum(vote_authorize), .little);
     @memcpy(data[8..40], current_authority_owner);
     var cursor: usize = 40;
-    cursor += try writeBincodeString(data[cursor..], current_authority_seed);
+    cursor += try codec.writeBincodeString(data[cursor..], current_authority_seed);
     @memcpy(data[cursor .. cursor + 32], new_authority);
     return cursor + 32;
 }
@@ -262,15 +515,179 @@ fn writeAuthorizeCheckedWithSeedData(
     std.mem.writeInt(u32, data[4..8], @intFromEnum(vote_authorize), .little);
     @memcpy(data[8..40], current_authority_owner);
     var cursor: usize = 40;
-    cursor += try writeBincodeString(data[cursor..], current_authority_seed);
+    cursor += try codec.writeBincodeString(data[cursor..], current_authority_seed);
     return cursor;
 }
 
-fn writeBincodeString(data: []u8, value: []const u8) Error!usize {
-    if (data.len < 8 + value.len) return error.BufferTooSmall;
-    std.mem.writeInt(u64, data[0..8], @intCast(value.len), .little);
-    @memcpy(data[8 .. 8 + value.len], value);
-    return 8 + value.len;
+fn writePayloadData(tag: VoteInstruction, payload: []const u8, data: []u8) Error!usize {
+    if (data.len < 4 + payload.len) return error.BufferTooSmall;
+    writeDiscriminant(tag, data[0..4]);
+    @memcpy(data[4..][0..payload.len], payload);
+    return 4 + payload.len;
+}
+
+fn writePayloadWithHashData(
+    tag: VoteInstruction,
+    payload: []const u8,
+    proof_hash: *const Hash,
+    data: []u8,
+) Error!usize {
+    const payload_end = try writePayloadData(tag, payload, data);
+    if (data.len < payload_end + proof_hash.len) return error.BufferTooSmall;
+    @memcpy(data[payload_end..][0..proof_hash.len], proof_hash);
+    return payload_end + proof_hash.len;
+}
+
+pub fn writeVotePayload(vote_payload: Vote, data: []u8) Error!usize {
+    var cursor: usize = 0;
+    cursor += try codec.writeBincodeLen(data[cursor..], vote_payload.slots.len);
+    for (vote_payload.slots) |slot| {
+        cursor += try codec.writeBincodeU64(data[cursor..], slot);
+    }
+    cursor += try writeHash(data[cursor..], &vote_payload.hash);
+    cursor += try codec.writeBincodeOptionI64(data[cursor..], vote_payload.timestamp);
+    return cursor;
+}
+
+pub fn writeVoteStateUpdatePayload(vote_state_update: VoteStateUpdate, data: []u8) Error!usize {
+    var cursor = try writeLockouts(vote_state_update.lockouts, data);
+    cursor += try codec.writeBincodeOptionU64(data[cursor..], vote_state_update.root);
+    cursor += try writeHash(data[cursor..], &vote_state_update.hash);
+    cursor += try codec.writeBincodeOptionI64(data[cursor..], vote_state_update.timestamp);
+    return cursor;
+}
+
+pub fn writeCompactVoteStateUpdatePayload(vote_state_update: VoteStateUpdate, data: []u8) Error!usize {
+    var cursor: usize = 0;
+    cursor += try codec.writeBincodeU64(data[cursor..], vote_state_update.root orelse std.math.maxInt(Slot));
+    cursor += try writeCompactLockoutOffsets(vote_state_update.lockouts, vote_state_update.root, data[cursor..]);
+    cursor += try writeHash(data[cursor..], &vote_state_update.hash);
+    cursor += try codec.writeBincodeOptionI64(data[cursor..], vote_state_update.timestamp);
+    return cursor;
+}
+
+pub fn writeTowerSyncPayload(tower_sync: TowerSync, data: []u8) Error!usize {
+    var cursor: usize = 0;
+    cursor += try codec.writeBincodeU64(data[cursor..], tower_sync.root orelse std.math.maxInt(Slot));
+    cursor += try writeCompactLockoutOffsets(tower_sync.lockouts, tower_sync.root, data[cursor..]);
+    cursor += try writeHash(data[cursor..], &tower_sync.hash);
+    cursor += try codec.writeBincodeOptionI64(data[cursor..], tower_sync.timestamp);
+    cursor += try writeHash(data[cursor..], &tower_sync.block_id);
+    return cursor;
+}
+
+fn writeVoteInstructionData(tag: VoteInstruction, vote_payload: Vote, data: []u8) Error!usize {
+    if (data.len < 4) return error.BufferTooSmall;
+    writeDiscriminant(tag, data[0..4]);
+    return 4 + try writeVotePayload(vote_payload, data[4..]);
+}
+
+fn writeVoteInstructionWithHashData(
+    tag: VoteInstruction,
+    vote_payload: Vote,
+    proof_hash: *const Hash,
+    data: []u8,
+) Error!usize {
+    const payload_end = try writeVoteInstructionData(tag, vote_payload, data);
+    if (data.len < payload_end + proof_hash.len) return error.BufferTooSmall;
+    @memcpy(data[payload_end..][0..proof_hash.len], proof_hash);
+    return payload_end + proof_hash.len;
+}
+
+fn writeVoteStateUpdateInstructionData(
+    tag: VoteInstruction,
+    vote_state_update: VoteStateUpdate,
+    data: []u8,
+) Error!usize {
+    if (data.len < 4) return error.BufferTooSmall;
+    writeDiscriminant(tag, data[0..4]);
+    return 4 + try writeVoteStateUpdatePayload(vote_state_update, data[4..]);
+}
+
+fn writeVoteStateUpdateInstructionWithHashData(
+    tag: VoteInstruction,
+    vote_state_update: VoteStateUpdate,
+    proof_hash: *const Hash,
+    data: []u8,
+) Error!usize {
+    const payload_end = try writeVoteStateUpdateInstructionData(tag, vote_state_update, data);
+    if (data.len < payload_end + proof_hash.len) return error.BufferTooSmall;
+    @memcpy(data[payload_end..][0..proof_hash.len], proof_hash);
+    return payload_end + proof_hash.len;
+}
+
+fn writeCompactVoteStateUpdateInstructionData(
+    tag: VoteInstruction,
+    vote_state_update: VoteStateUpdate,
+    data: []u8,
+) Error!usize {
+    if (data.len < 4) return error.BufferTooSmall;
+    writeDiscriminant(tag, data[0..4]);
+    return 4 + try writeCompactVoteStateUpdatePayload(vote_state_update, data[4..]);
+}
+
+fn writeCompactVoteStateUpdateInstructionWithHashData(
+    tag: VoteInstruction,
+    vote_state_update: VoteStateUpdate,
+    proof_hash: *const Hash,
+    data: []u8,
+) Error!usize {
+    const payload_end = try writeCompactVoteStateUpdateInstructionData(tag, vote_state_update, data);
+    if (data.len < payload_end + proof_hash.len) return error.BufferTooSmall;
+    @memcpy(data[payload_end..][0..proof_hash.len], proof_hash);
+    return payload_end + proof_hash.len;
+}
+
+fn writeTowerSyncInstructionData(tag: VoteInstruction, tower_sync: TowerSync, data: []u8) Error!usize {
+    if (data.len < 4) return error.BufferTooSmall;
+    writeDiscriminant(tag, data[0..4]);
+    return 4 + try writeTowerSyncPayload(tower_sync, data[4..]);
+}
+
+fn writeTowerSyncInstructionWithHashData(
+    tag: VoteInstruction,
+    tower_sync: TowerSync,
+    proof_hash: *const Hash,
+    data: []u8,
+) Error!usize {
+    const payload_end = try writeTowerSyncInstructionData(tag, tower_sync, data);
+    if (data.len < payload_end + proof_hash.len) return error.BufferTooSmall;
+    @memcpy(data[payload_end..][0..proof_hash.len], proof_hash);
+    return payload_end + proof_hash.len;
+}
+
+fn writeLockouts(lockouts: []const Lockout, data: []u8) Error!usize {
+    var cursor: usize = 0;
+    cursor += try codec.writeBincodeLen(data[cursor..], lockouts.len);
+    for (lockouts) |lockout| {
+        cursor += try codec.writeBincodeU64(data[cursor..], lockout.slot);
+        cursor += try codec.writeBincodeU32(data[cursor..], lockout.confirmation_count);
+    }
+    return cursor;
+}
+
+fn writeCompactLockoutOffsets(lockouts: []const Lockout, root: ?Slot, data: []u8) Error!usize {
+    var cursor: usize = 0;
+    cursor += try codec.writeShortVec(lockouts.len, data[cursor..]);
+
+    var previous_slot: Slot = root orelse 0;
+    for (lockouts) |lockout| {
+        if (lockout.slot < previous_slot) return error.InvalidVoteLockout;
+        if (lockout.confirmation_count > std.math.maxInt(u8)) return error.ConfirmationCountTooLarge;
+
+        cursor += try codec.writeVarintU64(data[cursor..], lockout.slot - previous_slot);
+        if (data.len < cursor + 1) return error.BufferTooSmall;
+        data[cursor] = @intCast(lockout.confirmation_count);
+        cursor += 1;
+        previous_slot = lockout.slot;
+    }
+    return cursor;
+}
+
+fn writeHash(data: []u8, hash: *const Hash) Error!usize {
+    if (data.len < hash.len) return error.BufferTooSmall;
+    @memcpy(data[0..hash.len], hash);
+    return hash.len;
 }
 
 fn writeDiscriminant(tag: VoteInstruction, data: []u8) void {
@@ -399,6 +816,184 @@ test "account management builders encode canonical discriminants and metas" {
     try std.testing.expectEqual(@as(u8, 1), withdraw_ix.accounts[2].is_signer);
 }
 
+test "runtime vote raw builders encode discriminants payloads and canonical metas" {
+    const vote_account: Pubkey = .{1} ** 32;
+    const voter: Pubkey = .{2} ** 32;
+    const payload = [_]u8{ 0xaa, 0xbb, 0xcc };
+    const proof_hash: Hash = .{9} ** 32;
+    var metas: [4]AccountMeta = undefined;
+    var data: [64]u8 = undefined;
+
+    const vote_ix = try voteRaw(&vote_account, &voter, &payload, &metas, &data);
+    try std.testing.expectEqual(@as(usize, 4), vote_ix.accounts.len);
+    try std.testing.expectEqualSlices(u8, &vote_account, vote_ix.accounts[0].pubkey);
+    try std.testing.expectEqual(@as(u8, 1), vote_ix.accounts[0].is_writable);
+    try std.testing.expectEqualSlices(u8, &SLOT_HASHES_ID, vote_ix.accounts[1].pubkey);
+    try std.testing.expectEqualSlices(u8, &CLOCK_ID, vote_ix.accounts[2].pubkey);
+    try std.testing.expectEqualSlices(u8, &voter, vote_ix.accounts[3].pubkey);
+    try std.testing.expectEqual(@as(u8, 1), vote_ix.accounts[3].is_signer);
+    try std.testing.expectEqual(@as(u32, 2), std.mem.readInt(u32, vote_ix.data[0..4], .little));
+    try std.testing.expectEqualSlices(u8, &payload, vote_ix.data[4..7]);
+
+    const switch_ix = try voteSwitchRaw(&vote_account, &voter, &payload, &proof_hash, &metas, &data);
+    try std.testing.expectEqual(@as(u32, 6), std.mem.readInt(u32, switch_ix.data[0..4], .little));
+    try std.testing.expectEqualSlices(u8, &payload, switch_ix.data[4..7]);
+    try std.testing.expectEqualSlices(u8, &proof_hash, switch_ix.data[7..39]);
+    try std.testing.expectError(error.BufferTooSmall, voteSwitchRaw(&vote_account, &voter, &payload, &proof_hash, &metas, data[0..38]));
+}
+
+test "typed vote builders encode bincode Vote payloads" {
+    const vote_account: Pubkey = .{1} ** 32;
+    const voter: Pubkey = .{2} ** 32;
+    const slots = [_]Slot{ 10, 11 };
+    const hash: Hash = .{9} ** 32;
+    const proof_hash: Hash = .{7} ** 32;
+    const vote_payload: Vote = .{ .slots = &slots, .hash = hash, .timestamp = -5 };
+    var metas: [4]AccountMeta = undefined;
+    var data: [128]u8 = undefined;
+
+    const vote_ix = try vote(&vote_account, &voter, vote_payload, &metas, &data);
+    try std.testing.expectEqual(@as(usize, 69), vote_ix.data.len);
+    try std.testing.expectEqual(@as(u32, 2), std.mem.readInt(u32, vote_ix.data[0..4], .little));
+    try std.testing.expectEqual(@as(u64, 2), std.mem.readInt(u64, vote_ix.data[4..12], .little));
+    try std.testing.expectEqual(@as(u64, 10), std.mem.readInt(u64, vote_ix.data[12..20], .little));
+    try std.testing.expectEqual(@as(u64, 11), std.mem.readInt(u64, vote_ix.data[20..28], .little));
+    try std.testing.expectEqualSlices(u8, &hash, vote_ix.data[28..60]);
+    try std.testing.expectEqual(@as(u8, 1), vote_ix.data[60]);
+    try std.testing.expectEqual(@as(i64, -5), std.mem.readInt(i64, vote_ix.data[61..69], .little));
+    try std.testing.expectEqualSlices(u8, &SLOT_HASHES_ID, vote_ix.accounts[1].pubkey);
+    try std.testing.expectEqualSlices(u8, &CLOCK_ID, vote_ix.accounts[2].pubkey);
+
+    const switch_ix = try voteSwitch(&vote_account, &voter, vote_payload, &proof_hash, &metas, &data);
+    try std.testing.expectEqual(@as(u32, 6), std.mem.readInt(u32, switch_ix.data[0..4], .little));
+    try std.testing.expectEqualSlices(u8, &proof_hash, switch_ix.data[69..101]);
+    try std.testing.expectError(error.BufferTooSmall, vote(&vote_account, &voter, vote_payload, &metas, data[0..68]));
+}
+
+test "vote-state and tower raw builders encode discriminants and two-account metas" {
+    const vote_account: Pubkey = .{1} ** 32;
+    const voter: Pubkey = .{2} ** 32;
+    const payload = [_]u8{ 0x11, 0x22 };
+    const proof_hash: Hash = .{7} ** 32;
+    var metas: [2]AccountMeta = undefined;
+    var data: [64]u8 = undefined;
+
+    const update_ix = try updateVoteStateRaw(&vote_account, &voter, &payload, &metas, &data);
+    try std.testing.expectEqual(@as(usize, 2), update_ix.accounts.len);
+    try std.testing.expectEqualSlices(u8, &vote_account, update_ix.accounts[0].pubkey);
+    try std.testing.expectEqual(@as(u8, 1), update_ix.accounts[0].is_writable);
+    try std.testing.expectEqualSlices(u8, &voter, update_ix.accounts[1].pubkey);
+    try std.testing.expectEqual(@as(u8, 1), update_ix.accounts[1].is_signer);
+    try std.testing.expectEqual(@as(u32, 8), std.mem.readInt(u32, update_ix.data[0..4], .little));
+    try std.testing.expectEqualSlices(u8, &payload, update_ix.data[4..6]);
+
+    const update_switch_ix = try updateVoteStateSwitchRaw(&vote_account, &voter, &payload, &proof_hash, &metas, &data);
+    try std.testing.expectEqual(@as(u32, 9), std.mem.readInt(u32, update_switch_ix.data[0..4], .little));
+    try std.testing.expectEqualSlices(u8, &proof_hash, update_switch_ix.data[6..38]);
+
+    const compact_ix = try compactUpdateVoteStateRaw(&vote_account, &voter, &payload, &metas, &data);
+    try std.testing.expectEqual(@as(u32, 12), std.mem.readInt(u32, compact_ix.data[0..4], .little));
+
+    const compact_switch_ix = try compactUpdateVoteStateSwitchRaw(&vote_account, &voter, &payload, &proof_hash, &metas, &data);
+    try std.testing.expectEqual(@as(u32, 13), std.mem.readInt(u32, compact_switch_ix.data[0..4], .little));
+    try std.testing.expectEqualSlices(u8, &proof_hash, compact_switch_ix.data[6..38]);
+
+    const tower_ix = try towerSyncRaw(&vote_account, &voter, &payload, &metas, &data);
+    try std.testing.expectEqual(@as(u32, 14), std.mem.readInt(u32, tower_ix.data[0..4], .little));
+
+    const tower_switch_ix = try towerSyncSwitchRaw(&vote_account, &voter, &payload, &proof_hash, &metas, &data);
+    try std.testing.expectEqual(@as(u32, 15), std.mem.readInt(u32, tower_switch_ix.data[0..4], .little));
+    try std.testing.expectEqualSlices(u8, &proof_hash, tower_switch_ix.data[6..38]);
+}
+
+test "typed vote-state builders encode bincode and compact payloads" {
+    const vote_account: Pubkey = .{1} ** 32;
+    const voter: Pubkey = .{2} ** 32;
+    const hash: Hash = .{8} ** 32;
+    const proof_hash: Hash = .{7} ** 32;
+    const lockouts = [_]Lockout{
+        .{ .slot = 100, .confirmation_count = 3 },
+        .{ .slot = 105, .confirmation_count = 4 },
+    };
+    const update: VoteStateUpdate = .{ .lockouts = &lockouts, .root = 90, .hash = hash };
+    var metas: [2]AccountMeta = undefined;
+    var data: [128]u8 = undefined;
+
+    const update_ix = try updateVoteState(&vote_account, &voter, update, &metas, &data);
+    try std.testing.expectEqual(@as(usize, 78), update_ix.data.len);
+    try std.testing.expectEqual(@as(u32, 8), std.mem.readInt(u32, update_ix.data[0..4], .little));
+    try std.testing.expectEqual(@as(u64, 2), std.mem.readInt(u64, update_ix.data[4..12], .little));
+    try std.testing.expectEqual(@as(u64, 100), std.mem.readInt(u64, update_ix.data[12..20], .little));
+    try std.testing.expectEqual(@as(u32, 3), std.mem.readInt(u32, update_ix.data[20..24], .little));
+    try std.testing.expectEqual(@as(u64, 105), std.mem.readInt(u64, update_ix.data[24..32], .little));
+    try std.testing.expectEqual(@as(u32, 4), std.mem.readInt(u32, update_ix.data[32..36], .little));
+    try std.testing.expectEqual(@as(u8, 1), update_ix.data[36]);
+    try std.testing.expectEqual(@as(u64, 90), std.mem.readInt(u64, update_ix.data[37..45], .little));
+    try std.testing.expectEqualSlices(u8, &hash, update_ix.data[45..77]);
+    try std.testing.expectEqual(@as(u8, 0), update_ix.data[77]);
+
+    const switch_ix = try updateVoteStateSwitch(&vote_account, &voter, update, &proof_hash, &metas, &data);
+    try std.testing.expectEqual(@as(u32, 9), std.mem.readInt(u32, switch_ix.data[0..4], .little));
+    try std.testing.expectEqualSlices(u8, &proof_hash, switch_ix.data[78..110]);
+
+    const compact_ix = try compactUpdateVoteState(&vote_account, &voter, update, &metas, &data);
+    try std.testing.expectEqual(@as(usize, 50), compact_ix.data.len);
+    try std.testing.expectEqual(@as(u32, 12), std.mem.readInt(u32, compact_ix.data[0..4], .little));
+    try std.testing.expectEqual(@as(u64, 90), std.mem.readInt(u64, compact_ix.data[4..12], .little));
+    try std.testing.expectEqualSlices(u8, &.{ 2, 10, 3, 5, 4 }, compact_ix.data[12..17]);
+    try std.testing.expectEqualSlices(u8, &hash, compact_ix.data[17..49]);
+    try std.testing.expectEqual(@as(u8, 0), compact_ix.data[49]);
+
+    const compact_switch_ix = try compactUpdateVoteStateSwitch(&vote_account, &voter, update, &proof_hash, &metas, &data);
+    try std.testing.expectEqual(@as(u32, 13), std.mem.readInt(u32, compact_switch_ix.data[0..4], .little));
+    try std.testing.expectEqualSlices(u8, &proof_hash, compact_switch_ix.data[50..82]);
+
+    const bad_order = [_]Lockout{.{ .slot = 80, .confirmation_count = 1 }};
+    try std.testing.expectError(
+        error.InvalidVoteLockout,
+        writeCompactVoteStateUpdatePayload(.{ .lockouts = &bad_order, .root = 90, .hash = hash }, &data),
+    );
+    const bad_count = [_]Lockout{.{ .slot = 100, .confirmation_count = 256 }};
+    try std.testing.expectError(
+        error.ConfirmationCountTooLarge,
+        writeCompactVoteStateUpdatePayload(.{ .lockouts = &bad_count, .hash = hash }, &data),
+    );
+}
+
+test "typed tower-sync builders encode compact tower payloads" {
+    const vote_account: Pubkey = .{1} ** 32;
+    const voter: Pubkey = .{2} ** 32;
+    const hash: Hash = .{8} ** 32;
+    const block_id: Hash = .{6} ** 32;
+    const proof_hash: Hash = .{7} ** 32;
+    const lockouts = [_]Lockout{
+        .{ .slot = 100, .confirmation_count = 3 },
+        .{ .slot = 105, .confirmation_count = 4 },
+    };
+    const tower: TowerSync = .{
+        .lockouts = &lockouts,
+        .hash = hash,
+        .timestamp = 22,
+        .block_id = block_id,
+    };
+    var metas: [2]AccountMeta = undefined;
+    var data: [160]u8 = undefined;
+
+    const tower_ix = try towerSync(&vote_account, &voter, tower, &metas, &data);
+    try std.testing.expectEqual(@as(usize, 90), tower_ix.data.len);
+    try std.testing.expectEqual(@as(u32, 14), std.mem.readInt(u32, tower_ix.data[0..4], .little));
+    try std.testing.expectEqual(std.math.maxInt(u64), std.mem.readInt(u64, tower_ix.data[4..12], .little));
+    try std.testing.expectEqualSlices(u8, &.{ 2, 100, 3, 5, 4 }, tower_ix.data[12..17]);
+    try std.testing.expectEqualSlices(u8, &hash, tower_ix.data[17..49]);
+    try std.testing.expectEqual(@as(u8, 1), tower_ix.data[49]);
+    try std.testing.expectEqual(@as(i64, 22), std.mem.readInt(i64, tower_ix.data[50..58], .little));
+    try std.testing.expectEqualSlices(u8, &block_id, tower_ix.data[58..90]);
+
+    const switch_ix = try towerSyncSwitch(&vote_account, &voter, tower, &proof_hash, &metas, &data);
+    try std.testing.expectEqual(@as(u32, 15), std.mem.readInt(u32, switch_ix.data[0..4], .little));
+    try std.testing.expectEqualSlices(u8, &proof_hash, switch_ix.data[90..122]);
+}
+
 test "public surface guards" {
     try std.testing.expect(@hasDecl(@This(), "initializeAccount"));
     try std.testing.expect(@hasDecl(@This(), "authorize"));
@@ -406,6 +1001,19 @@ test "public surface guards" {
     try std.testing.expect(@hasDecl(@This(), "authorizeWithSeed"));
     try std.testing.expect(@hasDecl(@This(), "authorizeCheckedWithSeed"));
     try std.testing.expect(@hasDecl(@This(), "withdraw"));
+    try std.testing.expect(@hasDecl(@This(), "voteRaw"));
+    try std.testing.expect(@hasDecl(@This(), "voteSwitchRaw"));
+    try std.testing.expect(@hasDecl(@This(), "vote"));
+    try std.testing.expect(@hasDecl(@This(), "voteSwitch"));
+    try std.testing.expect(@hasDecl(@This(), "updateVoteStateRaw"));
+    try std.testing.expect(@hasDecl(@This(), "compactUpdateVoteStateRaw"));
+    try std.testing.expect(@hasDecl(@This(), "towerSyncRaw"));
+    try std.testing.expect(@hasDecl(@This(), "updateVoteState"));
+    try std.testing.expect(@hasDecl(@This(), "compactUpdateVoteState"));
+    try std.testing.expect(@hasDecl(@This(), "towerSync"));
+    try std.testing.expect(@hasDecl(@This(), "writeVotePayload"));
+    try std.testing.expect(@hasDecl(@This(), "writeVoteStateUpdatePayload"));
+    try std.testing.expect(@hasDecl(@This(), "writeTowerSyncPayload"));
     try std.testing.expect(!@hasDecl(@This(), "rpc"));
     try std.testing.expect(!@hasDecl(@This(), "wallet"));
 }

@@ -14,7 +14,7 @@ canonical legacy and versioned Solana message bytes.
 - canonical account-key collection for legacy messages
 - payer-first signer/writable ordering
 - compiled instruction account-index resolution
-- Solana shortvec length encoding
+- Solana shortvec length encoding through `solana-codec`
 - allocation-free serialization into a caller-provided buffer
 - legacy transaction byte serialization from caller-supplied signatures
 - v0 message serialization with address table lookup records

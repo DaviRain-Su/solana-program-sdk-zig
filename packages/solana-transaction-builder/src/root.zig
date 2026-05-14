@@ -6,6 +6,8 @@ const keypair = @import("solana_keypair");
 const system = @import("solana_system");
 const alt = @import("solana_address_lookup_table");
 const compute_budget = @import("solana_compute_budget");
+const spl_token = @import("spl_token");
+const spl_ata = @import("spl_ata");
 
 pub const Pubkey = tx.Pubkey;
 pub const Instruction = tx.Instruction;
@@ -21,6 +23,11 @@ pub const ComputeBudgetRequestHeapFrameData = compute_budget.RequestHeapFrameDat
 pub const ComputeBudgetSetComputeUnitLimitData = compute_budget.SetComputeUnitLimitData;
 pub const ComputeBudgetSetComputeUnitPriceData = compute_budget.SetComputeUnitPriceData;
 pub const ComputeBudgetSetLoadedAccountsDataSizeLimitData = compute_budget.SetLoadedAccountsDataSizeLimitData;
+pub const TokenTransferMetas = spl_token.instruction.metasArray(spl_token.instruction.transfer_spec);
+pub const TokenTransferData = spl_token.instruction.dataArray(spl_token.instruction.transfer_spec);
+pub const TokenTransferCheckedMetas = spl_token.instruction.metasArray(spl_token.instruction.transfer_checked_spec);
+pub const TokenTransferCheckedData = spl_token.instruction.dataArray(spl_token.instruction.transfer_checked_spec);
+pub const AtaCreateIdempotentScratch = spl_ata.instruction.Scratch(spl_ata.instruction.create_idempotent_spec);
 
 pub const ComputeBudgetOptions = struct {
     heap_frame_bytes: ?u32 = null,
@@ -60,6 +67,65 @@ pub const TransferWithComputeBudgetInstructions = struct {
     }
 
     pub fn transferInstruction(self: *const TransferWithComputeBudgetInstructions) *const Instruction {
+        std.debug.assert(self.len > 0);
+        return &self.instructions[self.len - 1];
+    }
+};
+
+pub const TokenTransferWithComputeBudgetBuffers = struct {
+    compute_budget: ComputeBudgetInstructionBuffers,
+    transfer_metas: *TokenTransferMetas,
+    transfer_data: *TokenTransferData,
+};
+
+pub const TokenTransferCheckedWithComputeBudgetBuffers = struct {
+    compute_budget: ComputeBudgetInstructionBuffers,
+    transfer_metas: *TokenTransferCheckedMetas,
+    transfer_data: *TokenTransferCheckedData,
+};
+
+pub const AtaTokenTransferWithComputeBudgetBuffers = struct {
+    compute_budget: ComputeBudgetInstructionBuffers,
+    ata_scratch: *AtaCreateIdempotentScratch,
+    transfer_metas: *TokenTransferMetas,
+    transfer_data: *TokenTransferData,
+};
+
+pub const AtaTokenTransferCheckedWithComputeBudgetBuffers = struct {
+    compute_budget: ComputeBudgetInstructionBuffers,
+    ata_scratch: *AtaCreateIdempotentScratch,
+    transfer_metas: *TokenTransferCheckedMetas,
+    transfer_data: *TokenTransferCheckedData,
+};
+
+pub const TokenTransferWithComputeBudgetInstructions = struct {
+    instructions: [5]Instruction,
+    len: usize,
+
+    pub fn slice(self: *const TokenTransferWithComputeBudgetInstructions) []const Instruction {
+        return self.instructions[0..self.len];
+    }
+
+    pub fn tokenTransferInstruction(self: *const TokenTransferWithComputeBudgetInstructions) *const Instruction {
+        std.debug.assert(self.len > 0);
+        return &self.instructions[self.len - 1];
+    }
+};
+
+pub const AtaTokenTransferWithComputeBudgetInstructions = struct {
+    instructions: [6]Instruction,
+    len: usize,
+
+    pub fn slice(self: *const AtaTokenTransferWithComputeBudgetInstructions) []const Instruction {
+        return self.instructions[0..self.len];
+    }
+
+    pub fn createAssociatedTokenAccountInstruction(self: *const AtaTokenTransferWithComputeBudgetInstructions) *const Instruction {
+        std.debug.assert(self.len >= 2);
+        return &self.instructions[self.len - 2];
+    }
+
+    pub fn tokenTransferInstruction(self: *const AtaTokenTransferWithComputeBudgetInstructions) *const Instruction {
         std.debug.assert(self.len > 0);
         return &self.instructions[self.len - 1];
     }
@@ -124,6 +190,151 @@ pub fn transferWithComputeBudget(
         result.len += 1;
     }
     result.instructions[result.len] = system.transfer(from, to, lamports, buffers.transfer_metas, buffers.transfer_data);
+    result.len += 1;
+    return result;
+}
+
+pub fn tokenTransferWithComputeBudget(
+    source: *const Pubkey,
+    destination: *const Pubkey,
+    authority: *const Pubkey,
+    amount: u64,
+    compute_options: ComputeBudgetOptions,
+    buffers: TokenTransferWithComputeBudgetBuffers,
+) TokenTransferWithComputeBudgetInstructions {
+    const prelude = computeBudgetPrelude(compute_options, buffers.compute_budget);
+    var result: TokenTransferWithComputeBudgetInstructions = .{
+        .instructions = undefined,
+        .len = 0,
+    };
+    for (prelude.slice()) |ix| {
+        result.instructions[result.len] = ix;
+        result.len += 1;
+    }
+    result.instructions[result.len] = spl_token.instruction.transfer(
+        source,
+        destination,
+        authority,
+        amount,
+        buffers.transfer_metas,
+        buffers.transfer_data,
+    );
+    result.len += 1;
+    return result;
+}
+
+pub fn tokenTransferCheckedWithComputeBudget(
+    source: *const Pubkey,
+    mint: *const Pubkey,
+    destination: *const Pubkey,
+    authority: *const Pubkey,
+    amount: u64,
+    decimals: u8,
+    compute_options: ComputeBudgetOptions,
+    buffers: TokenTransferCheckedWithComputeBudgetBuffers,
+) TokenTransferWithComputeBudgetInstructions {
+    const prelude = computeBudgetPrelude(compute_options, buffers.compute_budget);
+    var result: TokenTransferWithComputeBudgetInstructions = .{
+        .instructions = undefined,
+        .len = 0,
+    };
+    for (prelude.slice()) |ix| {
+        result.instructions[result.len] = ix;
+        result.len += 1;
+    }
+    result.instructions[result.len] = spl_token.instruction.transferChecked(
+        source,
+        mint,
+        destination,
+        authority,
+        amount,
+        decimals,
+        buffers.transfer_metas,
+        buffers.transfer_data,
+    );
+    result.len += 1;
+    return result;
+}
+
+pub fn createAtaAndTokenTransferWithComputeBudget(
+    payer: *const Pubkey,
+    wallet: *const Pubkey,
+    source: *const Pubkey,
+    mint: *const Pubkey,
+    authority: *const Pubkey,
+    amount: u64,
+    compute_options: ComputeBudgetOptions,
+    buffers: AtaTokenTransferWithComputeBudgetBuffers,
+) AtaTokenTransferWithComputeBudgetInstructions {
+    const prelude = computeBudgetPrelude(compute_options, buffers.compute_budget);
+    var result: AtaTokenTransferWithComputeBudgetInstructions = .{
+        .instructions = undefined,
+        .len = 0,
+    };
+    for (prelude.slice()) |ix| {
+        result.instructions[result.len] = ix;
+        result.len += 1;
+    }
+    result.instructions[result.len] = spl_ata.instruction.createIdempotent(
+        payer,
+        wallet,
+        mint,
+        &system.PROGRAM_ID,
+        &spl_token.PROGRAM_ID,
+        buffers.ata_scratch,
+    );
+    result.len += 1;
+    result.instructions[result.len] = spl_token.instruction.transfer(
+        source,
+        &buffers.ata_scratch.associated_token_account,
+        authority,
+        amount,
+        buffers.transfer_metas,
+        buffers.transfer_data,
+    );
+    result.len += 1;
+    return result;
+}
+
+pub fn createAtaAndTokenTransferCheckedWithComputeBudget(
+    payer: *const Pubkey,
+    wallet: *const Pubkey,
+    source: *const Pubkey,
+    mint: *const Pubkey,
+    authority: *const Pubkey,
+    amount: u64,
+    decimals: u8,
+    compute_options: ComputeBudgetOptions,
+    buffers: AtaTokenTransferCheckedWithComputeBudgetBuffers,
+) AtaTokenTransferWithComputeBudgetInstructions {
+    const prelude = computeBudgetPrelude(compute_options, buffers.compute_budget);
+    var result: AtaTokenTransferWithComputeBudgetInstructions = .{
+        .instructions = undefined,
+        .len = 0,
+    };
+    for (prelude.slice()) |ix| {
+        result.instructions[result.len] = ix;
+        result.len += 1;
+    }
+    result.instructions[result.len] = spl_ata.instruction.createIdempotent(
+        payer,
+        wallet,
+        mint,
+        &system.PROGRAM_ID,
+        &spl_token.PROGRAM_ID,
+        buffers.ata_scratch,
+    );
+    result.len += 1;
+    result.instructions[result.len] = spl_token.instruction.transferChecked(
+        source,
+        mint,
+        &buffers.ata_scratch.associated_token_account,
+        authority,
+        amount,
+        decimals,
+        buffers.transfer_metas,
+        buffers.transfer_data,
+    );
     result.len += 1;
     return result;
 }
@@ -261,7 +472,7 @@ pub fn buildAndSignLegacyTransaction(
         buffers.instruction_account_indices,
     );
 
-    const message_len = tx.serializedLegacyMessageLen(message);
+    const message_len = try tx.serializedLegacyMessageLen(message);
     if (buffers.message_bytes.len < message_len) return error.MessageBufferTooSmall;
     const message_bytes = try tx.serializeLegacyMessage(message, buffers.message_bytes);
 
@@ -293,7 +504,7 @@ pub fn buildAndSignV0Transaction(
     signers: []const Keypair,
     buffers: V0Buffers,
 ) (Error || anyerror)!BuiltV0Transaction {
-    const message_len = tx.serializedV0MessageLen(message);
+    const message_len = try tx.serializedV0MessageLen(message);
     if (buffers.message_bytes.len < message_len) return error.MessageBufferTooSmall;
     const message_bytes = try tx.serializeV0Message(message, buffers.message_bytes);
 
@@ -982,6 +1193,174 @@ test "transferWithComputeBudget composes prelude and system transfer" {
     try keypair.verify(built.signatures[0], built.message_bytes, &payer_pubkey);
 }
 
+test "token transfer helpers compose compute budget prelude and SPL Token instructions" {
+    const source: Pubkey = .{1} ** 32;
+    const destination: Pubkey = .{2} ** 32;
+    const authority: Pubkey = .{3} ** 32;
+    const mint: Pubkey = .{4} ** 32;
+
+    var heap_data: ComputeBudgetRequestHeapFrameData = undefined;
+    var limit_data: ComputeBudgetSetComputeUnitLimitData = undefined;
+    var price_data: ComputeBudgetSetComputeUnitPriceData = undefined;
+    var loaded_data: ComputeBudgetSetLoadedAccountsDataSizeLimitData = undefined;
+    var transfer_metas: TokenTransferMetas = undefined;
+    var transfer_data: TokenTransferData = undefined;
+
+    const transfer_instructions = tokenTransferWithComputeBudget(
+        &source,
+        &destination,
+        &authority,
+        55,
+        .{
+            .compute_unit_limit = 45_000,
+            .compute_unit_price_micro_lamports = 9,
+        },
+        .{
+            .compute_budget = .{
+                .request_heap_frame_data = &heap_data,
+                .set_compute_unit_limit_data = &limit_data,
+                .set_compute_unit_price_data = &price_data,
+                .set_loaded_accounts_data_size_limit_data = &loaded_data,
+            },
+            .transfer_metas = &transfer_metas,
+            .transfer_data = &transfer_data,
+        },
+    );
+    try std.testing.expectEqual(@as(usize, 3), transfer_instructions.slice().len);
+    try std.testing.expectEqualSlices(u8, &compute_budget.PROGRAM_ID, transfer_instructions.instructions[0].program_id);
+    try std.testing.expectEqualSlices(u8, &compute_budget.PROGRAM_ID, transfer_instructions.instructions[1].program_id);
+    const token_ix = transfer_instructions.tokenTransferInstruction();
+    try std.testing.expectEqualSlices(u8, &spl_token.PROGRAM_ID, token_ix.program_id);
+    try std.testing.expectEqual(@as(usize, 3), token_ix.accounts.len);
+    try std.testing.expectEqualSlices(u8, &source, token_ix.accounts[0].pubkey);
+    try std.testing.expectEqualSlices(u8, &destination, token_ix.accounts[1].pubkey);
+    try std.testing.expectEqualSlices(u8, &authority, token_ix.accounts[2].pubkey);
+    try std.testing.expectEqualSlices(u8, &.{ 3, 55, 0, 0, 0, 0, 0, 0, 0 }, token_ix.data);
+
+    var checked_metas: TokenTransferCheckedMetas = undefined;
+    var checked_data: TokenTransferCheckedData = undefined;
+    const checked_instructions = tokenTransferCheckedWithComputeBudget(
+        &source,
+        &mint,
+        &destination,
+        &authority,
+        77,
+        6,
+        .{ .loaded_accounts_data_size_limit = 512 },
+        .{
+            .compute_budget = .{
+                .request_heap_frame_data = &heap_data,
+                .set_compute_unit_limit_data = &limit_data,
+                .set_compute_unit_price_data = &price_data,
+                .set_loaded_accounts_data_size_limit_data = &loaded_data,
+            },
+            .transfer_metas = &checked_metas,
+            .transfer_data = &checked_data,
+        },
+    );
+    try std.testing.expectEqual(@as(usize, 2), checked_instructions.slice().len);
+    try std.testing.expectEqualSlices(u8, &compute_budget.PROGRAM_ID, checked_instructions.instructions[0].program_id);
+    const checked_ix = checked_instructions.tokenTransferInstruction();
+    try std.testing.expectEqualSlices(u8, &spl_token.PROGRAM_ID, checked_ix.program_id);
+    try std.testing.expectEqual(@as(usize, 4), checked_ix.accounts.len);
+    try std.testing.expectEqualSlices(u8, &source, checked_ix.accounts[0].pubkey);
+    try std.testing.expectEqualSlices(u8, &mint, checked_ix.accounts[1].pubkey);
+    try std.testing.expectEqualSlices(u8, &destination, checked_ix.accounts[2].pubkey);
+    try std.testing.expectEqualSlices(u8, &authority, checked_ix.accounts[3].pubkey);
+    try std.testing.expectEqualSlices(u8, &.{ 12, 77, 0, 0, 0, 0, 0, 0, 0, 6 }, checked_ix.data);
+}
+
+test "ATA token transfer helpers compose idempotent ATA create and SPL Token transfer" {
+    const payer: Pubkey = .{1} ** 32;
+    const wallet: Pubkey = .{2} ** 32;
+    const source: Pubkey = .{3} ** 32;
+    const mint: Pubkey = .{4} ** 32;
+    const authority: Pubkey = .{5} ** 32;
+    const expected_ata = spl_ata.findAddress(&wallet, &mint, &spl_token.PROGRAM_ID).address;
+
+    var heap_data: ComputeBudgetRequestHeapFrameData = undefined;
+    var limit_data: ComputeBudgetSetComputeUnitLimitData = undefined;
+    var price_data: ComputeBudgetSetComputeUnitPriceData = undefined;
+    var loaded_data: ComputeBudgetSetLoadedAccountsDataSizeLimitData = undefined;
+    var ata_scratch: AtaCreateIdempotentScratch = undefined;
+    var transfer_metas: TokenTransferMetas = undefined;
+    var transfer_data: TokenTransferData = undefined;
+
+    const instructions = createAtaAndTokenTransferWithComputeBudget(
+        &payer,
+        &wallet,
+        &source,
+        &mint,
+        &authority,
+        88,
+        .{ .compute_unit_limit = 60_000 },
+        .{
+            .compute_budget = .{
+                .request_heap_frame_data = &heap_data,
+                .set_compute_unit_limit_data = &limit_data,
+                .set_compute_unit_price_data = &price_data,
+                .set_loaded_accounts_data_size_limit_data = &loaded_data,
+            },
+            .ata_scratch = &ata_scratch,
+            .transfer_metas = &transfer_metas,
+            .transfer_data = &transfer_data,
+        },
+    );
+    try std.testing.expectEqual(@as(usize, 3), instructions.slice().len);
+    try std.testing.expectEqualSlices(u8, &compute_budget.PROGRAM_ID, instructions.instructions[0].program_id);
+    try std.testing.expectEqualSlices(u8, &expected_ata, &ata_scratch.associated_token_account);
+
+    const ata_ix = instructions.createAssociatedTokenAccountInstruction();
+    try std.testing.expectEqualSlices(u8, &spl_ata.PROGRAM_ID, ata_ix.program_id);
+    try std.testing.expectEqualSlices(u8, &.{1}, ata_ix.data);
+    try std.testing.expectEqualSlices(u8, &payer, ata_ix.accounts[0].pubkey);
+    try std.testing.expectEqualSlices(u8, &expected_ata, ata_ix.accounts[1].pubkey);
+    try std.testing.expectEqualSlices(u8, &wallet, ata_ix.accounts[2].pubkey);
+    try std.testing.expectEqualSlices(u8, &mint, ata_ix.accounts[3].pubkey);
+    try std.testing.expectEqualSlices(u8, &system.PROGRAM_ID, ata_ix.accounts[4].pubkey);
+    try std.testing.expectEqualSlices(u8, &spl_token.PROGRAM_ID, ata_ix.accounts[5].pubkey);
+
+    const token_ix = instructions.tokenTransferInstruction();
+    try std.testing.expectEqualSlices(u8, &spl_token.PROGRAM_ID, token_ix.program_id);
+    try std.testing.expectEqualSlices(u8, &source, token_ix.accounts[0].pubkey);
+    try std.testing.expectEqualSlices(u8, &expected_ata, token_ix.accounts[1].pubkey);
+    try std.testing.expectEqualSlices(u8, &authority, token_ix.accounts[2].pubkey);
+    try std.testing.expectEqualSlices(u8, &.{ 3, 88, 0, 0, 0, 0, 0, 0, 0 }, token_ix.data);
+
+    var checked_ata_scratch: AtaCreateIdempotentScratch = undefined;
+    var checked_metas: TokenTransferCheckedMetas = undefined;
+    var checked_data: TokenTransferCheckedData = undefined;
+    const checked_instructions = createAtaAndTokenTransferCheckedWithComputeBudget(
+        &payer,
+        &wallet,
+        &source,
+        &mint,
+        &authority,
+        99,
+        6,
+        .{},
+        .{
+            .compute_budget = .{
+                .request_heap_frame_data = &heap_data,
+                .set_compute_unit_limit_data = &limit_data,
+                .set_compute_unit_price_data = &price_data,
+                .set_loaded_accounts_data_size_limit_data = &loaded_data,
+            },
+            .ata_scratch = &checked_ata_scratch,
+            .transfer_metas = &checked_metas,
+            .transfer_data = &checked_data,
+        },
+    );
+    try std.testing.expectEqual(@as(usize, 2), checked_instructions.slice().len);
+    try std.testing.expectEqualSlices(u8, &expected_ata, &checked_ata_scratch.associated_token_account);
+    const checked_ix = checked_instructions.tokenTransferInstruction();
+    try std.testing.expectEqualSlices(u8, &source, checked_ix.accounts[0].pubkey);
+    try std.testing.expectEqualSlices(u8, &mint, checked_ix.accounts[1].pubkey);
+    try std.testing.expectEqualSlices(u8, &expected_ata, checked_ix.accounts[2].pubkey);
+    try std.testing.expectEqualSlices(u8, &authority, checked_ix.accounts[3].pubkey);
+    try std.testing.expectEqualSlices(u8, &.{ 12, 99, 0, 0, 0, 0, 0, 0, 0, 6 }, checked_ix.data);
+}
+
 test "nonce account instruction pair can be signed as one legacy transaction" {
     const payer = try Keypair.fromSeed(.{1} ** keypair.SEED_BYTES);
     const nonce_account = try Keypair.fromSeed(.{2} ** keypair.SEED_BYTES);
@@ -1215,6 +1594,10 @@ test "public surface guards" {
     try std.testing.expect(@hasDecl(@This(), "createNonceAccountInstructions"));
     try std.testing.expect(@hasDecl(@This(), "computeBudgetPrelude"));
     try std.testing.expect(@hasDecl(@This(), "transferWithComputeBudget"));
+    try std.testing.expect(@hasDecl(@This(), "tokenTransferWithComputeBudget"));
+    try std.testing.expect(@hasDecl(@This(), "tokenTransferCheckedWithComputeBudget"));
+    try std.testing.expect(@hasDecl(@This(), "createAtaAndTokenTransferWithComputeBudget"));
+    try std.testing.expect(@hasDecl(@This(), "createAtaAndTokenTransferCheckedWithComputeBudget"));
     try std.testing.expect(@hasDecl(@This(), "LegacyBuffers"));
     try std.testing.expect(@hasDecl(@This(), "V0Buffers"));
     try std.testing.expect(@hasDecl(@This(), "V0CompileBuffers"));

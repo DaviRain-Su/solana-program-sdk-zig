@@ -64,7 +64,13 @@ test "source-review guards keep spl_token_metadata interface scoped" {
         root_source,
         @embedFile("id.zig"),
         @embedFile("instruction.zig"),
+        @embedFile("instruction_payloads.zig"),
+        @embedFile("instruction_builders.zig"),
+        @embedFile("instruction_tests.zig"),
+        @embedFile("borsh_string.zig"),
+        @embedFile("field_test_assert.zig"),
         @embedFile("maybe_null_pubkey.zig"),
+        @embedFile("parity_fixture.zig"),
         @embedFile("state.zig"),
     };
     inline for (package_sources) |source| {

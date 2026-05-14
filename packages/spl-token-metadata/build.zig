@@ -4,6 +4,8 @@ const std = @import("std");
 ///   * `test` — run the package's host-side unit tests, a
 ///     consumer-style `@import("spl_token_metadata")` fixture, and a
 ///     combined metadata/group consumer import fixture.
+///   * `rust-parity` — run the `rust-parity` crate (`cargo test`) against
+///     the same official JSON fixture used by Zig tests.
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -60,4 +62,9 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_package_tests.step);
     test_step.dependOn(&run_consumer_tests.step);
     test_step.dependOn(&run_combined_import_tests.step);
+
+    const rust_parity = b.step("rust-parity", "Run Rust parity tests (fixture vs spl-token-metadata-interface)");
+    const run_rust_parity = b.addSystemCommand(&.{ "cargo", "test", "--locked" });
+    run_rust_parity.setCwd(b.path("rust-parity"));
+    rust_parity.dependOn(&run_rust_parity.step);
 }

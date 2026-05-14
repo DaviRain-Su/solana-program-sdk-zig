@@ -4,6 +4,7 @@
 const std = @import("std");
 const sol = @import("solana_program_sdk");
 const id = @import("id.zig");
+const borsh_string = @import("borsh_string.zig");
 const parity_fixture = @import("parity_fixture.zig");
 
 pub const INTERFACE_NAMESPACE = id.INTERFACE_NAMESPACE;
@@ -249,22 +250,19 @@ pub const TokenMetadata = struct {
 };
 
 fn checkedAddLen(base: usize, addend: usize) error{LengthOverflow}!usize {
-    return std.math.add(usize, base, addend) catch error.LengthOverflow;
+    return borsh_string.checkedAddLen(base, addend);
 }
 
 fn borshStringLen(value: []const u8) error{ BoundsExceeded, LengthOverflow }!usize {
-    if (value.len > std.math.maxInt(u32)) return error.LengthOverflow;
     if (value.len > MAX_STRING_LEN) return error.BoundsExceeded;
-    return checkedAddLen(@sizeOf(u32), value.len);
+    return borsh_string.borshStringLenUnbounded(value);
 }
 
 fn writeBorshString(out: []u8, value: []const u8) error{ BufferTooSmall, BoundsExceeded, LengthOverflow }!usize {
-    const expected_len = try borshStringLen(value);
-    if (out.len < expected_len) return error.BufferTooSmall;
-
-    std.mem.writeInt(u32, out[0..@sizeOf(u32)], @intCast(value.len), .little);
-    @memcpy(out[@sizeOf(u32)..expected_len], value);
-    return expected_len;
+    return borsh_string.writeBorshStringCore(out, value) catch |err| switch (err) {
+        error.LengthOverflow => return error.LengthOverflow,
+        error.OutputTooSmall => return error.BufferTooSmall,
+    };
 }
 
 fn readMaybeNullPubkey(bytes: []const u8, offset: *usize) StateError!MaybeNullPubkey {
@@ -311,27 +309,6 @@ fn readLenU32(bytes: []const u8, offset: *usize) StateError!usize {
     return @intCast(value);
 }
 
-fn expectField(actual: Field, expected: Field) !void {
-    switch (expected) {
-        .name => try std.testing.expect(switch (actual) {
-            .name => true,
-            else => false,
-        }),
-        .symbol => try std.testing.expect(switch (actual) {
-            .symbol => true,
-            else => false,
-        }),
-        .uri => try std.testing.expect(switch (actual) {
-            .uri => true,
-            else => false,
-        }),
-        .key => |expected_key| switch (actual) {
-            .key => |actual_key| try std.testing.expectEqualStrings(expected_key, actual_key),
-            else => return error.TestUnexpectedResult,
-        },
-    }
-}
-
 test "state scaffold exposes canonical namespace discriminator width and interface-only surface" {
     try std.testing.expectEqualStrings("spl_token_metadata_interface", INTERFACE_NAMESPACE);
     try std.testing.expectEqual(sol.DISCRIMINATOR_LEN, INTERFACE_DISCRIMINATOR_LEN);
@@ -365,6 +342,7 @@ test "state surface exposes bounded TokenMetadata parser/serializer types" {
 }
 
 test "Field layout and parsing are canonical" {
+    const expectField = @import("field_test_assert.zig").expectField;
     var name_bytes: [1]u8 = undefined;
     try std.testing.expectEqualSlices(
         u8,

@@ -21,7 +21,8 @@ pub const EpochSchedule = extern struct {
     first_normal_slot: u64,
 
     /// Read the epoch schedule via syscall. Returns
-    /// `error.Unexpected` if the runtime rejects the call.
+    /// `error.UnsupportedSysvar` if the runtime rejects the call or
+    /// when running off-chain without the syscall surface.
     pub fn get() ProgramError!EpochSchedule {
         var es: EpochSchedule = undefined;
         if (bpf.is_bpf_program) {
@@ -33,6 +34,9 @@ pub const EpochSchedule = extern struct {
                 log.print("failed to get epoch_schedule sysvar: {d}", .{rc});
                 return ProgramError.UnsupportedSysvar;
             }
+        } else {
+            log.log("cannot get epoch_schedule sysvar in non-bpf context");
+            return error.UnsupportedSysvar;
         }
         return es;
     }
@@ -57,6 +61,9 @@ pub const LastRestartSlot = extern struct {
                 log.print("failed to get last_restart_slot sysvar: {d}", .{rc});
                 return ProgramError.UnsupportedSysvar;
             }
+        } else {
+            log.log("cannot get last_restart_slot sysvar in non-bpf context");
+            return error.UnsupportedSysvar;
         }
         return v;
     }
@@ -91,6 +98,9 @@ pub const EpochRewards = extern struct {
                 log.print("failed to get epoch_rewards sysvar: {d}", .{rc});
                 return ProgramError.UnsupportedSysvar;
             }
+        } else {
+            log.log("cannot get epoch_rewards sysvar in non-bpf context");
+            return error.UnsupportedSysvar;
         }
         return v;
     }
@@ -101,3 +111,10 @@ pub const SlotHash = extern struct {
     slot: u64,
     hash: [32]u8,
 };
+
+test "typed sysvars: host getters return UnsupportedSysvar" {
+    const testing = @import("std").testing;
+    try testing.expectError(error.UnsupportedSysvar, EpochSchedule.get());
+    try testing.expectError(error.UnsupportedSysvar, LastRestartSlot.get());
+    try testing.expectError(error.UnsupportedSysvar, EpochRewards.get());
+}

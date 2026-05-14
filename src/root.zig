@@ -22,7 +22,7 @@ pub const pda = @import("pda.zig");
 
 // Anchor-style foundations (typed accounts, discriminators, error codes, events)
 pub const discriminator = @import("discriminator.zig");
-pub const typed_account = @import("typed_account.zig");
+pub const typed_account = @import("typed_account/root.zig");
 pub const error_code = @import("error_code.zig");
 pub const event = @import("event.zig");
 pub const require_mod = @import("require.zig");

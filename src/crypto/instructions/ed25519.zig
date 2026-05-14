@@ -14,7 +14,7 @@
 const std = @import("std");
 const pubkey = @import("../../pubkey.zig");
 const cpi = @import("../../cpi/root.zig");
-const instruction_mod = @import("../../instruction.zig");
+const instruction_mod = @import("../../instruction/root.zig");
 const sysvar_instructions = @import("../../sysvar_instructions/root.zig");
 const account_mod = @import("../../account/root.zig");
 

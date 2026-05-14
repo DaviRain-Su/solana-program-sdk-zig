@@ -6,6 +6,7 @@
 //! - `sol.account.*` → `src/account/`
 //! - `sol.cpi.*` → `src/cpi/`
 //! - `sol.entrypoint.*` → `src/entrypoint/`
+//! - `sol.instruction.*` → `src/instruction/`
 //! - `sol.system.*` → `src/system/`
 //! - `sol.sysvar.*` → `src/sysvar/`
 //! - `sol.sysvar_instructions.*` → `src/sysvar_instructions/`
@@ -23,7 +24,7 @@ pub const account = @import("account/root.zig");
 pub const account_cursor = @import("account_cursor.zig");
 pub const program_error = @import("program_error.zig");
 pub const entrypoint = @import("entrypoint/root.zig");
-pub const instruction = @import("instruction.zig");
+pub const instruction = @import("instruction/root.zig");
 pub const cpi = @import("cpi/root.zig");
 pub const system = @import("system/root.zig");
 pub const sysvar = @import("sysvar/root.zig");
@@ -188,7 +189,11 @@ const EmbeddedSource = struct {
 };
 
 const execution_source_files = [_]EmbeddedSource{
-    .{ .path = "src/instruction.zig", .text = @embedFile("instruction.zig") },
+    .{ .path = "src/instruction/root.zig", .text = @embedFile("instruction/root.zig") },
+    .{ .path = "src/instruction/builders.zig", .text = @embedFile("instruction/builders.zig") },
+    .{ .path = "src/instruction/reader.zig", .text = @embedFile("instruction/reader.zig") },
+    .{ .path = "src/instruction/cursor.zig", .text = @embedFile("instruction/cursor.zig") },
+    .{ .path = "src/instruction/staging.zig", .text = @embedFile("instruction/staging.zig") },
     .{ .path = "src/cpi/root.zig", .text = @embedFile("cpi/root.zig") },
     .{ .path = "src/cpi/instruction.zig", .text = @embedFile("cpi/instruction.zig") },
     .{ .path = "src/cpi/seeds.zig", .text = @embedFile("cpi/seeds.zig") },

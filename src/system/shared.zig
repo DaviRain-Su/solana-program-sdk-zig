@@ -4,7 +4,7 @@ pub const pubkey = @import("../pubkey.zig");
 pub const account_mod = @import("../account/root.zig");
 pub const cpi = @import("../cpi/root.zig");
 pub const program_error = @import("../program_error.zig");
-pub const instruction = @import("../instruction.zig");
+pub const instruction = @import("../instruction/root.zig");
 pub const pda = @import("../pda.zig");
 
 pub const Pubkey = pubkey.Pubkey;

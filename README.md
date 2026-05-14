@@ -481,10 +481,10 @@ opt-in and composable with the raw `[*]u8` entrypoint:
 
 - **Foundational module roots** — after the directory splits, the core
   SDK's foundational families now live under
-  `src/{account,cpi,entrypoint,sysvar,sysvar_instructions,typed_account}/`.
+  `src/{account,cpi,entrypoint,instruction,sysvar,sysvar_instructions,typed_account}/`.
   Each `root.zig` acts as the public re-export and documentation hub,
   while the user-facing API still stays flat at `sol.account.*`,
-  `sol.cpi.*`, `sol.entrypoint.*`, `sol.sysvar.*`,
+  `sol.cpi.*`, `sol.entrypoint.*`, `sol.instruction.*`, `sol.sysvar.*`,
   `sol.sysvar_instructions.*`, and `sol.TypedAccount(...)`.
 
 - **`pda.verifyPda(key, seeds, bump, program_id)`** — Anchor's
@@ -1216,6 +1216,7 @@ core families under stable namespaces and short aliases.
 | `sol.account.*` | `src/account/root.zig` | Raw runtime account layout plus `AccountInfo` / `MaybeAccount` / `CpiAccountInfo` views |
 | `sol.cpi.*` | `src/cpi/root.zig` | CPI instruction/meta types, signer seeds, staging helpers, invoke wrappers |
 | `sol.entrypoint.*` | `src/entrypoint/root.zig` | `InstructionContext`, account parsing, ix-data binding, entrypoint wrappers |
+| `sol.instruction.*` | `src/instruction/root.zig` | Instruction-data builders, unaligned reads, typed ix-data readers, cursor/staging helpers |
 | `sol.system.*` | `src/system/root.zig` | System Program CPI helper families |
 | `sol.sysvar.*` | `src/sysvar/root.zig` | Sysvar syscall/account accessors and typed sysvar layouts |
 | `sol.sysvar_instructions.*` | `src/sysvar_instructions/root.zig` | Instructions-sysvar transaction introspection |
@@ -1260,6 +1261,7 @@ first, then jump to the worked section that shows the intended usage shape.
 | Namespace / family | Start here | Main section(s) |
 |---|---|---|
 | `sol.entrypoint.*` | Pick an entrypoint wrapper and parse strategy | [Entrypoints](#entrypoints), [Entrypoint style: `ProgramResult`](#entrypoint-style-programresult), [Entrypoint style: raw `u64`](#entrypoint-style-raw-u64), [Declarative account parsing](#declarative-account-parsing) |
+| `sol.instruction.*` / `sol.IxData*` | Read, bind, and stage instruction data without allocation | [Typed instruction-data deserialization](#typed-instruction-data-deserialization), [Entrypoint style: `ProgramResult`](#entrypoint-style-programresult), [Entrypoint style: raw `u64`](#entrypoint-style-raw-u64) |
 | `sol.account.*` / `sol.AccountInfo` | Read account keys / owners / data and apply one-off checks | [Account access and accessors](#account-access-and-accessors), [Single-account expectations](#single-account-expectations), [Typed account-data access](#typed-account-data-access) |
 | `sol.cpi.*` | Build instructions, signer seeds, and runtime account slices for CPI | [CPI construction and calls](#cpi-construction-and-calls), [System Program helper families](#system-program-helper-families) |
 | `sol.system.*` | Use prebuilt System Program wrappers instead of hand-rolling ix buffers | [Declarative account parsing](#declarative-account-parsing), [System Program helper families](#system-program-helper-families) |

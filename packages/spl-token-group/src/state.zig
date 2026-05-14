@@ -3,6 +3,7 @@
 const std = @import("std");
 const sol = @import("solana_program_sdk");
 const id = @import("id.zig");
+const parity_fixture = @import("parity_fixture.zig");
 
 pub const INTERFACE_NAMESPACE = id.INTERFACE_NAMESPACE;
 pub const INTERFACE_DISCRIMINATOR_LEN: usize = sol.DISCRIMINATOR_LEN;
@@ -268,6 +269,49 @@ test "TokenGroupMember parser rejects wrong discriminator and malformed lengths"
     @memcpy(plus_one_prefixed[0..INTERFACE_DISCRIMINATOR_LEN], &TOKEN_GROUP_MEMBER_DISCRIMINATOR);
     @memcpy(plus_one_prefixed[INTERFACE_DISCRIMINATOR_LEN..], plus_one_body[0..]);
     try std.testing.expectError(error.InvalidAccountData, TokenGroupMember.parse(plus_one_prefixed[0..]));
+}
+
+test "official Rust parity fixture matches token-group state bytes" {
+    const loaded = try parity_fixture.load(std.testing.allocator);
+    defer loaded.deinit();
+
+    for (loaded.value.token_groups) |case| {
+        const original = try std.testing.allocator.dupe(u8, case.data);
+        defer std.testing.allocator.free(original);
+
+        const parsed = try TokenGroup.parse(case.data);
+        try expectMaybeNullPubkeyEqual(parsed.update_authority, MaybeNullPubkey.fromBytes(case.update_authority[0..]) catch unreachable);
+        try std.testing.expectEqualSlices(u8, case.mint[0..], parsed.mint[0..]);
+        try std.testing.expectEqual(case.size, parsed.size);
+        try std.testing.expectEqual(case.max_size, parsed.max_size);
+        try std.testing.expectEqualSlices(u8, original, case.data);
+
+        const body = case.data[INTERFACE_DISCRIMINATOR_LEN..];
+        const parsed_body = try TokenGroup.parseBody(body);
+        try expectMaybeNullPubkeyEqual(parsed_body.update_authority, MaybeNullPubkey.fromBytes(case.update_authority[0..]) catch unreachable);
+        try std.testing.expectEqualSlices(u8, case.mint[0..], parsed_body.mint[0..]);
+        try std.testing.expectEqual(case.size, parsed_body.size);
+        try std.testing.expectEqual(case.max_size, parsed_body.max_size);
+        try std.testing.expectEqualSlices(u8, original[INTERFACE_DISCRIMINATOR_LEN..], body);
+    }
+
+    for (loaded.value.token_group_members) |case| {
+        const original = try std.testing.allocator.dupe(u8, case.data);
+        defer std.testing.allocator.free(original);
+
+        const parsed = try TokenGroupMember.parse(case.data);
+        try std.testing.expectEqualSlices(u8, case.mint[0..], parsed.mint[0..]);
+        try std.testing.expectEqualSlices(u8, case.group[0..], parsed.group[0..]);
+        try std.testing.expectEqual(case.member_number, parsed.member_number);
+        try std.testing.expectEqualSlices(u8, original, case.data);
+
+        const body = case.data[INTERFACE_DISCRIMINATOR_LEN..];
+        const parsed_body = try TokenGroupMember.parseBody(body);
+        try std.testing.expectEqualSlices(u8, case.mint[0..], parsed_body.mint[0..]);
+        try std.testing.expectEqualSlices(u8, case.group[0..], parsed_body.group[0..]);
+        try std.testing.expectEqual(case.member_number, parsed_body.member_number);
+        try std.testing.expectEqualSlices(u8, original[INTERFACE_DISCRIMINATOR_LEN..], body);
+    }
 }
 
 test {

@@ -1,0 +1,14 @@
+[package]
+name = "spl-token-group-rust-parity"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dev-dependencies]
+bytemuck = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+solana-address = "2.4.0"
+solana-instruction = "3.3.0"
+spl-discriminator = "0.5.1"
+spl-token-group-interface = "=0.7.2"

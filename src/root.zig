@@ -8,6 +8,7 @@
 //! - `sol.entrypoint.*` → `src/entrypoint/`
 //! - `sol.program_error.*` → `src/program_error/`
 //! - `sol.instruction.*` → `src/instruction/`
+//! - `sol.math.*` → `src/math/`
 //! - `sol.pda.*` → `src/pda/`
 //! - `sol.system.*` → `src/system/`
 //! - `sol.sysvar.*` → `src/sysvar/`
@@ -39,7 +40,7 @@ pub const allocator = @import("allocator.zig");
 pub const hint = @import("hint.zig");
 pub const memory = @import("memory.zig");
 pub const stack = @import("stack.zig");
-pub const math = @import("math.zig");
+pub const math = @import("math/root.zig");
 pub const compute_budget = @import("compute_budget.zig");
 pub const bpf = @import("bpf.zig");
 
@@ -203,7 +204,10 @@ const execution_source_files = [_]EmbeddedSource{
     .{ .path = "src/cpi/invoke.zig", .text = @embedFile("cpi/invoke.zig") },
     .{ .path = "src/cpi/return_data.zig", .text = @embedFile("cpi/return_data.zig") },
     .{ .path = "src/compute_budget.zig", .text = @embedFile("compute_budget.zig") },
-    .{ .path = "src/math.zig", .text = @embedFile("math.zig") },
+    .{ .path = "src/math/root.zig", .text = @embedFile("math/root.zig") },
+    .{ .path = "src/math/shared.zig", .text = @embedFile("math/shared.zig") },
+    .{ .path = "src/math/checked.zig", .text = @embedFile("math/checked.zig") },
+    .{ .path = "src/math/router.zig", .text = @embedFile("math/router.zig") },
 };
 
 const mock_only_source_paths = [_][]const u8{

@@ -64,10 +64,21 @@ pub const transferWithSeedSignedSingle = seeded_mod.transferWithSeedSignedSingle
 
 pub const initializeNonceAccount = nonce_mod.initializeNonceAccount;
 pub const createNonceAccount = nonce_mod.createNonceAccount;
+pub const createNonceAccountSigned = nonce_mod.createNonceAccountSigned;
+pub const createNonceAccountSignedRaw = nonce_mod.createNonceAccountSignedRaw;
+pub const createNonceAccountSignedSingle = nonce_mod.createNonceAccountSignedSingle;
 pub const createNonceAccountWithSeed = nonce_mod.createNonceAccountWithSeed;
+pub const createNonceAccountWithSeedSigned = nonce_mod.createNonceAccountWithSeedSigned;
+pub const createNonceAccountWithSeedSignedSingle = nonce_mod.createNonceAccountWithSeedSignedSingle;
 pub const advanceNonceAccount = nonce_mod.advanceNonceAccount;
+pub const advanceNonceAccountSigned = nonce_mod.advanceNonceAccountSigned;
+pub const advanceNonceAccountSignedSingle = nonce_mod.advanceNonceAccountSignedSingle;
 pub const withdrawNonceAccount = nonce_mod.withdrawNonceAccount;
+pub const withdrawNonceAccountSigned = nonce_mod.withdrawNonceAccountSigned;
+pub const withdrawNonceAccountSignedSingle = nonce_mod.withdrawNonceAccountSignedSingle;
 pub const authorizeNonceAccount = nonce_mod.authorizeNonceAccount;
+pub const authorizeNonceAccountSigned = nonce_mod.authorizeNonceAccountSigned;
+pub const authorizeNonceAccountSignedSingle = nonce_mod.authorizeNonceAccountSignedSingle;
 pub const upgradeNonceAccount = nonce_mod.upgradeNonceAccount;
 
 // =============================================================================
@@ -190,6 +201,18 @@ test "system: seed-based helpers reject too-long seeds before CPI" {
         error.MaxSeedLengthExceeded,
         createAccountWithSeedSignedSingle(account, to, system_program, base.key(), &too_long, 1, 1, &owner, .{ "base", &bump_seed }),
     );
+    try std.testing.expectError(
+        error.MaxSeedLengthExceeded,
+        createNonceAccountWithSeed(account, to, base, base, system_program, base.key(), &too_long, &owner, 1),
+    );
+    try std.testing.expectError(
+        error.MaxSeedLengthExceeded,
+        createNonceAccountWithSeedSigned(account, to, base, base, system_program, base.key(), &too_long, &owner, 1, &.{signer}),
+    );
+    try std.testing.expectError(
+        error.MaxSeedLengthExceeded,
+        createNonceAccountWithSeedSignedSingle(account, to, base, base, system_program, base.key(), &too_long, &owner, 1, .{ "base", &bump_seed }),
+    );
 
     try std.testing.expectError(
         error.MaxSeedLengthExceeded,
@@ -229,7 +252,7 @@ test "system: seed-based helpers reject too-long seeds before CPI" {
     );
 }
 
-test "system: signed core wrappers return InvalidArgument on host" {
+test "system: signed wrappers return InvalidArgument on host" {
     var account_acc: account_mod.Account = .{
         .borrow_state = account_mod.NOT_BORROWED,
         .is_signer = 1,
@@ -252,6 +275,17 @@ test "system: signed core wrappers return InvalidArgument on host" {
         .lamports = 1_000,
         .data_len = 0,
     };
+    var sysvar_acc: account_mod.Account = .{
+        .borrow_state = account_mod.NOT_BORROWED,
+        .is_signer = 0,
+        .is_writable = 0,
+        .is_executable = 0,
+        ._padding = .{0} ** 4,
+        .key = .{7} ** 32,
+        .owner = .{8} ** 32,
+        .lamports = 1_000,
+        .data_len = 0,
+    };
     var system_acc: account_mod.Account = .{
         .borrow_state = account_mod.NOT_BORROWED,
         .is_signer = 0,
@@ -266,6 +300,7 @@ test "system: signed core wrappers return InvalidArgument on host" {
 
     const account = (account_mod.AccountInfo{ .raw = &account_acc }).toCpiInfo();
     const to = (account_mod.AccountInfo{ .raw = &to_acc }).toCpiInfo();
+    const sysvar = (account_mod.AccountInfo{ .raw = &sysvar_acc }).toCpiInfo();
     const system_program = (account_mod.AccountInfo{ .raw = &system_acc }).toCpiInfo();
     const owner: Pubkey = .{9} ** 32;
     const bump_seed = [_]u8{1};
@@ -302,6 +337,50 @@ test "system: signed core wrappers return InvalidArgument on host" {
     try std.testing.expectError(
         error.InvalidArgument,
         createAccountWithSeedSignedSingle(account, to, system_program, account.key(), "seed", 1, 1, &owner, .{ "base", &bump_seed }),
+    );
+    try std.testing.expectError(
+        error.InvalidArgument,
+        createNonceAccountSigned(account, to, sysvar, sysvar, system_program, &owner, 1, &.{&.{ "base", &bump_seed }}),
+    );
+    try std.testing.expectError(
+        error.InvalidArgument,
+        createNonceAccountSignedRaw(account, to, sysvar, sysvar, system_program, &owner, 1, &.{signer}),
+    );
+    try std.testing.expectError(
+        error.InvalidArgument,
+        createNonceAccountSignedSingle(account, to, sysvar, sysvar, system_program, &owner, 1, .{ "base", &bump_seed }),
+    );
+    try std.testing.expectError(
+        error.InvalidArgument,
+        createNonceAccountWithSeedSigned(account, to, sysvar, sysvar, system_program, account.key(), "seed", &owner, 1, &.{signer}),
+    );
+    try std.testing.expectError(
+        error.InvalidArgument,
+        createNonceAccountWithSeedSignedSingle(account, to, sysvar, sysvar, system_program, account.key(), "seed", &owner, 1, .{ "base", &bump_seed }),
+    );
+    try std.testing.expectError(
+        error.InvalidArgument,
+        advanceNonceAccountSigned(account, sysvar, account, system_program, &.{signer}),
+    );
+    try std.testing.expectError(
+        error.InvalidArgument,
+        advanceNonceAccountSignedSingle(account, sysvar, account, system_program, .{ "base", &bump_seed }),
+    );
+    try std.testing.expectError(
+        error.InvalidArgument,
+        withdrawNonceAccountSigned(account, to, sysvar, sysvar, account, system_program, 1, &.{signer}),
+    );
+    try std.testing.expectError(
+        error.InvalidArgument,
+        withdrawNonceAccountSignedSingle(account, to, sysvar, sysvar, account, system_program, 1, .{ "base", &bump_seed }),
+    );
+    try std.testing.expectError(
+        error.InvalidArgument,
+        authorizeNonceAccountSigned(account, account, system_program, &owner, &.{signer}),
+    );
+    try std.testing.expectError(
+        error.InvalidArgument,
+        authorizeNonceAccountSignedSingle(account, account, system_program, &owner, .{ "base", &bump_seed }),
     );
 }
 

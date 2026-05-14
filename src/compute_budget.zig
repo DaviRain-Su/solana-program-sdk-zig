@@ -73,7 +73,7 @@ test "compute_budget: pure threshold semantics are exact" {
 }
 
 test "compute_budget: guard failure is side-effect-free for caller state" {
-    const cpi = @import("cpi.zig");
+    const cpi = @import("cpi/root.zig");
     const account = @import("account/root.zig");
 
     var raw_a: account.Account = .{

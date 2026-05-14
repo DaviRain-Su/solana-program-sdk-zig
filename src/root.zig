@@ -14,7 +14,7 @@ pub const hint = @import("hint.zig");
 pub const memory = @import("memory.zig");
 
 // CPI and program wrappers
-pub const cpi = @import("cpi.zig");
+pub const cpi = @import("cpi/root.zig");
 pub const system = @import("system/root.zig");
 pub const sysvar = @import("sysvar/root.zig");
 pub const sysvar_instructions = @import("sysvar_instructions/root.zig");
@@ -174,7 +174,12 @@ const EmbeddedSource = struct {
 
 const execution_source_files = [_]EmbeddedSource{
     .{ .path = "src/instruction.zig", .text = @embedFile("instruction.zig") },
-    .{ .path = "src/cpi.zig", .text = @embedFile("cpi.zig") },
+    .{ .path = "src/cpi/root.zig", .text = @embedFile("cpi/root.zig") },
+    .{ .path = "src/cpi/instruction.zig", .text = @embedFile("cpi/instruction.zig") },
+    .{ .path = "src/cpi/seeds.zig", .text = @embedFile("cpi/seeds.zig") },
+    .{ .path = "src/cpi/staging.zig", .text = @embedFile("cpi/staging.zig") },
+    .{ .path = "src/cpi/invoke.zig", .text = @embedFile("cpi/invoke.zig") },
+    .{ .path = "src/cpi/return_data.zig", .text = @embedFile("cpi/return_data.zig") },
     .{ .path = "src/compute_budget.zig", .text = @embedFile("compute_budget.zig") },
     .{ .path = "src/math.zig", .text = @embedFile("math.zig") },
 };

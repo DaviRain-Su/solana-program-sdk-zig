@@ -44,7 +44,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const pubkey = @import("pubkey.zig");
-const cpi = @import("cpi.zig");
+const cpi = @import("cpi/root.zig");
 
 const Pubkey = pubkey.Pubkey;
 

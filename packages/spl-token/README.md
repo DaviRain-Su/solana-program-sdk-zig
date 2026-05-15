@@ -25,7 +25,8 @@ Unlike the Pinocchio helper, this package is intentionally dual-target:
   returning `sol.cpi.Instruction` byte buffers ready to embed in a
   host-built transaction
 - **inspection / decoding**: zero-copy state views, return-data
-  decoders, UI-amount helpers, and classic `TokenError` parity helpers
+  decoders, UI-amount helpers, checked `COption` authority/native-reserve
+  accessors over `solana_codec`, and classic `TokenError` parity helpers
 
 Works against both **classic SPL Token** (`TokenkegQ…`) and
 **Token-2022** (`TokenzQd…`) for the fungible subset — the CPI

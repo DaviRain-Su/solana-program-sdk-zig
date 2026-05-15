@@ -18,6 +18,7 @@
 
 const std = @import("std");
 const sol = @import("solana_program_sdk");
+const codec = @import("solana_codec");
 
 const Pubkey = sol.Pubkey;
 
@@ -97,6 +98,18 @@ pub const Mint = extern struct {
         return if (self.freeze_authority_tag == COPTION_SOME) &self.freeze_authority else null;
     }
 
+    /// Validated variant of `mintAuthority`: rejects malformed `COption` tags
+    /// through the shared `solana_codec` SPL bincode decoder.
+    pub inline fn mintAuthorityChecked(self: *const Mint) sol.ProgramError!?Pubkey {
+        return readCOptionPubkeyValue(self.mint_authority_tag, &self.mint_authority);
+    }
+
+    /// Validated variant of `freezeAuthority`: rejects malformed `COption`
+    /// tags through the shared `solana_codec` SPL bincode decoder.
+    pub inline fn freezeAuthorityChecked(self: *const Mint) sol.ProgramError!?Pubkey {
+        return readCOptionPubkeyValue(self.freeze_authority_tag, &self.freeze_authority);
+    }
+
     /// Parse a runtime data slice into a typed pointer. Returns an
     /// error if `bytes.len != MINT_LEN`.
     pub inline fn fromBytes(bytes: []const u8) sol.ProgramError!*const Mint {
@@ -166,6 +179,18 @@ pub const Account = extern struct {
         return if (self.close_authority_tag == COPTION_SOME) &self.close_authority else null;
     }
 
+    /// Validated variant of `delegateKey`: rejects malformed `COption` tags
+    /// through the shared `solana_codec` SPL bincode decoder.
+    pub inline fn delegateKeyChecked(self: *const Account) sol.ProgramError!?Pubkey {
+        return readCOptionPubkeyValue(self.delegate_tag, &self.delegate);
+    }
+
+    /// Validated variant of `closeAuthority`: rejects malformed `COption`
+    /// tags through the shared `solana_codec` SPL bincode decoder.
+    pub inline fn closeAuthorityChecked(self: *const Account) sol.ProgramError!?Pubkey {
+        return readCOptionPubkeyValue(self.close_authority_tag, &self.close_authority);
+    }
+
     /// `true` if the token-account owner is the System Program or the
     /// incinerator, mirroring the upstream SPL Token interface helper.
     pub inline fn isOwnedBySystemProgramOrIncinerator(self: *const Account) bool {
@@ -178,6 +203,12 @@ pub const Account = extern struct {
     /// inner `u64` carries the rent-exempt reserve.
     pub inline fn isNative(self: *const Account) bool {
         return self.is_native_tag == COPTION_SOME;
+    }
+
+    /// Validated wrapped-SOL rent reserve. `null` means the account is not
+    /// native; malformed `COption` tags are rejected as invalid account data.
+    pub inline fn nativeRentExemptReserveChecked(self: *const Account) sol.ProgramError!?u64 {
+        return readCOptionU64Value(self.is_native_tag, self.is_native_rent_exempt_reserve);
     }
 
     pub inline fn fromBytes(bytes: []const u8) sol.ProgramError!*const Account {
@@ -297,6 +328,28 @@ pub const Multisig = extern struct {
     }
 };
 
+fn readCOptionPubkeyValue(tag: u32, payload: *const Pubkey) sol.ProgramError!?Pubkey {
+    const decoded = codec.readCOptionPubkeyParts(tag, payload) catch {
+        return sol.program_error.fail(
+            @src(),
+            "token_state:invalid_coption_pubkey",
+            error.InvalidAccountData,
+        );
+    };
+    return decoded.value;
+}
+
+fn readCOptionU64Value(tag: u32, payload: u64) sol.ProgramError!?u64 {
+    const decoded = codec.readCOptionU64Parts(tag, payload) catch {
+        return sol.program_error.fail(
+            @src(),
+            "token_state:invalid_coption_u64",
+            error.InvalidAccountData,
+        );
+    };
+    return decoded.value;
+}
+
 // =============================================================================
 // Tests
 // =============================================================================
@@ -352,6 +405,12 @@ test "mint: round-trip authority decoding" {
     try std.testing.expect(mint.freezeAuthority() == null);
     const expected: Pubkey = .{0x01} ** 32;
     try std.testing.expectEqualSlices(u8, &expected, mint.mintAuthority().?);
+    try std.testing.expectEqualSlices(u8, &expected, &(try mint.mintAuthorityChecked()).?);
+    try std.testing.expect((try mint.freezeAuthorityChecked()) == null);
+
+    std.mem.writeInt(u32, buf[0..4], 9, .little);
+    const invalid_mint = try Mint.fromBytes(&buf);
+    try std.testing.expectError(error.InvalidAccountData, invalid_mint.mintAuthorityChecked());
 }
 
 test "account: fromBytes rejects wrong length" {
@@ -376,7 +435,13 @@ test "account: state + isNative round-trip" {
     try std.testing.expect(acc.isNative());
     try std.testing.expectEqual(@as(u64, 2_039_280), acc.is_native_rent_exempt_reserve);
     try std.testing.expect(acc.delegateKey() == null);
+    try std.testing.expect((try acc.delegateKeyChecked()) == null);
+    try std.testing.expectEqual(@as(?u64, 2_039_280), try acc.nativeRentExemptReserveChecked());
     try std.testing.expect(!acc.isOwnedBySystemProgramOrIncinerator());
+
+    std.mem.writeInt(u32, buf[109..113], 9, .little);
+    const invalid_acc = try Account.fromBytes(&buf);
+    try std.testing.expectError(error.InvalidAccountData, invalid_acc.nativeRentExemptReserveChecked());
 }
 
 test "account: fast-path pubkey helpers match canonical offsets" {

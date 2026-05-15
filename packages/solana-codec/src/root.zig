@@ -54,6 +54,11 @@ pub const BincodeOptionPubkey = struct {
     len: usize,
 };
 
+pub const BorshOptionU64 = struct {
+    value: ?u64,
+    len: usize,
+};
+
 pub fn ReadInt(comptime T: type) type {
     return struct {
         value: T,
@@ -326,6 +331,33 @@ pub fn readBorshU64(input: []const u8) Error!ReadInt(u64) {
     return readInt(u64, input);
 }
 
+pub fn borshOptionU64Len(value: ?u64) usize {
+    return if (value == null) 1 else 1 + @sizeOf(u64);
+}
+
+pub fn writeBorshOptionU64(out: []u8, value: ?u64) Error!usize {
+    const needed = borshOptionU64Len(value);
+    if (out.len < needed) return error.BufferTooSmall;
+
+    out[0] = if (value != null) 1 else 0;
+    if (value) |n| {
+        _ = try writeBorshU64(out[1..], n);
+    }
+    return needed;
+}
+
+pub fn readBorshOptionU64(input: []const u8) Error!BorshOptionU64 {
+    if (input.len < 1) return error.InputTooShort;
+    return switch (input[0]) {
+        0 => .{ .value = null, .len = 1 },
+        1 => blk: {
+            const decoded = try readBorshU64(input[1..]);
+            break :blk .{ .value = decoded.value, .len = 1 + decoded.len };
+        },
+        else => error.InvalidCOptionTag,
+    };
+}
+
 pub fn writeCOptionPubkey(out: []u8, value: ?*const Pubkey) Error!usize {
     const payload_len = 4 + PUBKEY_BYTES;
     if (out.len < payload_len) return error.BufferTooSmall;
@@ -345,9 +377,13 @@ pub fn readCOptionPubkey(input: []const u8) Error!COptionPubkey {
     if (input.len < payload_len) return error.InputTooShort;
 
     const tag = std.mem.readInt(u32, input[0..4], .little);
+    return readCOptionPubkeyParts(tag, &input[4..][0..PUBKEY_BYTES].*);
+}
+
+pub fn readCOptionPubkeyParts(tag: u32, payload: *const Pubkey) Error!COptionPubkey {
     return switch (tag) {
-        0 => .{ .value = null, .len = payload_len },
-        1 => .{ .value = input[4..][0..PUBKEY_BYTES].*, .len = payload_len },
+        0 => .{ .value = null, .len = 4 + PUBKEY_BYTES },
+        1 => .{ .value = payload.*, .len = 4 + PUBKEY_BYTES },
         else => error.InvalidCOptionTag,
     };
 }
@@ -371,9 +407,14 @@ pub fn readCOptionU64(input: []const u8) Error!COptionU64 {
     if (input.len < payload_len) return error.InputTooShort;
 
     const tag = std.mem.readInt(u32, input[0..4], .little);
+    const payload = std.mem.readInt(u64, input[4..][0..8], .little);
+    return readCOptionU64Parts(tag, payload);
+}
+
+pub fn readCOptionU64Parts(tag: u32, payload: u64) Error!COptionU64 {
     return switch (tag) {
-        0 => .{ .value = null, .len = payload_len },
-        1 => .{ .value = std.mem.readInt(u64, input[4..][0..8], .little), .len = payload_len },
+        0 => .{ .value = null, .len = 4 + @sizeOf(u64) },
+        1 => .{ .value = payload, .len = 4 + @sizeOf(u64) },
         else => error.InvalidCOptionTag,
     };
 }
@@ -422,6 +463,20 @@ test "Borsh primitive and byte helpers are little-endian and bounded" {
     try std.testing.expectEqualSlices(u8, &.{ 8, 7, 6, 5, 4, 3, 2, 1 }, buf[0..8]);
     const u64_read = try readBorshU64(buf[0..8]);
     try std.testing.expectEqual(@as(u64, 0x0102030405060708), u64_read.value);
+
+    try std.testing.expectEqual(@as(usize, 9), borshOptionU64Len(5));
+    try std.testing.expectEqual(@as(usize, 9), try writeBorshOptionU64(&buf, 5));
+    try std.testing.expectEqualSlices(u8, &.{ 1, 5, 0, 0, 0, 0, 0, 0, 0 }, buf[0..9]);
+    const some_u64 = try readBorshOptionU64(buf[0..9]);
+    try std.testing.expectEqual(@as(?u64, 5), some_u64.value);
+    try std.testing.expectEqual(@as(usize, 9), some_u64.len);
+
+    try std.testing.expectEqual(@as(usize, 1), borshOptionU64Len(null));
+    try std.testing.expectEqual(@as(usize, 1), try writeBorshOptionU64(&buf, null));
+    const none_u64 = try readBorshOptionU64(buf[0..1]);
+    try std.testing.expect(none_u64.value == null);
+    try std.testing.expectEqual(@as(usize, 1), none_u64.len);
+    try std.testing.expectError(error.InvalidCOptionTag, readBorshOptionU64(&.{2}));
 
     try std.testing.expectEqual(@as(usize, 1), try writeBorshBool(&buf, true));
     const bool_read = try readBorshBool(buf[0..1]);
@@ -514,6 +569,8 @@ test "COption Pubkey matches SPL bincode layout" {
     const some = try readCOptionPubkey(&buf);
     try std.testing.expect(some.value != null);
     try std.testing.expectEqualSlices(u8, &pubkey, &some.value.?);
+    const some_parts = try readCOptionPubkeyParts(1, &pubkey);
+    try std.testing.expectEqualSlices(u8, &pubkey, &some_parts.value.?);
 
     try std.testing.expectEqual(@as(usize, 36), try writeCOptionPubkey(&buf, null));
     try std.testing.expectEqualSlices(u8, &.{ 0, 0, 0, 0 }, buf[0..4]);
@@ -521,6 +578,7 @@ test "COption Pubkey matches SPL bincode layout" {
 
     std.mem.writeInt(u32, buf[0..4], 2, .little);
     try std.testing.expectError(error.InvalidCOptionTag, readCOptionPubkey(&buf));
+    try std.testing.expectError(error.InvalidCOptionTag, readCOptionPubkeyParts(2, &pubkey));
 }
 
 test "COption u64 matches bincode little-endian layout" {
@@ -531,21 +589,27 @@ test "COption u64 matches bincode little-endian layout" {
 
     const some = try readCOptionU64(&buf);
     try std.testing.expectEqual(@as(?u64, 500), some.value);
+    const some_parts = try readCOptionU64Parts(1, 500);
+    try std.testing.expectEqual(@as(?u64, 500), some_parts.value);
 
     try std.testing.expectEqual(@as(usize, 12), try writeCOptionU64(&buf, null));
     try std.testing.expectEqualSlices(u8, &.{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, &buf);
     const none = try readCOptionU64(&buf);
     try std.testing.expect(none.value == null);
+    try std.testing.expectError(error.InvalidCOptionTag, readCOptionU64Parts(2, 0));
 }
 
 test "public surface guards" {
     try std.testing.expectEqual(@as(usize, 32), PUBKEY_BYTES);
     try std.testing.expect(@hasDecl(@This(), "writeShortVec"));
     try std.testing.expect(@hasDecl(@This(), "writeBorshString"));
+    try std.testing.expect(@hasDecl(@This(), "writeBorshOptionU64"));
     try std.testing.expect(@hasDecl(@This(), "writeBincodeString"));
     try std.testing.expect(@hasDecl(@This(), "writeBincodeU64"));
     try std.testing.expect(@hasDecl(@This(), "writeBincodeOptionI64"));
     try std.testing.expect(@hasDecl(@This(), "writeBincodeOptionPubkey"));
     try std.testing.expect(@hasDecl(@This(), "writeVarintU64"));
     try std.testing.expect(@hasDecl(@This(), "writeCOptionPubkey"));
+    try std.testing.expect(@hasDecl(@This(), "readCOptionPubkeyParts"));
+    try std.testing.expect(@hasDecl(@This(), "readCOptionU64Parts"));
 }

@@ -78,6 +78,7 @@ pub const poseidon = crypto.poseidon;
 pub const big_mod_exp = crypto.big_mod_exp;
 pub const ed25519_instruction = crypto.ed25519_instruction;
 pub const secp256k1_instruction = crypto.secp256k1_instruction;
+pub const secp256r1_instruction = crypto.secp256r1_instruction;
 
 // Panic handler namespace
 /// Usage in your program: `pub const panic = solana_program_sdk.panic.Panic;`
@@ -169,6 +170,7 @@ pub const sysvar_id = pubkey.comptimeFromBase58("Sysvar1111111111111111111111111
 pub const instructions_id = pubkey.comptimeFromBase58("Sysvar1nstructions1111111111111111111111111");
 pub const ed25519_program_id = pubkey.comptimeFromBase58("Ed25519SigVerify111111111111111111111111111");
 pub const secp256k1_program_id = pubkey.comptimeFromBase58("KeccakSecp256k11111111111111111111111111111");
+pub const secp256r1_program_id = pubkey.comptimeFromBase58("Secp256r1SigVerify1111111111111111111111111");
 
 // BPF Loader variants
 pub const bpf_loader_id = bpf.bpf_loader_program_id;

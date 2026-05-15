@@ -1,0 +1,17 @@
+.{
+    .name = .spl_elgamal_registry,
+    .version = "0.1.0",
+    .fingerprint = 0xf76c44cf29d2a60b,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .solana_program_sdk = .{
+            .path = "../..",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "README.md",
+    },
+}

@@ -115,6 +115,20 @@ try_candidate() {
   fi
 }
 
+host_bootstrap_target() {
+  local os arch
+  os="$(uname -s 2>/dev/null || true)"
+  arch="$(uname -m 2>/dev/null || true)"
+
+  case "$os:$arch" in
+    Darwin:arm64|Darwin:aarch64) printf '%s\n' "aarch64-macos-none" ;;
+    Darwin:x86_64) printf '%s\n' "x86_64-macos-none" ;;
+    Linux:aarch64|Linux:arm64) printf '%s\n' "aarch64-linux-gnu" ;;
+    Linux:x86_64) printf '%s\n' "x86_64-linux-gnu" ;;
+    *) printf '%s\n' "native-$(printf '%s' "$os" | tr '[:upper:]' '[:lower:]')-gnu" ;;
+  esac
+}
+
 if [[ -n "${SOLANA_ZIG_BIN:-}" ]]; then
   try_candidate "$SOLANA_ZIG_BIN"
   echo "SOLANA_ZIG_BIN is set but is not repository-compatible: $SOLANA_ZIG_BIN" >&2
@@ -142,6 +156,9 @@ if command -v solana-zig >/dev/null 2>&1; then
   try_candidate "$(command -v solana-zig)"
 fi
 
+bootstrap_dir="$ROOT_DIR/../solana-zig-bootstrap"
+bootstrap_target="$(host_bootstrap_target)"
+
 cat <<EOF >&2
 solana-zig fork not found.
 
@@ -154,4 +171,20 @@ Options:
     (branch solana-1.52) into a sibling directory
   - Re-run ./scripts/ensure-solana-zig.sh after installing the fork
 EOF
+
+if [[ -d "$bootstrap_dir" ]]; then
+  cat <<EOF >&2
+
+Detected local bootstrap source checkout:
+  $bootstrap_dir
+
+No compatible compiler binary was found under that checkout. To build it:
+  cd "$bootstrap_dir"
+  git submodule update --init --recursive
+  ./build "$bootstrap_target" baseline
+
+Expected output:
+  $bootstrap_dir/out/zig-$bootstrap_target-baseline/zig
+EOF
+fi
 exit 1

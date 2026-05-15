@@ -1,0 +1,12 @@
+[package]
+name = "spl-governance-parity"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+solana-program = "1.17.13"
+spl-governance = { version = "4.0.0", features = ["no-entrypoint"] }
+spl-token = { version = "4.0", features = ["no-entrypoint"] }

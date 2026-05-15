@@ -13,11 +13,13 @@ pub const big_mod_exp = @import("big_mod_exp.zig");
 pub const instructions = struct {
     pub const ed25519 = @import("instructions/ed25519.zig");
     pub const secp256k1 = @import("instructions/secp256k1.zig");
+    pub const secp256r1 = @import("instructions/secp256r1.zig");
 };
 
 // Backwards-compatible aliases for the precompile instruction helpers.
 pub const ed25519_instruction = instructions.ed25519;
 pub const secp256k1_instruction = instructions.secp256k1;
+pub const secp256r1_instruction = instructions.secp256r1;
 
 // Most-used helpers re-exported flat so the common case stays short.
 pub const Hash = hash.Hash;

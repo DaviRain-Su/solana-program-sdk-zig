@@ -1,0 +1,13 @@
+[package]
+name = "spl-elgamal-registry-rust-parity"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dev-dependencies]
+solana-instruction = "2.2.1"
+solana-pubkey = { version = "2.2.1", features = ["curve25519"] }
+solana-sdk-ids = "2.2.1"
+solana-zk-sdk = "2.2.0"
+spl-elgamal-registry = "0.2.0"
+spl-token-confidential-transfer-proof-extraction = "0.3.0"

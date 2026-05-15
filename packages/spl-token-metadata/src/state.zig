@@ -3,8 +3,8 @@
 
 const std = @import("std");
 const sol = @import("solana_program_sdk");
+const codec = @import("solana_codec");
 const id = @import("id.zig");
-const borsh_string = @import("borsh_string.zig");
 const parity_fixture = @import("parity_fixture.zig");
 
 pub const INTERFACE_NAMESPACE = id.INTERFACE_NAMESPACE;
@@ -91,15 +91,11 @@ pub const Field = union(FieldTag) {
                 .consumed = 1,
             },
             @intFromEnum(FieldTag.key) => blk: {
-                if (input.len < 1 + @sizeOf(u32)) return sol.ProgramError.InvalidInstructionData;
-                const key_len = sol.instruction.tryReadUnaligned(u32, input, 1) orelse
+                const key = codec.readBorshString(input[1..]) catch
                     return sol.ProgramError.InvalidInstructionData;
-                const end = std.math.add(usize, 1 + @sizeOf(u32), @as(usize, key_len))
-                    catch return sol.ProgramError.InvalidInstructionData;
-                if (input.len < end) return sol.ProgramError.InvalidInstructionData;
                 break :blk .{
-                    .field = .{ .key = input[1 + @sizeOf(u32) .. end] },
-                    .consumed = end,
+                    .field = .{ .key = key.value },
+                    .consumed = 1 + key.len,
                 };
             },
             else => sol.ProgramError.InvalidInstructionData,
@@ -250,18 +246,30 @@ pub const TokenMetadata = struct {
 };
 
 fn checkedAddLen(base: usize, addend: usize) error{LengthOverflow}!usize {
-    return borsh_string.checkedAddLen(base, addend);
+    return std.math.add(usize, base, addend) catch error.LengthOverflow;
 }
 
 fn borshStringLen(value: []const u8) error{ BoundsExceeded, LengthOverflow }!usize {
     if (value.len > MAX_STRING_LEN) return error.BoundsExceeded;
-    return borsh_string.borshStringLenUnbounded(value);
+    return codec.borshStringLen(value) catch |err| switch (err) {
+        error.LengthOverflow => error.LengthOverflow,
+        error.BufferTooSmall,
+        error.InputTooShort,
+        error.NonCanonicalShortVec,
+        error.InvalidCOptionTag,
+        => unreachable,
+    };
 }
 
 fn writeBorshString(out: []u8, value: []const u8) error{ BufferTooSmall, BoundsExceeded, LengthOverflow }!usize {
-    return borsh_string.writeBorshStringCore(out, value) catch |err| switch (err) {
+    if (value.len > MAX_STRING_LEN) return error.BoundsExceeded;
+    return codec.writeBorshString(out, value) catch |err| switch (err) {
         error.LengthOverflow => return error.LengthOverflow,
-        error.OutputTooSmall => return error.BufferTooSmall,
+        error.BufferTooSmall => return error.BufferTooSmall,
+        error.InputTooShort,
+        error.NonCanonicalShortVec,
+        error.InvalidCOptionTag,
+        => unreachable,
     };
 }
 
@@ -290,23 +298,39 @@ fn readBoundedPairCount(bytes: []const u8, offset: *usize) StateError!usize {
 }
 
 fn readBoundedString(bytes: []const u8, offset: *usize) StateError![]const u8 {
-    const string_len = try readLenU32(bytes, offset);
-    if (string_len > MAX_STRING_LEN) return error.BoundsExceeded;
+    const declared_len = codec.readBorshU32(bytes[offset.*..]) catch |err| switch (err) {
+        error.InputTooShort => return error.InvalidAccountData,
+        error.LengthOverflow => return error.LengthOverflow,
+        error.BufferTooSmall,
+        error.NonCanonicalShortVec,
+        error.InvalidCOptionTag,
+        => unreachable,
+    };
+    if (declared_len.value > MAX_STRING_LEN) return error.BoundsExceeded;
 
-    const end = checkedAddLen(offset.*, string_len) catch return error.LengthOverflow;
-    if (end > bytes.len) return error.InvalidAccountData;
-
-    const value = bytes[offset.*..end];
-    offset.* = end;
-    return value;
+    const parsed = codec.readBorshString(bytes[offset.*..]) catch |err| switch (err) {
+        error.InputTooShort => return error.InvalidAccountData,
+        error.LengthOverflow => return error.LengthOverflow,
+        error.BufferTooSmall,
+        error.NonCanonicalShortVec,
+        error.InvalidCOptionTag,
+        => unreachable,
+    };
+    offset.* = checkedAddLen(offset.*, parsed.len) catch return error.LengthOverflow;
+    return parsed.value;
 }
 
 fn readLenU32(bytes: []const u8, offset: *usize) StateError!usize {
-    const end = checkedAddLen(offset.*, @sizeOf(u32)) catch return error.LengthOverflow;
-    if (end > bytes.len) return error.InvalidAccountData;
-    const value = std.mem.readInt(u32, bytes[offset.*..][0..@sizeOf(u32)], .little);
-    offset.* = end;
-    return @intCast(value);
+    const parsed = codec.readBorshU32(bytes[offset.*..]) catch |err| switch (err) {
+        error.InputTooShort => return error.InvalidAccountData,
+        error.LengthOverflow => return error.LengthOverflow,
+        error.BufferTooSmall,
+        error.NonCanonicalShortVec,
+        error.InvalidCOptionTag,
+        => unreachable,
+    };
+    offset.* = checkedAddLen(offset.*, parsed.len) catch return error.LengthOverflow;
+    return parsed.value;
 }
 
 test "state scaffold exposes canonical namespace discriminator width and interface-only surface" {

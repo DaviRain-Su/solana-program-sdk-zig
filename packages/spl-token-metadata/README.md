@@ -21,6 +21,8 @@ Rust parity coverage.
   encoding
 - bounded TokenMetadata state parsing/serialization and checked parity
   fixtures against `spl-token-metadata-interface = "=1.0.0"`
+- shared `solana_codec` Borsh string/primitive helpers for instruction
+  payload and state byte layouts
 
 ## Not in scope
 
@@ -38,9 +40,8 @@ zig build --build-file packages/spl-token-metadata/build.zig test --summary all
 # Rust parity fixtures
 cargo test --manifest-path packages/spl-token-metadata/rust-parity/Cargo.toml --locked -j 4
 
-# Root SDK regression is intentionally deferred while unrelated
-# user-owned sysvar/root refactor work breaks the root baseline
-echo Root test deferred: unrelated user-owned sysvar/root dirty work currently breaks root baseline
+# Root SDK regression
+zig build test --summary all
 ```
 
 ## Notes

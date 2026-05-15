@@ -1,6 +1,6 @@
 # Bench results snapshot
 
-Captured: 2026-05-13 against `main` HEAD (see `git log -1 --format=%H`).
+Captured: 2026-05-14 against the current worktree.
 
 Reproduce: `./scripts/bench.sh` from the repo root. Requires
 `solana-zig` on PATH (or `SOLANA_ZIG=/path/to/zig`) plus optional
@@ -65,15 +65,15 @@ comparison isolates pure SDK overhead.
 
 | Instruction          | Zig (this SDK) | Pinocchio | Δ (Zig − Pino)  |
 |----------------------|---------------:|----------:|----------------:|
-| `vault_initialize`   |       **1334** |     1351  | −17  (−1.3%)   |
-| `vault_deposit`      |       **1543** |     1565  | −22  (−1.4%)   |
-| `vault_withdraw`     |       **1866** |     1949  | −83  (−4.3%)   |
+| `vault_initialize`   |       **1337** |     1351  | −14  (−1.0%)   |
+| `vault_deposit`      |       **1547** |     1565  | −18  (−1.2%)   |
+| `vault_withdraw`     |       **1873** |     1949  | −76  (−3.9%)   |
 
 **All three vault instructions now beat the Pinocchio reference.**
 
-## Performance journey on `vault.initialize` (1823 → 1353, −26%)
+## Performance journey on `vault.initialize` (1823 → 1337, −27%)
 
-The 470-CU reduction came from three measurable optimizations, all of
+The 486-CU reduction came from three measurable optimizations, all of
 which are documented in their respective `perf:` commits:
 
 | Commit     | Optimization                                            | Δ CU  |
@@ -83,8 +83,9 @@ which are documented in their respective `perf:` commits:
 | `79d3161`  | `CpiAccountInfo.fromPtr` u32 flag-copy                  |   −27 |
 | _baseline_ | (other f0ece32 wins absorbed: Seed/Signer, bindUnchecked)| various |
 
-The remaining 2 CU vs. Pinocchio is sub-instruction noise that LLVM
-has already optimized flat.
+The remaining gap versus Pinocchio is still in this SDK's favor on all three
+vault instructions. The differences are small enough that further CU work
+should be tied to benchmark-backed changes rather than speculative code churn.
 
 ## Safe-parse / token-dispatch snapshot
 

@@ -169,14 +169,15 @@ test "Token-2022 transfer-hook fixtures coexist with spl_transfer_hook validatio
     try std.testing.expectEqual(@as(u8, 1), resolved[0].is_writable);
 }
 
-test "cross-package fixture stays parser and interface scoped" {
+test "cross-package fixture stays parser interface and generic CPI scoped without off-chain expansion" {
     try std.testing.expect(@hasDecl(spl_token_2022, "parseMint"));
     try std.testing.expect(@hasDecl(spl_token_2022.extension, "getTransferHook"));
+    try std.testing.expect(@hasDecl(spl_token_2022, "instruction"));
+    try std.testing.expect(@hasDecl(spl_token_2022.instruction, "initializeMint2"));
     try std.testing.expect(@hasDecl(spl_transfer_hook, "findValidationAddress"));
     try std.testing.expect(@hasDecl(spl_transfer_hook, "validateExecuteExtraAccountInfos"));
 
-    try std.testing.expect(!@hasDecl(spl_token_2022, "instruction"));
-    try std.testing.expect(!@hasDecl(spl_token_2022, "cpi"));
+    try std.testing.expect(@hasDecl(spl_token_2022, "cpi"));
     try std.testing.expect(!@hasDecl(spl_token_2022, "rpc"));
     try std.testing.expect(!@hasDecl(spl_token_2022, "client"));
     try std.testing.expect(!@hasDecl(spl_token_2022, "keypair"));

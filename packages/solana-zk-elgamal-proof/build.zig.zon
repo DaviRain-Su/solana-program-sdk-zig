@@ -1,0 +1,17 @@
+.{
+    .name = .solana_zk_elgamal_proof,
+    .version = "0.1.0",
+    .fingerprint = 0x7b5968f6ad27874d,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .solana_program_sdk = .{
+            .path = "../..",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "README.md",
+    },
+}

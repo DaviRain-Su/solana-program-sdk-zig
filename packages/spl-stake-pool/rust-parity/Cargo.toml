@@ -1,0 +1,12 @@
+[package]
+name = "spl-stake-pool-rust-parity"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"
+
+[dev-dependencies]
+solana-program = "2.3.0"
+solana-zk-sdk = "2.3.13"
+spl-stake-pool = { version = "2.0.3", features = ["no-entrypoint"] }

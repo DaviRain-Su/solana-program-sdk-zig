@@ -202,6 +202,80 @@ pub const PausableView = extern struct {
     }
 };
 
+pub const ConfidentialTransferMintView = extern struct {
+    authority: [32]u8,
+    auto_approve_new_accounts: u8,
+    auditor_elgamal_pubkey: [32]u8,
+
+    pub const TYPE = ExtensionType.confidential_transfer_mint;
+    pub const PAYLOAD_LEN: usize = 65;
+
+    pub fn fromBytes(bytes: []const u8) Error!*align(1) const ConfidentialTransferMintView {
+        return castPayload(ConfidentialTransferMintView, bytes, PAYLOAD_LEN);
+    }
+};
+
+pub const ConfidentialTransferAccountView = extern struct {
+    approved: u8,
+    elgamal_pubkey: [32]u8,
+    pending_balance_lo: [64]u8,
+    pending_balance_hi: [64]u8,
+    available_balance: [64]u8,
+    decryptable_available_balance: [36]u8,
+    allow_confidential_credits: u8,
+    allow_non_confidential_credits: u8,
+    pending_balance_credit_counter: [8]u8,
+    maximum_pending_balance_credit_counter: [8]u8,
+    expected_pending_balance_credit_counter: [8]u8,
+    actual_pending_balance_credit_counter: [8]u8,
+
+    pub const TYPE = ExtensionType.confidential_transfer_account;
+    pub const PAYLOAD_LEN: usize = 295;
+
+    pub fn fromBytes(bytes: []const u8) Error!*align(1) const ConfidentialTransferAccountView {
+        return castPayload(ConfidentialTransferAccountView, bytes, PAYLOAD_LEN);
+    }
+};
+
+pub const ConfidentialTransferFeeConfigView = extern struct {
+    authority: [32]u8,
+    withdraw_withheld_authority_elgamal_pubkey: [32]u8,
+    harvest_to_mint_enabled: u8,
+    withheld_amount: [64]u8,
+
+    pub const TYPE = ExtensionType.confidential_transfer_fee_config;
+    pub const PAYLOAD_LEN: usize = 129;
+
+    pub fn fromBytes(bytes: []const u8) Error!*align(1) const ConfidentialTransferFeeConfigView {
+        return castPayload(ConfidentialTransferFeeConfigView, bytes, PAYLOAD_LEN);
+    }
+};
+
+pub const ConfidentialTransferFeeAmountView = extern struct {
+    withheld_amount: [64]u8,
+
+    pub const TYPE = ExtensionType.confidential_transfer_fee_amount;
+    pub const PAYLOAD_LEN: usize = 64;
+
+    pub fn fromBytes(bytes: []const u8) Error!*align(1) const ConfidentialTransferFeeAmountView {
+        return castPayload(ConfidentialTransferFeeAmountView, bytes, PAYLOAD_LEN);
+    }
+};
+
+pub const ConfidentialMintBurnView = extern struct {
+    confidential_supply: [64]u8,
+    decryptable_supply: [36]u8,
+    supply_elgamal_pubkey: [32]u8,
+    pending_burn: [64]u8,
+
+    pub const TYPE = ExtensionType.confidential_mint_burn;
+    pub const PAYLOAD_LEN: usize = 196;
+
+    pub fn fromBytes(bytes: []const u8) Error!*align(1) const ConfidentialMintBurnView {
+        return castPayload(ConfidentialMintBurnView, bytes, PAYLOAD_LEN);
+    }
+};
+
 pub const TransferFeeAmountView = extern struct {
     withheld_amount: u64 align(1),
 
@@ -277,6 +351,17 @@ pub const PausableAccountView = struct {
 };
 
 pub const MINT_FIXED_LEN_SUPPORT = [_]SupportRow{
+    .{
+        .name = "ConfidentialTransferMint",
+        .account_type = .mint,
+        .extension_type = .confidential_transfer_mint,
+        .payload_len = ConfidentialTransferMintView.PAYLOAD_LEN,
+        .exposed_fields = &.{
+            "authority",
+            "auto_approve_new_accounts",
+            "auditor_elgamal_pubkey",
+        },
+    },
     .{
         .name = "TransferFeeConfig",
         .account_type = .mint,
@@ -393,9 +478,53 @@ pub const MINT_FIXED_LEN_SUPPORT = [_]SupportRow{
             "paused",
         },
     },
+    .{
+        .name = "ConfidentialTransferFeeConfig",
+        .account_type = .mint,
+        .extension_type = .confidential_transfer_fee_config,
+        .payload_len = ConfidentialTransferFeeConfigView.PAYLOAD_LEN,
+        .exposed_fields = &.{
+            "authority",
+            "withdraw_withheld_authority_elgamal_pubkey",
+            "harvest_to_mint_enabled",
+            "withheld_amount",
+        },
+    },
+    .{
+        .name = "ConfidentialMintBurn",
+        .account_type = .mint,
+        .extension_type = .confidential_mint_burn,
+        .payload_len = ConfidentialMintBurnView.PAYLOAD_LEN,
+        .exposed_fields = &.{
+            "confidential_supply",
+            "decryptable_supply",
+            "supply_elgamal_pubkey",
+            "pending_burn",
+        },
+    },
 };
 
 pub const ACCOUNT_FIXED_LEN_SUPPORT = [_]SupportRow{
+    .{
+        .name = "ConfidentialTransferAccount",
+        .account_type = .account,
+        .extension_type = .confidential_transfer_account,
+        .payload_len = ConfidentialTransferAccountView.PAYLOAD_LEN,
+        .exposed_fields = &.{
+            "approved",
+            "elgamal_pubkey",
+            "pending_balance_lo",
+            "pending_balance_hi",
+            "available_balance",
+            "decryptable_available_balance",
+            "allow_confidential_credits",
+            "allow_non_confidential_credits",
+            "pending_balance_credit_counter",
+            "maximum_pending_balance_credit_counter",
+            "expected_pending_balance_credit_counter",
+            "actual_pending_balance_credit_counter",
+        },
+    },
     .{
         .name = "TransferFeeAmount",
         .account_type = .account,
@@ -445,17 +574,19 @@ pub const ACCOUNT_FIXED_LEN_SUPPORT = [_]SupportRow{
         .payload_len = PausableAccountView.PAYLOAD_LEN,
         .exposed_fields = &.{},
     },
+    .{
+        .name = "ConfidentialTransferFeeAmount",
+        .account_type = .account,
+        .extension_type = .confidential_transfer_fee_amount,
+        .payload_len = ConfidentialTransferFeeAmountView.PAYLOAD_LEN,
+        .exposed_fields = &.{"withheld_amount"},
+    },
 };
 
 pub const KNOWN_UNSUPPORTED_FIXED_VIEW_TYPES = [_]ExtensionType{
-    .confidential_transfer_mint,
-    .confidential_transfer_account,
-    .confidential_transfer_fee_config,
-    .confidential_transfer_fee_amount,
     .token_metadata,
     .token_group,
     .token_group_member,
-    .confidential_mint_burn,
     .permissioned_burn,
 };
 
@@ -549,6 +680,18 @@ pub fn getPausable(mint_bytes: []const u8) Error!*align(1) const PausableView {
     return PausableView.fromBytes(try getMintViewPayload(mint_bytes, .pausable));
 }
 
+pub fn getConfidentialTransferMint(mint_bytes: []const u8) Error!*align(1) const ConfidentialTransferMintView {
+    return ConfidentialTransferMintView.fromBytes(try getMintViewPayload(mint_bytes, .confidential_transfer_mint));
+}
+
+pub fn getConfidentialTransferFeeConfig(mint_bytes: []const u8) Error!*align(1) const ConfidentialTransferFeeConfigView {
+    return ConfidentialTransferFeeConfigView.fromBytes(try getMintViewPayload(mint_bytes, .confidential_transfer_fee_config));
+}
+
+pub fn getConfidentialMintBurn(mint_bytes: []const u8) Error!*align(1) const ConfidentialMintBurnView {
+    return ConfidentialMintBurnView.fromBytes(try getMintViewPayload(mint_bytes, .confidential_mint_burn));
+}
+
 pub fn getTransferFeeAmount(account_bytes: []const u8) Error!*align(1) const TransferFeeAmountView {
     return TransferFeeAmountView.fromBytes(try getAccountViewPayload(account_bytes, .transfer_fee_amount));
 }
@@ -577,9 +720,17 @@ pub fn getPausableAccount(account_bytes: []const u8) Error!PausableAccountView {
     return PausableAccountView.fromBytes(try getAccountViewPayload(account_bytes, .pausable_account));
 }
 
+pub fn getConfidentialTransferAccount(account_bytes: []const u8) Error!*align(1) const ConfidentialTransferAccountView {
+    return ConfidentialTransferAccountView.fromBytes(try getAccountViewPayload(account_bytes, .confidential_transfer_account));
+}
+
+pub fn getConfidentialTransferFeeAmount(account_bytes: []const u8) Error!*align(1) const ConfidentialTransferFeeAmountView {
+    return ConfidentialTransferFeeAmountView.fromBytes(try getAccountViewPayload(account_bytes, .confidential_transfer_fee_amount));
+}
+
 fn fillSequence(bytes: []u8, start: u8) void {
     for (bytes, 0..) |*byte, i| {
-        byte.* = start +% @as(u8, @intCast(i));
+        byte.* = start +% @as(u8, @truncate(i));
     }
 }
 
@@ -620,7 +771,7 @@ fn expectSupportRow(
 fn expectWrongLengths(comptime View: type) !void {
     if (View.PAYLOAD_LEN == 0) return;
 
-    var buf = [_]u8{0} ** 128;
+    var buf = [_]u8{0} ** 320;
     try std.testing.expectError(
         error.InvalidExtensionLength,
         View.fromBytes(buf[0 .. View.PAYLOAD_LEN - 1]),
@@ -639,6 +790,8 @@ fn expectParsedView(comptime View: type, bytes: []const u8) !*align(1) const Vie
 }
 
 test "ExtensionType discriminants are canonical for v0.1 mint views" {
+    try std.testing.expectEqual(@as(u16, 4), @intFromEnum(ExtensionType.confidential_transfer_mint));
+    try std.testing.expectEqual(@as(u16, 5), @intFromEnum(ExtensionType.confidential_transfer_account));
     try std.testing.expectEqual(@as(u16, 1), @intFromEnum(ExtensionType.transfer_fee_config));
     try std.testing.expectEqual(@as(u16, 3), @intFromEnum(ExtensionType.mint_close_authority));
     try std.testing.expectEqual(@as(u16, 6), @intFromEnum(ExtensionType.default_account_state));
@@ -646,18 +799,32 @@ test "ExtensionType discriminants are canonical for v0.1 mint views" {
     try std.testing.expectEqual(@as(u16, 10), @intFromEnum(ExtensionType.interest_bearing_config));
     try std.testing.expectEqual(@as(u16, 12), @intFromEnum(ExtensionType.permanent_delegate));
     try std.testing.expectEqual(@as(u16, 14), @intFromEnum(ExtensionType.transfer_hook));
+    try std.testing.expectEqual(@as(u16, 16), @intFromEnum(ExtensionType.confidential_transfer_fee_config));
+    try std.testing.expectEqual(@as(u16, 17), @intFromEnum(ExtensionType.confidential_transfer_fee_amount));
     try std.testing.expectEqual(@as(u16, 18), @intFromEnum(ExtensionType.metadata_pointer));
     try std.testing.expectEqual(@as(u16, 20), @intFromEnum(ExtensionType.group_pointer));
     try std.testing.expectEqual(@as(u16, 22), @intFromEnum(ExtensionType.group_member_pointer));
+    try std.testing.expectEqual(@as(u16, 24), @intFromEnum(ExtensionType.confidential_mint_burn));
     try std.testing.expectEqual(@as(u16, 25), @intFromEnum(ExtensionType.scaled_ui_amount));
     try std.testing.expectEqual(@as(u16, 26), @intFromEnum(ExtensionType.pausable));
 }
 
 test "mint support table rows lock canonical type ids, payload lengths, and raw field names" {
-    try std.testing.expectEqual(@as(usize, 12), MINT_FIXED_LEN_SUPPORT.len);
+    try std.testing.expectEqual(@as(usize, 15), MINT_FIXED_LEN_SUPPORT.len);
 
     try expectSupportRow(
         MINT_FIXED_LEN_SUPPORT[0],
+        "ConfidentialTransferMint",
+        .confidential_transfer_mint,
+        65,
+        &.{
+            "authority",
+            "auto_approve_new_accounts",
+            "auditor_elgamal_pubkey",
+        },
+    );
+    try expectSupportRow(
+        MINT_FIXED_LEN_SUPPORT[1],
         "TransferFeeConfig",
         .transfer_fee_config,
         108,
@@ -670,28 +837,28 @@ test "mint support table rows lock canonical type ids, payload lengths, and raw 
         },
     );
     try expectSupportRow(
-        MINT_FIXED_LEN_SUPPORT[1],
+        MINT_FIXED_LEN_SUPPORT[2],
         "MintCloseAuthority",
         .mint_close_authority,
         32,
         &.{"close_authority"},
     );
     try expectSupportRow(
-        MINT_FIXED_LEN_SUPPORT[2],
+        MINT_FIXED_LEN_SUPPORT[3],
         "DefaultAccountState",
         .default_account_state,
         1,
         &.{"state"},
     );
     try expectSupportRow(
-        MINT_FIXED_LEN_SUPPORT[3],
+        MINT_FIXED_LEN_SUPPORT[4],
         "NonTransferable",
         .non_transferable,
         0,
         &.{},
     );
     try expectSupportRow(
-        MINT_FIXED_LEN_SUPPORT[4],
+        MINT_FIXED_LEN_SUPPORT[5],
         "InterestBearingConfig",
         .interest_bearing_config,
         52,
@@ -704,14 +871,14 @@ test "mint support table rows lock canonical type ids, payload lengths, and raw 
         },
     );
     try expectSupportRow(
-        MINT_FIXED_LEN_SUPPORT[5],
+        MINT_FIXED_LEN_SUPPORT[6],
         "PermanentDelegate",
         .permanent_delegate,
         32,
         &.{"delegate"},
     );
     try expectSupportRow(
-        MINT_FIXED_LEN_SUPPORT[6],
+        MINT_FIXED_LEN_SUPPORT[7],
         "TransferHook",
         .transfer_hook,
         64,
@@ -721,7 +888,7 @@ test "mint support table rows lock canonical type ids, payload lengths, and raw 
         },
     );
     try expectSupportRow(
-        MINT_FIXED_LEN_SUPPORT[7],
+        MINT_FIXED_LEN_SUPPORT[8],
         "MetadataPointer",
         .metadata_pointer,
         64,
@@ -731,7 +898,7 @@ test "mint support table rows lock canonical type ids, payload lengths, and raw 
         },
     );
     try expectSupportRow(
-        MINT_FIXED_LEN_SUPPORT[8],
+        MINT_FIXED_LEN_SUPPORT[9],
         "GroupPointer",
         .group_pointer,
         64,
@@ -741,7 +908,7 @@ test "mint support table rows lock canonical type ids, payload lengths, and raw 
         },
     );
     try expectSupportRow(
-        MINT_FIXED_LEN_SUPPORT[9],
+        MINT_FIXED_LEN_SUPPORT[10],
         "GroupMemberPointer",
         .group_member_pointer,
         64,
@@ -751,7 +918,7 @@ test "mint support table rows lock canonical type ids, payload lengths, and raw 
         },
     );
     try expectSupportRow(
-        MINT_FIXED_LEN_SUPPORT[10],
+        MINT_FIXED_LEN_SUPPORT[11],
         "ScaledUiAmount",
         .scaled_ui_amount,
         56,
@@ -763,7 +930,7 @@ test "mint support table rows lock canonical type ids, payload lengths, and raw 
         },
     );
     try expectSupportRow(
-        MINT_FIXED_LEN_SUPPORT[11],
+        MINT_FIXED_LEN_SUPPORT[12],
         "Pausable",
         .pausable,
         33,
@@ -772,9 +939,35 @@ test "mint support table rows lock canonical type ids, payload lengths, and raw 
             "paused",
         },
     );
+    try expectSupportRow(
+        MINT_FIXED_LEN_SUPPORT[13],
+        "ConfidentialTransferFeeConfig",
+        .confidential_transfer_fee_config,
+        129,
+        &.{
+            "authority",
+            "withdraw_withheld_authority_elgamal_pubkey",
+            "harvest_to_mint_enabled",
+            "withheld_amount",
+        },
+    );
+    try expectSupportRow(
+        MINT_FIXED_LEN_SUPPORT[14],
+        "ConfidentialMintBurn",
+        .confidential_mint_burn,
+        196,
+        &.{
+            "confidential_supply",
+            "decryptable_supply",
+            "supply_elgamal_pubkey",
+            "pending_burn",
+        },
+    );
 }
 
 test "mint view payload lengths match canonical serialized sizes" {
+    try std.testing.expectEqual(@as(usize, 65), ConfidentialTransferMintView.PAYLOAD_LEN);
+    try std.testing.expectEqual(@as(usize, 65), @sizeOf(ConfidentialTransferMintView));
     try std.testing.expectEqual(@as(usize, 108), TransferFeeConfigView.PAYLOAD_LEN);
     try std.testing.expectEqual(@as(usize, 108), @sizeOf(TransferFeeConfigView));
     try std.testing.expectEqual(@as(usize, 32), MintCloseAuthorityView.PAYLOAD_LEN);
@@ -798,6 +991,10 @@ test "mint view payload lengths match canonical serialized sizes" {
     try std.testing.expectEqual(@as(usize, 56), @sizeOf(ScaledUiAmountView));
     try std.testing.expectEqual(@as(usize, 33), PausableView.PAYLOAD_LEN);
     try std.testing.expectEqual(@as(usize, 33), @sizeOf(PausableView));
+    try std.testing.expectEqual(@as(usize, 129), ConfidentialTransferFeeConfigView.PAYLOAD_LEN);
+    try std.testing.expectEqual(@as(usize, 129), @sizeOf(ConfidentialTransferFeeConfigView));
+    try std.testing.expectEqual(@as(usize, 196), ConfidentialMintBurnView.PAYLOAD_LEN);
+    try std.testing.expectEqual(@as(usize, 196), @sizeOf(ConfidentialMintBurnView));
 }
 
 test "TransferFeeConfig view preserves raw authorities, withheld amount, and fee fields" {
@@ -955,16 +1152,58 @@ test "Pausable view preserves authority bytes and paused flag" {
     try expectWrongLengths(PausableView);
 }
 
+test "confidential mint views preserve raw POD ciphertext and authority fields" {
+    var mint_payload = [_]u8{0} ** ConfidentialTransferMintView.PAYLOAD_LEN;
+    fillSequence(mint_payload[0..32], 71);
+    mint_payload[32] = 1;
+    fillSequence(mint_payload[33..65], 171);
+
+    const mint_view = try expectParsedView(ConfidentialTransferMintView, &mint_payload);
+    try std.testing.expectEqualSlices(u8, mint_payload[0..32], mint_view.authority[0..]);
+    try std.testing.expectEqual(@as(u8, 1), mint_view.auto_approve_new_accounts);
+    try std.testing.expectEqualSlices(u8, mint_payload[33..65], mint_view.auditor_elgamal_pubkey[0..]);
+    try expectWrongLengths(ConfidentialTransferMintView);
+
+    var fee_payload = [_]u8{0} ** ConfidentialTransferFeeConfigView.PAYLOAD_LEN;
+    fillSequence(fee_payload[0..32], 81);
+    fillSequence(fee_payload[32..64], 181);
+    fee_payload[64] = 1;
+    fillSequence(fee_payload[65..129], 21);
+
+    const fee_view = try expectParsedView(ConfidentialTransferFeeConfigView, &fee_payload);
+    try std.testing.expectEqualSlices(u8, fee_payload[0..32], fee_view.authority[0..]);
+    try std.testing.expectEqualSlices(u8, fee_payload[32..64], fee_view.withdraw_withheld_authority_elgamal_pubkey[0..]);
+    try std.testing.expectEqual(@as(u8, 1), fee_view.harvest_to_mint_enabled);
+    try std.testing.expectEqualSlices(u8, fee_payload[65..129], fee_view.withheld_amount[0..]);
+    try expectWrongLengths(ConfidentialTransferFeeConfigView);
+
+    var mint_burn_payload = [_]u8{0} ** ConfidentialMintBurnView.PAYLOAD_LEN;
+    fillSequence(mint_burn_payload[0..64], 91);
+    fillSequence(mint_burn_payload[64..100], 121);
+    fillSequence(mint_burn_payload[100..132], 151);
+    fillSequence(mint_burn_payload[132..196], 31);
+
+    const mint_burn_view = try expectParsedView(ConfidentialMintBurnView, &mint_burn_payload);
+    try std.testing.expectEqualSlices(u8, mint_burn_payload[0..64], mint_burn_view.confidential_supply[0..]);
+    try std.testing.expectEqualSlices(u8, mint_burn_payload[64..100], mint_burn_view.decryptable_supply[0..]);
+    try std.testing.expectEqualSlices(u8, mint_burn_payload[100..132], mint_burn_view.supply_elgamal_pubkey[0..]);
+    try std.testing.expectEqualSlices(u8, mint_burn_payload[132..196], mint_burn_view.pending_burn[0..]);
+    try expectWrongLengths(ConfidentialMintBurnView);
+}
+
 test "mint helpers look up canonical TLV records and return typed read-only views" {
     var mint = makeExtensionCapableMint();
     var fee_payload = [_]u8{0} ** TransferFeeConfigView.PAYLOAD_LEN;
     fillSequence(fee_payload[0..], 1);
+    var confidential_payload = [_]u8{0} ** ConfidentialTransferMintView.PAYLOAD_LEN;
+    fillSequence(confidential_payload[0..], 55);
     var metadata_payload = [_]u8{0} ** MetadataPointerView.PAYLOAD_LEN;
     fillSequence(metadata_payload[0..], 99);
     const marker_payload = [_]u8{};
 
     var off: usize = tlv.TLV_START_OFFSET;
     off += writeRecord(mint[off .. off + 4 + fee_payload.len], .transfer_fee_config, &fee_payload);
+    off += writeRecord(mint[off .. off + 4 + confidential_payload.len], .confidential_transfer_mint, &confidential_payload);
     off += writeRecord(mint[off .. off + 4 + metadata_payload.len], .metadata_pointer, &metadata_payload);
     off += writeRecord(mint[off .. off + 4 + marker_payload.len], .non_transferable, marker_payload[0..]);
 
@@ -973,6 +1212,9 @@ test "mint helpers look up canonical TLV records and return typed read-only view
 
     const metadata = try getMetadataPointer(mint[0..off]);
     try std.testing.expectEqualSlices(u8, metadata_payload[0..], std.mem.asBytes(metadata));
+
+    const confidential = try getConfidentialTransferMint(mint[0..off]);
+    try std.testing.expectEqualSlices(u8, confidential_payload[0..], std.mem.asBytes(confidential));
 
     _ = try getNonTransferable(mint[0..off]);
 }
@@ -1003,10 +1245,31 @@ fn expectSupportRowForKind(
 }
 
 test "account support table rows lock canonical type ids, payload lengths, and raw field names" {
-    try std.testing.expectEqual(@as(usize, 7), ACCOUNT_FIXED_LEN_SUPPORT.len);
+    try std.testing.expectEqual(@as(usize, 9), ACCOUNT_FIXED_LEN_SUPPORT.len);
 
     try expectSupportRowForKind(
         ACCOUNT_FIXED_LEN_SUPPORT[0],
+        .account,
+        "ConfidentialTransferAccount",
+        .confidential_transfer_account,
+        295,
+        &.{
+            "approved",
+            "elgamal_pubkey",
+            "pending_balance_lo",
+            "pending_balance_hi",
+            "available_balance",
+            "decryptable_available_balance",
+            "allow_confidential_credits",
+            "allow_non_confidential_credits",
+            "pending_balance_credit_counter",
+            "maximum_pending_balance_credit_counter",
+            "expected_pending_balance_credit_counter",
+            "actual_pending_balance_credit_counter",
+        },
+    );
+    try expectSupportRowForKind(
+        ACCOUNT_FIXED_LEN_SUPPORT[1],
         .account,
         "TransferFeeAmount",
         .transfer_fee_amount,
@@ -1014,7 +1277,7 @@ test "account support table rows lock canonical type ids, payload lengths, and r
         &.{"withheld_amount"},
     );
     try expectSupportRowForKind(
-        ACCOUNT_FIXED_LEN_SUPPORT[1],
+        ACCOUNT_FIXED_LEN_SUPPORT[2],
         .account,
         "ImmutableOwner",
         .immutable_owner,
@@ -1022,7 +1285,7 @@ test "account support table rows lock canonical type ids, payload lengths, and r
         &.{},
     );
     try expectSupportRowForKind(
-        ACCOUNT_FIXED_LEN_SUPPORT[2],
+        ACCOUNT_FIXED_LEN_SUPPORT[3],
         .account,
         "MemoTransfer",
         .memo_transfer,
@@ -1030,7 +1293,7 @@ test "account support table rows lock canonical type ids, payload lengths, and r
         &.{"require_incoming_transfer_memos"},
     );
     try expectSupportRowForKind(
-        ACCOUNT_FIXED_LEN_SUPPORT[3],
+        ACCOUNT_FIXED_LEN_SUPPORT[4],
         .account,
         "CpiGuard",
         .cpi_guard,
@@ -1038,7 +1301,7 @@ test "account support table rows lock canonical type ids, payload lengths, and r
         &.{"lock_cpi"},
     );
     try expectSupportRowForKind(
-        ACCOUNT_FIXED_LEN_SUPPORT[4],
+        ACCOUNT_FIXED_LEN_SUPPORT[5],
         .account,
         "NonTransferableAccount",
         .non_transferable_account,
@@ -1046,7 +1309,7 @@ test "account support table rows lock canonical type ids, payload lengths, and r
         &.{},
     );
     try expectSupportRowForKind(
-        ACCOUNT_FIXED_LEN_SUPPORT[5],
+        ACCOUNT_FIXED_LEN_SUPPORT[6],
         .account,
         "TransferHookAccount",
         .transfer_hook_account,
@@ -1054,16 +1317,26 @@ test "account support table rows lock canonical type ids, payload lengths, and r
         &.{"transferring"},
     );
     try expectSupportRowForKind(
-        ACCOUNT_FIXED_LEN_SUPPORT[6],
+        ACCOUNT_FIXED_LEN_SUPPORT[7],
         .account,
         "PausableAccount",
         .pausable_account,
         0,
         &.{},
     );
+    try expectSupportRowForKind(
+        ACCOUNT_FIXED_LEN_SUPPORT[8],
+        .account,
+        "ConfidentialTransferFeeAmount",
+        .confidential_transfer_fee_amount,
+        64,
+        &.{"withheld_amount"},
+    );
 }
 
 test "account view payload lengths match canonical serialized sizes" {
+    try std.testing.expectEqual(@as(usize, 295), ConfidentialTransferAccountView.PAYLOAD_LEN);
+    try std.testing.expectEqual(@as(usize, 295), @sizeOf(ConfidentialTransferAccountView));
     try std.testing.expectEqual(@as(usize, 8), TransferFeeAmountView.PAYLOAD_LEN);
     try std.testing.expectEqual(@as(usize, 8), @sizeOf(TransferFeeAmountView));
     try std.testing.expectEqual(@as(usize, 0), ImmutableOwnerView.PAYLOAD_LEN);
@@ -1075,6 +1348,8 @@ test "account view payload lengths match canonical serialized sizes" {
     try std.testing.expectEqual(@as(usize, 1), TransferHookAccountView.PAYLOAD_LEN);
     try std.testing.expectEqual(@as(usize, 1), @sizeOf(TransferHookAccountView));
     try std.testing.expectEqual(@as(usize, 0), PausableAccountView.PAYLOAD_LEN);
+    try std.testing.expectEqual(@as(usize, 64), ConfidentialTransferFeeAmountView.PAYLOAD_LEN);
+    try std.testing.expectEqual(@as(usize, 64), @sizeOf(ConfidentialTransferFeeAmountView));
 }
 
 test "TransferFeeAmount account view exposes withheld amount" {
@@ -1137,22 +1412,65 @@ test "PausableAccount marker accepts only empty payload" {
     try std.testing.expectError(error.InvalidExtensionLength, PausableAccountView.fromBytes(wrong[0..]));
 }
 
+test "confidential account views preserve raw POD ciphertext and counter fields" {
+    var account_payload = [_]u8{0} ** ConfidentialTransferAccountView.PAYLOAD_LEN;
+    account_payload[0] = 1;
+    fillSequence(account_payload[1..33], 11);
+    fillSequence(account_payload[33..97], 21);
+    fillSequence(account_payload[97..161], 31);
+    fillSequence(account_payload[161..225], 41);
+    fillSequence(account_payload[225..261], 51);
+    account_payload[261] = 1;
+    account_payload[262] = 0;
+    writeIntLe(u64, account_payload[263..271], 7);
+    writeIntLe(u64, account_payload[271..279], 65_536);
+    writeIntLe(u64, account_payload[279..287], 5);
+    writeIntLe(u64, account_payload[287..295], 6);
+
+    const account_view = try expectParsedView(ConfidentialTransferAccountView, &account_payload);
+    try std.testing.expectEqual(@as(u8, 1), account_view.approved);
+    try std.testing.expectEqualSlices(u8, account_payload[1..33], account_view.elgamal_pubkey[0..]);
+    try std.testing.expectEqualSlices(u8, account_payload[33..97], account_view.pending_balance_lo[0..]);
+    try std.testing.expectEqualSlices(u8, account_payload[97..161], account_view.pending_balance_hi[0..]);
+    try std.testing.expectEqualSlices(u8, account_payload[161..225], account_view.available_balance[0..]);
+    try std.testing.expectEqualSlices(u8, account_payload[225..261], account_view.decryptable_available_balance[0..]);
+    try std.testing.expectEqual(@as(u8, 1), account_view.allow_confidential_credits);
+    try std.testing.expectEqual(@as(u8, 0), account_view.allow_non_confidential_credits);
+    try std.testing.expectEqualSlices(u8, account_payload[263..271], account_view.pending_balance_credit_counter[0..]);
+    try std.testing.expectEqualSlices(u8, account_payload[271..279], account_view.maximum_pending_balance_credit_counter[0..]);
+    try std.testing.expectEqualSlices(u8, account_payload[279..287], account_view.expected_pending_balance_credit_counter[0..]);
+    try std.testing.expectEqualSlices(u8, account_payload[287..295], account_view.actual_pending_balance_credit_counter[0..]);
+    try expectWrongLengths(ConfidentialTransferAccountView);
+
+    var fee_payload = [_]u8{0} ** ConfidentialTransferFeeAmountView.PAYLOAD_LEN;
+    fillSequence(fee_payload[0..], 222);
+    const fee_view = try expectParsedView(ConfidentialTransferFeeAmountView, &fee_payload);
+    try std.testing.expectEqualSlices(u8, fee_payload[0..], fee_view.withheld_amount[0..]);
+    try expectWrongLengths(ConfidentialTransferFeeAmountView);
+}
+
 test "account helpers look up canonical TLV records and return typed read-only views" {
     var account = makeExtensionCapableAccount();
     var fee_payload = [_]u8{0} ** TransferFeeAmountView.PAYLOAD_LEN;
     writeIntLe(u64, fee_payload[0..8], 0x0102030405060708);
+    var confidential_payload = [_]u8{0} ** ConfidentialTransferAccountView.PAYLOAD_LEN;
+    fillSequence(confidential_payload[0..], 13);
     const immutable_payload = [_]u8{};
     const memo_payload = [_]u8{1};
     const hook_payload = [_]u8{0xCC};
 
     var off: usize = tlv.TLV_START_OFFSET;
     off += writeRecord(account[off .. off + 4 + fee_payload.len], .transfer_fee_amount, &fee_payload);
+    off += writeRecord(account[off .. off + 4 + confidential_payload.len], .confidential_transfer_account, &confidential_payload);
     off += writeRecord(account[off .. off + 4 + immutable_payload.len], .immutable_owner, immutable_payload[0..]);
     off += writeRecord(account[off .. off + 4 + memo_payload.len], .memo_transfer, memo_payload[0..]);
     off += writeRecord(account[off .. off + 4 + hook_payload.len], .transfer_hook_account, hook_payload[0..]);
 
     const fee = try getTransferFeeAmount(account[0..off]);
     try std.testing.expectEqualSlices(u8, fee_payload[0..], std.mem.asBytes(fee));
+
+    const confidential = try getConfidentialTransferAccount(account[0..off]);
+    try std.testing.expectEqualSlices(u8, confidential_payload[0..], std.mem.asBytes(confidential));
 
     _ = try getImmutableOwner(account[0..off]);
 
@@ -1196,11 +1514,6 @@ test "wrong-kind helper calls return deterministic mismatch results" {
 }
 
 test "unsupported known out-of-scope extensions stay unparsed while scanner skipping still works" {
-    try std.testing.expect(!@hasDecl(@This(), "ConfidentialTransferMintView"));
-    try std.testing.expect(!@hasDecl(@This(), "ConfidentialTransferAccountView"));
-    try std.testing.expect(!@hasDecl(@This(), "ConfidentialTransferFeeConfigView"));
-    try std.testing.expect(!@hasDecl(@This(), "ConfidentialTransferFeeAmountView"));
-    try std.testing.expect(!@hasDecl(@This(), "ConfidentialMintBurnView"));
     try std.testing.expect(!@hasDecl(@This(), "TokenMetadataView"));
     try std.testing.expect(!@hasDecl(@This(), "TokenGroupView"));
     try std.testing.expect(!@hasDecl(@This(), "TokenGroupMemberView"));

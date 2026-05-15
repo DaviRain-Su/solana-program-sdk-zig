@@ -15,6 +15,11 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     const sol_mod = sol_dep.module("solana_program_sdk");
+    const codec_dep = b.dependency("solana_codec", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const codec_mod = codec_dep.module("solana_codec");
     const spl_token_group_dep = b.dependency("spl_token_group", .{
         .target = target,
         .optimize = optimize,
@@ -27,6 +32,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "solana_program_sdk", .module = sol_mod },
+            .{ .name = "solana_codec", .module = codec_mod },
         },
     });
 

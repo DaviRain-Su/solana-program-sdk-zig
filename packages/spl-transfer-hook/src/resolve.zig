@@ -3,6 +3,7 @@
 
 const std = @import("std");
 const sol = @import("solana_program_sdk");
+const codec = @import("solana_codec");
 const meta = @import("meta.zig");
 const instruction = @import("instruction.zig");
 const account_resolution_parity_fixture = @import("account_resolution_parity_fixture.zig");
@@ -34,22 +35,17 @@ pub fn findValidationAddress(
 }
 
 pub fn extraAccountMetaListTlvDataLen(extra_account_metas_len: usize) ProgramError!usize {
-    const records_len = std.math.mul(usize, extra_account_metas_len, meta.EXTRA_ACCOUNT_META_LEN)
-        catch return ProgramError.InvalidAccountData;
-    const value_len = std.math.add(usize, extra_account_meta_list_value_header_len, records_len)
-        catch return ProgramError.InvalidAccountData;
-    return std.math.add(usize, tlv_entry_header_len, value_len)
-        catch return ProgramError.InvalidAccountData;
+    const records_len = std.math.mul(usize, extra_account_metas_len, meta.EXTRA_ACCOUNT_META_LEN) catch return ProgramError.InvalidAccountData;
+    const value_len = std.math.add(usize, extra_account_meta_list_value_header_len, records_len) catch return ProgramError.InvalidAccountData;
+    return std.math.add(usize, tlv_entry_header_len, value_len) catch return ProgramError.InvalidAccountData;
 }
 
 fn unpackExtraAccountMetaListValue(value: []const u8) ProgramError!meta.ExtraAccountMetaSlice {
     if (value.len < extra_account_meta_list_value_header_len) return ProgramError.InvalidAccountData;
 
-    const count = sol.instruction.tryReadUnaligned(u32, value, 0)
-        orelse return ProgramError.InvalidAccountData;
+    const count = (codec.readBorshU32(value) catch return ProgramError.InvalidAccountData).value;
     const records = value[extra_account_meta_list_value_header_len..];
-    const expected_records_len = std.math.mul(usize, @as(usize, count), meta.EXTRA_ACCOUNT_META_LEN)
-        catch return ProgramError.InvalidAccountData;
+    const expected_records_len = std.math.mul(usize, @as(usize, count), meta.EXTRA_ACCOUNT_META_LEN) catch return ProgramError.InvalidAccountData;
     if (records.len != expected_records_len) return ProgramError.InvalidAccountData;
 
     const extra_account_metas = try meta.ExtraAccountMetaSlice.init(records);
@@ -66,13 +62,10 @@ pub fn unpackExecuteExtraAccountMetaList(data: []const u8) ProgramError!meta.Ext
         if (remaining_len < tlv_entry_header_len) return ProgramError.InvalidAccountData;
 
         const discriminator = data[offset..][0..sol.DISCRIMINATOR_LEN];
-        const value_len_slice = data[offset + sol.DISCRIMINATOR_LEN ..][0..@sizeOf(u32)];
-        const value_len_u32 = std.mem.readInt(u32, value_len_slice, .little);
-        const value_len: usize = value_len_u32;
-        const value_start = std.math.add(usize, offset, tlv_entry_header_len)
-            catch return ProgramError.InvalidAccountData;
-        const next_offset = std.math.add(usize, value_start, value_len)
-            catch return ProgramError.InvalidAccountData;
+        const value_len_read = codec.readBorshU32(data[offset + sol.DISCRIMINATOR_LEN ..]) catch return ProgramError.InvalidAccountData;
+        const value_len: usize = value_len_read.value;
+        const value_start = std.math.add(usize, offset, tlv_entry_header_len) catch return ProgramError.InvalidAccountData;
+        const next_offset = std.math.add(usize, value_start, value_len) catch return ProgramError.InvalidAccountData;
         if (next_offset > data.len) return ProgramError.InvalidAccountData;
 
         if (std.mem.eql(u8, discriminator, &instruction.EXECUTE_DISCRIMINATOR)) {
@@ -144,8 +137,7 @@ pub fn resolveExtraAccountMeta(
         else => |discriminator| {
             if (discriminator < meta.EXTERNAL_PDA_DISCRIMINATOR_MIN) return ProgramError.InvalidAccountData;
             const program_index = discriminator - meta.EXTERNAL_PDA_DISCRIMINATOR_MIN;
-            const program_id = lookupAccount(program_index, account_key_data, &.{})
-                orelse return ProgramError.InvalidAccountData;
+            const program_id = lookupAccount(program_index, account_key_data, &.{}) orelse return ProgramError.InvalidAccountData;
             out_pubkey.* = try resolveDynamicPda(
                 &extra_account_meta.address_config,
                 instruction_data,
@@ -434,13 +426,11 @@ fn resolveDynamicPda(
             .literal => |bytes| bytes,
             .instruction_data => |source| try resolveInstructionDataSeed(instruction_data, source.index, source.length),
             .account_key => |source| blk: {
-                const account = lookupAccount(source.index, base_accounts, resolved_keys)
-                    orelse return ProgramError.InvalidAccountData;
+                const account = lookupAccount(source.index, base_accounts, resolved_keys) orelse return ProgramError.InvalidAccountData;
                 break :blk account.key[0..];
             },
             .account_data => |source| blk: {
-                const account = lookupAccount(source.account_index, base_accounts, resolved_keys)
-                    orelse return ProgramError.InvalidAccountData;
+                const account = lookupAccount(source.account_index, base_accounts, resolved_keys) orelse return ProgramError.InvalidAccountData;
                 const account_data = account.data orelse return ProgramError.InvalidAccountData;
                 break :blk try resolveInstructionDataSeed(account_data, source.data_index, source.length);
             },
@@ -519,8 +509,7 @@ fn resolvePubkeyData(
     return switch (try pubkey_data.unpackAddressConfig(address_config)) {
         .instruction_data => |source| try resolvePubkeyBytes(instruction_data, source.index),
         .account_data => |source| blk: {
-            const account = lookupAccount(source.account_index, base_accounts, resolved_keys)
-                orelse return ProgramError.InvalidAccountData;
+            const account = lookupAccount(source.account_index, base_accounts, resolved_keys) orelse return ProgramError.InvalidAccountData;
             const account_data = account.data orelse return ProgramError.InvalidAccountData;
             break :blk try resolvePubkeyBytes(account_data, source.data_index);
         },
@@ -2135,7 +2124,7 @@ test "literal, instruction-data, account-key, and account-data seed failures are
 
     const literal_fail_entry = meta.ExtraAccountMeta{
         .discriminator = meta.HOOK_PROGRAM_PDA_DISCRIMINATOR,
-        .address_config = .{1, 31} ++ .{0} ** 30,
+        .address_config = .{ 1, 31 } ++ .{0} ** 30,
         .is_signer = 0,
         .is_writable = 0,
     };
@@ -2798,7 +2787,7 @@ test "malformed count, key, PDA, duplicate, seed, signer, and writable failures 
             ProgramError.InvalidAccountData,
             resolveExtraAccountMetaList(
                 failing_seed_slice,
-                &.{0xaa, 0xbb},
+                &.{ 0xaa, 0xbb },
                 &hook_program_id,
                 &.{.{ .key = &base_key, .data = null }},
                 failing_seed_out_metas[0..],

@@ -1,0 +1,10 @@
+[package]
+name = "spl-token-2022-rust-parity"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dev-dependencies]
+solana-instruction = "2.3.3"
+solana-pubkey = "2.4.0"
+spl-token-2022 = { version = "=9.0.0", features = ["no-entrypoint"] }

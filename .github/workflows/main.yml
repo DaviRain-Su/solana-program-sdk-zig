@@ -48,6 +48,49 @@ jobs:
           name: test-output-${{ matrix.os }}
           path: test-output.txt
 
+  packages:
+    name: Build and test packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.86.0
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/spl-token-group/rust-parity/target
+            packages/spl-token-metadata/rust-parity/target
+            packages/spl-transfer-hook/rust-parity/target
+          key: package-rust-${{ runner.os }}-${{ hashFiles('./packages/*/rust-parity/Cargo.lock') }}
+          restore-keys: |
+            package-rust-${{ runner.os }}-
+      - name: Test Zig packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          for build_file in packages/*/build.zig; do
+            echo "::group::zig build --build-file ${build_file} test"
+            zig build --build-file "$build_file" test --summary all
+            echo "::endgroup::"
+          done
+      - name: Test Rust parity fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          for manifest in packages/*/rust-parity/Cargo.toml; do
+            echo "::group::cargo test --manifest-path ${manifest}"
+            cargo test --manifest-path "$manifest" --locked -j 4
+            echo "::endgroup::"
+          done
+
   programs:
     name: Build and test programs
     runs-on: ubuntu-latest

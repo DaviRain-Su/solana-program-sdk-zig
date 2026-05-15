@@ -36,11 +36,23 @@ pub fn build(b: *std.Build) void {
     });
     const spl_token_mod = spl_token_dep.module("spl_token");
 
+    const spl_token_2022_dep = b.dependency("spl_token_2022", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const spl_token_2022_mod = spl_token_2022_dep.module("spl_token_2022");
+
     const spl_ata_dep = b.dependency("spl_ata", .{
         .target = target,
         .optimize = optimize,
     });
     const spl_ata_mod = spl_ata_dep.module("spl_ata");
+
+    const zk_proof_dep = b.dependency("solana_zk_elgamal_proof", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const zk_proof_mod = zk_proof_dep.module("solana_zk_elgamal_proof");
 
     const alt_dep = b.dependency("solana_address_lookup_table", .{
         .target = target,
@@ -58,7 +70,9 @@ pub fn build(b: *std.Build) void {
             .{ .name = "solana_system", .module = system_mod },
             .{ .name = "solana_compute_budget", .module = compute_budget_mod },
             .{ .name = "spl_token", .module = spl_token_mod },
+            .{ .name = "spl_token_2022", .module = spl_token_2022_mod },
             .{ .name = "spl_ata", .module = spl_ata_mod },
+            .{ .name = "solana_zk_elgamal_proof", .module = zk_proof_mod },
             .{ .name = "solana_address_lookup_table", .module = alt_mod },
         },
     });

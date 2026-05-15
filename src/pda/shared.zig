@@ -19,14 +19,14 @@ pub const ProgramDerivedAddress = struct {
     bump_seed: u8,
 };
 
-extern fn sol_create_program_address(
+pub extern fn sol_create_program_address(
     seeds_ptr: [*]const []const u8,
     seeds_len: u64,
     program_id_ptr: *const Pubkey,
     address_ptr: *Pubkey,
 ) callconv(.c) u64;
 
-extern fn sol_try_find_program_address(
+pub extern fn sol_try_find_program_address(
     seeds_ptr: [*]const []const u8,
     seeds_len: u64,
     program_id_ptr: *const Pubkey,

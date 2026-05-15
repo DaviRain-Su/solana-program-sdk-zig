@@ -106,9 +106,9 @@ test "metadata and group packages compose with spl_token_2022 without forbidden 
     try std.testing.expect(@hasDecl(spl_token_group, "state"));
 
     try std.testing.expect(@hasDecl(spl_token_2022, "instruction"));
+    try std.testing.expect(@hasDecl(spl_token_2022, "cpi"));
     try std.testing.expect(@hasDecl(spl_token_2022.instruction, "transferChecked"));
     try std.testing.expect(!@hasDecl(spl_token_2022, "transaction"));
-    try std.testing.expect(!@hasDecl(spl_token_2022, "cpi"));
     try std.testing.expect(!@hasDecl(spl_token_2022, "rpc"));
     try std.testing.expect(!@hasDecl(spl_token_2022, "keypair"));
     try std.testing.expect(!@hasDecl(spl_token_metadata, "PROGRAM_ID"));
@@ -230,6 +230,10 @@ test "mixed Token-2022 TLV regions remain traversable for metadata and group pay
     const parsed_metadata = try TokenMetadata.parseBody(metadata_record.value, parsed_pairs[0..]);
     try expectMetadataEqual(parsed_metadata, metadata_state);
 
+    var helper_pairs: [2]MetadataAdditional = undefined;
+    const helper_metadata = try spl_token_2022.parseTokenMetadata(parsed_mint, helper_pairs[0..]);
+    try expectMetadataEqual(helper_metadata, metadata_state);
+
     const hook_record = try parsed_mint.findExtension(@intFromEnum(spl_token_2022.ExtensionType.transfer_hook));
     const hook_view = try spl_token_2022.extension.TransferHookView.fromBytes(hook_record.value);
     try std.testing.expectEqualSlices(u8, hook_authority[0..], hook_view.authority[0..]);
@@ -244,10 +248,15 @@ test "mixed Token-2022 TLV regions remain traversable for metadata and group pay
 
     const group_record = try parsed_mint.findExtension(@intFromEnum(spl_token_2022.ExtensionType.token_group));
     const parsed_group = try TokenGroup.parseBody(group_record.value);
+    const helper_group = try spl_token_2022.parseTokenGroupMint(mint[0..offset]);
     try expectMaybeNullEqual(GroupMaybeNull, parsed_group.update_authority, GroupMaybeNull.fromPubkey(&group_authority));
+    try expectMaybeNullEqual(GroupMaybeNull, helper_group.update_authority, GroupMaybeNull.fromPubkey(&group_authority));
     try std.testing.expectEqualSlices(u8, metadata_mint[0..], parsed_group.mint[0..]);
+    try std.testing.expectEqualSlices(u8, metadata_mint[0..], helper_group.mint[0..]);
     try std.testing.expectEqual(@as(u64, 7), parsed_group.size);
+    try std.testing.expectEqual(@as(u64, 7), helper_group.size);
     try std.testing.expectEqual(@as(u64, 42), parsed_group.max_size);
+    try std.testing.expectEqual(@as(u64, 42), helper_group.max_size);
 
     const member_pointer_record = try parsed_mint.findExtension(@intFromEnum(spl_token_2022.ExtensionType.group_member_pointer));
     try std.testing.expectEqual(@as(usize, 64), member_pointer_record.value.len);
@@ -258,9 +267,13 @@ test "mixed Token-2022 TLV regions remain traversable for metadata and group pay
 
     const member_record = try parsed_mint.findExtension(@intFromEnum(spl_token_2022.ExtensionType.token_group_member));
     const parsed_member = try TokenGroupMember.parseBody(member_record.value);
+    const helper_member = try spl_token_2022.parseTokenGroupMember(parsed_mint);
     try std.testing.expectEqualSlices(u8, metadata_mint[0..], parsed_member.mint[0..]);
+    try std.testing.expectEqualSlices(u8, metadata_mint[0..], helper_member.mint[0..]);
     try std.testing.expectEqualSlices(u8, group_address[0..], parsed_member.group[0..]);
+    try std.testing.expectEqualSlices(u8, group_address[0..], helper_member.group[0..]);
     try std.testing.expectEqual(@as(u64, 9), parsed_member.member_number);
+    try std.testing.expectEqual(@as(u64, 9), helper_member.member_number);
 
     try std.testing.expectEqualSlices(u8, before[0..offset], mint[0..offset]);
 }

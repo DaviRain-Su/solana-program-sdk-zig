@@ -1,9 +1,17 @@
 use {
-    std::str::FromStr,
     solana_instruction::AccountMeta,
     solana_pubkey::Pubkey,
     spl_token_2022::{
         extension::{
+            confidential_mint_burn::ConfidentialMintBurn,
+            confidential_transfer::{
+                instruction as confidential_transfer_instruction, ConfidentialTransferAccount,
+                ConfidentialTransferMint, DecryptableBalance,
+            },
+            confidential_transfer_fee::{
+                instruction as confidential_transfer_fee_instruction,
+                ConfidentialTransferFeeAmount, ConfidentialTransferFeeConfig,
+            },
             cpi_guard::instruction as cpi_guard_instruction,
             default_account_state::instruction as default_account_state_instruction,
             group_member_pointer::instruction as group_member_pointer_instruction,
@@ -13,12 +21,15 @@ use {
             metadata_pointer::instruction as metadata_pointer_instruction,
             pausable::instruction as pausable_instruction,
             scaled_ui_amount::instruction as scaled_ui_amount_instruction,
+            transfer_fee::instruction as transfer_fee_instruction,
             transfer_hook::instruction as transfer_hook_instruction,
-            transfer_fee::instruction as transfer_fee_instruction, ExtensionType,
+            ExtensionType,
         },
         id, instruction,
+        solana_zk_sdk::encryption::pod::elgamal::PodElGamalPubkey,
         state::AccountState,
     },
+    std::{mem::size_of, str::FromStr},
 };
 
 fn key(byte: u8) -> Pubkey {
@@ -31,6 +42,10 @@ fn rent_id() -> Pubkey {
 
 fn native_mint() -> Pubkey {
     Pubkey::from_str("9pan9bMn5HatX4EJdBwg9VgCa7Uz5HL8N1m5D3NdXejP").unwrap()
+}
+
+fn system_id() -> Pubkey {
+    Pubkey::from_str("11111111111111111111111111111111").unwrap()
 }
 
 fn assert_meta(meta: &AccountMeta, pubkey: Pubkey, is_signer: bool, is_writable: bool) {
@@ -64,6 +79,214 @@ fn assert_transfer_fee_amount_decimals_fee_ix(
     expected.push(decimals);
     expected.extend_from_slice(&fee.to_le_bytes());
     assert_eq!(data, expected);
+}
+
+#[test]
+fn official_confidential_extension_pod_lengths_match_zig_views() {
+    assert_eq!(size_of::<ConfidentialTransferMint>(), 65);
+    assert_eq!(size_of::<ConfidentialTransferAccount>(), 295);
+    assert_eq!(size_of::<ConfidentialTransferFeeConfig>(), 129);
+    assert_eq!(size_of::<ConfidentialTransferFeeAmount>(), 64);
+    assert_eq!(size_of::<ConfidentialMintBurn>(), 196);
+}
+
+#[test]
+fn official_confidential_transfer_no_proof_builders_match_zig_shape() {
+    let mint = key(211);
+    let account = key(212);
+    let authority = key(213);
+    let signer = key(214);
+    let registry = key(215);
+    let payer = key(216);
+    let decryptable = DecryptableBalance::default();
+
+    let init = confidential_transfer_instruction::initialize_mint(
+        &id(),
+        &mint,
+        Some(authority),
+        true,
+        None,
+    )
+    .unwrap();
+    assert_eq!(init.program_id, id());
+    assert_eq!(init.accounts.len(), 1);
+    assert_meta(&init.accounts[0], mint, false, true);
+    assert_eq!(init.data.len(), 67);
+    assert_eq!(&init.data[0..2], &[27, 0]);
+    assert_eq!(&init.data[2..34], authority.as_ref());
+    assert_eq!(init.data[34], 1);
+    assert_eq!(&init.data[35..67], &[0u8; 32]);
+
+    let update = confidential_transfer_instruction::update_mint(
+        &id(),
+        &mint,
+        &authority,
+        &[&signer],
+        false,
+        None,
+    )
+    .unwrap();
+    assert_eq!(update.data.len(), 35);
+    assert_eq!(&update.data[0..3], &[27, 1, 0]);
+    assert_eq!(&update.data[3..35], &[0u8; 32]);
+    assert_eq!(update.accounts.len(), 3);
+    assert_meta(&update.accounts[0], mint, false, true);
+    assert_meta(&update.accounts[1], authority, false, false);
+    assert_meta(&update.accounts[2], signer, true, false);
+
+    let approve = confidential_transfer_instruction::approve_account(
+        &id(),
+        &account,
+        &mint,
+        &authority,
+        &[&signer],
+    )
+    .unwrap();
+    assert_eq!(approve.data, vec![27, 3]);
+    assert_eq!(approve.accounts.len(), 4);
+    assert_meta(&approve.accounts[0], account, false, true);
+    assert_meta(&approve.accounts[1], mint, false, false);
+    assert_meta(&approve.accounts[2], authority, false, false);
+    assert_meta(&approve.accounts[3], signer, true, false);
+
+    let deposit = confidential_transfer_instruction::deposit(
+        &id(),
+        &account,
+        &mint,
+        1234,
+        6,
+        &authority,
+        &[],
+    )
+    .unwrap();
+    let mut expected_deposit = vec![27, 5];
+    expected_deposit.extend_from_slice(&1234u64.to_le_bytes());
+    expected_deposit.push(6);
+    assert_eq!(deposit.data, expected_deposit);
+    assert_eq!(deposit.accounts.len(), 3);
+    assert_meta(&deposit.accounts[2], authority, true, false);
+
+    let apply = confidential_transfer_instruction::apply_pending_balance(
+        &id(),
+        &account,
+        7,
+        &decryptable,
+        &authority,
+        &[&signer],
+    )
+    .unwrap();
+    assert_eq!(apply.data.len(), 46);
+    assert_eq!(&apply.data[0..2], &[27, 8]);
+    assert_eq!(&apply.data[2..10], &7u64.to_le_bytes());
+    assert_eq!(&apply.data[10..46], &[0u8; 36]);
+    assert_eq!(apply.accounts.len(), 3);
+    assert_meta(&apply.accounts[2], signer, true, false);
+
+    let configure_with_registry =
+        confidential_transfer_instruction::configure_account_with_registry(
+            &id(),
+            &account,
+            &mint,
+            &registry,
+            Some(&payer),
+        )
+        .unwrap();
+    assert_eq!(configure_with_registry.data, vec![27, 14]);
+    assert_eq!(configure_with_registry.accounts.len(), 5);
+    assert_meta(&configure_with_registry.accounts[0], account, false, true);
+    assert_meta(&configure_with_registry.accounts[1], mint, false, false);
+    assert_meta(&configure_with_registry.accounts[2], registry, false, false);
+    assert_meta(&configure_with_registry.accounts[3], payer, true, true);
+    assert_meta(
+        &configure_with_registry.accounts[4],
+        system_id(),
+        false,
+        false,
+    );
+
+    let enable = confidential_transfer_instruction::enable_confidential_credits(
+        &id(),
+        &account,
+        &authority,
+        &[&signer],
+    )
+    .unwrap();
+    assert_eq!(enable.data, vec![27, 9]);
+    assert_eq!(enable.accounts.len(), 3);
+    assert_meta(&enable.accounts[2], signer, true, false);
+
+    let disable_non_conf = confidential_transfer_instruction::disable_non_confidential_credits(
+        &id(),
+        &account,
+        &authority,
+        &[],
+    )
+    .unwrap();
+    assert_eq!(disable_non_conf.data, vec![27, 12]);
+    assert_eq!(disable_non_conf.accounts.len(), 2);
+    assert_meta(&disable_non_conf.accounts[1], authority, true, false);
+}
+
+#[test]
+fn official_confidential_transfer_fee_no_proof_builders_match_zig_shape() {
+    let mint = key(221);
+    let authority = key(222);
+    let signer = key(223);
+    let source_a = key(224);
+    let source_b = key(225);
+    let elgamal = PodElGamalPubkey::default();
+
+    let init = confidential_transfer_fee_instruction::initialize_confidential_transfer_fee_config(
+        &id(),
+        &mint,
+        Some(authority),
+        &elgamal,
+    )
+    .unwrap();
+    assert_eq!(init.program_id, id());
+    assert_eq!(init.data.len(), 66);
+    assert_eq!(&init.data[0..2], &[37, 0]);
+    assert_eq!(&init.data[2..34], authority.as_ref());
+    assert_eq!(&init.data[34..66], &[0u8; 32]);
+    assert_eq!(init.accounts.len(), 1);
+    assert_meta(&init.accounts[0], mint, false, true);
+
+    let harvest = confidential_transfer_fee_instruction::harvest_withheld_tokens_to_mint(
+        &id(),
+        &mint,
+        &[&source_a, &source_b],
+    )
+    .unwrap();
+    assert_eq!(harvest.data, vec![37, 3]);
+    assert_eq!(harvest.accounts.len(), 3);
+    assert_meta(&harvest.accounts[0], mint, false, true);
+    assert_meta(&harvest.accounts[1], source_a, false, true);
+    assert_meta(&harvest.accounts[2], source_b, false, true);
+
+    let enable = confidential_transfer_fee_instruction::enable_harvest_to_mint(
+        &id(),
+        &mint,
+        &authority,
+        &[&signer],
+    )
+    .unwrap();
+    assert_eq!(enable.data, vec![37, 4]);
+    assert_eq!(enable.accounts.len(), 3);
+    assert_meta(&enable.accounts[0], mint, false, true);
+    assert_meta(&enable.accounts[1], authority, false, false);
+    assert_meta(&enable.accounts[2], signer, true, false);
+
+    let disable = confidential_transfer_fee_instruction::disable_harvest_to_mint(
+        &id(),
+        &mint,
+        &authority,
+        &[],
+    )
+    .unwrap();
+    assert_eq!(disable.data, vec![37, 5]);
+    assert_eq!(disable.accounts.len(), 2);
+    assert_meta(&disable.accounts[0], mint, false, true);
+    assert_meta(&disable.accounts[1], authority, true, false);
 }
 
 #[allow(deprecated)]
@@ -229,8 +452,8 @@ fn official_initializer_and_utility_builders_match_zig_shape() {
     assert_eq!(init_mint_without_freeze.data.len(), 35);
     assert_eq!(init_mint_without_freeze.data[34], 0);
 
-    let init_account_legacy = instruction::initialize_account(&id(), &account, &mint, &owner)
-        .unwrap();
+    let init_account_legacy =
+        instruction::initialize_account(&id(), &account, &mint, &owner).unwrap();
     assert_eq!(init_account_legacy.data, vec![1]);
     assert_eq!(init_account_legacy.accounts.len(), 4);
     assert_meta(&init_account_legacy.accounts[0], account, false, true);
@@ -246,26 +469,18 @@ fn official_initializer_and_utility_builders_match_zig_shape() {
     assert_meta(&init_account2.accounts[1], mint, false, false);
     assert_meta(&init_account2.accounts[2], rent_id(), false, false);
 
-    let init_multisig = instruction::initialize_multisig(
-        &id(),
-        &multisig,
-        &[&signer_a, &signer_b, &signer_c],
-        2,
-    )
-    .unwrap();
+    let init_multisig =
+        instruction::initialize_multisig(&id(), &multisig, &[&signer_a, &signer_b, &signer_c], 2)
+            .unwrap();
     assert_eq!(init_multisig.data, vec![2, 2]);
     assert_eq!(init_multisig.accounts.len(), 5);
     assert_meta(&init_multisig.accounts[0], multisig, false, true);
     assert_meta(&init_multisig.accounts[1], rent_id(), false, false);
     assert_meta(&init_multisig.accounts[4], signer_c, false, false);
 
-    let init_multisig2 = instruction::initialize_multisig2(
-        &id(),
-        &multisig,
-        &[&signer_a, &signer_b, &signer_c],
-        3,
-    )
-    .unwrap();
+    let init_multisig2 =
+        instruction::initialize_multisig2(&id(), &multisig, &[&signer_a, &signer_b, &signer_c], 3)
+            .unwrap();
     assert_eq!(init_multisig2.data, vec![19, 3]);
     assert_eq!(init_multisig2.accounts.len(), 4);
     assert_meta(&init_multisig2.accounts[0], multisig, false, true);
@@ -310,8 +525,7 @@ fn official_initializer_and_utility_builders_match_zig_shape() {
     assert_eq!(mint_close.accounts.len(), 1);
     assert_meta(&mint_close.accounts[0], mint, false, true);
 
-    let mint_close_none =
-        instruction::initialize_mint_close_authority(&id(), &mint, None).unwrap();
+    let mint_close_none = instruction::initialize_mint_close_authority(&id(), &mint, None).unwrap();
     assert_eq!(mint_close_none.data, vec![25, 0]);
 
     let non_transferable = instruction::initialize_non_transferable_mint(&id(), &mint).unwrap();
@@ -425,7 +639,10 @@ fn official_reallocate_builder_matches_zig_shape() {
         &payer,
         &owner,
         &[&signer],
-        &[ExtensionType::TransferHook, ExtensionType::PermanentDelegate],
+        &[
+            ExtensionType::TransferHook,
+            ExtensionType::PermanentDelegate,
+        ],
     )
     .unwrap();
     assert_eq!(reallocate.program_id, id());
@@ -433,7 +650,12 @@ fn official_reallocate_builder_matches_zig_shape() {
     assert_eq!(reallocate.accounts.len(), 5);
     assert_meta(&reallocate.accounts[0], account, false, true);
     assert_meta(&reallocate.accounts[1], payer, true, true);
-    assert_meta(&reallocate.accounts[2], Pubkey::from([0u8; 32]), false, false);
+    assert_meta(
+        &reallocate.accounts[2],
+        Pubkey::from([0u8; 32]),
+        false,
+        false,
+    );
     assert_meta(&reallocate.accounts[3], owner, false, false);
     assert_meta(&reallocate.accounts[4], signer, true, false);
 }
@@ -690,8 +912,7 @@ fn official_interest_bearing_mint_builders_match_zig_shape() {
     let signer = key(77);
 
     let init =
-        interest_bearing_mint_instruction::initialize(&id(), &mint, Some(authority), -125)
-            .unwrap();
+        interest_bearing_mint_instruction::initialize(&id(), &mint, Some(authority), -125).unwrap();
     let mut expected_init = vec![33, 0];
     expected_init.extend_from_slice(authority.as_ref());
     expected_init.extend_from_slice(&(-125i16).to_le_bytes());
@@ -700,21 +921,15 @@ fn official_interest_bearing_mint_builders_match_zig_shape() {
     assert_eq!(init.accounts.len(), 1);
     assert_meta(&init.accounts[0], mint, false, true);
 
-    let none_init =
-        interest_bearing_mint_instruction::initialize(&id(), &mint, None, 250).unwrap();
+    let none_init = interest_bearing_mint_instruction::initialize(&id(), &mint, None, 250).unwrap();
     let mut expected_none = vec![33, 0];
     expected_none.extend_from_slice(&[0u8; 32]);
     expected_none.extend_from_slice(&250i16.to_le_bytes());
     assert_eq!(none_init.data, expected_none);
 
-    let update = interest_bearing_mint_instruction::update_rate(
-        &id(),
-        &mint,
-        &authority,
-        &[&signer],
-        500,
-    )
-    .unwrap();
+    let update =
+        interest_bearing_mint_instruction::update_rate(&id(), &mint, &authority, &[&signer], 500)
+            .unwrap();
     assert_eq!(update.data, {
         let mut expected = vec![33, 1];
         expected.extend_from_slice(&500i16.to_le_bytes());

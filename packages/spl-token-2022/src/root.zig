@@ -10,6 +10,8 @@ pub const state = @import("state.zig");
 pub const tlv = @import("tlv.zig");
 pub const extension = @import("extension.zig");
 pub const instruction = @import("instruction.zig");
+pub const cpi = @import("cpi.zig");
+pub const variable_extensions = @import("variable_extensions.zig");
 
 pub const PROGRAM_ID = id.PROGRAM_ID;
 pub const NATIVE_MINT = id.NATIVE_MINT;
@@ -36,9 +38,23 @@ pub const parseAccount = tlv.parseAccount;
 pub const findMintExtension = tlv.findMintExtension;
 pub const findAccountExtension = tlv.findAccountExtension;
 
+pub const MetadataAdditional = variable_extensions.MetadataAdditional;
+pub const TokenMetadata = variable_extensions.TokenMetadata;
+pub const TokenGroup = variable_extensions.TokenGroup;
+pub const TokenGroupMember = variable_extensions.TokenGroupMember;
+pub const parseTokenMetadata = variable_extensions.parseTokenMetadata;
+pub const parseTokenMetadataMint = variable_extensions.parseTokenMetadataMint;
+pub const parseTokenGroup = variable_extensions.parseTokenGroup;
+pub const parseTokenGroupMint = variable_extensions.parseTokenGroupMint;
+pub const parseTokenGroupMember = variable_extensions.parseTokenGroupMember;
+pub const parseTokenGroupMemberMint = variable_extensions.parseTokenGroupMemberMint;
+
 pub const Token2022Instruction = instruction.Token2022Instruction;
 pub const AuthorityType = instruction.AuthorityType;
+pub const ConfidentialProofLocation = instruction.ConfidentialProofLocation;
 pub const TransferFeeInstruction = instruction.TransferFeeInstruction;
+pub const ConfidentialTransferInstruction = instruction.ConfidentialTransferInstruction;
+pub const ConfidentialTransferFeeInstruction = instruction.ConfidentialTransferFeeInstruction;
 pub const DefaultAccountStateInstruction = instruction.DefaultAccountStateInstruction;
 pub const RequiredMemoTransfersInstruction = instruction.RequiredMemoTransfersInstruction;
 pub const CpiGuardInstruction = instruction.CpiGuardInstruction;
@@ -58,6 +74,8 @@ test "@import(\"spl_token_2022\") exposes parsing and instruction declarations" 
     try std.testing.expect(@hasDecl(@This(), "tlv"));
     try std.testing.expect(@hasDecl(@This(), "extension"));
     try std.testing.expect(@hasDecl(@This(), "instruction"));
+    try std.testing.expect(@hasDecl(@This(), "cpi"));
+    try std.testing.expect(@hasDecl(@This(), "variable_extensions"));
     try std.testing.expect(@hasDecl(@This(), "AccountType"));
     try std.testing.expect(@hasDecl(@This(), "AccountState"));
     try std.testing.expect(@hasDecl(@This(), "parseAccountType"));
@@ -75,9 +93,18 @@ test "@import(\"spl_token_2022\") exposes parsing and instruction declarations" 
     try std.testing.expect(@hasDecl(@This(), "parseAccount"));
     try std.testing.expect(@hasDecl(@This(), "findMintExtension"));
     try std.testing.expect(@hasDecl(@This(), "findAccountExtension"));
+    try std.testing.expect(@hasDecl(@This(), "TokenMetadata"));
+    try std.testing.expect(@hasDecl(@This(), "TokenGroup"));
+    try std.testing.expect(@hasDecl(@This(), "TokenGroupMember"));
+    try std.testing.expect(@hasDecl(@This(), "parseTokenMetadataMint"));
+    try std.testing.expect(@hasDecl(@This(), "parseTokenGroupMint"));
+    try std.testing.expect(@hasDecl(@This(), "parseTokenGroupMemberMint"));
     try std.testing.expect(@hasDecl(@This(), "Token2022Instruction"));
     try std.testing.expect(@hasDecl(@This(), "AuthorityType"));
+    try std.testing.expect(@hasDecl(@This(), "ConfidentialProofLocation"));
     try std.testing.expect(@hasDecl(@This(), "TransferFeeInstruction"));
+    try std.testing.expect(@hasDecl(@This(), "ConfidentialTransferInstruction"));
+    try std.testing.expect(@hasDecl(@This(), "ConfidentialTransferFeeInstruction"));
     try std.testing.expect(@hasDecl(@This(), "DefaultAccountStateInstruction"));
     try std.testing.expect(@hasDecl(@This(), "RequiredMemoTransfersInstruction"));
     try std.testing.expect(@hasDecl(@This(), "CpiGuardInstruction"));
@@ -89,7 +116,6 @@ test "@import(\"spl_token_2022\") exposes parsing and instruction declarations" 
     try std.testing.expect(@hasDecl(@This(), "TransferHookInstruction"));
     try std.testing.expect(@hasDecl(@This(), "ScaledUiAmountInstruction"));
 
-    try std.testing.expect(!@hasDecl(@This(), "cpi"));
     try std.testing.expect(!@hasDecl(@This(), "rpc"));
     try std.testing.expect(!@hasDecl(@This(), "client"));
     try std.testing.expect(!@hasDecl(@This(), "keypair"));
@@ -114,7 +140,6 @@ fn expectNotContains(haystack: []const u8, needle: []const u8) !void {
 
 test "source-review guards keep spl_token_2022 canonically wired" {
     const root_source = @embedFile("root.zig");
-    try expectNotContains(root_source, "pub const " ++ "cpi =");
     try expectNotContains(root_source, "pub const " ++ "rpc =");
     try expectNotContains(root_source, "pub const " ++ "client =");
     try expectNotContains(root_source, "pub const " ++ "keypair =");
@@ -127,6 +152,8 @@ test "source-review guards keep spl_token_2022 canonically wired" {
         @embedFile("tlv.zig"),
         @embedFile("extension.zig"),
         @embedFile("instruction.zig"),
+        @embedFile("cpi.zig"),
+        @embedFile("variable_extensions.zig"),
     };
     inline for (package_sources) |source| {
         try expectNotContains(source, "solana_" ++ "client");

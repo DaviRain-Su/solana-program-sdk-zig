@@ -19,8 +19,14 @@
         .spl_token = .{
             .path = "../spl-token",
         },
+        .spl_token_2022 = .{
+            .path = "../spl-token-2022",
+        },
         .spl_ata = .{
             .path = "../spl-ata",
+        },
+        .solana_zk_elgamal_proof = .{
+            .path = "../solana-zk-elgamal-proof",
         },
         .solana_address_lookup_table = .{
             .path = "../solana-address-lookup-table",

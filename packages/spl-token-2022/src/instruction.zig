@@ -44,6 +44,7 @@ pub const Token2022Instruction = enum(u8) {
     ui_amount_to_amount = 24,
     initialize_mint_close_authority = 25,
     transfer_fee_extension = 26,
+    confidential_transfer_extension = 27,
     default_account_state_extension = 28,
     reallocate = 29,
     memo_transfer_extension = 30,
@@ -53,6 +54,7 @@ pub const Token2022Instruction = enum(u8) {
     cpi_guard_extension = 34,
     initialize_permanent_delegate = 35,
     transfer_hook_extension = 36,
+    confidential_transfer_fee_extension = 37,
     withdraw_excess_lamports = 38,
     metadata_pointer_extension = 39,
     group_pointer_extension = 40,
@@ -88,6 +90,33 @@ pub const TransferFeeInstruction = enum(u8) {
     withdraw_withheld_tokens_from_accounts = 3,
     harvest_withheld_tokens_to_mint = 4,
     set_transfer_fee = 5,
+};
+
+pub const ConfidentialTransferInstruction = enum(u8) {
+    initialize_mint = 0,
+    update_mint = 1,
+    configure_account = 2,
+    approve_account = 3,
+    empty_account = 4,
+    deposit = 5,
+    withdraw = 6,
+    transfer = 7,
+    apply_pending_balance = 8,
+    enable_confidential_credits = 9,
+    disable_confidential_credits = 10,
+    enable_non_confidential_credits = 11,
+    disable_non_confidential_credits = 12,
+    transfer_with_fee = 13,
+    configure_account_with_registry = 14,
+};
+
+pub const ConfidentialTransferFeeInstruction = enum(u8) {
+    initialize_confidential_transfer_fee_config = 0,
+    withdraw_withheld_tokens_from_mint = 1,
+    withdraw_withheld_tokens_from_accounts = 2,
+    harvest_withheld_tokens_to_mint = 3,
+    enable_harvest_to_mint = 4,
+    disable_harvest_to_mint = 5,
 };
 
 pub const DefaultAccountStateInstruction = enum(u8) {
@@ -136,6 +165,11 @@ pub const ExtensionInstructionError = error{
     TooManyAccounts,
     InvalidMultisigSignerCount,
     InvalidMultisigThreshold,
+};
+
+pub const ConfidentialProofLocation = union(enum) {
+    instruction_offset: i8,
+    context_state_account: *const Pubkey,
 };
 
 pub const TransferFeeInstructionError = ExtensionInstructionError;
@@ -192,6 +226,25 @@ pub const transfer_fee_withdraw_withheld_tokens_from_mint_data_len: usize = tran
 pub const transfer_fee_withdraw_withheld_tokens_from_accounts_data_len: usize = transfer_fee_prefix_len + 1;
 pub const transfer_fee_harvest_withheld_tokens_to_mint_data_len: usize = transfer_fee_prefix_len;
 pub const transfer_fee_set_transfer_fee_data_len: usize = transfer_fee_prefix_len + 2 + 8;
+pub const confidential_transfer_prefix_len: usize = 2;
+pub const confidential_transfer_initialize_mint_data_len: usize = confidential_transfer_prefix_len + 32 + 1 + 32;
+pub const confidential_transfer_update_mint_data_len: usize = confidential_transfer_prefix_len + 1 + 32;
+pub const confidential_transfer_configure_account_data_len: usize = confidential_transfer_prefix_len + 36 + 8 + 1;
+pub const confidential_transfer_approve_account_data_len: usize = confidential_transfer_prefix_len;
+pub const confidential_transfer_empty_account_data_len: usize = confidential_transfer_prefix_len + 1;
+pub const confidential_transfer_deposit_data_len: usize = confidential_transfer_prefix_len + 8 + 1;
+pub const confidential_transfer_withdraw_data_len: usize = confidential_transfer_prefix_len + 8 + 1 + 36 + 1 + 1;
+pub const confidential_transfer_transfer_data_len: usize = confidential_transfer_prefix_len + 36 + 64 + 64 + 1 + 1 + 1;
+pub const confidential_transfer_transfer_with_fee_data_len: usize = confidential_transfer_prefix_len + 36 + 64 + 64 + 1 + 1 + 1 + 1 + 1;
+pub const confidential_transfer_apply_pending_balance_data_len: usize = confidential_transfer_prefix_len + 8 + 36;
+pub const confidential_transfer_toggle_credits_data_len: usize = confidential_transfer_prefix_len;
+pub const confidential_transfer_configure_account_with_registry_data_len: usize = confidential_transfer_prefix_len;
+pub const confidential_transfer_fee_prefix_len: usize = 2;
+pub const confidential_transfer_fee_initialize_config_data_len: usize = confidential_transfer_fee_prefix_len + 32 + 32;
+pub const confidential_transfer_fee_withdraw_withheld_tokens_from_mint_data_len: usize = confidential_transfer_fee_prefix_len + 1 + 36;
+pub const confidential_transfer_fee_withdraw_withheld_tokens_from_accounts_data_len: usize = confidential_transfer_fee_prefix_len + 1 + 1 + 36;
+pub const confidential_transfer_fee_harvest_withheld_tokens_to_mint_data_len: usize = confidential_transfer_fee_prefix_len;
+pub const confidential_transfer_fee_toggle_harvest_to_mint_data_len: usize = confidential_transfer_fee_prefix_len;
 pub const default_account_state_data_len: usize = 3;
 pub const reallocate_prefix_len: usize = 1;
 pub const memo_transfer_data_len: usize = 2;
@@ -256,6 +309,12 @@ pub fn transferFeeWithdrawFromAccountsLen(signers: []const Pubkey, sources: []co
     return std.math.add(usize, with_signers, sources.len) catch null;
 }
 
+pub fn confidentialTransferFeeWithdrawFromAccountsLen(signers: []const Pubkey, sources: []const Pubkey) ?usize {
+    if (sources.len > std.math.maxInt(u8)) return null;
+    const with_signers = std.math.add(usize, 4, signers.len) catch return null;
+    return std.math.add(usize, with_signers, sources.len) catch null;
+}
+
 pub fn transferFeeHarvestAccountsLen(sources: []const Pubkey) ?usize {
     return std.math.add(usize, 1, sources.len) catch null;
 }
@@ -271,6 +330,40 @@ pub fn reallocateDataLen(extension_types: []const ExtensionType) ?usize {
 
 pub fn extensionAuthorityAccountsLen(signers: []const Pubkey, base_accounts_len: usize) ?usize {
     return transferFeeAuthorityAccountsLen(signers, base_accounts_len);
+}
+
+pub fn confidentialTransferWithdrawAccountsLen(
+    signers: []const Pubkey,
+    equality_proof_location: ConfidentialProofLocation,
+    range_proof_location: ConfidentialProofLocation,
+) ?usize {
+    var len: usize = 3;
+    if (proofLocationUsesInstructionOffset(equality_proof_location) or
+        proofLocationUsesInstructionOffset(range_proof_location))
+    {
+        len += 1;
+    }
+    if (!proofLocationUsesInstructionOffset(equality_proof_location)) len += 1;
+    if (!proofLocationUsesInstructionOffset(range_proof_location)) len += 1;
+    return std.math.add(usize, len, signers.len) catch null;
+}
+
+pub fn confidentialTransferProofAccountsLen(
+    signers: []const Pubkey,
+    fixed_accounts_len: usize,
+    proof_locations: []const ConfidentialProofLocation,
+) ?usize {
+    var len = std.math.add(usize, fixed_accounts_len, 1) catch return null;
+    len = std.math.add(usize, len, signers.len) catch return null;
+    if (proofLocationsUseInstructionOffset(proof_locations)) len += 1;
+    for (proof_locations) |proof_location| {
+        if (!proofLocationUsesInstructionOffset(proof_location)) len += 1;
+    }
+    return len;
+}
+
+pub fn confidentialTransferConfigureAccountWithRegistryAccountsLen(payer: ?*const Pubkey) usize {
+    return if (payer == null) 3 else 5;
 }
 
 pub fn initializeMint(
@@ -845,6 +938,509 @@ pub fn setTransferFee(
     return ixSlice(metas[0..accounts_len], data);
 }
 
+pub fn initializeConfidentialTransferMint(
+    mint: *const Pubkey,
+    authority: ?*const Pubkey,
+    auto_approve_new_accounts: bool,
+    auditor_elgamal_pubkey: ?*const [32]u8,
+    metas: *metasArray(get_account_data_size_spec),
+    data: *[confidential_transfer_initialize_mint_data_len]u8,
+) Instruction {
+    writeConfidentialTransferPrefix(data, .initialize_mint);
+    writeOptionalNonZeroPubkey(data[2..34], authority);
+    data[34] = if (auto_approve_new_accounts) 1 else 0;
+    writeOptionalBytes32(data[35..67], auditor_elgamal_pubkey);
+    metas[0] = AccountMeta.writable(mint);
+    return ix(metas, data);
+}
+
+pub fn updateConfidentialTransferMint(
+    mint: *const Pubkey,
+    authority: *const Pubkey,
+    signers: []const Pubkey,
+    auto_approve_new_accounts: bool,
+    auditor_elgamal_pubkey: ?*const [32]u8,
+    metas: []AccountMeta,
+    data: *[confidential_transfer_update_mint_data_len]u8,
+) ExtensionInstructionError!Instruction {
+    const accounts_len = try fillExtensionAuthorityMetas(
+        metas,
+        2,
+        authority,
+        signers,
+        .{AccountMeta.writable(mint)},
+    );
+    writeConfidentialTransferPrefix(data, .update_mint);
+    data[2] = if (auto_approve_new_accounts) 1 else 0;
+    writeOptionalBytes32(data[3..35], auditor_elgamal_pubkey);
+    return ixSlice(metas[0..accounts_len], data);
+}
+
+pub fn configureConfidentialTransferAccount(
+    account: *const Pubkey,
+    mint: *const Pubkey,
+    decryptable_zero_balance: *const [36]u8,
+    maximum_pending_balance_credit_counter: u64,
+    authority: *const Pubkey,
+    signers: []const Pubkey,
+    proof_location: ConfidentialProofLocation,
+    metas: []AccountMeta,
+    data: *[confidential_transfer_configure_account_data_len]u8,
+) ExtensionInstructionError!Instruction {
+    const accounts_len = transferFeeAuthorityAccountsLen(signers, 4) orelse return error.TooManyAccounts;
+    if (metas.len < accounts_len) return error.OutputTooSmall;
+    metas[0] = AccountMeta.writable(account);
+    metas[1] = AccountMeta.readonly(mint);
+    const proof_instruction_offset = fillProofLocationMeta(metas, 2, proof_location);
+    metas[3] = if (signers.len == 0)
+        AccountMeta.signer(authority)
+    else
+        AccountMeta.readonly(authority);
+    for (signers, 0..) |_, i| {
+        metas[4 + i] = AccountMeta.signer(&signers[i]);
+    }
+
+    writeConfidentialTransferPrefix(data, .configure_account);
+    @memcpy(data[2..38], decryptable_zero_balance);
+    std.mem.writeInt(u64, data[38..46], maximum_pending_balance_credit_counter, .little);
+    data[46] = @bitCast(proof_instruction_offset);
+    return ixSlice(metas[0..accounts_len], data);
+}
+
+pub fn configureConfidentialTransferAccountWithRegistry(
+    account: *const Pubkey,
+    mint: *const Pubkey,
+    elgamal_registry_account: *const Pubkey,
+    payer: ?*const Pubkey,
+    metas: []AccountMeta,
+    data: *[confidential_transfer_configure_account_with_registry_data_len]u8,
+) ExtensionInstructionError!Instruction {
+    const accounts_len = confidentialTransferConfigureAccountWithRegistryAccountsLen(payer);
+    if (metas.len < accounts_len) return error.OutputTooSmall;
+
+    metas[0] = AccountMeta.writable(account);
+    metas[1] = AccountMeta.readonly(mint);
+    metas[2] = AccountMeta.readonly(elgamal_registry_account);
+    if (payer) |payer_key| {
+        metas[3] = AccountMeta{ .pubkey = payer_key, .is_signer = 1, .is_writable = 1 };
+        metas[4] = AccountMeta.readonly(&sol.system_program_id);
+    }
+
+    writeConfidentialTransferPrefix(data, .configure_account_with_registry);
+    return ixSlice(metas[0..accounts_len], data);
+}
+
+pub fn approveConfidentialTransferAccount(
+    account: *const Pubkey,
+    mint: *const Pubkey,
+    authority: *const Pubkey,
+    signers: []const Pubkey,
+    metas: []AccountMeta,
+    data: *[confidential_transfer_approve_account_data_len]u8,
+) ExtensionInstructionError!Instruction {
+    const accounts_len = try fillExtensionAuthorityMetas(
+        metas,
+        3,
+        authority,
+        signers,
+        .{
+            AccountMeta.writable(account),
+            AccountMeta.readonly(mint),
+        },
+    );
+    writeConfidentialTransferPrefix(data, .approve_account);
+    return ixSlice(metas[0..accounts_len], data);
+}
+
+pub fn emptyConfidentialTransferAccount(
+    account: *const Pubkey,
+    authority: *const Pubkey,
+    signers: []const Pubkey,
+    proof_location: ConfidentialProofLocation,
+    metas: []AccountMeta,
+    data: *[confidential_transfer_empty_account_data_len]u8,
+) ExtensionInstructionError!Instruction {
+    const accounts_len = transferFeeAuthorityAccountsLen(signers, 3) orelse return error.TooManyAccounts;
+    if (metas.len < accounts_len) return error.OutputTooSmall;
+    metas[0] = AccountMeta.writable(account);
+    const proof_instruction_offset = fillProofLocationMeta(metas, 1, proof_location);
+    metas[2] = if (signers.len == 0)
+        AccountMeta.signer(authority)
+    else
+        AccountMeta.readonly(authority);
+    for (signers, 0..) |_, i| {
+        metas[3 + i] = AccountMeta.signer(&signers[i]);
+    }
+
+    writeConfidentialTransferPrefix(data, .empty_account);
+    data[2] = @bitCast(proof_instruction_offset);
+    return ixSlice(metas[0..accounts_len], data);
+}
+
+pub fn depositConfidentialTransfer(
+    account: *const Pubkey,
+    mint: *const Pubkey,
+    authority: *const Pubkey,
+    signers: []const Pubkey,
+    amount: u64,
+    decimals: u8,
+    metas: []AccountMeta,
+    data: *[confidential_transfer_deposit_data_len]u8,
+) ExtensionInstructionError!Instruction {
+    const accounts_len = try fillExtensionAuthorityMetas(
+        metas,
+        3,
+        authority,
+        signers,
+        .{
+            AccountMeta.writable(account),
+            AccountMeta.readonly(mint),
+        },
+    );
+    writeConfidentialTransferPrefix(data, .deposit);
+    std.mem.writeInt(u64, data[2..10], amount, .little);
+    data[10] = decimals;
+    return ixSlice(metas[0..accounts_len], data);
+}
+
+pub fn withdrawConfidentialTransfer(
+    account: *const Pubkey,
+    mint: *const Pubkey,
+    amount: u64,
+    decimals: u8,
+    new_decryptable_available_balance: *const [36]u8,
+    authority: *const Pubkey,
+    signers: []const Pubkey,
+    equality_proof_location: ConfidentialProofLocation,
+    range_proof_location: ConfidentialProofLocation,
+    metas: []AccountMeta,
+    data: *[confidential_transfer_withdraw_data_len]u8,
+) ExtensionInstructionError!Instruction {
+    const accounts_len = confidentialTransferWithdrawAccountsLen(
+        signers,
+        equality_proof_location,
+        range_proof_location,
+    ) orelse return error.TooManyAccounts;
+    if (metas.len < accounts_len) return error.OutputTooSmall;
+
+    metas[0] = AccountMeta.writable(account);
+    metas[1] = AccountMeta.readonly(mint);
+    var offset: usize = 2;
+    if (proofLocationUsesInstructionOffset(equality_proof_location) or
+        proofLocationUsesInstructionOffset(range_proof_location))
+    {
+        metas[offset] = AccountMeta.readonly(&sol.instructions_sysvar_id);
+        offset += 1;
+    }
+    const equality_proof_instruction_offset = appendContextProofLocationMeta(
+        metas,
+        &offset,
+        equality_proof_location,
+    );
+    const range_proof_instruction_offset = appendContextProofLocationMeta(
+        metas,
+        &offset,
+        range_proof_location,
+    );
+    metas[offset] = if (signers.len == 0)
+        AccountMeta.signer(authority)
+    else
+        AccountMeta.readonly(authority);
+    offset += 1;
+    for (signers, 0..) |_, i| {
+        metas[offset + i] = AccountMeta.signer(&signers[i]);
+    }
+    offset += signers.len;
+
+    writeConfidentialTransferPrefix(data, .withdraw);
+    std.mem.writeInt(u64, data[2..10], amount, .little);
+    data[10] = decimals;
+    @memcpy(data[11..47], new_decryptable_available_balance);
+    data[47] = @bitCast(equality_proof_instruction_offset);
+    data[48] = @bitCast(range_proof_instruction_offset);
+    return ixSlice(metas[0..offset], data);
+}
+
+pub fn transferConfidentialTransfer(
+    source: *const Pubkey,
+    mint: *const Pubkey,
+    destination: *const Pubkey,
+    new_source_decryptable_available_balance: *const [36]u8,
+    transfer_amount_auditor_ciphertext_lo: *const [64]u8,
+    transfer_amount_auditor_ciphertext_hi: *const [64]u8,
+    authority: *const Pubkey,
+    signers: []const Pubkey,
+    equality_proof_location: ConfidentialProofLocation,
+    ciphertext_validity_proof_location: ConfidentialProofLocation,
+    range_proof_location: ConfidentialProofLocation,
+    metas: []AccountMeta,
+    data: *[confidential_transfer_transfer_data_len]u8,
+) ExtensionInstructionError!Instruction {
+    const proof_locations = [_]ConfidentialProofLocation{
+        equality_proof_location,
+        ciphertext_validity_proof_location,
+        range_proof_location,
+    };
+    const accounts_len = confidentialTransferProofAccountsLen(signers, 3, &proof_locations) orelse return error.TooManyAccounts;
+    if (metas.len < accounts_len) return error.OutputTooSmall;
+
+    metas[0] = AccountMeta.writable(source);
+    metas[1] = AccountMeta.readonly(mint);
+    metas[2] = AccountMeta.writable(destination);
+    var offset: usize = 3;
+    if (proofLocationsUseInstructionOffset(&proof_locations)) {
+        metas[offset] = AccountMeta.readonly(&sol.instructions_sysvar_id);
+        offset += 1;
+    }
+    const equality_proof_instruction_offset = appendContextProofLocationMeta(metas, &offset, equality_proof_location);
+    const ciphertext_validity_proof_instruction_offset = appendContextProofLocationMeta(metas, &offset, ciphertext_validity_proof_location);
+    const range_proof_instruction_offset = appendContextProofLocationMeta(metas, &offset, range_proof_location);
+    offset = appendAuthorityAndSignerMetas(metas, offset, authority, signers);
+
+    writeConfidentialTransferPrefix(data, .transfer);
+    @memcpy(data[2..38], new_source_decryptable_available_balance);
+    @memcpy(data[38..102], transfer_amount_auditor_ciphertext_lo);
+    @memcpy(data[102..166], transfer_amount_auditor_ciphertext_hi);
+    data[166] = @bitCast(equality_proof_instruction_offset);
+    data[167] = @bitCast(ciphertext_validity_proof_instruction_offset);
+    data[168] = @bitCast(range_proof_instruction_offset);
+    return ixSlice(metas[0..offset], data);
+}
+
+pub fn transferConfidentialTransferWithFee(
+    source: *const Pubkey,
+    mint: *const Pubkey,
+    destination: *const Pubkey,
+    new_source_decryptable_available_balance: *const [36]u8,
+    transfer_amount_auditor_ciphertext_lo: *const [64]u8,
+    transfer_amount_auditor_ciphertext_hi: *const [64]u8,
+    authority: *const Pubkey,
+    signers: []const Pubkey,
+    equality_proof_location: ConfidentialProofLocation,
+    transfer_amount_ciphertext_validity_proof_location: ConfidentialProofLocation,
+    fee_sigma_proof_location: ConfidentialProofLocation,
+    fee_ciphertext_validity_proof_location: ConfidentialProofLocation,
+    range_proof_location: ConfidentialProofLocation,
+    metas: []AccountMeta,
+    data: *[confidential_transfer_transfer_with_fee_data_len]u8,
+) ExtensionInstructionError!Instruction {
+    const proof_locations = [_]ConfidentialProofLocation{
+        equality_proof_location,
+        transfer_amount_ciphertext_validity_proof_location,
+        fee_sigma_proof_location,
+        fee_ciphertext_validity_proof_location,
+        range_proof_location,
+    };
+    const accounts_len = confidentialTransferProofAccountsLen(signers, 3, &proof_locations) orelse return error.TooManyAccounts;
+    if (metas.len < accounts_len) return error.OutputTooSmall;
+
+    metas[0] = AccountMeta.writable(source);
+    metas[1] = AccountMeta.readonly(mint);
+    metas[2] = AccountMeta.writable(destination);
+    var offset: usize = 3;
+    if (proofLocationsUseInstructionOffset(&proof_locations)) {
+        metas[offset] = AccountMeta.readonly(&sol.instructions_sysvar_id);
+        offset += 1;
+    }
+    const equality_proof_instruction_offset = appendContextProofLocationMeta(metas, &offset, equality_proof_location);
+    const transfer_amount_ciphertext_validity_proof_instruction_offset = appendContextProofLocationMeta(
+        metas,
+        &offset,
+        transfer_amount_ciphertext_validity_proof_location,
+    );
+    const fee_sigma_proof_instruction_offset = appendContextProofLocationMeta(metas, &offset, fee_sigma_proof_location);
+    const fee_ciphertext_validity_proof_instruction_offset = appendContextProofLocationMeta(metas, &offset, fee_ciphertext_validity_proof_location);
+    const range_proof_instruction_offset = appendContextProofLocationMeta(metas, &offset, range_proof_location);
+    offset = appendAuthorityAndSignerMetas(metas, offset, authority, signers);
+
+    writeConfidentialTransferPrefix(data, .transfer_with_fee);
+    @memcpy(data[2..38], new_source_decryptable_available_balance);
+    @memcpy(data[38..102], transfer_amount_auditor_ciphertext_lo);
+    @memcpy(data[102..166], transfer_amount_auditor_ciphertext_hi);
+    data[166] = @bitCast(equality_proof_instruction_offset);
+    data[167] = @bitCast(transfer_amount_ciphertext_validity_proof_instruction_offset);
+    data[168] = @bitCast(fee_sigma_proof_instruction_offset);
+    data[169] = @bitCast(fee_ciphertext_validity_proof_instruction_offset);
+    data[170] = @bitCast(range_proof_instruction_offset);
+    return ixSlice(metas[0..offset], data);
+}
+
+pub fn applyPendingConfidentialTransferBalance(
+    account: *const Pubkey,
+    authority: *const Pubkey,
+    signers: []const Pubkey,
+    expected_pending_balance_credit_counter: u64,
+    new_decryptable_available_balance: *const [36]u8,
+    metas: []AccountMeta,
+    data: *[confidential_transfer_apply_pending_balance_data_len]u8,
+) ExtensionInstructionError!Instruction {
+    const accounts_len = try fillExtensionAuthorityMetas(
+        metas,
+        2,
+        authority,
+        signers,
+        .{AccountMeta.writable(account)},
+    );
+    writeConfidentialTransferPrefix(data, .apply_pending_balance);
+    std.mem.writeInt(u64, data[2..10], expected_pending_balance_credit_counter, .little);
+    @memcpy(data[10..46], new_decryptable_available_balance);
+    return ixSlice(metas[0..accounts_len], data);
+}
+
+pub fn enableConfidentialTransferCredits(
+    account: *const Pubkey,
+    authority: *const Pubkey,
+    signers: []const Pubkey,
+    metas: []AccountMeta,
+    data: *[confidential_transfer_toggle_credits_data_len]u8,
+) ExtensionInstructionError!Instruction {
+    return confidentialTransferCredits(account, authority, signers, .enable_confidential_credits, metas, data);
+}
+
+pub fn disableConfidentialTransferCredits(
+    account: *const Pubkey,
+    authority: *const Pubkey,
+    signers: []const Pubkey,
+    metas: []AccountMeta,
+    data: *[confidential_transfer_toggle_credits_data_len]u8,
+) ExtensionInstructionError!Instruction {
+    return confidentialTransferCredits(account, authority, signers, .disable_confidential_credits, metas, data);
+}
+
+pub fn enableNonConfidentialTransferCredits(
+    account: *const Pubkey,
+    authority: *const Pubkey,
+    signers: []const Pubkey,
+    metas: []AccountMeta,
+    data: *[confidential_transfer_toggle_credits_data_len]u8,
+) ExtensionInstructionError!Instruction {
+    return confidentialTransferCredits(account, authority, signers, .enable_non_confidential_credits, metas, data);
+}
+
+pub fn disableNonConfidentialTransferCredits(
+    account: *const Pubkey,
+    authority: *const Pubkey,
+    signers: []const Pubkey,
+    metas: []AccountMeta,
+    data: *[confidential_transfer_toggle_credits_data_len]u8,
+) ExtensionInstructionError!Instruction {
+    return confidentialTransferCredits(account, authority, signers, .disable_non_confidential_credits, metas, data);
+}
+
+pub fn initializeConfidentialTransferFeeConfig(
+    mint: *const Pubkey,
+    authority: ?*const Pubkey,
+    withdraw_withheld_authority_elgamal_pubkey: *const [32]u8,
+    metas: *metasArray(get_account_data_size_spec),
+    data: *[confidential_transfer_fee_initialize_config_data_len]u8,
+) Instruction {
+    writeConfidentialTransferFeePrefix(data, .initialize_confidential_transfer_fee_config);
+    writeOptionalNonZeroPubkey(data[2..34], authority);
+    @memcpy(data[34..66], withdraw_withheld_authority_elgamal_pubkey);
+    metas[0] = AccountMeta.writable(mint);
+    return ix(metas, data);
+}
+
+pub fn withdrawConfidentialTransferFeeWithheldTokensFromMint(
+    mint: *const Pubkey,
+    destination: *const Pubkey,
+    new_decryptable_available_balance: *const [36]u8,
+    authority: *const Pubkey,
+    signers: []const Pubkey,
+    proof_location: ConfidentialProofLocation,
+    metas: []AccountMeta,
+    data: *[confidential_transfer_fee_withdraw_withheld_tokens_from_mint_data_len]u8,
+) ExtensionInstructionError!Instruction {
+    const accounts_len = transferFeeAuthorityAccountsLen(signers, 4) orelse return error.TooManyAccounts;
+    if (metas.len < accounts_len) return error.OutputTooSmall;
+    metas[0] = AccountMeta.writable(mint);
+    metas[1] = AccountMeta.writable(destination);
+    const proof_instruction_offset = fillProofLocationMeta(metas, 2, proof_location);
+    metas[3] = if (signers.len == 0)
+        AccountMeta.signer(authority)
+    else
+        AccountMeta.readonly(authority);
+    for (signers, 0..) |_, i| {
+        metas[4 + i] = AccountMeta.signer(&signers[i]);
+    }
+    writeConfidentialTransferFeePrefix(data, .withdraw_withheld_tokens_from_mint);
+    data[2] = @bitCast(proof_instruction_offset);
+    @memcpy(data[3..39], new_decryptable_available_balance);
+    return ixSlice(metas[0..accounts_len], data);
+}
+
+pub fn withdrawConfidentialTransferFeeWithheldTokensFromAccounts(
+    mint: *const Pubkey,
+    destination: *const Pubkey,
+    new_decryptable_available_balance: *const [36]u8,
+    authority: *const Pubkey,
+    signers: []const Pubkey,
+    sources: []const Pubkey,
+    proof_location: ConfidentialProofLocation,
+    metas: []AccountMeta,
+    data: *[confidential_transfer_fee_withdraw_withheld_tokens_from_accounts_data_len]u8,
+) ExtensionInstructionError!Instruction {
+    const accounts_len = confidentialTransferFeeWithdrawFromAccountsLen(signers, sources) orelse return error.TooManyAccounts;
+    if (metas.len < accounts_len) return error.OutputTooSmall;
+
+    metas[0] = AccountMeta.readonly(mint);
+    metas[1] = AccountMeta.writable(destination);
+    const proof_instruction_offset = fillProofLocationMeta(metas, 2, proof_location);
+    metas[3] = if (signers.len == 0)
+        AccountMeta.signer(authority)
+    else
+        AccountMeta.readonly(authority);
+    for (signers, 0..) |_, i| {
+        metas[4 + i] = AccountMeta.signer(&signers[i]);
+    }
+    const source_offset = 4 + signers.len;
+    for (sources, 0..) |_, i| {
+        metas[source_offset + i] = AccountMeta.writable(&sources[i]);
+    }
+
+    writeConfidentialTransferFeePrefix(data, .withdraw_withheld_tokens_from_accounts);
+    data[2] = @intCast(sources.len);
+    data[3] = @bitCast(proof_instruction_offset);
+    @memcpy(data[4..40], new_decryptable_available_balance);
+    return ixSlice(metas[0..accounts_len], data);
+}
+
+pub fn harvestConfidentialTransferWithheldTokensToMint(
+    mint: *const Pubkey,
+    sources: []const Pubkey,
+    metas: []AccountMeta,
+    data: *[confidential_transfer_fee_harvest_withheld_tokens_to_mint_data_len]u8,
+) ExtensionInstructionError!Instruction {
+    const accounts_len = transferFeeHarvestAccountsLen(sources) orelse return error.TooManyAccounts;
+    if (metas.len < accounts_len) return error.OutputTooSmall;
+    metas[0] = AccountMeta.writable(mint);
+    for (sources, 0..) |_, i| {
+        metas[1 + i] = AccountMeta.writable(&sources[i]);
+    }
+    writeConfidentialTransferFeePrefix(data, .harvest_withheld_tokens_to_mint);
+    return ixSlice(metas[0..accounts_len], data);
+}
+
+pub fn enableConfidentialTransferFeeHarvestToMint(
+    mint: *const Pubkey,
+    authority: *const Pubkey,
+    signers: []const Pubkey,
+    metas: []AccountMeta,
+    data: *[confidential_transfer_fee_toggle_harvest_to_mint_data_len]u8,
+) ExtensionInstructionError!Instruction {
+    return confidentialTransferFeeHarvestToMint(mint, authority, signers, .enable_harvest_to_mint, metas, data);
+}
+
+pub fn disableConfidentialTransferFeeHarvestToMint(
+    mint: *const Pubkey,
+    authority: *const Pubkey,
+    signers: []const Pubkey,
+    metas: []AccountMeta,
+    data: *[confidential_transfer_fee_toggle_harvest_to_mint_data_len]u8,
+) ExtensionInstructionError!Instruction {
+    return confidentialTransferFeeHarvestToMint(mint, authority, signers, .disable_harvest_to_mint, metas, data);
+}
+
 pub fn reallocate(
     account: *const Pubkey,
     payer: *const Pubkey,
@@ -1228,6 +1824,16 @@ fn writeTransferFeePrefix(data: []u8, disc: TransferFeeInstruction) void {
     data[1] = @intFromEnum(disc);
 }
 
+fn writeConfidentialTransferPrefix(data: []u8, disc: ConfidentialTransferInstruction) void {
+    data[0] = @intFromEnum(Token2022Instruction.confidential_transfer_extension);
+    data[1] = @intFromEnum(disc);
+}
+
+fn writeConfidentialTransferFeePrefix(data: []u8, disc: ConfidentialTransferFeeInstruction) void {
+    data[0] = @intFromEnum(Token2022Instruction.confidential_transfer_fee_extension);
+    data[1] = @intFromEnum(disc);
+}
+
 fn writeDefaultAccountStateData(
     data: *[default_account_state_data_len]u8,
     disc: DefaultAccountStateInstruction,
@@ -1346,6 +1952,78 @@ fn writeOptionalNonZeroPubkey(out: []u8, value: ?*const Pubkey) void {
     } else {
         @memset(out[0..32], 0);
     }
+}
+
+fn writeOptionalBytes32(out: []u8, value: ?*const [32]u8) void {
+    std.debug.assert(out.len >= 32);
+    if (value) |bytes| {
+        @memcpy(out[0..32], bytes);
+    } else {
+        @memset(out[0..32], 0);
+    }
+}
+
+fn fillProofLocationMeta(
+    metas: []AccountMeta,
+    index: usize,
+    proof_location: ConfidentialProofLocation,
+) i8 {
+    switch (proof_location) {
+        .instruction_offset => |offset| {
+            metas[index] = AccountMeta.readonly(&sol.instructions_sysvar_id);
+            return offset;
+        },
+        .context_state_account => |account| {
+            metas[index] = AccountMeta.readonly(account);
+            return 0;
+        },
+    }
+}
+
+fn proofLocationUsesInstructionOffset(proof_location: ConfidentialProofLocation) bool {
+    return switch (proof_location) {
+        .instruction_offset => true,
+        .context_state_account => false,
+    };
+}
+
+fn proofLocationsUseInstructionOffset(proof_locations: []const ConfidentialProofLocation) bool {
+    for (proof_locations) |proof_location| {
+        if (proofLocationUsesInstructionOffset(proof_location)) return true;
+    }
+    return false;
+}
+
+fn appendContextProofLocationMeta(
+    metas: []AccountMeta,
+    offset: *usize,
+    proof_location: ConfidentialProofLocation,
+) i8 {
+    switch (proof_location) {
+        .instruction_offset => |proof_instruction_offset| return proof_instruction_offset,
+        .context_state_account => |account| {
+            metas[offset.*] = AccountMeta.readonly(account);
+            offset.* += 1;
+            return 0;
+        },
+    }
+}
+
+fn appendAuthorityAndSignerMetas(
+    metas: []AccountMeta,
+    offset: usize,
+    authority: *const Pubkey,
+    signers: []const Pubkey,
+) usize {
+    metas[offset] = if (signers.len == 0)
+        AccountMeta.signer(authority)
+    else
+        AccountMeta.readonly(authority);
+    const signer_offset = offset + 1;
+    for (signers, 0..) |_, i| {
+        metas[signer_offset + i] = AccountMeta.signer(&signers[i]);
+    }
+    return signer_offset + signers.len;
 }
 
 fn fillTransferFeeAuthorityMetas(
@@ -1472,6 +2150,44 @@ fn pausableToggle(
         .{AccountMeta.writable(mint)},
     );
     writePausablePrefix(data, disc);
+    return ixSlice(metas[0..accounts_len], data);
+}
+
+fn confidentialTransferCredits(
+    account: *const Pubkey,
+    authority: *const Pubkey,
+    signers: []const Pubkey,
+    disc: ConfidentialTransferInstruction,
+    metas: []AccountMeta,
+    data: *[confidential_transfer_toggle_credits_data_len]u8,
+) ExtensionInstructionError!Instruction {
+    const accounts_len = try fillExtensionAuthorityMetas(
+        metas,
+        2,
+        authority,
+        signers,
+        .{AccountMeta.writable(account)},
+    );
+    writeConfidentialTransferPrefix(data, disc);
+    return ixSlice(metas[0..accounts_len], data);
+}
+
+fn confidentialTransferFeeHarvestToMint(
+    mint: *const Pubkey,
+    authority: *const Pubkey,
+    signers: []const Pubkey,
+    disc: ConfidentialTransferFeeInstruction,
+    metas: []AccountMeta,
+    data: *[confidential_transfer_fee_toggle_harvest_to_mint_data_len]u8,
+) ExtensionInstructionError!Instruction {
+    const accounts_len = try fillExtensionAuthorityMetas(
+        metas,
+        2,
+        authority,
+        signers,
+        .{AccountMeta.writable(mint)},
+    );
+    writeConfidentialTransferFeePrefix(data, disc);
     return ixSlice(metas[0..accounts_len], data);
 }
 
@@ -1762,6 +2478,309 @@ test "transfer fee config builder encodes compact optional authorities" {
     try std.testing.expectEqual(@as(usize, transfer_fee_initialize_config_none_data_len), none_built.data.len);
     try std.testing.expectEqual(@as(u8, 0), none_built.data[2]);
     try std.testing.expectEqual(@as(u8, 0), none_built.data[3]);
+}
+
+test "confidential transfer mint and account builders encode canonical bytes" {
+    const mint: Pubkey = .{0x25} ** 32;
+    const account: Pubkey = .{0x26} ** 32;
+    const destination: Pubkey = .{0x24} ** 32;
+    const authority: Pubkey = .{0x27} ** 32;
+    const signer: Pubkey = .{0x28} ** 32;
+    const auditor: [32]u8 = .{0x29} ** 32;
+    const decryptable: [36]u8 = .{0x2a} ** 36;
+    const context_state: Pubkey = .{0x2b} ** 32;
+    const range_context_state: Pubkey = .{0x2c} ** 32;
+    const validity_context_state: Pubkey = .{0x2d} ** 32;
+    const elgamal_registry: Pubkey = .{0x30} ** 32;
+    const payer: Pubkey = .{0x31} ** 32;
+    const cipher_lo: [64]u8 = .{0x2e} ** 64;
+    const cipher_hi: [64]u8 = .{0x2f} ** 64;
+    const signers = [_]Pubkey{signer};
+
+    var init_metas: metasArray(get_account_data_size_spec) = undefined;
+    var init_data: [confidential_transfer_initialize_mint_data_len]u8 = undefined;
+    const init = initializeConfidentialTransferMint(&mint, &authority, true, &auditor, &init_metas, &init_data);
+    try std.testing.expectEqualSlices(u8, &.{ 27, 0 }, init.data[0..2]);
+    try std.testing.expectEqualSlices(u8, &authority, init.data[2..34]);
+    try std.testing.expectEqual(@as(u8, 1), init.data[34]);
+    try std.testing.expectEqualSlices(u8, &auditor, init.data[35..67]);
+    try expectMeta(init.accounts[0], &mint, 1, 0);
+
+    var update_metas: [3]AccountMeta = undefined;
+    var update_data: [confidential_transfer_update_mint_data_len]u8 = undefined;
+    const updated = try updateConfidentialTransferMint(&mint, &authority, &signers, false, null, &update_metas, &update_data);
+    try std.testing.expectEqualSlices(u8, &.{ 27, 1, 0 }, updated.data[0..3]);
+    for (updated.data[3..35]) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
+    try std.testing.expectEqual(@as(usize, 3), updated.accounts.len);
+    try expectMeta(updated.accounts[0], &mint, 1, 0);
+    try expectMeta(updated.accounts[1], &authority, 0, 0);
+    try expectMeta(updated.accounts[2], &signers[0], 0, 1);
+
+    var configure_metas: [4]AccountMeta = undefined;
+    var configure_data: [confidential_transfer_configure_account_data_len]u8 = undefined;
+    const configured = try configureConfidentialTransferAccount(
+        &account,
+        &mint,
+        &decryptable,
+        9,
+        &authority,
+        &.{},
+        .{ .context_state_account = &context_state },
+        &configure_metas,
+        &configure_data,
+    );
+    try std.testing.expectEqualSlices(u8, &.{ 27, 2 }, configured.data[0..2]);
+    try std.testing.expectEqualSlices(u8, &decryptable, configured.data[2..38]);
+    try std.testing.expectEqual(@as(u64, 9), std.mem.readInt(u64, configured.data[38..46], .little));
+    try std.testing.expectEqual(@as(u8, 0), configured.data[46]);
+    try expectMeta(configured.accounts[0], &account, 1, 0);
+    try expectMeta(configured.accounts[1], &mint, 0, 0);
+    try expectMeta(configured.accounts[2], &context_state, 0, 0);
+    try expectMeta(configured.accounts[3], &authority, 0, 1);
+
+    var registry_metas: [5]AccountMeta = undefined;
+    var registry_data: [confidential_transfer_configure_account_with_registry_data_len]u8 = undefined;
+    const configured_with_registry = try configureConfidentialTransferAccountWithRegistry(
+        &account,
+        &mint,
+        &elgamal_registry,
+        &payer,
+        &registry_metas,
+        &registry_data,
+    );
+    try std.testing.expectEqualSlices(u8, &.{ 27, 14 }, configured_with_registry.data);
+    try std.testing.expectEqual(@as(usize, 5), configured_with_registry.accounts.len);
+    try expectMeta(configured_with_registry.accounts[0], &account, 1, 0);
+    try expectMeta(configured_with_registry.accounts[1], &mint, 0, 0);
+    try expectMeta(configured_with_registry.accounts[2], &elgamal_registry, 0, 0);
+    try expectMeta(configured_with_registry.accounts[3], &payer, 1, 1);
+    try expectMeta(configured_with_registry.accounts[4], &sol.system_program_id, 0, 0);
+
+    var approve_metas: [4]AccountMeta = undefined;
+    var approve_data: [confidential_transfer_approve_account_data_len]u8 = undefined;
+    const approved = try approveConfidentialTransferAccount(&account, &mint, &authority, &signers, &approve_metas, &approve_data);
+    try std.testing.expectEqualSlices(u8, &.{ 27, 3 }, approved.data);
+    try expectMeta(approved.accounts[0], &account, 1, 0);
+    try expectMeta(approved.accounts[1], &mint, 0, 0);
+    try expectMeta(approved.accounts[2], &authority, 0, 0);
+    try expectMeta(approved.accounts[3], &signers[0], 0, 1);
+
+    var empty_metas: [4]AccountMeta = undefined;
+    var empty_data: [confidential_transfer_empty_account_data_len]u8 = undefined;
+    const emptied = try emptyConfidentialTransferAccount(
+        &account,
+        &authority,
+        &signers,
+        .{ .instruction_offset = -1 },
+        &empty_metas,
+        &empty_data,
+    );
+    try std.testing.expectEqualSlices(u8, &.{ 27, 4, 0xff }, emptied.data);
+    try expectMeta(emptied.accounts[0], &account, 1, 0);
+    try expectMeta(emptied.accounts[1], &sol.instructions_sysvar_id, 0, 0);
+    try expectMeta(emptied.accounts[2], &authority, 0, 0);
+    try expectMeta(emptied.accounts[3], &signers[0], 0, 1);
+
+    var deposit_metas: [4]AccountMeta = undefined;
+    var deposit_data: [confidential_transfer_deposit_data_len]u8 = undefined;
+    const deposited = try depositConfidentialTransfer(&account, &mint, &authority, &signers, 1234, 6, &deposit_metas, &deposit_data);
+    try std.testing.expectEqualSlices(u8, &.{ 27, 5 }, deposited.data[0..2]);
+    try std.testing.expectEqual(@as(u64, 1234), std.mem.readInt(u64, deposited.data[2..10], .little));
+    try std.testing.expectEqual(@as(u8, 6), deposited.data[10]);
+
+    var withdraw_metas: [6]AccountMeta = undefined;
+    var withdraw_data: [confidential_transfer_withdraw_data_len]u8 = undefined;
+    const withdrawn = try withdrawConfidentialTransfer(
+        &account,
+        &mint,
+        4321,
+        5,
+        &decryptable,
+        &authority,
+        &signers,
+        .{ .instruction_offset = 1 },
+        .{ .context_state_account = &range_context_state },
+        &withdraw_metas,
+        &withdraw_data,
+    );
+    try std.testing.expectEqualSlices(u8, &.{ 27, 6 }, withdrawn.data[0..2]);
+    try std.testing.expectEqual(@as(u64, 4321), std.mem.readInt(u64, withdrawn.data[2..10], .little));
+    try std.testing.expectEqual(@as(u8, 5), withdrawn.data[10]);
+    try std.testing.expectEqualSlices(u8, &decryptable, withdrawn.data[11..47]);
+    try std.testing.expectEqual(@as(u8, 1), withdrawn.data[47]);
+    try std.testing.expectEqual(@as(u8, 0), withdrawn.data[48]);
+    try std.testing.expectEqual(@as(usize, 6), withdrawn.accounts.len);
+    try expectMeta(withdrawn.accounts[0], &account, 1, 0);
+    try expectMeta(withdrawn.accounts[1], &mint, 0, 0);
+    try expectMeta(withdrawn.accounts[2], &sol.instructions_sysvar_id, 0, 0);
+    try expectMeta(withdrawn.accounts[3], &range_context_state, 0, 0);
+    try expectMeta(withdrawn.accounts[4], &authority, 0, 0);
+    try expectMeta(withdrawn.accounts[5], &signers[0], 0, 1);
+
+    var transfer_metas: [7]AccountMeta = undefined;
+    var transfer_data: [confidential_transfer_transfer_data_len]u8 = undefined;
+    const transferred = try transferConfidentialTransfer(
+        &account,
+        &mint,
+        &destination,
+        &decryptable,
+        &cipher_lo,
+        &cipher_hi,
+        &authority,
+        &.{},
+        .{ .context_state_account = &context_state },
+        .{ .context_state_account = &validity_context_state },
+        .{ .context_state_account = &range_context_state },
+        &transfer_metas,
+        &transfer_data,
+    );
+    try std.testing.expectEqualSlices(u8, &.{ 27, 7 }, transferred.data[0..2]);
+    try std.testing.expectEqualSlices(u8, &decryptable, transferred.data[2..38]);
+    try std.testing.expectEqualSlices(u8, &cipher_lo, transferred.data[38..102]);
+    try std.testing.expectEqualSlices(u8, &cipher_hi, transferred.data[102..166]);
+    try std.testing.expectEqualSlices(u8, &.{ 0, 0, 0 }, transferred.data[166..169]);
+    try std.testing.expectEqual(@as(usize, 7), transferred.accounts.len);
+    try expectMeta(transferred.accounts[0], &account, 1, 0);
+    try expectMeta(transferred.accounts[1], &mint, 0, 0);
+    try expectMeta(transferred.accounts[2], &destination, 1, 0);
+    try expectMeta(transferred.accounts[3], &context_state, 0, 0);
+    try expectMeta(transferred.accounts[4], &validity_context_state, 0, 0);
+    try expectMeta(transferred.accounts[5], &range_context_state, 0, 0);
+    try expectMeta(transferred.accounts[6], &authority, 0, 1);
+
+    var transfer_fee_metas: [6]AccountMeta = undefined;
+    var transfer_fee_data: [confidential_transfer_transfer_with_fee_data_len]u8 = undefined;
+    const transferred_with_fee = try transferConfidentialTransferWithFee(
+        &account,
+        &mint,
+        &destination,
+        &decryptable,
+        &cipher_lo,
+        &cipher_hi,
+        &authority,
+        &signers,
+        .{ .instruction_offset = 1 },
+        .{ .instruction_offset = 2 },
+        .{ .instruction_offset = 3 },
+        .{ .instruction_offset = 4 },
+        .{ .instruction_offset = 5 },
+        &transfer_fee_metas,
+        &transfer_fee_data,
+    );
+    try std.testing.expectEqualSlices(u8, &.{ 27, 13 }, transferred_with_fee.data[0..2]);
+    try std.testing.expectEqualSlices(u8, &decryptable, transferred_with_fee.data[2..38]);
+    try std.testing.expectEqualSlices(u8, &cipher_lo, transferred_with_fee.data[38..102]);
+    try std.testing.expectEqualSlices(u8, &cipher_hi, transferred_with_fee.data[102..166]);
+    try std.testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4, 5 }, transferred_with_fee.data[166..171]);
+    try std.testing.expectEqual(@as(usize, 6), transferred_with_fee.accounts.len);
+    try expectMeta(transferred_with_fee.accounts[0], &account, 1, 0);
+    try expectMeta(transferred_with_fee.accounts[1], &mint, 0, 0);
+    try expectMeta(transferred_with_fee.accounts[2], &destination, 1, 0);
+    try expectMeta(transferred_with_fee.accounts[3], &sol.instructions_sysvar_id, 0, 0);
+    try expectMeta(transferred_with_fee.accounts[4], &authority, 0, 0);
+    try expectMeta(transferred_with_fee.accounts[5], &signers[0], 0, 1);
+
+    var apply_metas: [3]AccountMeta = undefined;
+    var apply_data: [confidential_transfer_apply_pending_balance_data_len]u8 = undefined;
+    const applied = try applyPendingConfidentialTransferBalance(&account, &authority, &signers, 7, &decryptable, &apply_metas, &apply_data);
+    try std.testing.expectEqualSlices(u8, &.{ 27, 8 }, applied.data[0..2]);
+    try std.testing.expectEqual(@as(u64, 7), std.mem.readInt(u64, applied.data[2..10], .little));
+    try std.testing.expectEqualSlices(u8, &decryptable, applied.data[10..46]);
+
+    var toggle_metas: [3]AccountMeta = undefined;
+    var toggle_data: [confidential_transfer_toggle_credits_data_len]u8 = undefined;
+    const enabled = try enableConfidentialTransferCredits(&account, &authority, &signers, &toggle_metas, &toggle_data);
+    try std.testing.expectEqualSlices(u8, &.{ 27, 9 }, enabled.data);
+    const disabled = try disableNonConfidentialTransferCredits(&account, &authority, &.{}, &toggle_metas, &toggle_data);
+    try std.testing.expectEqualSlices(u8, &.{ 27, 12 }, disabled.data);
+    try expectMeta(disabled.accounts[1], &authority, 0, 1);
+}
+
+test "confidential transfer fee builders encode canonical bytes" {
+    const mint: Pubkey = .{0x2b} ** 32;
+    const authority: Pubkey = .{0x2c} ** 32;
+    const signer: Pubkey = .{0x2d} ** 32;
+    const elgamal: [32]u8 = .{0x2e} ** 32;
+    const destination: Pubkey = .{0x2a} ** 32;
+    const context_state: Pubkey = .{0x24} ** 32;
+    const decryptable: [36]u8 = .{0x23} ** 36;
+    const sources = [_]Pubkey{ .{0x2f} ** 32, .{0x30} ** 32 };
+    const signers = [_]Pubkey{signer};
+
+    var init_metas: metasArray(get_account_data_size_spec) = undefined;
+    var init_data: [confidential_transfer_fee_initialize_config_data_len]u8 = undefined;
+    const init = initializeConfidentialTransferFeeConfig(&mint, &authority, &elgamal, &init_metas, &init_data);
+    try std.testing.expectEqualSlices(u8, &.{ 37, 0 }, init.data[0..2]);
+    try std.testing.expectEqualSlices(u8, &authority, init.data[2..34]);
+    try std.testing.expectEqualSlices(u8, &elgamal, init.data[34..66]);
+    try expectMeta(init.accounts[0], &mint, 1, 0);
+
+    var withdraw_mint_metas: [5]AccountMeta = undefined;
+    var withdraw_mint_data: [confidential_transfer_fee_withdraw_withheld_tokens_from_mint_data_len]u8 = undefined;
+    const withdraw_mint = try withdrawConfidentialTransferFeeWithheldTokensFromMint(
+        &mint,
+        &destination,
+        &decryptable,
+        &authority,
+        &signers,
+        .{ .instruction_offset = 1 },
+        &withdraw_mint_metas,
+        &withdraw_mint_data,
+    );
+    try std.testing.expectEqualSlices(u8, &.{ 37, 1, 1 }, withdraw_mint.data[0..3]);
+    try std.testing.expectEqualSlices(u8, &decryptable, withdraw_mint.data[3..39]);
+    try std.testing.expectEqual(@as(usize, 5), withdraw_mint.accounts.len);
+    try expectMeta(withdraw_mint.accounts[0], &mint, 1, 0);
+    try expectMeta(withdraw_mint.accounts[1], &destination, 1, 0);
+    try expectMeta(withdraw_mint.accounts[2], &sol.instructions_sysvar_id, 0, 0);
+    try expectMeta(withdraw_mint.accounts[3], &authority, 0, 0);
+    try expectMeta(withdraw_mint.accounts[4], &signers[0], 0, 1);
+
+    var withdraw_accounts_metas: [6]AccountMeta = undefined;
+    var withdraw_accounts_data: [confidential_transfer_fee_withdraw_withheld_tokens_from_accounts_data_len]u8 = undefined;
+    const withdraw_accounts = try withdrawConfidentialTransferFeeWithheldTokensFromAccounts(
+        &mint,
+        &destination,
+        &decryptable,
+        &authority,
+        &.{},
+        &sources,
+        .{ .context_state_account = &context_state },
+        &withdraw_accounts_metas,
+        &withdraw_accounts_data,
+    );
+    try std.testing.expectEqualSlices(u8, &.{ 37, 2, 2, 0 }, withdraw_accounts.data[0..4]);
+    try std.testing.expectEqualSlices(u8, &decryptable, withdraw_accounts.data[4..40]);
+    try std.testing.expectEqual(@as(usize, 6), withdraw_accounts.accounts.len);
+    try expectMeta(withdraw_accounts.accounts[0], &mint, 0, 0);
+    try expectMeta(withdraw_accounts.accounts[1], &destination, 1, 0);
+    try expectMeta(withdraw_accounts.accounts[2], &context_state, 0, 0);
+    try expectMeta(withdraw_accounts.accounts[3], &authority, 0, 1);
+    try expectMeta(withdraw_accounts.accounts[4], &sources[0], 1, 0);
+    try expectMeta(withdraw_accounts.accounts[5], &sources[1], 1, 0);
+
+    var harvest_metas: [3]AccountMeta = undefined;
+    var harvest_data: [confidential_transfer_fee_harvest_withheld_tokens_to_mint_data_len]u8 = undefined;
+    const harvest = try harvestConfidentialTransferWithheldTokensToMint(&mint, &sources, &harvest_metas, &harvest_data);
+    try std.testing.expectEqualSlices(u8, &.{ 37, 3 }, harvest.data);
+    try std.testing.expectEqual(@as(usize, 3), harvest.accounts.len);
+    try expectMeta(harvest.accounts[0], &mint, 1, 0);
+    try expectMeta(harvest.accounts[1], &sources[0], 1, 0);
+    try expectMeta(harvest.accounts[2], &sources[1], 1, 0);
+
+    var toggle_metas: [3]AccountMeta = undefined;
+    var toggle_data: [confidential_transfer_fee_toggle_harvest_to_mint_data_len]u8 = undefined;
+    const enabled = try enableConfidentialTransferFeeHarvestToMint(&mint, &authority, &signers, &toggle_metas, &toggle_data);
+    try std.testing.expectEqualSlices(u8, &.{ 37, 4 }, enabled.data);
+    try std.testing.expectEqual(@as(usize, 3), enabled.accounts.len);
+    try expectMeta(enabled.accounts[0], &mint, 1, 0);
+    try expectMeta(enabled.accounts[1], &authority, 0, 0);
+    try expectMeta(enabled.accounts[2], &signers[0], 0, 1);
+
+    const disabled = try disableConfidentialTransferFeeHarvestToMint(&mint, &authority, &.{}, &toggle_metas, &toggle_data);
+    try std.testing.expectEqualSlices(u8, &.{ 37, 5 }, disabled.data);
+    try std.testing.expectEqual(@as(usize, 2), disabled.accounts.len);
+    try expectMeta(disabled.accounts[1], &authority, 0, 1);
 }
 
 test "transfer fee authority builders support single and multisig account metas" {

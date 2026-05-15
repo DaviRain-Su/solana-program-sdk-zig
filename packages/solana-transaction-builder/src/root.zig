@@ -7,7 +7,9 @@ const system = @import("solana_system");
 const alt = @import("solana_address_lookup_table");
 const compute_budget = @import("solana_compute_budget");
 const spl_token = @import("spl_token");
+const spl_token_2022 = @import("spl_token_2022");
 const spl_ata = @import("spl_ata");
+const zk_proof = @import("solana_zk_elgamal_proof");
 
 pub const Pubkey = tx.Pubkey;
 pub const Instruction = tx.Instruction;
@@ -27,6 +29,21 @@ pub const TokenTransferMetas = spl_token.instruction.metasArray(spl_token.instru
 pub const TokenTransferData = spl_token.instruction.dataArray(spl_token.instruction.transfer_spec);
 pub const TokenTransferCheckedMetas = spl_token.instruction.metasArray(spl_token.instruction.transfer_checked_spec);
 pub const TokenTransferCheckedData = spl_token.instruction.dataArray(spl_token.instruction.transfer_checked_spec);
+pub const Token2022TransferMetas = spl_token_2022.instruction.metasArray(spl_token_2022.instruction.transfer_spec);
+pub const Token2022TransferData = spl_token_2022.instruction.dataArray(spl_token_2022.instruction.transfer_spec);
+pub const Token2022TransferCheckedMetas = spl_token_2022.instruction.metasArray(spl_token_2022.instruction.transfer_checked_spec);
+pub const Token2022TransferCheckedData = spl_token_2022.instruction.dataArray(spl_token_2022.instruction.transfer_checked_spec);
+pub const Token2022TransferCheckedWithFeeMetas = [4]tx.AccountMeta;
+pub const Token2022TransferCheckedWithFeeData = [spl_token_2022.instruction.transfer_fee_transfer_checked_with_fee_data_len]u8;
+pub const Token2022ConfidentialTransferMetas = [5]tx.AccountMeta;
+pub const Token2022ConfidentialTransferWithFeeMetas = [5]tx.AccountMeta;
+pub const Token2022ConfidentialTransferContextMetas = [7]tx.AccountMeta;
+pub const Token2022ConfidentialTransferData = [spl_token_2022.instruction.confidential_transfer_transfer_data_len]u8;
+pub const Token2022ConfidentialTransferWithFeeData = [spl_token_2022.instruction.confidential_transfer_transfer_with_fee_data_len]u8;
+pub const ZkProofAccountMetas = [3]tx.AccountMeta;
+pub const ZkProofFromAccountData = [zk_proof.verify_proof_from_account_data_len]u8;
+pub const ZkCloseContextStateMetas = [3]tx.AccountMeta;
+pub const ZkCloseContextStateData = [zk_proof.close_context_state_data_len]u8;
 pub const AtaCreateIdempotentScratch = spl_ata.instruction.Scratch(spl_ata.instruction.create_idempotent_spec);
 
 pub const ComputeBudgetOptions = struct {
@@ -84,6 +101,107 @@ pub const TokenTransferCheckedWithComputeBudgetBuffers = struct {
     transfer_data: *TokenTransferCheckedData,
 };
 
+pub const Token2022TransferWithComputeBudgetBuffers = struct {
+    compute_budget: ComputeBudgetInstructionBuffers,
+    transfer_metas: *Token2022TransferMetas,
+    transfer_data: *Token2022TransferData,
+};
+
+pub const Token2022TransferCheckedWithComputeBudgetBuffers = struct {
+    compute_budget: ComputeBudgetInstructionBuffers,
+    transfer_metas: *Token2022TransferCheckedMetas,
+    transfer_data: *Token2022TransferCheckedData,
+};
+
+pub const Token2022TransferCheckedWithFeeWithComputeBudgetBuffers = struct {
+    compute_budget: ComputeBudgetInstructionBuffers,
+    transfer_metas: *Token2022TransferCheckedWithFeeMetas,
+    transfer_data: *Token2022TransferCheckedWithFeeData,
+};
+
+pub const InlineProof = struct {
+    instruction: zk_proof.ProofInstruction,
+    data: []const u8,
+};
+
+pub const ConfidentialTransferInlineProofs = struct {
+    equality: InlineProof,
+    ciphertext_validity: InlineProof,
+    range: InlineProof,
+};
+
+pub const ConfidentialTransferWithFeeInlineProofs = struct {
+    equality: InlineProof,
+    transfer_amount_ciphertext_validity: InlineProof,
+    fee_sigma: InlineProof,
+    fee_ciphertext_validity: InlineProof,
+    range: InlineProof,
+};
+
+pub const ProofAccountReference = struct {
+    instruction: zk_proof.ProofInstruction,
+    proof_account: *const Pubkey,
+    proof_offset: u32,
+    context_state_account: *const Pubkey,
+    context_state_authority: *const Pubkey,
+};
+
+pub const ConfidentialTransferProofAccounts = struct {
+    equality: ProofAccountReference,
+    ciphertext_validity: ProofAccountReference,
+    range: ProofAccountReference,
+};
+
+pub const Token2022ConfidentialTransferWithProofsBuffers = struct {
+    compute_budget: ComputeBudgetInstructionBuffers,
+    equality_proof_metas: []tx.AccountMeta,
+    equality_proof_data: []u8,
+    ciphertext_validity_proof_metas: []tx.AccountMeta,
+    ciphertext_validity_proof_data: []u8,
+    range_proof_metas: []tx.AccountMeta,
+    range_proof_data: []u8,
+    transfer_metas: *Token2022ConfidentialTransferMetas,
+    transfer_data: *Token2022ConfidentialTransferData,
+};
+
+pub const Token2022ConfidentialTransferWithFeeInlineProofsBuffers = struct {
+    compute_budget: ComputeBudgetInstructionBuffers,
+    equality_proof_metas: []tx.AccountMeta,
+    equality_proof_data: []u8,
+    transfer_amount_ciphertext_validity_proof_metas: []tx.AccountMeta,
+    transfer_amount_ciphertext_validity_proof_data: []u8,
+    fee_sigma_proof_metas: []tx.AccountMeta,
+    fee_sigma_proof_data: []u8,
+    fee_ciphertext_validity_proof_metas: []tx.AccountMeta,
+    fee_ciphertext_validity_proof_data: []u8,
+    range_proof_metas: []tx.AccountMeta,
+    range_proof_data: []u8,
+    transfer_metas: *Token2022ConfidentialTransferWithFeeMetas,
+    transfer_data: *Token2022ConfidentialTransferWithFeeData,
+};
+
+pub const Token2022ConfidentialTransferWithProofAccountsBuffers = struct {
+    compute_budget: ComputeBudgetInstructionBuffers,
+    equality_proof_metas: *ZkProofAccountMetas,
+    equality_proof_data: *ZkProofFromAccountData,
+    ciphertext_validity_proof_metas: *ZkProofAccountMetas,
+    ciphertext_validity_proof_data: *ZkProofFromAccountData,
+    range_proof_metas: *ZkProofAccountMetas,
+    range_proof_data: *ZkProofFromAccountData,
+    transfer_metas: *Token2022ConfidentialTransferContextMetas,
+    transfer_data: *Token2022ConfidentialTransferData,
+};
+
+pub const Token2022ConfidentialTransferWithProofAccountClosesBuffers = struct {
+    proof_accounts: Token2022ConfidentialTransferWithProofAccountsBuffers,
+    equality_close_metas: *ZkCloseContextStateMetas,
+    equality_close_data: *ZkCloseContextStateData,
+    ciphertext_validity_close_metas: *ZkCloseContextStateMetas,
+    ciphertext_validity_close_data: *ZkCloseContextStateData,
+    range_close_metas: *ZkCloseContextStateMetas,
+    range_close_data: *ZkCloseContextStateData,
+};
+
 pub const AtaTokenTransferWithComputeBudgetBuffers = struct {
     compute_budget: ComputeBudgetInstructionBuffers,
     ata_scratch: *AtaCreateIdempotentScratch,
@@ -96,6 +214,27 @@ pub const AtaTokenTransferCheckedWithComputeBudgetBuffers = struct {
     ata_scratch: *AtaCreateIdempotentScratch,
     transfer_metas: *TokenTransferCheckedMetas,
     transfer_data: *TokenTransferCheckedData,
+};
+
+pub const AtaToken2022TransferWithComputeBudgetBuffers = struct {
+    compute_budget: ComputeBudgetInstructionBuffers,
+    ata_scratch: *AtaCreateIdempotentScratch,
+    transfer_metas: *Token2022TransferMetas,
+    transfer_data: *Token2022TransferData,
+};
+
+pub const AtaToken2022TransferCheckedWithComputeBudgetBuffers = struct {
+    compute_budget: ComputeBudgetInstructionBuffers,
+    ata_scratch: *AtaCreateIdempotentScratch,
+    transfer_metas: *Token2022TransferCheckedMetas,
+    transfer_data: *Token2022TransferCheckedData,
+};
+
+pub const AtaToken2022TransferCheckedWithFeeWithComputeBudgetBuffers = struct {
+    compute_budget: ComputeBudgetInstructionBuffers,
+    ata_scratch: *AtaCreateIdempotentScratch,
+    transfer_metas: *Token2022TransferCheckedWithFeeMetas,
+    transfer_data: *Token2022TransferCheckedWithFeeData,
 };
 
 pub const TokenTransferWithComputeBudgetInstructions = struct {
@@ -126,6 +265,103 @@ pub const AtaTokenTransferWithComputeBudgetInstructions = struct {
     }
 
     pub fn tokenTransferInstruction(self: *const AtaTokenTransferWithComputeBudgetInstructions) *const Instruction {
+        std.debug.assert(self.len > 0);
+        return &self.instructions[self.len - 1];
+    }
+};
+
+pub const Token2022ConfidentialTransferWithProofsInstructions = struct {
+    instructions: [8]Instruction,
+    len: usize,
+
+    pub fn slice(self: *const Token2022ConfidentialTransferWithProofsInstructions) []const Instruction {
+        return self.instructions[0..self.len];
+    }
+
+    pub fn equalityProofInstruction(self: *const Token2022ConfidentialTransferWithProofsInstructions) *const Instruction {
+        std.debug.assert(self.len >= 4);
+        return &self.instructions[self.len - 4];
+    }
+
+    pub fn ciphertextValidityProofInstruction(self: *const Token2022ConfidentialTransferWithProofsInstructions) *const Instruction {
+        std.debug.assert(self.len >= 3);
+        return &self.instructions[self.len - 3];
+    }
+
+    pub fn rangeProofInstruction(self: *const Token2022ConfidentialTransferWithProofsInstructions) *const Instruction {
+        std.debug.assert(self.len >= 2);
+        return &self.instructions[self.len - 2];
+    }
+
+    pub fn confidentialTransferInstruction(self: *const Token2022ConfidentialTransferWithProofsInstructions) *const Instruction {
+        std.debug.assert(self.len > 0);
+        return &self.instructions[self.len - 1];
+    }
+};
+
+pub const Token2022ConfidentialTransferWithFeeProofsInstructions = struct {
+    instructions: [10]Instruction,
+    len: usize,
+
+    pub fn slice(self: *const Token2022ConfidentialTransferWithFeeProofsInstructions) []const Instruction {
+        return self.instructions[0..self.len];
+    }
+
+    pub fn equalityProofInstruction(self: *const Token2022ConfidentialTransferWithFeeProofsInstructions) *const Instruction {
+        std.debug.assert(self.len >= 6);
+        return &self.instructions[self.len - 6];
+    }
+
+    pub fn transferAmountCiphertextValidityProofInstruction(self: *const Token2022ConfidentialTransferWithFeeProofsInstructions) *const Instruction {
+        std.debug.assert(self.len >= 5);
+        return &self.instructions[self.len - 5];
+    }
+
+    pub fn feeSigmaProofInstruction(self: *const Token2022ConfidentialTransferWithFeeProofsInstructions) *const Instruction {
+        std.debug.assert(self.len >= 4);
+        return &self.instructions[self.len - 4];
+    }
+
+    pub fn feeCiphertextValidityProofInstruction(self: *const Token2022ConfidentialTransferWithFeeProofsInstructions) *const Instruction {
+        std.debug.assert(self.len >= 3);
+        return &self.instructions[self.len - 3];
+    }
+
+    pub fn rangeProofInstruction(self: *const Token2022ConfidentialTransferWithFeeProofsInstructions) *const Instruction {
+        std.debug.assert(self.len >= 2);
+        return &self.instructions[self.len - 2];
+    }
+
+    pub fn confidentialTransferInstruction(self: *const Token2022ConfidentialTransferWithFeeProofsInstructions) *const Instruction {
+        std.debug.assert(self.len > 0);
+        return &self.instructions[self.len - 1];
+    }
+};
+
+pub const Token2022ConfidentialTransferWithProofAccountClosesInstructions = struct {
+    instructions: [11]Instruction,
+    len: usize,
+
+    pub fn slice(self: *const Token2022ConfidentialTransferWithProofAccountClosesInstructions) []const Instruction {
+        return self.instructions[0..self.len];
+    }
+
+    pub fn confidentialTransferInstruction(self: *const Token2022ConfidentialTransferWithProofAccountClosesInstructions) *const Instruction {
+        std.debug.assert(self.len >= 4);
+        return &self.instructions[self.len - 4];
+    }
+
+    pub fn equalityCloseInstruction(self: *const Token2022ConfidentialTransferWithProofAccountClosesInstructions) *const Instruction {
+        std.debug.assert(self.len >= 3);
+        return &self.instructions[self.len - 3];
+    }
+
+    pub fn ciphertextValidityCloseInstruction(self: *const Token2022ConfidentialTransferWithProofAccountClosesInstructions) *const Instruction {
+        std.debug.assert(self.len >= 2);
+        return &self.instructions[self.len - 2];
+    }
+
+    pub fn rangeCloseInstruction(self: *const Token2022ConfidentialTransferWithProofAccountClosesInstructions) *const Instruction {
         std.debug.assert(self.len > 0);
         return &self.instructions[self.len - 1];
     }
@@ -256,6 +492,369 @@ pub fn tokenTransferCheckedWithComputeBudget(
     return result;
 }
 
+pub fn token2022TransferWithComputeBudget(
+    source: *const Pubkey,
+    destination: *const Pubkey,
+    authority: *const Pubkey,
+    amount: u64,
+    compute_options: ComputeBudgetOptions,
+    buffers: Token2022TransferWithComputeBudgetBuffers,
+) TokenTransferWithComputeBudgetInstructions {
+    const prelude = computeBudgetPrelude(compute_options, buffers.compute_budget);
+    var result: TokenTransferWithComputeBudgetInstructions = .{
+        .instructions = undefined,
+        .len = 0,
+    };
+    for (prelude.slice()) |ix| {
+        result.instructions[result.len] = ix;
+        result.len += 1;
+    }
+    result.instructions[result.len] = spl_token_2022.instruction.transfer(
+        source,
+        destination,
+        authority,
+        amount,
+        buffers.transfer_metas,
+        buffers.transfer_data,
+    );
+    result.len += 1;
+    return result;
+}
+
+pub fn token2022TransferCheckedWithComputeBudget(
+    source: *const Pubkey,
+    mint: *const Pubkey,
+    destination: *const Pubkey,
+    authority: *const Pubkey,
+    amount: u64,
+    decimals: u8,
+    compute_options: ComputeBudgetOptions,
+    buffers: Token2022TransferCheckedWithComputeBudgetBuffers,
+) TokenTransferWithComputeBudgetInstructions {
+    const prelude = computeBudgetPrelude(compute_options, buffers.compute_budget);
+    var result: TokenTransferWithComputeBudgetInstructions = .{
+        .instructions = undefined,
+        .len = 0,
+    };
+    for (prelude.slice()) |ix| {
+        result.instructions[result.len] = ix;
+        result.len += 1;
+    }
+    result.instructions[result.len] = spl_token_2022.instruction.transferChecked(
+        source,
+        mint,
+        destination,
+        authority,
+        amount,
+        decimals,
+        buffers.transfer_metas,
+        buffers.transfer_data,
+    );
+    result.len += 1;
+    return result;
+}
+
+pub fn token2022TransferCheckedWithFeeWithComputeBudget(
+    source: *const Pubkey,
+    mint: *const Pubkey,
+    destination: *const Pubkey,
+    authority: *const Pubkey,
+    amount: u64,
+    decimals: u8,
+    fee: u64,
+    compute_options: ComputeBudgetOptions,
+    buffers: Token2022TransferCheckedWithFeeWithComputeBudgetBuffers,
+) !TokenTransferWithComputeBudgetInstructions {
+    const prelude = computeBudgetPrelude(compute_options, buffers.compute_budget);
+    var result: TokenTransferWithComputeBudgetInstructions = .{
+        .instructions = undefined,
+        .len = 0,
+    };
+    for (prelude.slice()) |ix| {
+        result.instructions[result.len] = ix;
+        result.len += 1;
+    }
+    result.instructions[result.len] = try spl_token_2022.instruction.transferCheckedWithFee(
+        source,
+        mint,
+        destination,
+        authority,
+        &.{},
+        amount,
+        decimals,
+        fee,
+        buffers.transfer_metas,
+        buffers.transfer_data,
+    );
+    result.len += 1;
+    return result;
+}
+
+pub fn token2022ConfidentialTransferWithInlineProofsAndComputeBudget(
+    source: *const Pubkey,
+    mint: *const Pubkey,
+    destination: *const Pubkey,
+    new_source_decryptable_available_balance: *const [36]u8,
+    transfer_amount_auditor_ciphertext_lo: *const [64]u8,
+    transfer_amount_auditor_ciphertext_hi: *const [64]u8,
+    authority: *const Pubkey,
+    proofs: ConfidentialTransferInlineProofs,
+    compute_options: ComputeBudgetOptions,
+    buffers: Token2022ConfidentialTransferWithProofsBuffers,
+) !Token2022ConfidentialTransferWithProofsInstructions {
+    const prelude = computeBudgetPrelude(compute_options, buffers.compute_budget);
+    var result: Token2022ConfidentialTransferWithProofsInstructions = .{
+        .instructions = undefined,
+        .len = 0,
+    };
+    for (prelude.slice()) |ix| {
+        result.instructions[result.len] = ix;
+        result.len += 1;
+    }
+
+    result.instructions[result.len] = try zk_proof.verifyProof(
+        proofs.equality.instruction,
+        null,
+        proofs.equality.data,
+        buffers.equality_proof_metas,
+        buffers.equality_proof_data,
+    );
+    result.len += 1;
+    result.instructions[result.len] = try zk_proof.verifyProof(
+        proofs.ciphertext_validity.instruction,
+        null,
+        proofs.ciphertext_validity.data,
+        buffers.ciphertext_validity_proof_metas,
+        buffers.ciphertext_validity_proof_data,
+    );
+    result.len += 1;
+    result.instructions[result.len] = try zk_proof.verifyProof(
+        proofs.range.instruction,
+        null,
+        proofs.range.data,
+        buffers.range_proof_metas,
+        buffers.range_proof_data,
+    );
+    result.len += 1;
+    result.instructions[result.len] = try spl_token_2022.instruction.transferConfidentialTransfer(
+        source,
+        mint,
+        destination,
+        new_source_decryptable_available_balance,
+        transfer_amount_auditor_ciphertext_lo,
+        transfer_amount_auditor_ciphertext_hi,
+        authority,
+        &.{},
+        .{ .instruction_offset = -3 },
+        .{ .instruction_offset = -2 },
+        .{ .instruction_offset = -1 },
+        buffers.transfer_metas,
+        buffers.transfer_data,
+    );
+    result.len += 1;
+    return result;
+}
+
+pub fn token2022ConfidentialTransferWithFeeInlineProofsAndComputeBudget(
+    source: *const Pubkey,
+    mint: *const Pubkey,
+    destination: *const Pubkey,
+    new_source_decryptable_available_balance: *const [36]u8,
+    transfer_amount_auditor_ciphertext_lo: *const [64]u8,
+    transfer_amount_auditor_ciphertext_hi: *const [64]u8,
+    authority: *const Pubkey,
+    proofs: ConfidentialTransferWithFeeInlineProofs,
+    compute_options: ComputeBudgetOptions,
+    buffers: Token2022ConfidentialTransferWithFeeInlineProofsBuffers,
+) !Token2022ConfidentialTransferWithFeeProofsInstructions {
+    const prelude = computeBudgetPrelude(compute_options, buffers.compute_budget);
+    var result: Token2022ConfidentialTransferWithFeeProofsInstructions = .{
+        .instructions = undefined,
+        .len = 0,
+    };
+    for (prelude.slice()) |ix| {
+        result.instructions[result.len] = ix;
+        result.len += 1;
+    }
+
+    result.instructions[result.len] = try zk_proof.verifyProof(
+        proofs.equality.instruction,
+        null,
+        proofs.equality.data,
+        buffers.equality_proof_metas,
+        buffers.equality_proof_data,
+    );
+    result.len += 1;
+    result.instructions[result.len] = try zk_proof.verifyProof(
+        proofs.transfer_amount_ciphertext_validity.instruction,
+        null,
+        proofs.transfer_amount_ciphertext_validity.data,
+        buffers.transfer_amount_ciphertext_validity_proof_metas,
+        buffers.transfer_amount_ciphertext_validity_proof_data,
+    );
+    result.len += 1;
+    result.instructions[result.len] = try zk_proof.verifyProof(
+        proofs.fee_sigma.instruction,
+        null,
+        proofs.fee_sigma.data,
+        buffers.fee_sigma_proof_metas,
+        buffers.fee_sigma_proof_data,
+    );
+    result.len += 1;
+    result.instructions[result.len] = try zk_proof.verifyProof(
+        proofs.fee_ciphertext_validity.instruction,
+        null,
+        proofs.fee_ciphertext_validity.data,
+        buffers.fee_ciphertext_validity_proof_metas,
+        buffers.fee_ciphertext_validity_proof_data,
+    );
+    result.len += 1;
+    result.instructions[result.len] = try zk_proof.verifyProof(
+        proofs.range.instruction,
+        null,
+        proofs.range.data,
+        buffers.range_proof_metas,
+        buffers.range_proof_data,
+    );
+    result.len += 1;
+    result.instructions[result.len] = try spl_token_2022.instruction.transferConfidentialTransferWithFee(
+        source,
+        mint,
+        destination,
+        new_source_decryptable_available_balance,
+        transfer_amount_auditor_ciphertext_lo,
+        transfer_amount_auditor_ciphertext_hi,
+        authority,
+        &.{},
+        .{ .instruction_offset = -5 },
+        .{ .instruction_offset = -4 },
+        .{ .instruction_offset = -3 },
+        .{ .instruction_offset = -2 },
+        .{ .instruction_offset = -1 },
+        buffers.transfer_metas,
+        buffers.transfer_data,
+    );
+    result.len += 1;
+    return result;
+}
+
+pub fn token2022ConfidentialTransferWithProofAccountsAndComputeBudget(
+    source: *const Pubkey,
+    mint: *const Pubkey,
+    destination: *const Pubkey,
+    new_source_decryptable_available_balance: *const [36]u8,
+    transfer_amount_auditor_ciphertext_lo: *const [64]u8,
+    transfer_amount_auditor_ciphertext_hi: *const [64]u8,
+    authority: *const Pubkey,
+    proofs: ConfidentialTransferProofAccounts,
+    compute_options: ComputeBudgetOptions,
+    buffers: Token2022ConfidentialTransferWithProofAccountsBuffers,
+) !Token2022ConfidentialTransferWithProofsInstructions {
+    const prelude = computeBudgetPrelude(compute_options, buffers.compute_budget);
+    var result: Token2022ConfidentialTransferWithProofsInstructions = .{
+        .instructions = undefined,
+        .len = 0,
+    };
+    for (prelude.slice()) |ix| {
+        result.instructions[result.len] = ix;
+        result.len += 1;
+    }
+
+    result.instructions[result.len] = try verifyProofFromAccountReference(
+        proofs.equality,
+        buffers.equality_proof_metas,
+        buffers.equality_proof_data,
+    );
+    result.len += 1;
+    result.instructions[result.len] = try verifyProofFromAccountReference(
+        proofs.ciphertext_validity,
+        buffers.ciphertext_validity_proof_metas,
+        buffers.ciphertext_validity_proof_data,
+    );
+    result.len += 1;
+    result.instructions[result.len] = try verifyProofFromAccountReference(
+        proofs.range,
+        buffers.range_proof_metas,
+        buffers.range_proof_data,
+    );
+    result.len += 1;
+    result.instructions[result.len] = try spl_token_2022.instruction.transferConfidentialTransfer(
+        source,
+        mint,
+        destination,
+        new_source_decryptable_available_balance,
+        transfer_amount_auditor_ciphertext_lo,
+        transfer_amount_auditor_ciphertext_hi,
+        authority,
+        &.{},
+        .{ .context_state_account = proofs.equality.context_state_account },
+        .{ .context_state_account = proofs.ciphertext_validity.context_state_account },
+        .{ .context_state_account = proofs.range.context_state_account },
+        buffers.transfer_metas,
+        buffers.transfer_data,
+    );
+    result.len += 1;
+    return result;
+}
+
+pub fn token2022ConfidentialTransferWithProofAccountsCloseContextsAndComputeBudget(
+    source: *const Pubkey,
+    mint: *const Pubkey,
+    destination: *const Pubkey,
+    new_source_decryptable_available_balance: *const [36]u8,
+    transfer_amount_auditor_ciphertext_lo: *const [64]u8,
+    transfer_amount_auditor_ciphertext_hi: *const [64]u8,
+    authority: *const Pubkey,
+    close_destination: *const Pubkey,
+    proofs: ConfidentialTransferProofAccounts,
+    compute_options: ComputeBudgetOptions,
+    buffers: Token2022ConfidentialTransferWithProofAccountClosesBuffers,
+) !Token2022ConfidentialTransferWithProofAccountClosesInstructions {
+    const base = try token2022ConfidentialTransferWithProofAccountsAndComputeBudget(
+        source,
+        mint,
+        destination,
+        new_source_decryptable_available_balance,
+        transfer_amount_auditor_ciphertext_lo,
+        transfer_amount_auditor_ciphertext_hi,
+        authority,
+        proofs,
+        compute_options,
+        buffers.proof_accounts,
+    );
+
+    var result: Token2022ConfidentialTransferWithProofAccountClosesInstructions = .{
+        .instructions = undefined,
+        .len = 0,
+    };
+    for (base.slice()) |ix| {
+        result.instructions[result.len] = ix;
+        result.len += 1;
+    }
+    result.instructions[result.len] = closeProofContextState(
+        proofs.equality,
+        close_destination,
+        buffers.equality_close_metas,
+        buffers.equality_close_data,
+    );
+    result.len += 1;
+    result.instructions[result.len] = closeProofContextState(
+        proofs.ciphertext_validity,
+        close_destination,
+        buffers.ciphertext_validity_close_metas,
+        buffers.ciphertext_validity_close_data,
+    );
+    result.len += 1;
+    result.instructions[result.len] = closeProofContextState(
+        proofs.range,
+        close_destination,
+        buffers.range_close_metas,
+        buffers.range_close_data,
+    );
+    result.len += 1;
+    return result;
+}
+
 pub fn createAtaAndTokenTransferWithComputeBudget(
     payer: *const Pubkey,
     wallet: *const Pubkey,
@@ -285,6 +884,46 @@ pub fn createAtaAndTokenTransferWithComputeBudget(
     );
     result.len += 1;
     result.instructions[result.len] = spl_token.instruction.transfer(
+        source,
+        &buffers.ata_scratch.associated_token_account,
+        authority,
+        amount,
+        buffers.transfer_metas,
+        buffers.transfer_data,
+    );
+    result.len += 1;
+    return result;
+}
+
+pub fn createAtaAndToken2022TransferWithComputeBudget(
+    payer: *const Pubkey,
+    wallet: *const Pubkey,
+    source: *const Pubkey,
+    mint: *const Pubkey,
+    authority: *const Pubkey,
+    amount: u64,
+    compute_options: ComputeBudgetOptions,
+    buffers: AtaToken2022TransferWithComputeBudgetBuffers,
+) AtaTokenTransferWithComputeBudgetInstructions {
+    const prelude = computeBudgetPrelude(compute_options, buffers.compute_budget);
+    var result: AtaTokenTransferWithComputeBudgetInstructions = .{
+        .instructions = undefined,
+        .len = 0,
+    };
+    for (prelude.slice()) |ix| {
+        result.instructions[result.len] = ix;
+        result.len += 1;
+    }
+    result.instructions[result.len] = spl_ata.instruction.createIdempotent(
+        payer,
+        wallet,
+        mint,
+        &system.PROGRAM_ID,
+        &spl_token_2022.PROGRAM_ID,
+        buffers.ata_scratch,
+    );
+    result.len += 1;
+    result.instructions[result.len] = spl_token_2022.instruction.transfer(
         source,
         &buffers.ata_scratch.associated_token_account,
         authority,
@@ -332,6 +971,95 @@ pub fn createAtaAndTokenTransferCheckedWithComputeBudget(
         authority,
         amount,
         decimals,
+        buffers.transfer_metas,
+        buffers.transfer_data,
+    );
+    result.len += 1;
+    return result;
+}
+
+pub fn createAtaAndToken2022TransferCheckedWithComputeBudget(
+    payer: *const Pubkey,
+    wallet: *const Pubkey,
+    source: *const Pubkey,
+    mint: *const Pubkey,
+    authority: *const Pubkey,
+    amount: u64,
+    decimals: u8,
+    compute_options: ComputeBudgetOptions,
+    buffers: AtaToken2022TransferCheckedWithComputeBudgetBuffers,
+) AtaTokenTransferWithComputeBudgetInstructions {
+    const prelude = computeBudgetPrelude(compute_options, buffers.compute_budget);
+    var result: AtaTokenTransferWithComputeBudgetInstructions = .{
+        .instructions = undefined,
+        .len = 0,
+    };
+    for (prelude.slice()) |ix| {
+        result.instructions[result.len] = ix;
+        result.len += 1;
+    }
+    result.instructions[result.len] = spl_ata.instruction.createIdempotent(
+        payer,
+        wallet,
+        mint,
+        &system.PROGRAM_ID,
+        &spl_token_2022.PROGRAM_ID,
+        buffers.ata_scratch,
+    );
+    result.len += 1;
+    result.instructions[result.len] = spl_token_2022.instruction.transferChecked(
+        source,
+        mint,
+        &buffers.ata_scratch.associated_token_account,
+        authority,
+        amount,
+        decimals,
+        buffers.transfer_metas,
+        buffers.transfer_data,
+    );
+    result.len += 1;
+    return result;
+}
+
+pub fn createAtaAndToken2022TransferCheckedWithFeeWithComputeBudget(
+    payer: *const Pubkey,
+    wallet: *const Pubkey,
+    source: *const Pubkey,
+    mint: *const Pubkey,
+    authority: *const Pubkey,
+    amount: u64,
+    decimals: u8,
+    fee: u64,
+    compute_options: ComputeBudgetOptions,
+    buffers: AtaToken2022TransferCheckedWithFeeWithComputeBudgetBuffers,
+) !AtaTokenTransferWithComputeBudgetInstructions {
+    const prelude = computeBudgetPrelude(compute_options, buffers.compute_budget);
+    var result: AtaTokenTransferWithComputeBudgetInstructions = .{
+        .instructions = undefined,
+        .len = 0,
+    };
+    for (prelude.slice()) |ix| {
+        result.instructions[result.len] = ix;
+        result.len += 1;
+    }
+    result.instructions[result.len] = spl_ata.instruction.createIdempotent(
+        payer,
+        wallet,
+        mint,
+        &system.PROGRAM_ID,
+        &spl_token_2022.PROGRAM_ID,
+        buffers.ata_scratch,
+    );
+    result.len += 1;
+    result.instructions[result.len] = try spl_token_2022.instruction.transferCheckedWithFee(
+        source,
+        mint,
+        &buffers.ata_scratch.associated_token_account,
+        authority,
+        &.{},
+        amount,
+        decimals,
+        fee,
         buffers.transfer_metas,
         buffers.transfer_data,
     );
@@ -636,6 +1364,39 @@ pub fn buildAndSignV0TransactionFromInstructions(
         compile_buffers,
     );
     return buildAndSignV0Transaction(message, signers, tx_buffers);
+}
+
+fn verifyProofFromAccountReference(
+    proof: ProofAccountReference,
+    metas: *ZkProofAccountMetas,
+    data: *ZkProofFromAccountData,
+) !Instruction {
+    return zk_proof.verifyProofFromAccount(
+        proof.instruction,
+        .{
+            .context_state_account = proof.context_state_account,
+            .context_state_authority = proof.context_state_authority,
+        },
+        proof.proof_account,
+        proof.proof_offset,
+        metas,
+        data,
+    );
+}
+
+fn closeProofContextState(
+    proof: ProofAccountReference,
+    close_destination: *const Pubkey,
+    metas: *ZkCloseContextStateMetas,
+    data: *ZkCloseContextStateData,
+) Instruction {
+    return zk_proof.closeContextState(
+        proof.context_state_account,
+        close_destination,
+        proof.context_state_authority,
+        metas,
+        data,
+    );
 }
 
 fn findSigner(signers: []const Keypair, pubkey: *const Pubkey) ?Keypair {
@@ -1270,6 +2031,590 @@ test "token transfer helpers compose compute budget prelude and SPL Token instru
     try std.testing.expectEqualSlices(u8, &.{ 12, 77, 0, 0, 0, 0, 0, 0, 0, 6 }, checked_ix.data);
 }
 
+test "Token-2022 transfer helpers compose compute budget prelude and Token-2022 instructions" {
+    const source: Pubkey = .{1} ** 32;
+    const destination: Pubkey = .{2} ** 32;
+    const authority: Pubkey = .{3} ** 32;
+    const mint: Pubkey = .{4} ** 32;
+
+    var heap_data: ComputeBudgetRequestHeapFrameData = undefined;
+    var limit_data: ComputeBudgetSetComputeUnitLimitData = undefined;
+    var price_data: ComputeBudgetSetComputeUnitPriceData = undefined;
+    var loaded_data: ComputeBudgetSetLoadedAccountsDataSizeLimitData = undefined;
+    var transfer_metas: Token2022TransferMetas = undefined;
+    var transfer_data: Token2022TransferData = undefined;
+
+    const transfer_instructions = token2022TransferWithComputeBudget(
+        &source,
+        &destination,
+        &authority,
+        55,
+        .{
+            .compute_unit_limit = 45_000,
+            .compute_unit_price_micro_lamports = 9,
+        },
+        .{
+            .compute_budget = .{
+                .request_heap_frame_data = &heap_data,
+                .set_compute_unit_limit_data = &limit_data,
+                .set_compute_unit_price_data = &price_data,
+                .set_loaded_accounts_data_size_limit_data = &loaded_data,
+            },
+            .transfer_metas = &transfer_metas,
+            .transfer_data = &transfer_data,
+        },
+    );
+    try std.testing.expectEqual(@as(usize, 3), transfer_instructions.slice().len);
+    try std.testing.expectEqualSlices(u8, &compute_budget.PROGRAM_ID, transfer_instructions.instructions[0].program_id);
+    try std.testing.expectEqualSlices(u8, &compute_budget.PROGRAM_ID, transfer_instructions.instructions[1].program_id);
+    const token_ix = transfer_instructions.tokenTransferInstruction();
+    try std.testing.expectEqualSlices(u8, &spl_token_2022.PROGRAM_ID, token_ix.program_id);
+    try std.testing.expectEqual(@as(usize, 3), token_ix.accounts.len);
+    try std.testing.expectEqualSlices(u8, &source, token_ix.accounts[0].pubkey);
+    try std.testing.expectEqualSlices(u8, &destination, token_ix.accounts[1].pubkey);
+    try std.testing.expectEqualSlices(u8, &authority, token_ix.accounts[2].pubkey);
+    try std.testing.expectEqualSlices(u8, &.{ 3, 55, 0, 0, 0, 0, 0, 0, 0 }, token_ix.data);
+
+    var checked_metas: Token2022TransferCheckedMetas = undefined;
+    var checked_data: Token2022TransferCheckedData = undefined;
+    const checked_instructions = token2022TransferCheckedWithComputeBudget(
+        &source,
+        &mint,
+        &destination,
+        &authority,
+        77,
+        6,
+        .{ .loaded_accounts_data_size_limit = 512 },
+        .{
+            .compute_budget = .{
+                .request_heap_frame_data = &heap_data,
+                .set_compute_unit_limit_data = &limit_data,
+                .set_compute_unit_price_data = &price_data,
+                .set_loaded_accounts_data_size_limit_data = &loaded_data,
+            },
+            .transfer_metas = &checked_metas,
+            .transfer_data = &checked_data,
+        },
+    );
+    try std.testing.expectEqual(@as(usize, 2), checked_instructions.slice().len);
+    try std.testing.expectEqualSlices(u8, &compute_budget.PROGRAM_ID, checked_instructions.instructions[0].program_id);
+    const checked_ix = checked_instructions.tokenTransferInstruction();
+    try std.testing.expectEqualSlices(u8, &spl_token_2022.PROGRAM_ID, checked_ix.program_id);
+    try std.testing.expectEqual(@as(usize, 4), checked_ix.accounts.len);
+    try std.testing.expectEqualSlices(u8, &source, checked_ix.accounts[0].pubkey);
+    try std.testing.expectEqualSlices(u8, &mint, checked_ix.accounts[1].pubkey);
+    try std.testing.expectEqualSlices(u8, &destination, checked_ix.accounts[2].pubkey);
+    try std.testing.expectEqualSlices(u8, &authority, checked_ix.accounts[3].pubkey);
+    try std.testing.expectEqualSlices(u8, &.{ 12, 77, 0, 0, 0, 0, 0, 0, 0, 6 }, checked_ix.data);
+}
+
+test "Token-2022 transfer fee helper composes compute budget prelude and transferCheckedWithFee" {
+    const source: Pubkey = .{1} ** 32;
+    const destination: Pubkey = .{2} ** 32;
+    const authority: Pubkey = .{3} ** 32;
+    const mint: Pubkey = .{4} ** 32;
+
+    var heap_data: ComputeBudgetRequestHeapFrameData = undefined;
+    var limit_data: ComputeBudgetSetComputeUnitLimitData = undefined;
+    var price_data: ComputeBudgetSetComputeUnitPriceData = undefined;
+    var loaded_data: ComputeBudgetSetLoadedAccountsDataSizeLimitData = undefined;
+    var transfer_metas: Token2022TransferCheckedWithFeeMetas = undefined;
+    var transfer_data: Token2022TransferCheckedWithFeeData = undefined;
+
+    const instructions = try token2022TransferCheckedWithFeeWithComputeBudget(
+        &source,
+        &mint,
+        &destination,
+        &authority,
+        500,
+        6,
+        7,
+        .{
+            .compute_unit_limit = 45_000,
+            .compute_unit_price_micro_lamports = 9,
+        },
+        .{
+            .compute_budget = .{
+                .request_heap_frame_data = &heap_data,
+                .set_compute_unit_limit_data = &limit_data,
+                .set_compute_unit_price_data = &price_data,
+                .set_loaded_accounts_data_size_limit_data = &loaded_data,
+            },
+            .transfer_metas = &transfer_metas,
+            .transfer_data = &transfer_data,
+        },
+    );
+
+    try std.testing.expectEqual(@as(usize, 3), instructions.slice().len);
+    try std.testing.expectEqualSlices(u8, &compute_budget.PROGRAM_ID, instructions.instructions[0].program_id);
+    try std.testing.expectEqualSlices(u8, &compute_budget.PROGRAM_ID, instructions.instructions[1].program_id);
+    const token_ix = instructions.tokenTransferInstruction();
+    try std.testing.expectEqualSlices(u8, &spl_token_2022.PROGRAM_ID, token_ix.program_id);
+    try std.testing.expectEqual(@as(usize, 4), token_ix.accounts.len);
+    try std.testing.expectEqualSlices(u8, &source, token_ix.accounts[0].pubkey);
+    try std.testing.expectEqualSlices(u8, &mint, token_ix.accounts[1].pubkey);
+    try std.testing.expectEqualSlices(u8, &destination, token_ix.accounts[2].pubkey);
+    try std.testing.expectEqualSlices(u8, &authority, token_ix.accounts[3].pubkey);
+    try std.testing.expectEqual(@as(u8, 26), token_ix.data[0]);
+    try std.testing.expectEqual(@as(u8, 1), token_ix.data[1]);
+    try std.testing.expectEqual(@as(u64, 500), std.mem.readInt(u64, token_ix.data[2..10], .little));
+    try std.testing.expectEqual(@as(u8, 6), token_ix.data[10]);
+    try std.testing.expectEqual(@as(u64, 7), std.mem.readInt(u64, token_ix.data[11..19], .little));
+}
+
+test "Token-2022 confidential transfer helper appends inline proofs before transfer" {
+    const source: Pubkey = .{1} ** 32;
+    const mint: Pubkey = .{2} ** 32;
+    const destination: Pubkey = .{3} ** 32;
+    const authority: Pubkey = .{4} ** 32;
+    const decryptable: [36]u8 = .{0x11} ** 36;
+    const auditor_lo: [64]u8 = .{0x22} ** 64;
+    const auditor_hi: [64]u8 = .{0x33} ** 64;
+    const equality_proof = [_]u8{ 0xaa, 0x01 };
+    const ciphertext_validity_proof = [_]u8{ 0xbb, 0x02 };
+    const range_proof = [_]u8{ 0xcc, 0x03 };
+
+    var heap_data: ComputeBudgetRequestHeapFrameData = undefined;
+    var limit_data: ComputeBudgetSetComputeUnitLimitData = undefined;
+    var price_data: ComputeBudgetSetComputeUnitPriceData = undefined;
+    var loaded_data: ComputeBudgetSetLoadedAccountsDataSizeLimitData = undefined;
+    var equality_metas: [0]tx.AccountMeta = .{};
+    var equality_data: [3]u8 = undefined;
+    var ciphertext_metas: [0]tx.AccountMeta = .{};
+    var ciphertext_data: [3]u8 = undefined;
+    var range_metas: [0]tx.AccountMeta = .{};
+    var range_data: [3]u8 = undefined;
+    var transfer_metas: Token2022ConfidentialTransferMetas = undefined;
+    var transfer_data: Token2022ConfidentialTransferData = undefined;
+
+    const instructions = try token2022ConfidentialTransferWithInlineProofsAndComputeBudget(
+        &source,
+        &mint,
+        &destination,
+        &decryptable,
+        &auditor_lo,
+        &auditor_hi,
+        &authority,
+        .{
+            .equality = .{
+                .instruction = .verify_ciphertext_ciphertext_equality,
+                .data = &equality_proof,
+            },
+            .ciphertext_validity = .{
+                .instruction = .verify_grouped_ciphertext_2_handles_validity,
+                .data = &ciphertext_validity_proof,
+            },
+            .range = .{
+                .instruction = .verify_batched_range_proof_u128,
+                .data = &range_proof,
+            },
+        },
+        .{ .compute_unit_limit = 80_000 },
+        .{
+            .compute_budget = .{
+                .request_heap_frame_data = &heap_data,
+                .set_compute_unit_limit_data = &limit_data,
+                .set_compute_unit_price_data = &price_data,
+                .set_loaded_accounts_data_size_limit_data = &loaded_data,
+            },
+            .equality_proof_metas = &equality_metas,
+            .equality_proof_data = &equality_data,
+            .ciphertext_validity_proof_metas = &ciphertext_metas,
+            .ciphertext_validity_proof_data = &ciphertext_data,
+            .range_proof_metas = &range_metas,
+            .range_proof_data = &range_data,
+            .transfer_metas = &transfer_metas,
+            .transfer_data = &transfer_data,
+        },
+    );
+
+    try std.testing.expectEqual(@as(usize, 5), instructions.slice().len);
+    try std.testing.expectEqualSlices(u8, &compute_budget.PROGRAM_ID, instructions.instructions[0].program_id);
+
+    const equality_ix = instructions.equalityProofInstruction();
+    try std.testing.expectEqualSlices(u8, &zk_proof.PROGRAM_ID, equality_ix.program_id);
+    try std.testing.expectEqual(@as(usize, 0), equality_ix.accounts.len);
+    try std.testing.expectEqualSlices(u8, &.{ 2, 0xaa, 0x01 }, equality_ix.data);
+
+    const ciphertext_ix = instructions.ciphertextValidityProofInstruction();
+    try std.testing.expectEqualSlices(u8, &zk_proof.PROGRAM_ID, ciphertext_ix.program_id);
+    try std.testing.expectEqualSlices(u8, &.{ 9, 0xbb, 0x02 }, ciphertext_ix.data);
+
+    const range_ix = instructions.rangeProofInstruction();
+    try std.testing.expectEqualSlices(u8, &zk_proof.PROGRAM_ID, range_ix.program_id);
+    try std.testing.expectEqualSlices(u8, &.{ 7, 0xcc, 0x03 }, range_ix.data);
+
+    const transfer_ix = instructions.confidentialTransferInstruction();
+    try std.testing.expectEqualSlices(u8, &spl_token_2022.PROGRAM_ID, transfer_ix.program_id);
+    try std.testing.expectEqual(@as(usize, 5), transfer_ix.accounts.len);
+    try std.testing.expectEqualSlices(u8, &source, transfer_ix.accounts[0].pubkey);
+    try std.testing.expectEqualSlices(u8, &mint, transfer_ix.accounts[1].pubkey);
+    try std.testing.expectEqualSlices(u8, &destination, transfer_ix.accounts[2].pubkey);
+    try std.testing.expectEqualSlices(u8, &authority, transfer_ix.accounts[4].pubkey);
+    try std.testing.expectEqual(@as(u8, 27), transfer_ix.data[0]);
+    try std.testing.expectEqual(@as(u8, 7), transfer_ix.data[1]);
+    try std.testing.expectEqualSlices(u8, &decryptable, transfer_ix.data[2..38]);
+    try std.testing.expectEqualSlices(u8, &auditor_lo, transfer_ix.data[38..102]);
+    try std.testing.expectEqualSlices(u8, &auditor_hi, transfer_ix.data[102..166]);
+    try std.testing.expectEqual(@as(u8, 0xfd), transfer_ix.data[166]);
+    try std.testing.expectEqual(@as(u8, 0xfe), transfer_ix.data[167]);
+    try std.testing.expectEqual(@as(u8, 0xff), transfer_ix.data[168]);
+}
+
+test "Token-2022 confidential transfer with fee helper appends five inline proofs before transfer" {
+    const source: Pubkey = .{1} ** 32;
+    const mint: Pubkey = .{2} ** 32;
+    const destination: Pubkey = .{3} ** 32;
+    const authority: Pubkey = .{4} ** 32;
+    const decryptable: [36]u8 = .{0x11} ** 36;
+    const auditor_lo: [64]u8 = .{0x22} ** 64;
+    const auditor_hi: [64]u8 = .{0x33} ** 64;
+    const equality_proof = [_]u8{ 0xa1, 0x01 };
+    const transfer_validity_proof = [_]u8{ 0xb2, 0x02 };
+    const fee_sigma_proof = [_]u8{ 0xc3, 0x03 };
+    const fee_validity_proof = [_]u8{ 0xd4, 0x04 };
+    const range_proof = [_]u8{ 0xe5, 0x05 };
+
+    var heap_data: ComputeBudgetRequestHeapFrameData = undefined;
+    var limit_data: ComputeBudgetSetComputeUnitLimitData = undefined;
+    var price_data: ComputeBudgetSetComputeUnitPriceData = undefined;
+    var loaded_data: ComputeBudgetSetLoadedAccountsDataSizeLimitData = undefined;
+    var equality_metas: [0]tx.AccountMeta = .{};
+    var equality_data: [3]u8 = undefined;
+    var transfer_validity_metas: [0]tx.AccountMeta = .{};
+    var transfer_validity_data: [3]u8 = undefined;
+    var fee_sigma_metas: [0]tx.AccountMeta = .{};
+    var fee_sigma_data: [3]u8 = undefined;
+    var fee_validity_metas: [0]tx.AccountMeta = .{};
+    var fee_validity_data: [3]u8 = undefined;
+    var range_metas: [0]tx.AccountMeta = .{};
+    var range_data: [3]u8 = undefined;
+    var transfer_metas: Token2022ConfidentialTransferWithFeeMetas = undefined;
+    var transfer_data: Token2022ConfidentialTransferWithFeeData = undefined;
+
+    const instructions = try token2022ConfidentialTransferWithFeeInlineProofsAndComputeBudget(
+        &source,
+        &mint,
+        &destination,
+        &decryptable,
+        &auditor_lo,
+        &auditor_hi,
+        &authority,
+        .{
+            .equality = .{
+                .instruction = .verify_ciphertext_ciphertext_equality,
+                .data = &equality_proof,
+            },
+            .transfer_amount_ciphertext_validity = .{
+                .instruction = .verify_grouped_ciphertext_2_handles_validity,
+                .data = &transfer_validity_proof,
+            },
+            .fee_sigma = .{
+                .instruction = .verify_percentage_with_cap,
+                .data = &fee_sigma_proof,
+            },
+            .fee_ciphertext_validity = .{
+                .instruction = .verify_ciphertext_commitment_equality,
+                .data = &fee_validity_proof,
+            },
+            .range = .{
+                .instruction = .verify_batched_range_proof_u128,
+                .data = &range_proof,
+            },
+        },
+        .{ .compute_unit_limit = 90_000 },
+        .{
+            .compute_budget = .{
+                .request_heap_frame_data = &heap_data,
+                .set_compute_unit_limit_data = &limit_data,
+                .set_compute_unit_price_data = &price_data,
+                .set_loaded_accounts_data_size_limit_data = &loaded_data,
+            },
+            .equality_proof_metas = &equality_metas,
+            .equality_proof_data = &equality_data,
+            .transfer_amount_ciphertext_validity_proof_metas = &transfer_validity_metas,
+            .transfer_amount_ciphertext_validity_proof_data = &transfer_validity_data,
+            .fee_sigma_proof_metas = &fee_sigma_metas,
+            .fee_sigma_proof_data = &fee_sigma_data,
+            .fee_ciphertext_validity_proof_metas = &fee_validity_metas,
+            .fee_ciphertext_validity_proof_data = &fee_validity_data,
+            .range_proof_metas = &range_metas,
+            .range_proof_data = &range_data,
+            .transfer_metas = &transfer_metas,
+            .transfer_data = &transfer_data,
+        },
+    );
+
+    try std.testing.expectEqual(@as(usize, 7), instructions.slice().len);
+    try std.testing.expectEqualSlices(u8, &compute_budget.PROGRAM_ID, instructions.instructions[0].program_id);
+    try std.testing.expectEqualSlices(u8, &zk_proof.PROGRAM_ID, instructions.equalityProofInstruction().program_id);
+    try std.testing.expectEqualSlices(u8, &.{ 2, 0xa1, 0x01 }, instructions.equalityProofInstruction().data);
+    try std.testing.expectEqualSlices(u8, &.{ 9, 0xb2, 0x02 }, instructions.transferAmountCiphertextValidityProofInstruction().data);
+    try std.testing.expectEqualSlices(u8, &.{ 5, 0xc3, 0x03 }, instructions.feeSigmaProofInstruction().data);
+    try std.testing.expectEqualSlices(u8, &.{ 3, 0xd4, 0x04 }, instructions.feeCiphertextValidityProofInstruction().data);
+    try std.testing.expectEqualSlices(u8, &.{ 7, 0xe5, 0x05 }, instructions.rangeProofInstruction().data);
+
+    const transfer_ix = instructions.confidentialTransferInstruction();
+    try std.testing.expectEqualSlices(u8, &spl_token_2022.PROGRAM_ID, transfer_ix.program_id);
+    try std.testing.expectEqual(@as(usize, 5), transfer_ix.accounts.len);
+    try std.testing.expectEqualSlices(u8, &source, transfer_ix.accounts[0].pubkey);
+    try std.testing.expectEqualSlices(u8, &mint, transfer_ix.accounts[1].pubkey);
+    try std.testing.expectEqualSlices(u8, &destination, transfer_ix.accounts[2].pubkey);
+    try std.testing.expectEqualSlices(u8, &authority, transfer_ix.accounts[4].pubkey);
+    try std.testing.expectEqual(@as(u8, 27), transfer_ix.data[0]);
+    try std.testing.expectEqual(@as(u8, 13), transfer_ix.data[1]);
+    try std.testing.expectEqualSlices(u8, &decryptable, transfer_ix.data[2..38]);
+    try std.testing.expectEqualSlices(u8, &auditor_lo, transfer_ix.data[38..102]);
+    try std.testing.expectEqualSlices(u8, &auditor_hi, transfer_ix.data[102..166]);
+    try std.testing.expectEqual(@as(u8, 0xfb), transfer_ix.data[166]);
+    try std.testing.expectEqual(@as(u8, 0xfc), transfer_ix.data[167]);
+    try std.testing.expectEqual(@as(u8, 0xfd), transfer_ix.data[168]);
+    try std.testing.expectEqual(@as(u8, 0xfe), transfer_ix.data[169]);
+    try std.testing.expectEqual(@as(u8, 0xff), transfer_ix.data[170]);
+}
+
+test "Token-2022 confidential transfer helper verifies proof accounts into context state accounts" {
+    const source: Pubkey = .{1} ** 32;
+    const mint: Pubkey = .{2} ** 32;
+    const destination: Pubkey = .{3} ** 32;
+    const authority: Pubkey = .{4} ** 32;
+    const equality_proof_account: Pubkey = .{5} ** 32;
+    const equality_context: Pubkey = .{6} ** 32;
+    const equality_context_authority: Pubkey = .{7} ** 32;
+    const ciphertext_proof_account: Pubkey = .{8} ** 32;
+    const ciphertext_context: Pubkey = .{9} ** 32;
+    const ciphertext_context_authority: Pubkey = .{10} ** 32;
+    const range_proof_account: Pubkey = .{11} ** 32;
+    const range_context: Pubkey = .{12} ** 32;
+    const range_context_authority: Pubkey = .{13} ** 32;
+    const decryptable: [36]u8 = .{0x11} ** 36;
+    const auditor_lo: [64]u8 = .{0x22} ** 64;
+    const auditor_hi: [64]u8 = .{0x33} ** 64;
+
+    var heap_data: ComputeBudgetRequestHeapFrameData = undefined;
+    var limit_data: ComputeBudgetSetComputeUnitLimitData = undefined;
+    var price_data: ComputeBudgetSetComputeUnitPriceData = undefined;
+    var loaded_data: ComputeBudgetSetLoadedAccountsDataSizeLimitData = undefined;
+    var equality_metas: ZkProofAccountMetas = undefined;
+    var equality_data: ZkProofFromAccountData = undefined;
+    var ciphertext_metas: ZkProofAccountMetas = undefined;
+    var ciphertext_data: ZkProofFromAccountData = undefined;
+    var range_metas: ZkProofAccountMetas = undefined;
+    var range_data: ZkProofFromAccountData = undefined;
+    var transfer_metas: Token2022ConfidentialTransferContextMetas = undefined;
+    var transfer_data: Token2022ConfidentialTransferData = undefined;
+
+    const instructions = try token2022ConfidentialTransferWithProofAccountsAndComputeBudget(
+        &source,
+        &mint,
+        &destination,
+        &decryptable,
+        &auditor_lo,
+        &auditor_hi,
+        &authority,
+        .{
+            .equality = .{
+                .instruction = .verify_ciphertext_ciphertext_equality,
+                .proof_account = &equality_proof_account,
+                .proof_offset = 40,
+                .context_state_account = &equality_context,
+                .context_state_authority = &equality_context_authority,
+            },
+            .ciphertext_validity = .{
+                .instruction = .verify_grouped_ciphertext_2_handles_validity,
+                .proof_account = &ciphertext_proof_account,
+                .proof_offset = 80,
+                .context_state_account = &ciphertext_context,
+                .context_state_authority = &ciphertext_context_authority,
+            },
+            .range = .{
+                .instruction = .verify_batched_range_proof_u128,
+                .proof_account = &range_proof_account,
+                .proof_offset = 120,
+                .context_state_account = &range_context,
+                .context_state_authority = &range_context_authority,
+            },
+        },
+        .{ .compute_unit_limit = 80_000 },
+        .{
+            .compute_budget = .{
+                .request_heap_frame_data = &heap_data,
+                .set_compute_unit_limit_data = &limit_data,
+                .set_compute_unit_price_data = &price_data,
+                .set_loaded_accounts_data_size_limit_data = &loaded_data,
+            },
+            .equality_proof_metas = &equality_metas,
+            .equality_proof_data = &equality_data,
+            .ciphertext_validity_proof_metas = &ciphertext_metas,
+            .ciphertext_validity_proof_data = &ciphertext_data,
+            .range_proof_metas = &range_metas,
+            .range_proof_data = &range_data,
+            .transfer_metas = &transfer_metas,
+            .transfer_data = &transfer_data,
+        },
+    );
+
+    try std.testing.expectEqual(@as(usize, 5), instructions.slice().len);
+    try std.testing.expectEqualSlices(u8, &compute_budget.PROGRAM_ID, instructions.instructions[0].program_id);
+
+    const equality_ix = instructions.equalityProofInstruction();
+    try std.testing.expectEqualSlices(u8, &zk_proof.PROGRAM_ID, equality_ix.program_id);
+    try std.testing.expectEqualSlices(u8, &.{ 2, 40, 0, 0, 0 }, equality_ix.data);
+    try std.testing.expectEqualSlices(u8, &equality_proof_account, equality_ix.accounts[0].pubkey);
+    try std.testing.expectEqual(@as(u8, 1), equality_ix.accounts[0].is_writable);
+    try std.testing.expectEqualSlices(u8, &equality_context, equality_ix.accounts[1].pubkey);
+    try std.testing.expectEqual(@as(u8, 1), equality_ix.accounts[1].is_writable);
+    try std.testing.expectEqualSlices(u8, &equality_context_authority, equality_ix.accounts[2].pubkey);
+
+    const ciphertext_ix = instructions.ciphertextValidityProofInstruction();
+    try std.testing.expectEqualSlices(u8, &.{ 9, 80, 0, 0, 0 }, ciphertext_ix.data);
+    try std.testing.expectEqualSlices(u8, &ciphertext_proof_account, ciphertext_ix.accounts[0].pubkey);
+    try std.testing.expectEqualSlices(u8, &ciphertext_context, ciphertext_ix.accounts[1].pubkey);
+    try std.testing.expectEqualSlices(u8, &ciphertext_context_authority, ciphertext_ix.accounts[2].pubkey);
+
+    const range_ix = instructions.rangeProofInstruction();
+    try std.testing.expectEqualSlices(u8, &.{ 7, 120, 0, 0, 0 }, range_ix.data);
+    try std.testing.expectEqualSlices(u8, &range_proof_account, range_ix.accounts[0].pubkey);
+    try std.testing.expectEqualSlices(u8, &range_context, range_ix.accounts[1].pubkey);
+    try std.testing.expectEqualSlices(u8, &range_context_authority, range_ix.accounts[2].pubkey);
+
+    const transfer_ix = instructions.confidentialTransferInstruction();
+    try std.testing.expectEqualSlices(u8, &spl_token_2022.PROGRAM_ID, transfer_ix.program_id);
+    try std.testing.expectEqual(@as(usize, 7), transfer_ix.accounts.len);
+    try std.testing.expectEqualSlices(u8, &source, transfer_ix.accounts[0].pubkey);
+    try std.testing.expectEqualSlices(u8, &mint, transfer_ix.accounts[1].pubkey);
+    try std.testing.expectEqualSlices(u8, &destination, transfer_ix.accounts[2].pubkey);
+    try std.testing.expectEqualSlices(u8, &equality_context, transfer_ix.accounts[3].pubkey);
+    try std.testing.expectEqualSlices(u8, &ciphertext_context, transfer_ix.accounts[4].pubkey);
+    try std.testing.expectEqualSlices(u8, &range_context, transfer_ix.accounts[5].pubkey);
+    try std.testing.expectEqualSlices(u8, &authority, transfer_ix.accounts[6].pubkey);
+    try std.testing.expectEqual(@as(u8, 27), transfer_ix.data[0]);
+    try std.testing.expectEqual(@as(u8, 7), transfer_ix.data[1]);
+    try std.testing.expectEqual(@as(u8, 0), transfer_ix.data[166]);
+    try std.testing.expectEqual(@as(u8, 0), transfer_ix.data[167]);
+    try std.testing.expectEqual(@as(u8, 0), transfer_ix.data[168]);
+}
+
+test "Token-2022 confidential transfer helper can close proof context state accounts" {
+    const source: Pubkey = .{1} ** 32;
+    const mint: Pubkey = .{2} ** 32;
+    const destination: Pubkey = .{3} ** 32;
+    const authority: Pubkey = .{4} ** 32;
+    const close_destination: Pubkey = .{5} ** 32;
+    const equality_proof_account: Pubkey = .{6} ** 32;
+    const equality_context: Pubkey = .{7} ** 32;
+    const equality_context_authority: Pubkey = .{8} ** 32;
+    const ciphertext_proof_account: Pubkey = .{9} ** 32;
+    const ciphertext_context: Pubkey = .{10} ** 32;
+    const ciphertext_context_authority: Pubkey = .{11} ** 32;
+    const range_proof_account: Pubkey = .{12} ** 32;
+    const range_context: Pubkey = .{13} ** 32;
+    const range_context_authority: Pubkey = .{14} ** 32;
+    const decryptable: [36]u8 = .{0x11} ** 36;
+    const auditor_lo: [64]u8 = .{0x22} ** 64;
+    const auditor_hi: [64]u8 = .{0x33} ** 64;
+    const proofs: ConfidentialTransferProofAccounts = .{
+        .equality = .{
+            .instruction = .verify_ciphertext_ciphertext_equality,
+            .proof_account = &equality_proof_account,
+            .proof_offset = 40,
+            .context_state_account = &equality_context,
+            .context_state_authority = &equality_context_authority,
+        },
+        .ciphertext_validity = .{
+            .instruction = .verify_grouped_ciphertext_2_handles_validity,
+            .proof_account = &ciphertext_proof_account,
+            .proof_offset = 80,
+            .context_state_account = &ciphertext_context,
+            .context_state_authority = &ciphertext_context_authority,
+        },
+        .range = .{
+            .instruction = .verify_batched_range_proof_u128,
+            .proof_account = &range_proof_account,
+            .proof_offset = 120,
+            .context_state_account = &range_context,
+            .context_state_authority = &range_context_authority,
+        },
+    };
+
+    var heap_data: ComputeBudgetRequestHeapFrameData = undefined;
+    var limit_data: ComputeBudgetSetComputeUnitLimitData = undefined;
+    var price_data: ComputeBudgetSetComputeUnitPriceData = undefined;
+    var loaded_data: ComputeBudgetSetLoadedAccountsDataSizeLimitData = undefined;
+    var equality_metas: ZkProofAccountMetas = undefined;
+    var equality_data: ZkProofFromAccountData = undefined;
+    var ciphertext_metas: ZkProofAccountMetas = undefined;
+    var ciphertext_data: ZkProofFromAccountData = undefined;
+    var range_metas: ZkProofAccountMetas = undefined;
+    var range_data: ZkProofFromAccountData = undefined;
+    var transfer_metas: Token2022ConfidentialTransferContextMetas = undefined;
+    var transfer_data: Token2022ConfidentialTransferData = undefined;
+    var equality_close_metas: ZkCloseContextStateMetas = undefined;
+    var equality_close_data: ZkCloseContextStateData = undefined;
+    var ciphertext_close_metas: ZkCloseContextStateMetas = undefined;
+    var ciphertext_close_data: ZkCloseContextStateData = undefined;
+    var range_close_metas: ZkCloseContextStateMetas = undefined;
+    var range_close_data: ZkCloseContextStateData = undefined;
+
+    const instructions = try token2022ConfidentialTransferWithProofAccountsCloseContextsAndComputeBudget(
+        &source,
+        &mint,
+        &destination,
+        &decryptable,
+        &auditor_lo,
+        &auditor_hi,
+        &authority,
+        &close_destination,
+        proofs,
+        .{ .compute_unit_limit = 80_000 },
+        .{
+            .proof_accounts = .{
+                .compute_budget = .{
+                    .request_heap_frame_data = &heap_data,
+                    .set_compute_unit_limit_data = &limit_data,
+                    .set_compute_unit_price_data = &price_data,
+                    .set_loaded_accounts_data_size_limit_data = &loaded_data,
+                },
+                .equality_proof_metas = &equality_metas,
+                .equality_proof_data = &equality_data,
+                .ciphertext_validity_proof_metas = &ciphertext_metas,
+                .ciphertext_validity_proof_data = &ciphertext_data,
+                .range_proof_metas = &range_metas,
+                .range_proof_data = &range_data,
+                .transfer_metas = &transfer_metas,
+                .transfer_data = &transfer_data,
+            },
+            .equality_close_metas = &equality_close_metas,
+            .equality_close_data = &equality_close_data,
+            .ciphertext_validity_close_metas = &ciphertext_close_metas,
+            .ciphertext_validity_close_data = &ciphertext_close_data,
+            .range_close_metas = &range_close_metas,
+            .range_close_data = &range_close_data,
+        },
+    );
+
+    try std.testing.expectEqual(@as(usize, 8), instructions.slice().len);
+    try std.testing.expectEqualSlices(u8, &spl_token_2022.PROGRAM_ID, instructions.confidentialTransferInstruction().program_id);
+
+    const equality_close = instructions.equalityCloseInstruction();
+    try std.testing.expectEqualSlices(u8, &zk_proof.PROGRAM_ID, equality_close.program_id);
+    try std.testing.expectEqualSlices(u8, &.{0}, equality_close.data);
+    try std.testing.expectEqualSlices(u8, &equality_context, equality_close.accounts[0].pubkey);
+    try std.testing.expectEqualSlices(u8, &close_destination, equality_close.accounts[1].pubkey);
+    try std.testing.expectEqualSlices(u8, &equality_context_authority, equality_close.accounts[2].pubkey);
+    try std.testing.expectEqual(@as(u8, 1), equality_close.accounts[0].is_writable);
+    try std.testing.expectEqual(@as(u8, 1), equality_close.accounts[1].is_writable);
+    try std.testing.expectEqual(@as(u8, 1), equality_close.accounts[2].is_signer);
+
+    const ciphertext_close = instructions.ciphertextValidityCloseInstruction();
+    try std.testing.expectEqualSlices(u8, &ciphertext_context, ciphertext_close.accounts[0].pubkey);
+    try std.testing.expectEqualSlices(u8, &ciphertext_context_authority, ciphertext_close.accounts[2].pubkey);
+
+    const range_close = instructions.rangeCloseInstruction();
+    try std.testing.expectEqualSlices(u8, &range_context, range_close.accounts[0].pubkey);
+    try std.testing.expectEqualSlices(u8, &range_context_authority, range_close.accounts[2].pubkey);
+}
+
 test "ATA token transfer helpers compose idempotent ATA create and SPL Token transfer" {
     const payer: Pubkey = .{1} ** 32;
     const wallet: Pubkey = .{2} ** 32;
@@ -1359,6 +2704,157 @@ test "ATA token transfer helpers compose idempotent ATA create and SPL Token tra
     try std.testing.expectEqualSlices(u8, &expected_ata, checked_ix.accounts[2].pubkey);
     try std.testing.expectEqualSlices(u8, &authority, checked_ix.accounts[3].pubkey);
     try std.testing.expectEqualSlices(u8, &.{ 12, 99, 0, 0, 0, 0, 0, 0, 0, 6 }, checked_ix.data);
+}
+
+test "ATA Token-2022 transfer helpers use Token-2022 associated accounts and program id" {
+    const payer: Pubkey = .{1} ** 32;
+    const wallet: Pubkey = .{2} ** 32;
+    const source: Pubkey = .{3} ** 32;
+    const mint: Pubkey = .{4} ** 32;
+    const authority: Pubkey = .{5} ** 32;
+    const expected_ata = spl_ata.findAddress(&wallet, &mint, &spl_token_2022.PROGRAM_ID).address;
+
+    var heap_data: ComputeBudgetRequestHeapFrameData = undefined;
+    var limit_data: ComputeBudgetSetComputeUnitLimitData = undefined;
+    var price_data: ComputeBudgetSetComputeUnitPriceData = undefined;
+    var loaded_data: ComputeBudgetSetLoadedAccountsDataSizeLimitData = undefined;
+    var ata_scratch: AtaCreateIdempotentScratch = undefined;
+    var transfer_metas: Token2022TransferMetas = undefined;
+    var transfer_data: Token2022TransferData = undefined;
+
+    const instructions = createAtaAndToken2022TransferWithComputeBudget(
+        &payer,
+        &wallet,
+        &source,
+        &mint,
+        &authority,
+        88,
+        .{ .compute_unit_limit = 60_000 },
+        .{
+            .compute_budget = .{
+                .request_heap_frame_data = &heap_data,
+                .set_compute_unit_limit_data = &limit_data,
+                .set_compute_unit_price_data = &price_data,
+                .set_loaded_accounts_data_size_limit_data = &loaded_data,
+            },
+            .ata_scratch = &ata_scratch,
+            .transfer_metas = &transfer_metas,
+            .transfer_data = &transfer_data,
+        },
+    );
+    try std.testing.expectEqual(@as(usize, 3), instructions.slice().len);
+    try std.testing.expectEqualSlices(u8, &compute_budget.PROGRAM_ID, instructions.instructions[0].program_id);
+    try std.testing.expectEqualSlices(u8, &expected_ata, &ata_scratch.associated_token_account);
+
+    const ata_ix = instructions.createAssociatedTokenAccountInstruction();
+    try std.testing.expectEqualSlices(u8, &spl_ata.PROGRAM_ID, ata_ix.program_id);
+    try std.testing.expectEqualSlices(u8, &.{1}, ata_ix.data);
+    try std.testing.expectEqualSlices(u8, &payer, ata_ix.accounts[0].pubkey);
+    try std.testing.expectEqualSlices(u8, &expected_ata, ata_ix.accounts[1].pubkey);
+    try std.testing.expectEqualSlices(u8, &wallet, ata_ix.accounts[2].pubkey);
+    try std.testing.expectEqualSlices(u8, &mint, ata_ix.accounts[3].pubkey);
+    try std.testing.expectEqualSlices(u8, &system.PROGRAM_ID, ata_ix.accounts[4].pubkey);
+    try std.testing.expectEqualSlices(u8, &spl_token_2022.PROGRAM_ID, ata_ix.accounts[5].pubkey);
+
+    const token_ix = instructions.tokenTransferInstruction();
+    try std.testing.expectEqualSlices(u8, &spl_token_2022.PROGRAM_ID, token_ix.program_id);
+    try std.testing.expectEqualSlices(u8, &source, token_ix.accounts[0].pubkey);
+    try std.testing.expectEqualSlices(u8, &expected_ata, token_ix.accounts[1].pubkey);
+    try std.testing.expectEqualSlices(u8, &authority, token_ix.accounts[2].pubkey);
+    try std.testing.expectEqualSlices(u8, &.{ 3, 88, 0, 0, 0, 0, 0, 0, 0 }, token_ix.data);
+
+    var checked_ata_scratch: AtaCreateIdempotentScratch = undefined;
+    var checked_metas: Token2022TransferCheckedMetas = undefined;
+    var checked_data: Token2022TransferCheckedData = undefined;
+    const checked_instructions = createAtaAndToken2022TransferCheckedWithComputeBudget(
+        &payer,
+        &wallet,
+        &source,
+        &mint,
+        &authority,
+        99,
+        6,
+        .{},
+        .{
+            .compute_budget = .{
+                .request_heap_frame_data = &heap_data,
+                .set_compute_unit_limit_data = &limit_data,
+                .set_compute_unit_price_data = &price_data,
+                .set_loaded_accounts_data_size_limit_data = &loaded_data,
+            },
+            .ata_scratch = &checked_ata_scratch,
+            .transfer_metas = &checked_metas,
+            .transfer_data = &checked_data,
+        },
+    );
+    try std.testing.expectEqual(@as(usize, 2), checked_instructions.slice().len);
+    try std.testing.expectEqualSlices(u8, &expected_ata, &checked_ata_scratch.associated_token_account);
+    const checked_ix = checked_instructions.tokenTransferInstruction();
+    try std.testing.expectEqualSlices(u8, &spl_token_2022.PROGRAM_ID, checked_ix.program_id);
+    try std.testing.expectEqualSlices(u8, &source, checked_ix.accounts[0].pubkey);
+    try std.testing.expectEqualSlices(u8, &mint, checked_ix.accounts[1].pubkey);
+    try std.testing.expectEqualSlices(u8, &expected_ata, checked_ix.accounts[2].pubkey);
+    try std.testing.expectEqualSlices(u8, &authority, checked_ix.accounts[3].pubkey);
+    try std.testing.expectEqualSlices(u8, &.{ 12, 99, 0, 0, 0, 0, 0, 0, 0, 6 }, checked_ix.data);
+}
+
+test "ATA Token-2022 transfer fee helper uses Token-2022 ATA and transferCheckedWithFee" {
+    const payer: Pubkey = .{1} ** 32;
+    const wallet: Pubkey = .{2} ** 32;
+    const source: Pubkey = .{3} ** 32;
+    const mint: Pubkey = .{4} ** 32;
+    const authority: Pubkey = .{5} ** 32;
+    const expected_ata = spl_ata.findAddress(&wallet, &mint, &spl_token_2022.PROGRAM_ID).address;
+
+    var heap_data: ComputeBudgetRequestHeapFrameData = undefined;
+    var limit_data: ComputeBudgetSetComputeUnitLimitData = undefined;
+    var price_data: ComputeBudgetSetComputeUnitPriceData = undefined;
+    var loaded_data: ComputeBudgetSetLoadedAccountsDataSizeLimitData = undefined;
+    var ata_scratch: AtaCreateIdempotentScratch = undefined;
+    var transfer_metas: Token2022TransferCheckedWithFeeMetas = undefined;
+    var transfer_data: Token2022TransferCheckedWithFeeData = undefined;
+
+    const instructions = try createAtaAndToken2022TransferCheckedWithFeeWithComputeBudget(
+        &payer,
+        &wallet,
+        &source,
+        &mint,
+        &authority,
+        500,
+        6,
+        7,
+        .{ .compute_unit_limit = 60_000 },
+        .{
+            .compute_budget = .{
+                .request_heap_frame_data = &heap_data,
+                .set_compute_unit_limit_data = &limit_data,
+                .set_compute_unit_price_data = &price_data,
+                .set_loaded_accounts_data_size_limit_data = &loaded_data,
+            },
+            .ata_scratch = &ata_scratch,
+            .transfer_metas = &transfer_metas,
+            .transfer_data = &transfer_data,
+        },
+    );
+
+    try std.testing.expectEqual(@as(usize, 3), instructions.slice().len);
+    try std.testing.expectEqualSlices(u8, &expected_ata, &ata_scratch.associated_token_account);
+
+    const ata_ix = instructions.createAssociatedTokenAccountInstruction();
+    try std.testing.expectEqualSlices(u8, &spl_ata.PROGRAM_ID, ata_ix.program_id);
+    try std.testing.expectEqualSlices(u8, &spl_token_2022.PROGRAM_ID, ata_ix.accounts[5].pubkey);
+
+    const token_ix = instructions.tokenTransferInstruction();
+    try std.testing.expectEqualSlices(u8, &spl_token_2022.PROGRAM_ID, token_ix.program_id);
+    try std.testing.expectEqualSlices(u8, &source, token_ix.accounts[0].pubkey);
+    try std.testing.expectEqualSlices(u8, &mint, token_ix.accounts[1].pubkey);
+    try std.testing.expectEqualSlices(u8, &expected_ata, token_ix.accounts[2].pubkey);
+    try std.testing.expectEqualSlices(u8, &authority, token_ix.accounts[3].pubkey);
+    try std.testing.expectEqual(@as(u8, 26), token_ix.data[0]);
+    try std.testing.expectEqual(@as(u8, 1), token_ix.data[1]);
+    try std.testing.expectEqual(@as(u64, 500), std.mem.readInt(u64, token_ix.data[2..10], .little));
+    try std.testing.expectEqual(@as(u8, 6), token_ix.data[10]);
+    try std.testing.expectEqual(@as(u64, 7), std.mem.readInt(u64, token_ix.data[11..19], .little));
 }
 
 test "nonce account instruction pair can be signed as one legacy transaction" {

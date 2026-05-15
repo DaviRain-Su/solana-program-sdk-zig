@@ -26,7 +26,7 @@ and can be depended on individually from outside the repo via
 |---|---|---|---|---|
 | **`solana_program_sdk`** | (repo root) | on-chain | ✅ released | Core SDK for writing Solana on-chain programs in Zig |
 | **`spl_token`** | `packages/spl-token` | dual (on-chain CPI + off-chain ix builder) | ✅ released (v0.3) | SPL Token client (transfer / authority / multisig / syncNative / batch / …) |
-| **`spl_token_2022`** | `packages/spl-token-2022` | host + on-chain-safe interface | ✅ released (v0.1 interface-core) | Token-2022 TLV + fixed-length extension parsing, base mint/account/authority + reallocate + withdrawExcessLamports + Transfer Fee / MintCloseAuthority / DefaultAccountState / MemoTransfer / NonTransferable / CpiGuard / InterestBearingMint / PermanentDelegate / Pausable / pointer / TransferHook / ScaledUiAmount instruction builders, and Rust parity fixtures |
+| **`spl_token_2022`** | `packages/spl-token-2022` | host + on-chain-safe interface | ✅ released (v0.1 interface-core) | Token-2022 TLV + fixed/variable extension parsing including confidential raw views, generic prepared CPI helpers, base mint/account/authority + reallocate + withdrawExcessLamports + Transfer Fee / ConfidentialTransfer proof-location lifecycle and registry configure / ConfidentialTransferFee proof-location withdraw/config/harvest toggles / MintCloseAuthority / DefaultAccountState / MemoTransfer / NonTransferable / CpiGuard / InterestBearingMint / PermanentDelegate / Pausable / pointer / TransferHook / ScaledUiAmount instruction builders, and Rust parity fixtures |
 | **`spl_ata`** | `packages/spl-ata` | dual | ✅ released (v0.1) | Associated Token Account derivation, precomputed-address ix builders, create CPI, and Rust parity fixtures |
 | **`spl_memo`** | `packages/spl-memo` | dual | ✅ released (v0.1) | SPL Memo instruction builders, checked scratch variant, CPI helpers, and Rust parity fixtures |
 | **`spl_token_metadata`** | `packages/spl-token-metadata` | on-chain/interface | 🚧 v0.1 interface | SPL Token Metadata interface: discriminators, raw instruction builders/parsers, bounded TokenMetadata state, and pinned Rust parity fixtures |
@@ -37,17 +37,18 @@ and can be depended on individually from outside the repo via
 | **`spl_stake_pool`** | `packages/spl-stake-pool` | on-chain/interface | 🚧 v0.1 interface-core | SPL Stake Pool PDA helpers, validator-list parsing, common deposit/withdraw/update builders, and Rust parity fixtures |
 | **`spl_governance`** | `packages/spl-governance` | on-chain/interface | 🚧 v0.1 interface-core | SPL Governance PDA helpers, account-type/header parsing, realm/config/admin, token deposit/delegate, proposal/signatory/vote, and proposal transaction builders, with Rust parity fixtures |
 | **`solana_address_lookup_table`** | `packages/solana-address-lookup-table` | off-chain/shared | 🚧 v0.1 ALT helpers | Address Lookup Table account parsing, index resolution, v0 lookup records, management instruction builders, and Rust parity fixtures |
-| **`solana_codec`** | `packages/solana-codec` | shared | 🚧 v0.1 codec primitives | Allocation-free shortvec, Borsh primitive/string/bytes, bincode string/options, and bincode `COption` helpers |
+| **`solana_codec`** | `packages/solana-codec` | shared | 🚧 v0.1 codec primitives | Allocation-free shortvec, Borsh primitive/string/bytes, bincode string/options, and bincode `COption` helpers, including split tag/payload readers |
 | **`solana_config`** | `packages/solana-config` | dual instruction builder | 🚧 v0.1 config store helpers | Config Program raw ConfigKeys encoding, store instruction builders, and ConfigState views |
 | **`solana_compute_budget`** | `packages/solana-compute-budget` | dual instruction builder | 🚧 v0.1 instruction builders | Compute Budget instruction builders for heap frame, CU limit, CU price, and loaded account data size |
 | **`solana_feature_gate`** | `packages/solana-feature-gate` | shared helpers | 🚧 v0.1 feature helpers | Feature account encode/decode and activation instruction sequence |
+| **`solana_zk_elgamal_proof`** | `packages/solana-zk-elgamal-proof` | dual instruction builder | 🚧 v0.1 raw proof builders | ZK ElGamal proof-program close-context, inline proof, and proof-account verify instruction builders |
 | **`solana_loader_v3`** | `packages/solana-loader-v3` | dual instruction builder | 🚧 v0.1 loader helpers | Upgradeable BPF Loader v3 state layout, chunked program writes, deploy/upgrade/authority/extend instruction builders, and Rust parity fixtures |
 | **`solana_loader_v4`** | `packages/solana-loader-v4` | dual instruction builder | 🚧 v0.1 loader helpers | Loader v4 state layout, write/copy/deploy/retract/authority/finalize instruction builders, and Rust parity fixtures |
 | **`solana_system`** | `packages/solana-system` | dual instruction builder | 🚧 v0.1 instruction builders | System Program createAccount, transfer, assign, and allocate instruction builders |
 | **`solana_stake`** | `packages/solana-stake` | dual instruction builder | 🚧 v0.1 instruction builders | Stake Program initialize, authorize including seeded variants, lockup mutation, delegate, split, withdraw, deactivate, merge, minimum delegation, and move builders |
 | **`solana_vote`** | `packages/solana-vote` | dual instruction builder | 🚧 v0.1 instruction builders | Vote Program initialize, authorize including seeded variants, update validator identity, update commission, withdraw, and raw runtime vote/update/tower builders |
 | **`solana_tx`** | `packages/solana-tx` | off-chain | 🚧 v0.1 transaction foundation | Legacy transaction message compilation plus legacy/v0 message and transaction serialization |
-| **`solana_transaction_builder`** | `packages/solana-transaction-builder` | off-chain | 🚧 v0.1 transaction assembly | Compile/sign/serialize legacy/v0 transactions, ALT selection, durable nonce pairs, compute-budget System/SPL Token transfer preludes, and ATA+token transfer helpers |
+| **`solana_transaction_builder`** | `packages/solana-transaction-builder` | off-chain | 🚧 v0.1 transaction assembly | Compile/sign/serialize legacy/v0 transactions, ALT selection, durable nonce pairs, compute-budget System/SPL Token/Token-2022 transfer, transfer-fee, confidential-transfer and confidential-transfer-with-fee proof preludes, and context cleanup, plus ATA+token transfer helpers |
 | **`solana_keypair`** | `packages/solana-keypair` | off-chain | 🚧 v0.1 signing foundation | Ed25519 keypair recovery from seeds, public-key export, and detached message signing |
 | **`solana_client`** | `packages/solana-client` | off-chain | 🚧 v0.1 RPC client core | Caller-buffer JSON-RPC/account-info builders/parsers, ALT fetch helper, std HTTP transport adapter, caller-owned stream WebSocket adapter, endpoint/retry/commitment/deadline policy, and typed RPC error normalization |
 | **`solana_wallet`** | `packages/solana-wallet` | off-chain | 🚧 v0.1 wallet core | Solana CLI keypair JSON, bundled BIP39 English wordlist, seed derivation/checksum validation, Solana derivation paths, wallet adapter boundary, and AEAD encrypted-keystore helpers |
@@ -76,8 +77,9 @@ and can be depended on individually from outside the repo via
    instructions.
 4. `solana_codec` is the shared byte-codec layer for both host-side and
    on-chain-safe packages. It centralizes shortvec, Borsh primitives,
-   bincode strings/options, and SPL bincode `COption` layouts without
-   becoming a reflection-based serializer.
+   bincode strings/options, and SPL bincode `COption` layouts, including
+   zero-copy split-field readers for packed state structs, without becoming
+   a reflection-based serializer.
 5. `solana_config`, `solana_compute_budget`, `solana_feature_gate`,
    `solana_loader_v3`, `solana_loader_v4`, `solana_system`,
    `solana_stake`, and
@@ -91,8 +93,11 @@ and can be depended on individually from outside the repo via
    `solana_transaction_builder` composes legacy transaction compile /
    sign / serialize flows, v0 compile / ALT selection / sign /
    serialize flows for supplied lookup-table accounts, durable nonce
-   create+initialize instruction pairs, compute-budget System/SPL Token
-   transfer prelude helpers, and idempotent ATA create + token transfer helpers,
+   create+initialize instruction pairs, compute-budget System/SPL Token /
+   Token-2022 transfer, transfer-fee, and caller-provided confidential-transfer
+   / confidential-transfer-with-fee proof prelude helpers for inline bytes or
+   proof-account/context-state references, optional context-state cleanup, and
+   idempotent ATA create + token transfer helpers,
    `solana_keypair` provides detached Ed25519 signing, and
    `solana_client` provides JSON-RPC request/response codecs including
    base64 `getAccountInfo`, account-data decode helpers, and remote ALT
@@ -112,10 +117,10 @@ dual-purpose `spl-*` crates.
 
 **Performance:** the in-repo `examples/vault.zig` (a representative
 Anchor-style program — PDA creation, typed state, `has_one`, stored-bump
-verify, structured events) runs at **1335 / 1544 / 1867 CU** for
+verify, structured events) runs at **1337 / 1547 / 1873 CU** for
 `initialize` / `deposit` / `withdraw` — **beats**
 [Pinocchio](https://github.com/anza-xyz/pinocchio) on all three
-instructions (−17 / −22 / −83 CU respectively). See
+instructions (−14 / −18 / −76 CU respectively). See
 [`examples/vault.zig`](examples/vault.zig) and the
 [Performance](#performance) section for the methodology.
 
@@ -689,9 +694,9 @@ zig-out/lib cargo run -- vault_*`):
 
 | Instruction | Zig (this SDK) | Pinocchio | Zig − Pino | Anchor (typical) |
 |---|---:|---:|---:|---:|
-| `vault.initialize` | **1335** | 1351 |  −16 (−1.2%) | 8000–10000 |
-| `vault.deposit`    | **1544** | 1565 |  −21 (−1.3%) | 5000–8000  |
-| `vault.withdraw`   | **1867** | 1949 |  −82 (−4.2%) | 4000–6000  |
+| `vault.initialize` | **1337** | 1351 |  −14 (−1.0%) | 8000–10000 |
+| `vault.deposit`    | **1547** | 1565 |  −18 (−1.2%) | 5000–8000  |
+| `vault.withdraw`   | **1873** | 1949 |  −76 (−3.9%) | 4000–6000  |
 
 Both implementations live in the repo (`examples/vault.zig` for Zig,
 `bench-pinocchio/src/lib.rs` for Pinocchio) and run the **identical**
@@ -701,8 +706,8 @@ client-supplied bump, same 56-byte account layout, same 24-byte
 overhead.
 
 Reading: all three instructions now beat Pinocchio outright.
-`initialize` is **17 CU faster**, `deposit` is **22 CU faster**,
-`withdraw` is **83 CU faster**. The named optimizations that
+`initialize` is **14 CU faster**, `deposit` is **18 CU faster**,
+`withdraw` is **76 CU faster**. The named optimizations that
 pulled past Pinocchio (in order of contribution):
 
 - **Stored-bump PDA + client-supplied bump** — skips the
@@ -721,7 +726,7 @@ pulled past Pinocchio (in order of contribution):
 - **`TypedAccount.initialize` disc-rebuild** — single-store the
   user value with disc field stamped, instead of write-then-overwrite.
 
-#### Why `withdraw` (1867 CU) is lower than the body alone suggests
+#### Why `withdraw` (1873 CU) is lower than the body alone suggests
 
 Although `withdraw`'s body is "longer" (it does a `requireHasOne`,
 runs `verifyPda` for the stored-bump PDA proof, and emits the same
@@ -731,7 +736,7 @@ biggest line item — but the lamport movement itself is two pointer
 writes (`subLamports`/`addLamports`, ~3 CU each), not a CPI to the
 system program.
 
-#### Why `deposit` (1544 CU) cannot go much lower
+#### Why `deposit` (1547 CU) cannot go much lower
 
 `deposit` moves SOL **from** the user's wallet (a system-owned
 account) **to** the vault. Solana's runtime has an asymmetric rule:
@@ -757,10 +762,10 @@ the protocol — e.g. require the user to send a separate
 "acknowledge" the deposit by updating `state.balance`. That eliminates
 the CPI but breaks atomicity (the transfer and the balance update are
 no longer coupled) and complicates the client UX. We don't do that
-here; the 1544-CU cost is a property of doing deposit atomically, not
+here; the 1547-CU cost is a property of doing deposit atomically, not
 of the SDK.
 
-The 470-CU reduction on `vault.initialize` (1823 → 1353, **−26%**)
+The 486-CU reduction on `vault.initialize` (1823 → 1337, **−27%**)
 came from three measurable, named optimizations:
 
 1. **Rent integer fast path (−283 CU).** `Rent.getMinimumBalance` was
@@ -794,10 +799,10 @@ came from three measurable, named optimizations:
    Pinocchio's `init_from_account_view` already used this trick — we
    ported it. See `src/account/cpi_info.zig`'s `fromPtr`.
 
-That brings `vault.initialize` and `vault.deposit` within 2 CU of
-Pinocchio (effectively tied; `deposit` is actually 21 CU *faster*),
-and `vault.withdraw` is 72 CU faster — the only headroom left is
-sub-CU-per-line residual that LLVM has already squeezed flat.
+That keeps all three vault instructions ahead of the Pinocchio reference:
+`initialize` by 14 CU, `deposit` by 18 CU, and `withdraw` by 76 CU. The
+remaining headroom is small enough that future changes should be justified by
+fresh benchmark evidence rather than speculative code-shape churn.
 
 > Anchor figures are approximate values from production Solana
 > programs at the time of writing — your mileage will vary based on
@@ -900,10 +905,10 @@ while (it.next()) |meta| {
 const sig_data = prev.data();
 ```
 
-This is the canonical pattern for **ed25519 / secp256k1 verify-then-act**
-flows (Wormhole-style attestations, oracle signatures, gasless tx) and
-for **MEV / sandwich defence** ("the preceding ix must be from
-program X").
+This is the canonical pattern for
+**ed25519 / secp256k1 / secp256r1 verify-then-act** flows
+(Wormhole-style attestations, oracle signatures, gasless tx) and for
+**MEV / sandwich defence** ("the preceding ix must be from program X").
 
 The SDK now also ships dual-target builders + parsers for those native
 signature-verification instructions:
@@ -937,6 +942,18 @@ const secp_ix = try sol.secp256k1_instruction.verifyFirst(
     recid,
     &secp_scratch,
 );
+
+// secp256r1: compressed P-256 public key + compact 64-byte signature
+const p256_pubkey: [33]u8 = ...;
+const p256_sig: [64]u8 = ...;
+var p256_scratch: [256]u8 = undefined;
+
+const p256_ix = try sol.secp256r1_instruction.verify(
+    msg,
+    &p256_pubkey,
+    &p256_sig,
+    &p256_scratch,
+);
 ```
 
 ```zig
@@ -965,19 +982,26 @@ if (sol.pubkey.pubkeyEqComptime(prev.programId(), sol.ed25519_program_id)) {
     );
     if (!std.mem.eql(u8, parsed.message, expected_message))
         return error.InvalidArgument;
+} else if (sol.pubkey.pubkeyEqComptime(prev.programId(), sol.secp256r1_program_id)) {
+    const parsed = try sol.secp256r1_instruction.parseSignature(prev, 0);
+    if (!std.mem.eql(u8, parsed.public_key[0..], expected_compressed_p256_pubkey[0..]))
+        return error.InvalidArgument;
+    if (!std.mem.eql(u8, parsed.message, expected_message))
+        return error.InvalidArgument;
 }
 ```
 
 Design notes:
 
-- `ed25519_instruction.verify(...)` uses the native program's
+- `ed25519_instruction.verify(...)` and
+  `secp256r1_instruction.verify(...)` use the native programs'
   `u16::MAX` self-reference convention, so the builder does **not** need
   to know the final transaction index.
 - `secp256k1_instruction.verify(...)` stores absolute `u8` instruction
   indexes in the wire format. Use `verifyFirst(...)` for the common
   "secp ix is first" layout, or `verify(index, ...)` when you know the
   final transaction position.
-- Both modules also expose lower-level `buildInstruction(...)` helpers
+- All three modules also expose lower-level `buildInstruction(...)` helpers
   when signatures / messages / addresses live in some *other*
   instruction's data.
 
@@ -1073,10 +1097,11 @@ lives under `src/crypto/` and is surfaced through `sol.crypto`:
 | `sol.crypto.big_mod_exp` | `sol_big_mod_exp` |
 | `sol.crypto.instructions.ed25519` | native ed25519 verify-instruction builder/parser |
 | `sol.crypto.instructions.secp256k1` | native secp256k1 verify-instruction builder/parser |
+| `sol.crypto.instructions.secp256r1` | native secp256r1 verify-instruction builder/parser |
 
 The legacy flat exports (`sol.sha256`, `sol.alt_bn128.…`,
-`sol.ed25519_instruction`, `sol.secp256k1_instruction`) remain for
-backwards compatibility.
+`sol.ed25519_instruction`, `sol.secp256k1_instruction`,
+`sol.secp256r1_instruction`) remain for backwards compatibility.
 
 ```zig
 // SHA-256 / Keccak-256 / Blake3 — one-shot hash, host & on-chain.

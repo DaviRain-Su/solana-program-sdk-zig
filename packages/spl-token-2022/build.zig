@@ -28,6 +28,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "solana_program_sdk", .module = sol_mod },
+            .{ .name = "spl_token_metadata", .module = spl_token_metadata_mod },
+            .{ .name = "spl_token_group", .module = spl_token_group_mod },
         },
     });
 
